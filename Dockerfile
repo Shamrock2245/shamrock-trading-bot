@@ -25,9 +25,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p logs data output && \
-    chown -R shamrock:shamrock /app
+# Create necessary directories with correct ownership
+RUN mkdir -p /app/logs /app/output /app/data && \
+    chown -R shamrock:shamrock /app && \
+    chmod -R 755 /app/logs /app/output
 
 # Switch to non-root user
 USER shamrock
