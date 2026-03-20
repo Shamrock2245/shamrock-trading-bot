@@ -63,12 +63,19 @@ MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "50"))
 MIN_ETH_BALANCE_ALERT = float(os.getenv("MIN_ETH_BALANCE_ALERT", "0.05"))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Chain Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+_active_chains_env = os.getenv("ACTIVE_CHAINS", "ethereum,base,arbitrum,polygon,bsc")
+ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(",") if c.strip()]
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
 MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "65"))
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "50000"))
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
+MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "3"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications
