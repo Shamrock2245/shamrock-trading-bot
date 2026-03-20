@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Shamrock Trading Bot — Python Dependencies
+# Install: pip install -r requirements.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Blockchain / Web3 ────────────────────────────────────────────────────────
+web3>=6.0.0                  # Ethereum/EVM chain interaction
+eth-account>=0.10.0          # Account management (sign txns from env vars)
+
+# ── HTTP / Async ─────────────────────────────────────────────────────────────
+requests>=2.31.0             # Synchronous HTTP (DexScreener, GoPlus, etc.)
+aiohttp>=3.9.0               # Async HTTP for concurrent API calls
+
+# ── Data / Analysis ──────────────────────────────────────────────────────────
+pandas>=2.0.0                # DataFrames for OHLCV and signal processing
+pandas-ta>=0.3.14b           # 120+ technical indicators (RSI, MACD, EMA, etc.)
+numpy>=1.24.0                # Numerical operations
+
+# ── Configuration ────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0         # Load .env file into environment variables
+
+# ── Scheduling ───────────────────────────────────────────────────────────────
+APScheduler>=3.10.0          # Background job scheduler for scan loops
+
+# ── Database ─────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0.0            # ORM for trade/position persistence
+alembic>=1.12.0              # Database migrations
+
+# ── Notifications ────────────────────────────────────────────────────────────
+slack-sdk>=3.21.0            # Slack alerts
+python-telegram-bot>=20.0    # Telegram bot alerts
+
+# ── Dashboard ────────────────────────────────────────────────────────────────
+streamlit>=1.28.0            # Portfolio dashboard UI
+plotly>=5.17.0               # Interactive charts
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+colorama>=0.4.6              # Colored terminal output
+tabulate>=0.9.0              # Pretty-print tables in console
+tenacity>=8.2.0              # Retry logic with exponential backoff
+pydantic>=2.0.0              # Data validation for API responses
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0

@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Shamrock Trading Bot — Docker Compose
+# Usage:
+#   docker-compose up -d           → Start all services
+#   docker-compose logs -f bot     → Tail bot logs
+#   docker-compose down            → Stop all services
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+
+  # ── Main Trading Bot ─────────────────────────────────────────────────────
+  bot:
+    build: .
+    container_name: shamrock-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./output:/app/output
+    depends_on:
+      - db
+    networks:
+      - shamrock-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Paper Trading Mode (safe default) ────────────────────────────────────
+  paper-trader:
+    build: .
+    container_name: shamrock-paper
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MODE=paper
+    command: python3 scripts/paper_trade.py
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      - db
+    networks:
+      - shamrock-net
+    profiles:
+      - paper
+
+  # ── SQLite Database (volume-backed) ──────────────────────────────────────
+  db:
+    image: alpine:3.18
+    container_name: shamrock-db
+    volumes:
+      - db-data:/data
+    command: sh -c "mkdir -p /data && tail -f /dev/null"
+    networks:
+      - shamrock-net
+
+  # ── Streamlit Dashboard ───────────────────────────────────────────────────
+  dashboard:
+    build: .
+    container_name: shamrock-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      - db
+    networks:
+      - shamrock-net
+    profiles:
+      - dashboard
+
+  # ── Health Check Cron ─────────────────────────────────────────────────────
+  health:
+    build: .
+    container_name: shamrock-health
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: python3 scripts/health_check.py
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - shamrock-net
+
+volumes:
+  db-data:
+    driver: local
+
+networks:
+  shamrock-net:
+    driver: bridge

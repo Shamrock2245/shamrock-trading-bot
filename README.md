@@ -128,6 +128,7 @@ CIRCUIT_BREAKER_PERCENT=15.0
 ```
 
 > See [MANUS_PROJECT_INSTRUCTIONS.md](./MANUS_PROJECT_INSTRUCTIONS.md) for the full `.env` reference with all available parameters.
+> See [GUARDRAILS.md](./GUARDRAILS.md) for the mandatory pre-live safety checklist.
 
 ---
 
@@ -231,17 +232,55 @@ Built studying the best in the ecosystem:
 
 ```
 shamrock-trading-bot/
-├── config/           # Settings, chain configs, wallet assignment
-├── core/             # Scanner, analyzer, executor, portfolio, risk, safety
-├── data/providers/   # API wrappers (DexScreener, CoinGecko, GoPlus, 1inch)
+├── main.py           # Entry point + CLI (--balances, --scan, --snipe)
+├── config/           # Settings, chain configs, wallet assignment, token lists
+├── core/             # Balance fetcher, safety pipeline, executor, risk manager
+├── data/
+│   ├── models.py     # Token, GemCandidate, Trade, Position, SignalScore
+│   └── providers/    # DexScreener, CoinGecko, GoPlus, 1inch, Honeypot.is
+├── scanner/          # Gem discovery + scoring engine (0–100)
 ├── strategies/       # Trading strategies (gem snipe, DCA, momentum, etc.)
 ├── ml/               # Machine learning models & feature engineering
 ├── notifications/    # Slack & Telegram alert modules
 ├── dashboard/        # Streamlit portfolio UI
 ├── scripts/          # Backtest, paper trade, profit sweep, health check
 ├── tests/            # Unit & integration tests
-└── logs/             # Trade, scanner, safety, and error logs
+├── logs/             # Trade, scanner, safety, and error logs (gitignored)
+├── output/           # JSON output files — balances, scan results (gitignored)
+├── Dockerfile
+├── docker-compose.yml
+├── GUARDRAILS.md     # ← Safety rules + pre-live checklist (READ FIRST)
+├── SECURITY.md       # Security policy + key handling
+├── DEPLOYMENT.md     # Hetzner VPS setup + Docker deploy guide
+└── CONTRIBUTING.md   # Dev workflow, code standards, roadmap
 ```
+
+---
+
+## 📋 Key Documentation
+
+| Document | Purpose |
+|----------|--------|
+| [GUARDRAILS.md](./GUARDRAILS.md) | **Read before going live** — safety pipeline, risk rules, pre-live checklist |
+| [SECURITY.md](./SECURITY.md) | Private key handling, vulnerability reporting, security architecture |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Hetzner VPS setup, Docker deploy, monitoring, log rotation |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev workflow, code standards, adding chains/providers, roadmap |
+| [MANUS_PROJECT_INSTRUCTIONS.md](./MANUS_PROJECT_INSTRUCTIONS.md) | Full project spec, API references, phase-by-phase build guide |
+
+---
+
+## 🏗️ Infrastructure
+
+The bot is deployed on **Hetzner Cloud** (shamrock-trading project, Ashburn VA):
+
+| Property | Value |
+|----------|-------|
+| Server type | CPX21 — 3 vCPU / 4 GB RAM / 80 GB SSD |
+| OS | Ubuntu 22.04 LTS |
+| Runtime | Docker + docker-compose |
+| Auto-restart | `restart: unless-stopped` |
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for SSH access, update procedures, and monitoring setup.
 
 ---
 

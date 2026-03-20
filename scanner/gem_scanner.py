@@ -1,0 +1,280 @@
+"""
+scanner/gem_scanner.py — Multi-chain gem discovery and scoring engine.
+
+Scans DexScreener for new/boosted tokens, scores each candidate 0–100
+using the weighted criteria from the project spec, and returns a ranked
+list of GemCandidates ready for safety checks and trade execution.
+
+Scoring weights (from project spec):
+  - Token age:           15%
+  - Volume spike:        20%
+  - Liquidity depth:     15%
+  - Contract verified:   10%
+  - Holder distribution: 10%
+  - Buy/sell tax:        10%
+  - Social signals:      10%
+  - DexScreener boost:    5%
+  - Smart money:          5%
+  - Honeypot: PASS/FAIL (instant disqualify)
+"""
+
+import logging
+from typing import Optional
+
+from config.chains import DEXSCREENER_CHAIN_MAP
+from config import settings
+from data.models import Token, GemCandidate
+from data.providers.dexscreener import (
+    get_latest_token_profiles,
+    get_latest_boosts,
+    get_top_boosts,
+    extract_gem_signals,
+    get_token_pairs,
+)
+
+logger = logging.getLogger(__name__)
+
+# Chains to scan (mapped to DexScreener chain IDs)
+SCAN_CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc"]
+
+
+class GemScanner:
+    """
+    Discovers and scores gem candidates across all configured chains.
+    """
+
+    def scan(self) -> list[GemCandidate]:
+        """
+        Run a full scan cycle.
+        1. Fetch latest profiles + boosts from DexScreener
+        2. Score each token 0–100
+        3. Filter by minimum score threshold
+        4. Return ranked list (highest score first)
+        """
+        logger.info("Starting gem scan cycle...")
+        candidates: list[GemCandidate] = []
+        seen_addresses: set[str] = set()
+
+        # ── Source 1: Latest token profiles ──────────────────────────────────
+        profiles = get_latest_token_profiles()
+        logger.info(f"Fetched {len(profiles)} latest token profiles")
+        for profile in profiles:
+            token_addr = profile.get("tokenAddress", "")
+            chain_id = profile.get("chainId", "")
+            chain = self._dexscreener_to_chain(chain_id)
+            if not chain or not token_addr:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr)
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=False)
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                    break  # Use first (most liquid) pair only
+
+        # ── Source 2: Latest boosts ───────────────────────────────────────────
+        boosts = get_latest_boosts()
+        logger.info(f"Fetched {len(boosts)} latest boosts")
+        for boost in boosts:
+            token_addr = boost.get("tokenAddress", "")
+            chain_id = boost.get("chainId", "")
+            chain = self._dexscreener_to_chain(chain_id)
+            boost_amount = int(boost.get("amount", 0) or 0)
+            if not chain or not token_addr:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr)
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True
+                signals["boost_amount"] = boost_amount
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                    break
+
+        # ── Sort by score descending ──────────────────────────────────────────
+        candidates.sort(key=lambda c: c.gem_score, reverse=True)
+        logger.info(
+            f"Scan complete: {len(candidates)} candidates above "
+            f"score threshold {settings.MIN_GEM_SCORE}"
+        )
+        return candidates
+
+    def _score_token(self, token: Token, is_boosted: bool = False) -> GemCandidate:
+        """
+        Score a token 0–100 using weighted criteria from project spec.
+        Returns a GemCandidate with all score components populated.
+        """
+        candidate = GemCandidate(token=token)
+
+        # ── Age score (15%) ───────────────────────────────────────────────────
+        if token.age_hours is not None:
+            if token.age_hours < 1:
+                candidate.age_score = 100
+            elif token.age_hours < 6:
+                candidate.age_score = 90
+            elif token.age_hours < 24:
+                candidate.age_score = 75
+            elif token.age_hours < 72:
+                candidate.age_score = 50
+            elif token.age_hours < 168:
+                candidate.age_score = 25
+            else:
+                candidate.age_score = 10
+
+        # ── Volume spike score (20%) ──────────────────────────────────────────
+        if token.volume_1h > 0 and token.volume_24h > 0:
+            avg_hourly_vol = token.volume_24h / 24
+            if avg_hourly_vol > 0:
+                spike_ratio = token.volume_1h / avg_hourly_vol
+                if spike_ratio >= 10:
+                    candidate.volume_score = 100
+                elif spike_ratio >= 5:
+                    candidate.volume_score = 85
+                elif spike_ratio >= 3:
+                    candidate.volume_score = 70
+                elif spike_ratio >= 2:
+                    candidate.volume_score = 50
+                else:
+                    candidate.volume_score = 20
+        elif token.volume_24h >= 500_000:
+            candidate.volume_score = 60
+        elif token.volume_24h >= 100_000:
+            candidate.volume_score = 40
+
+        # ── Liquidity score (15%) ─────────────────────────────────────────────
+        liq = token.liquidity_usd
+        if liq >= 500_000:
+            candidate.liquidity_score = 100
+        elif liq >= 200_000:
+            candidate.liquidity_score = 85
+        elif liq >= 100_000:
+            candidate.liquidity_score = 70
+        elif liq >= 50_000:
+            candidate.liquidity_score = 50
+        elif liq >= 20_000:
+            candidate.liquidity_score = 25
+        else:
+            candidate.liquidity_score = 0  # Below minimum threshold
+
+        # ── Tax score (10%) ───────────────────────────────────────────────────
+        max_tax = max(token.buy_tax, token.sell_tax)
+        if max_tax == 0:
+            candidate.tax_score = 100
+        elif max_tax <= 0.01:
+            candidate.tax_score = 85
+        elif max_tax <= 0.03:
+            candidate.tax_score = 60
+        elif max_tax <= 0.05:
+            candidate.tax_score = 30
+        else:
+            candidate.tax_score = 0  # >5% tax is a red flag
+
+        # ── Holder distribution score (10%) ───────────────────────────────────
+        if token.holder_count >= 1000:
+            candidate.holder_score = 100
+        elif token.holder_count >= 500:
+            candidate.holder_score = 80
+        elif token.holder_count >= 200:
+            candidate.holder_score = 60
+        elif token.holder_count >= 100:
+            candidate.holder_score = 40
+        elif token.holder_count >= 50:
+            candidate.holder_score = 20
+        else:
+            candidate.holder_score = 10
+
+        # ── Social signals score (10%) ────────────────────────────────────────
+        # Proxy: presence of website + social links
+        candidate.social_score = 30  # Base score
+        # (Full social scoring requires Twitter/Telegram API integration)
+
+        # ── DexScreener boost score (5%) ─────────────────────────────────────
+        if is_boosted:
+            boost_amount = token.boost_amount
+            if boost_amount >= 500:
+                candidate.boost_score = 100
+            elif boost_amount >= 200:
+                candidate.boost_score = 80
+            elif boost_amount >= 100:
+                candidate.boost_score = 60
+            elif boost_amount > 0:
+                candidate.boost_score = 40
+        else:
+            candidate.boost_score = 0
+
+        # ── Smart money score (5%) ────────────────────────────────────────────
+        # Placeholder — full implementation requires wallet tracking
+        candidate.smart_money_score = 0
+
+        # ── Contract verified score (10%) — binary ────────────────────────────
+        # Assumed verified if we got data (DexScreener only lists verified pairs)
+        candidate.contract_score = 70  # Default; updated by safety check
+
+        # ── Composite score ───────────────────────────────────────────────────
+        candidate.gem_score = round(
+            candidate.age_score * 0.15
+            + candidate.volume_score * 0.20
+            + candidate.liquidity_score * 0.15
+            + candidate.contract_score * 0.10
+            + candidate.holder_score * 0.10
+            + candidate.tax_score * 0.10
+            + candidate.social_score * 0.10
+            + candidate.boost_score * 0.05
+            + candidate.smart_money_score * 0.05,
+            2,
+        )
+
+        return candidate
+
+    def _signals_to_token(self, signals: dict, chain: str) -> Optional[Token]:
+        """Convert DexScreener signals dict to a Token object."""
+        address = signals.get("base_token_address", "")
+        symbol = signals.get("base_token_symbol", "")
+        if not address or not symbol:
+            return None
+
+        # Filter by minimum liquidity
+        if signals.get("liquidity_usd", 0) < settings.MIN_LIQUIDITY_USD:
+            return None
+
+        return Token(
+            address=address,
+            symbol=symbol,
+            name=signals.get("base_token_name", symbol),
+            chain=chain,
+            pair_address=signals.get("pair_address", ""),
+            price_usd=signals.get("price_usd", 0.0),
+            market_cap=signals.get("market_cap", 0.0),
+            liquidity_usd=signals.get("liquidity_usd", 0.0),
+            volume_24h=signals.get("volume_24h", 0.0),
+            volume_1h=signals.get("volume_1h", 0.0),
+            price_change_1h=signals.get("price_change_1h", 0.0),
+            price_change_24h=signals.get("price_change_24h", 0.0),
+            age_hours=signals.get("age_hours"),
+            is_boosted=signals.get("is_boosted", False),
+            boost_amount=signals.get("boost_amount", 0),
+            dex_url=signals.get("url", ""),
+        )
+
+    @staticmethod
+    def _dexscreener_to_chain(dexscreener_chain_id: str) -> Optional[str]:
+        """Map DexScreener chain ID string to our internal chain name."""
+        mapping = {
+            "ethereum": "ethereum",
+            "base": "base",
+            "arbitrum": "arbitrum",
+            "polygon": "polygon",
+            "bsc": "bsc",
+        }
+        return mapping.get(dexscreener_chain_id.lower())
