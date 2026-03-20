@@ -36,6 +36,7 @@ Build a multi-chain scanner that finds new/undervalued tokens before they pump.
 
 | Source | What It Provides | Rate Limits | Cost |
 |--------|-----------------|-------------|------|
+| [CoinMarketCap API](https://coinmarketcap.com/api/documentation/v1/) | Listings, quotes, categories, gainers/losers, trending, ID mapping | 10K credits/mo (free) | Free / Pro |
 | [DexScreener API](https://docs.dexscreener.com/api/reference) | New pairs, boosted tokens, volume spikes, token profiles | 60 req/min (free) | Free |
 | [CoinGecko API](https://www.coingecko.com/en/api) | Market cap, historical data, trending coins, OHLCV | 30 req/min (free) | Free / Pro |
 | [Bitquery](https://bitquery.io/) | On-chain DEX trades, whale movements, token flows | Varies | Free tier + paid |
@@ -43,6 +44,75 @@ Build a multi-chain scanner that finds new/undervalued tokens before they pump.
 | [Etherscan/Basescan APIs](https://docs.etherscan.io/) | Contract verification, holder counts, token transfers | 5 req/sec (free) | Free |
 | [Moralis API](https://moralis.io/) | Wallet balances, token metadata, NFT data, historical txns | Varies | Free tier |
 | [GeckoTerminal API](https://www.geckoterminal.com/dex-api) | Pool data, OHLCV by pool, trending pools per chain | 30 req/min | Free |
+| [Shrimpy Developer API](https://developers.shrimpy.io/) | Universal exchange API, portfolio rebalancing, smart order routing, CEX data | Varies | Free tier + paid |
+| [CoinAPI](https://www.coinapi.io/) | Unified REST + WebSocket — trades, quotes, OHLCV, order books (400+ exchanges) | 100 req/day (free) | Free / Paid |
+
+**CoinMarketCap API Endpoints (Base: `https://pro-api.coinmarketcap.com`):**
+
+> Auth: Pass API key via `X-CMC_PRO_API_KEY` header. Sandbox for testing: `https://sandbox-api.coinmarketcap.com`
+
+```
+# ── Discovery & Screening ──────────────────────────────────────────────
+GET /v1/cryptocurrency/listings/latest    → All coins ranked by market cap (paginated)
+    ?sort=percent_change_24h&sort_dir=desc&limit=50    → Top 24h movers
+    ?sort=volume_24h&sort_dir=desc&limit=50            → Highest volume
+    ?market_cap_min=100000&market_cap_max=10000000      → Microcap gems filter
+    ?volume_24h_min=50000                               → Minimum volume floor
+
+GET /v1/cryptocurrency/trending/latest    → Currently trending coins (social + volume)
+GET /v1/cryptocurrency/trending/gainers-losers → Top gainers/losers by % change
+GET /v1/cryptocurrency/categories         → List all categories (DeFi, L2, AI, Meme, etc.)
+GET /v1/cryptocurrency/category?id={id}   → Drill into a specific category
+
+# ── Quotes & Pricing ──────────────────────────────────────────────────
+GET /v2/cryptocurrency/quotes/latest      → Real-time price, mcap, volume, % changes
+    ?id=1,1027,5426                        → By CMC IDs (BTC, ETH, SOL)
+    ?symbol=BTC,ETH,SOL                    → By ticker symbol
+    ?convert=USD,ETH                       → Multi-currency conversion
+
+# ── ID Mapping (IMPORTANT — use CMC IDs for consistency) ─────────────
+GET /v1/cryptocurrency/map               → Full mapping: symbol → CMC ID → platform/contract
+    ?listing_status=active                → Only active coins
+    ?start=1&limit=5000                   → Paginate through all
+
+# ── Metadata ──────────────────────────────────────────────────────────
+GET /v2/cryptocurrency/info              → Logo, description, website, explorers, socials
+    ?id=1                                → By CMC ID
+    ?symbol=BTC                          → By symbol
+
+# ── Historical ────────────────────────────────────────────────────────
+GET /v2/cryptocurrency/quotes/historical → OHLCV + market data over time (paid plans)
+```
+
+**Key CMC Integration Patterns:**
+```python
+# Example: Find microcap gems with strong volume
+import requests
+
+CMC_BASE = "https://pro-api.coinmarketcap.com"
+headers = {"X-CMC_PRO_API_KEY": os.getenv("CMC_API_KEY")}
+
+def find_microcap_gems():
+    """Find tokens with <$10M mcap but >$50K daily volume — potential breakouts."""
+    resp = requests.get(f"{CMC_BASE}/v1/cryptocurrency/listings/latest", headers=headers, params={
+        "market_cap_min": 100_000,
+        "market_cap_max": 10_000_000,
+        "volume_24h_min": 50_000,
+        "sort": "percent_change_24h",
+        "sort_dir": "desc",
+        "limit": 50,
+        "convert": "USD",
+    })
+    return resp.json()["data"]
+
+def get_trending_gainers():
+    """Top trending gainers — cross-reference with DexScreener for DEX-specific data."""
+    resp = requests.get(f"{CMC_BASE}/v1/cryptocurrency/trending/gainers-losers",
+                        headers=headers, params={"limit": 30, "time_period": "24h"})
+    return resp.json()["data"]
+```
+
+---
 
 **DexScreener Specific Endpoints to Use:**
 ```
@@ -304,6 +374,7 @@ WALLET_STRATEGY = {
 | **Honeypot Detection** | GoPlus Security API + Honeypot.is | Token Sniffer, De.Fi Scanner |
 | **MEV Protection** | Flashbots Protect RPC | MEV Blocker, Alchemy MEV Protection |
 | **Data Storage** | SQLite (dev) → PostgreSQL (prod) | MongoDB, TimescaleDB |
+| **Portfolio Rebalancing** | [Shrimpy API](https://developers.shrimpy.io/) | Custom rebalancer, CCXT-based |
 | **Task Scheduling** | APScheduler | Celery, cron |
 | **Notifications** | Slack webhooks + Telegram Bot | Discord webhooks |
 | **Dashboard** | Streamlit | Next.js, Grafana |
@@ -329,7 +400,7 @@ WALLET_STRATEGY = {
 | **the0** | Multi | Multi-language strategy engine, containerized deployment | [GitHub](https://github.com/alexanderwanyoike/the0) |
 | **Superalgos** | JavaScript | Visual strategy designer, integrated charting & backtesting | [GitHub](https://github.com/Superalgos/Superalgos) |
 
-### Utility Repos
+### Utility Repos & Communities
 | Tool | Purpose | Link |
 |------|---------|------|
 | **undervalued-crypto-finder** | Find coins below MA200 — gem scanner inspiration | [GitHub](https://github.com/Erfaniaa/undervalued-crypto-finder) |
@@ -337,6 +408,9 @@ WALLET_STRATEGY = {
 | **crypto-trading-strategy-backtester** | Quick strategy backtesting framework | [GitHub](https://github.com/Erfaniaa/crypto-trading-strategy-backtester) |
 | **OrderBooks** | Orderbook snapshot & delta management (Node.js) | [GitHub](https://github.com/tiagosiebler/OrderBooks) |
 | **awesome-crypto-examples** | Working API examples for major exchanges | [GitHub](https://github.com/tiagosiebler/awesome-crypto-examples) |
+| **shrimpy-python** | Official Shrimpy Python SDK — portfolio rebalancing & exchange management | [GitHub](https://github.com/shrimpy-dev/shrimpy-python) |
+| **PineScripters** | TradingView Pine Script community — 150K+ open-source indicators & strategies | [Telegram](https://t.me/pinescripters) / [TradingView](https://www.tradingview.com/scripts/) |
+| **PineCoders QA** | Official TradingView Pine Script help channel | [Telegram](https://t.me/PineCodersQA) |
 
 ---
 
@@ -375,10 +449,14 @@ ETH_RPC_MEV_PROTECTED=https://rpc.flashbots.net
 ETHERSCAN_API_KEY=your_key
 BASESCAN_API_KEY=your_key
 ARBISCAN_API_KEY=your_key
+CMC_API_KEY=your_coinmarketcap_api_key        # Get free key: https://coinmarketcap.com/api/
 COINGECKO_API_KEY=your_key_if_pro
 ONEINCH_API_KEY=your_key
 MORALIS_API_KEY=your_key
 GOPLUS_API_KEY=optional
+SHRIMPY_API_KEY=your_shrimpy_key            # Get key: https://developers.shrimpy.io/
+SHRIMPY_API_SECRET=your_shrimpy_secret
+COINAPI_KEY=your_coinapi_key                # Get free key: https://www.coinapi.io/
 
 # ═══════════════════════════════════════════════
 # NOTIFICATIONS
@@ -462,6 +540,7 @@ shamrock-trading-bot/
 │
 ├── data/
 │   ├── providers/
+│   │   ├── coinmarketcap.py      # CoinMarketCap API wrapper (listings, trending, categories)
 │   │   ├── dexscreener.py        # DexScreener API wrapper
 │   │   ├── coingecko.py          # CoinGecko API wrapper
 │   │   ├── goplus.py             # GoPlus security API wrapper
@@ -541,7 +620,9 @@ cp .env.example .env  # Then fill in real values
 ```
 
 ### Step 2: Build Phase 1 (Gem Scanner) FIRST
-- Wire up DexScreener + CoinGecko + GoPlus APIs
+- Wire up CoinMarketCap + DexScreener + CoinGecko + GoPlus APIs
+- Use CMC `/listings/latest` for microcap screening, `/trending/gainers-losers` for momentum
+- Cross-reference CMC discoveries with DexScreener for on-chain DEX data
 - Implement the token scoring system (0–100)
 - Build the honeypot/rug detection pipeline
 - Output: ranked list of gems printed to console + logged
