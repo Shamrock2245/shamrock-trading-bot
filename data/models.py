@@ -90,6 +90,11 @@ class SignalScore:
     volume_score: float = 0.0      # 0 to 100
     onchain_score: float = 0.0     # 0 to 100
 
+    # Fibonacci analysis
+    fib_score: float = 0.0         # 0 to 100 (Fibonacci zone alignment)
+    fib_zone: str = "unknown"      # "golden_pocket", "fib_618", "no_mans_land", etc.
+    fib_aligned: bool = False      # True = price is in a valid Fibonacci zone
+
     # Individual indicators
     rsi: Optional[float] = None
     macd_signal: Optional[str] = None    # "bullish", "bearish", "neutral"
@@ -100,24 +105,27 @@ class SignalScore:
     @property
     def composite(self) -> float:
         """
-        Weighted composite score.
+        Weighted composite score with Fibonacci alignment.
         >70 = BUY signal, <30 = SELL signal, 30–70 = HOLD/NEUTRAL
+
+        Weights: trend=25%, momentum=20%, volume=15%, onchain=15%, fibonacci=25%
         """
         # Normalize trend_score from -100/+100 to 0/100
         trend_normalized = (self.trend_score + 100) / 2
         return (
-            trend_normalized * 0.30
-            + self.momentum_score * 0.25
-            + self.volume_score * 0.20
-            + self.onchain_score * 0.25
+            trend_normalized * 0.25
+            + self.momentum_score * 0.20
+            + self.volume_score * 0.15
+            + self.onchain_score * 0.15
+            + self.fib_score * 0.25
         )
 
     @property
     def signal(self) -> str:
         score = self.composite
-        if score >= 70:
+        if score >= 70 and self.fib_aligned:
             return "BUY"
-        elif score <= 30:
+        elif score <= 30 or not self.fib_aligned:
             return "SELL"
         return "NEUTRAL"
 
@@ -169,6 +177,12 @@ class Position:
     peak_price_usd: float = 0.0
     current_price_usd: float = 0.0
     is_open: bool = True
+
+    # Fibonacci-derived levels
+    fib_support: float = 0.0       # Nearest Fib support for stop-loss reference
+    fib_resistance: float = 0.0    # Nearest Fib resistance for take-profit reference
+    fib_zone: str = ""             # Zone at time of entry
+    take_profit_targets: list = field(default_factory=list)  # Staged TP from Fib extensions
 
     @property
     def unrealized_pnl_pct(self) -> float:

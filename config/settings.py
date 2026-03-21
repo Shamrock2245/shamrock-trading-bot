@@ -78,6 +78,16 @@ MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "3"))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Technical Analysis & Fibonacci (Phase 2)
+# ─────────────────────────────────────────────────────────────────────────────
+REQUIRE_FIB_ALIGNMENT = os.getenv("REQUIRE_FIB_ALIGNMENT", "true").lower() == "true"
+MIN_SIGNAL_SCORE = float(os.getenv("MIN_SIGNAL_SCORE", "55.0"))
+OHLCV_LOOKBACK_DAYS = int(os.getenv("OHLCV_LOOKBACK_DAYS", "7"))
+FIB_PROXIMITY_PCT = float(os.getenv("FIB_PROXIMITY_PCT", "3.0"))
+FIB_SWING_WINDOW = int(os.getenv("FIB_SWING_WINDOW", "3"))
+TA_ENABLED = os.getenv("TA_ENABLED", "true").lower() == "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Notifications
 # ─────────────────────────────────────────────────────────────────────────────
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
