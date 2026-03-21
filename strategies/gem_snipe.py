@@ -213,16 +213,14 @@ class GemSnipeStrategy:
 
         Maps the gem scanner's individual scores to a 0–100 on-chain score.
         """
-        scores = candidate.score_components or {}
-
-        # Weighted combination of gem scanner's on-chain indicators
+        # Read scores directly from GemCandidate attributes
         onchain = (
-            scores.get("volume_score", 0) * 0.25 +
-            scores.get("liquidity_score", 0) * 0.20 +
-            scores.get("holder_score", 0) * 0.20 +
-            scores.get("age_score", 0) * 0.15 +
-            scores.get("tax_score", 0) * 0.10 +
-            scores.get("social_score", 0) * 0.10
+            getattr(candidate, "volume_score", 0) * 0.25 +
+            getattr(candidate, "liquidity_score", 0) * 0.20 +
+            getattr(candidate, "holder_score", 0) * 0.20 +
+            getattr(candidate, "age_score", 0) * 0.15 +
+            getattr(candidate, "tax_score", 0) * 0.10 +
+            getattr(candidate, "social_score", 0) * 0.10
         )
 
         return max(0, min(100, onchain))

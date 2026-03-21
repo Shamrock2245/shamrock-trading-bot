@@ -84,8 +84,8 @@ with tab1:
             hovertemplate="<b>Avg: %{y:.1f}</b><br>%{x|%b %d, %H:%M}<extra></extra>",
         ))
 
+    fig_freq.update_layout(**PLOTLY_LAYOUT, height=350)
     fig_freq.update_layout(
-        **PLOTLY_LAYOUT, height=350,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_freq, use_container_width=True, config={"displayModeBar": False})
