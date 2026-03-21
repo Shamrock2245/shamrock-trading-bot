@@ -61,6 +61,7 @@ from core.risk import risk_manager
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
+from dashboard.state import BotStateWriter
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -304,6 +305,7 @@ async def run_bot_loop():
     scanner = GemScanner()
     executor = TradeExecutor()
     strategy = GemSnipeStrategy()
+    state_writer = BotStateWriter()
     cycle = 0
 
     while True:
@@ -385,11 +387,28 @@ async def run_bot_loop():
                 else:
                     logger.warning(f"\u274c Trade failed: {token.symbol} | {result.error}")
 
+            # Write dashboard state
+            try:
+                state_writer.write_cycle(
+                    candidates=candidates,
+                    chains_scanned=settings.ACTIVE_CHAINS,
+                )
+            except Exception as state_err:
+                logger.debug(f"Dashboard state write failed: {state_err}")
+
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
             break
         except Exception as e:
             logger.error(f"Cycle {cycle} error: {e}", exc_info=True)
+            try:
+                state_writer.write_cycle(
+                    candidates=[],
+                    chains_scanned=settings.ACTIVE_CHAINS,
+                    errors=[str(e)],
+                )
+            except Exception:
+                pass
 
         logger.info(f"Cycle {cycle} complete. Sleeping {settings.SCAN_INTERVAL_SECONDS}s...")
         await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)

@@ -68,6 +68,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - DASHBOARD_STATE_DIR=/app/data/dashboard
     command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
@@ -75,11 +77,9 @@ services:
       - ./logs:/app/logs
       - ./data:/app/data
     depends_on:
-      - db
+      - bot
     networks:
       - shamrock-net
-    profiles:
-      - dashboard
 
   # ── Health Check Cron ─────────────────────────────────────────────────────
   health:
