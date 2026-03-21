@@ -441,3 +441,43 @@ def build_gem_snipe_params(
         amount_in_wei=amount_wei,
         slippage_bps=slippage_bps,
     )
+
+
+def build_take_profit_params(
+    wallet: WalletConfig,
+    chain: str,
+    token_address: str,
+    token_amount_wei: int,
+    slippage_bps: int = 200,
+) -> TradeParams:
+    """
+    Build TradeParams for a take-profit sell — exits into USDC stablecoin.
+
+    All profits are routed to USDC on the same chain. If USDC is not
+    configured for the chain, falls back to native ETH/MATIC/BNB.
+
+    Args:
+        wallet: The wallet to trade from
+        chain: Chain name (e.g., "base")
+        token_address: Token to sell
+        token_amount_wei: Amount of token to sell (in wei)
+        slippage_bps: Slippage in basis points (200 = 2%)
+    """
+    chain_config = CHAINS[chain]
+
+    # Prefer USDC for profit-taking, fall back to native token
+    if chain_config.usdc_address:
+        sell_to = Web3.to_checksum_address(chain_config.usdc_address)
+        logger.info(f"Take-profit: selling into USDC on {chain}")
+    else:
+        sell_to = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        logger.info(f"Take-profit: no USDC configured for {chain}, selling into native")
+
+    return TradeParams(
+        wallet=wallet,
+        chain=chain,
+        token_in=Web3.to_checksum_address(token_address),
+        token_out=sell_to,
+        amount_in_wei=token_amount_wei,
+        slippage_bps=slippage_bps,
+    )

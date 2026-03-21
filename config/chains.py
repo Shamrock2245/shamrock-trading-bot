@@ -37,6 +37,8 @@ class ChainConfig:
     # Gas settings
     max_gas_gwei: int = 50
     block_time_seconds: float = 12.0
+    # Stablecoin addresses for profit-taking
+    usdc_address: str = ""
 
     @property
     def explorer_api_key(self) -> str:
@@ -65,6 +67,7 @@ CHAINS: dict[str, ChainConfig] = {
         cow_vault_relayer="0xC92E8bdf79f0507f65a392b0ab4667716BFE0110",
         max_gas_gwei=int(os.getenv("MAX_GAS_GWEI", "50")),
         block_time_seconds=12.0,
+        usdc_address="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",  # USDC on Ethereum
     ),
 
     "base": ChainConfig(
@@ -80,8 +83,9 @@ CHAINS: dict[str, ChainConfig] = {
         uniswap_v3_quoter="0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
         aerodrome_router="0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
-        max_gas_gwei=5,   # Base is much cheaper
+        max_gas_gwei=5,
         block_time_seconds=2.0,
+        usdc_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
     ),
 
     "arbitrum": ChainConfig(
@@ -97,8 +101,9 @@ CHAINS: dict[str, ChainConfig] = {
         uniswap_v3_quoter="0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
         camelot_router="0xc873fEcbd354f5A56E00E710B90EF4201db2448d",
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
-        max_gas_gwei=2,   # Arbitrum gas is very cheap
+        max_gas_gwei=2,
         block_time_seconds=0.25,
+        usdc_address="0xaf88d065e77c8cC2239327C5EDb3A432268e5831",  # USDC on Arbitrum
     ),
 
     "polygon": ChainConfig(
@@ -114,8 +119,9 @@ CHAINS: dict[str, ChainConfig] = {
         uniswap_v3_quoter="0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
         quickswap_router="0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff",
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
-        max_gas_gwei=200,  # Polygon uses MATIC for gas — higher gwei is normal
+        max_gas_gwei=200,
         block_time_seconds=2.0,
+        usdc_address="0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # USDC on Polygon
     ),
 
     "bsc": ChainConfig(
@@ -131,6 +137,7 @@ CHAINS: dict[str, ChainConfig] = {
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
         max_gas_gwei=5,
         block_time_seconds=3.0,
+        usdc_address="0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",  # USDC on BSC
     ),
 }
 
