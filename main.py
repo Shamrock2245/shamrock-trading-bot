@@ -25,6 +25,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from notifications.slack import notify_trade, notify_alert, notify_cycle_summary
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging setup — must happen before any other imports
 # ─────────────────────────────────────────────────────────────────────────────
@@ -297,6 +299,17 @@ async def run_bot_loop():
     print(f"Chains: {', '.join(settings.ACTIVE_CHAINS)}")
     print()
 
+    # Startup notification
+    notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
+
     if settings.MODE == "live":
         logger.warning("=" * 60)
         logger.warning("⚠️  LIVE MODE ACTIVE — REAL TRADES WILL BE EXECUTED")
@@ -384,8 +397,29 @@ async def run_bot_loop():
                         f"path={result.execution_path} | tx={result.tx_hash}"
                     )
                     risk_manager.record_trade_open(primary.alias)
+                    notify_trade(
+                        action="BUY",
+                        token_symbol=token.symbol,
+                        chain=token.chain,
+                        amount_eth=risk.position_size_eth,
+                        score=candidate.score,
+                        mode=settings.MODE,
+                        extra="Path: {} | Tx: {}".format(
+                            result.execution_path,
+                            result.tx_hash or "N/A",
+                        ),
+                    )
                 else:
                     logger.warning(f"\u274c Trade failed: {token.symbol} | {result.error}")
+                    notify_trade(
+                        action="BUY",
+                        token_symbol=token.symbol,
+                        chain=token.chain,
+                        amount_eth=risk.position_size_eth,
+                        score=candidate.score,
+                        mode=settings.MODE,
+                        extra="\u274c FAILED: {}".format(result.error),
+                    )
 
             # Write dashboard state
             try:
@@ -395,6 +429,15 @@ async def run_bot_loop():
                 )
             except Exception as state_err:
                 logger.debug(f"Dashboard state write failed: {state_err}")
+
+            # Periodic cycle summary (every 10 cycles)
+            if cycle % 10 == 0:
+                notify_cycle_summary(
+                    cycle=cycle,
+                    candidates=len(candidates),
+                    trades=0,  # TODO: track trades_this_cycle
+                    mode=settings.MODE,
+                )
 
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
