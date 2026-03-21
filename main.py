@@ -464,7 +464,8 @@ async def run_token_analysis(token_address: str, chain: str):
     # Step 3: Run safety check
     print("\nStep 3: Safety check...")
     safety = check_token_safety(token_address, chain)
-    print(f"  Safe: {'\u2705 YES' if safety.is_safe else '\u274c NO — ' + safety.block_reason}")
+    safe_str = "\u2705 YES" if safety.is_safe else f"\u274c NO — {safety.block_reason}"
+    print(f"  Safe: {safe_str}")
     if safety.buy_tax is not None:
         print(f"  Buy tax: {safety.buy_tax:.1%} | Sell tax: {safety.sell_tax:.1%}")
 

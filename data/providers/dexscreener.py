@@ -1,13 +1,13 @@
 """
 data/providers/dexscreener.py — DexScreener API wrapper.
 
-Endpoints used:
-  - /token-profiles/latest    → New token profiles
-  - /token-boosts/latest      → Currently boosted tokens
-  - /token-boosts/top         → Most boosted tokens
-  - /dex/search               → Search by name/symbol
-  - /dex/tokens/{addresses}   → Pairs for specific tokens
-  - /dex/pairs/{chain}/{pair} → Detailed pair data
+Endpoints used (updated March 2026):
+   - /token-profiles/latest/v1      → New token profiles
+   - /token-boosts/latest/v1        → Currently boosted tokens
+   - /token-boosts/top/v1           → Most boosted tokens
+   - /latest/dex/search             → Search by name/symbol
+   - /latest/dex/tokens/{addresses} → Pairs for specific tokens
+   - /latest/dex/pairs/{chain}/{pair} → Detailed pair data
 
 Rate limit: 60 req/min (free tier). Handled via tenacity retry.
 """
@@ -51,7 +51,7 @@ def get_latest_token_profiles() -> list[dict]:
     Returns newest token profiles (new projects listing on DexScreener).
     """
     try:
-        data = _get("/token-profiles/latest")
+        data = _get("/token-profiles/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
         logger.error(f"DexScreener latest profiles error: {e}")
@@ -64,7 +64,7 @@ def get_latest_boosts() -> list[dict]:
     Returns currently boosted tokens (paid visibility = community hype signal).
     """
     try:
-        data = _get("/token-boosts/latest")
+        data = _get("/token-boosts/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
         logger.error(f"DexScreener latest boosts error: {e}")
@@ -77,7 +77,7 @@ def get_top_boosts() -> list[dict]:
     Returns most boosted tokens (strongest community push).
     """
     try:
-        data = _get("/token-boosts/top")
+        data = _get("/token-boosts/top/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
         logger.error(f"DexScreener top boosts error: {e}")
@@ -90,7 +90,7 @@ def search_pairs(query: str) -> list[dict]:
     Search pairs by token name or symbol.
     """
     try:
-        data = _get("/dex/search", params={"q": query})
+        data = _get("/latest/dex/search", params={"q": query})
         return data.get("pairs", [])
     except Exception as e:
         logger.error(f"DexScreener search error for '{query}': {e}")
@@ -103,7 +103,7 @@ def get_token_pairs(token_address: str) -> list[dict]:
     Get all DEX pairs for a specific token address.
     """
     try:
-        data = _get(f"/dex/tokens/{token_address}")
+        data = _get(f"/latest/dex/tokens/{token_address}")
         return data.get("pairs", [])
     except Exception as e:
         logger.error(f"DexScreener token pairs error for {token_address}: {e}")
@@ -116,7 +116,7 @@ def get_pair_data(chain_id: str, pair_address: str) -> Optional[dict]:
     Get detailed pair data: price, volume, liquidity, txns.
     """
     try:
-        data = _get(f"/dex/pairs/{chain_id}/{pair_address}")
+        data = _get(f"/latest/dex/pairs/{chain_id}/{pair_address}")
         pairs = data.get("pairs", [])
         return pairs[0] if pairs else None
     except Exception as e:
