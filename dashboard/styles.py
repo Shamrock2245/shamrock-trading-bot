@@ -80,227 +80,195 @@ PREMIUM_CSS = """
 
 [data-testid="stMetric"]:hover {
     border-color: var(--border-glow) !important;
-    box-shadow: 0 8px 40px rgba(0, 208, 156, 0.08), 0 4px 24px rgba(0, 0, 0, 0.4) !important;
+    box-shadow: 0 8px 32px rgba(0, 208, 156, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
     transform: translateY(-2px) !important;
 }
 
-[data-testid="stMetric"] label {
+[data-testid="stMetricLabel"] {
     color: var(--text-secondary) !important;
-    font-weight: 500 !important;
-    font-size: 0.78rem !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.08em !important;
 }
 
-[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    font-weight: 800 !important;
-    font-size: 1.9rem !important;
-    letter-spacing: -0.03em !important;
-    background: linear-gradient(135deg, #FFFFFF 0%, #C8D6E5 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
 }
 
-[data-testid="stMetric"] [data-testid="stMetricDelta"] > div {
+[data-testid="stMetricDelta"] {
+    font-size: 0.8rem !important;
     font-weight: 600 !important;
-    font-size: 0.82rem !important;
 }
 
-/* ── Data Tables ─────────────────────────────────────────────────────────── */
-[data-testid="stDataFrame"] {
-    border-radius: var(--radius) !important;
-    overflow: hidden !important;
-}
-
-.stDataFrame table {
-    border-collapse: separate !important;
-    border-spacing: 0 !important;
-}
-
-.stDataFrame thead th {
-    background: rgba(0, 208, 156, 0.08) !important;
-    color: var(--accent) !important;
-    font-weight: 600 !important;
-    text-transform: uppercase !important;
-    font-size: 0.72rem !important;
-    letter-spacing: 0.06em !important;
-    border-bottom: 1px solid var(--border-subtle) !important;
-    padding: 0.75rem 1rem !important;
-}
-
-.stDataFrame tbody td {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03) !important;
-    padding: 0.65rem 1rem !important;
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.stButton > button {
+    background: linear-gradient(135deg, #00D09C, #00B884) !important;
+    color: #0A0E14 !important;
+    border: none !important;
+    border-radius: var(--radius-sm) !important;
+    font-weight: 700 !important;
     font-size: 0.85rem !important;
-    transition: background 0.15s ease !important;
+    letter-spacing: 0.02em !important;
+    padding: 0.5rem 1.2rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 4px 15px rgba(0, 208, 156, 0.3) !important;
 }
 
-.stDataFrame tbody tr:hover td {
-    background: rgba(0, 208, 156, 0.04) !important;
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(0, 208, 156, 0.45) !important;
 }
 
-/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px !important;
     background: var(--bg-secondary) !important;
     border-radius: var(--radius-sm) !important;
     padding: 4px !important;
+    gap: 4px !important;
     border: 1px solid var(--border-subtle) !important;
 }
 
 .stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: var(--text-secondary) !important;
     border-radius: 8px !important;
-    padding: 0.5rem 1.2rem !important;
     font-weight: 500 !important;
     font-size: 0.85rem !important;
-    color: var(--text-secondary) !important;
+    padding: 0.4rem 1rem !important;
     transition: all 0.2s ease !important;
 }
 
 .stTabs [aria-selected="true"] {
     background: var(--accent-dim) !important;
     color: var(--accent) !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
 }
 
-/* ── Expander ────────────────────────────────────────────────────────────── */
+/* ── DataFrames ──────────────────────────────────────────────────────────── */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius) !important;
+    overflow: hidden !important;
+}
+
+/* ── Expanders ───────────────────────────────────────────────────────────── */
 .streamlit-expanderHeader {
     background: var(--bg-card) !important;
     border: 1px solid var(--border-subtle) !important;
     border-radius: var(--radius-sm) !important;
-    font-weight: 500 !important;
-    transition: all 0.2s ease !important;
-}
-
-.streamlit-expanderHeader:hover {
-    border-color: var(--border-glow) !important;
-}
-
-/* ── Plotly Charts ───────────────────────────────────────────────────────── */
-.js-plotly-plot .plotly .main-svg {
-    border-radius: var(--radius) !important;
-}
-
-/* ── Custom Scrollbar ────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-::-webkit-scrollbar-track {
-    background: var(--bg-primary);
-}
-::-webkit-scrollbar-thumb {
-    background: var(--text-muted);
-    border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-secondary);
-}
-
-/* ── Selectbox / Inputs ──────────────────────────────────────────────────── */
-[data-baseweb="select"] > div {
-    background: var(--bg-card) !important;
-    border-color: var(--border-subtle) !important;
-    border-radius: var(--radius-sm) !important;
-}
-
-[data-baseweb="select"] > div:focus-within {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 1px var(--accent) !important;
-}
-
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
-.stButton > button {
-    background: linear-gradient(135deg, #00D09C 0%, #00B386 100%) !important;
-    color: #0A0E14 !important;
-    font-weight: 700 !important;
-    border: none !important;
-    border-radius: var(--radius-sm) !important;
-    padding: 0.5rem 1.5rem !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    box-shadow: 0 4px 14px rgba(0, 208, 156, 0.25) !important;
-    letter-spacing: 0.02em !important;
-}
-
-.stButton > button:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(0, 208, 156, 0.35) !important;
-}
-
-/* ── Section Headers ─────────────────────────────────────────────────────── */
-.main h2 {
     color: var(--text-primary) !important;
-    font-weight: 700 !important;
-    font-size: 1.15rem !important;
-    letter-spacing: -0.01em !important;
-    padding-bottom: 0.5rem !important;
-    border-bottom: 1px solid var(--border-subtle) !important;
-    margin-bottom: 1rem !important;
+    font-weight: 600 !important;
 }
 
-.main h3 {
-    color: var(--accent) !important;
-    font-weight: 600 !important;
-    font-size: 0.95rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.04em !important;
+/* ── Dividers ────────────────────────────────────────────────────────────── */
+hr {
+    border-color: var(--border-subtle) !important;
+    margin: 1.5rem 0 !important;
 }
 
 /* ── Status Badges ───────────────────────────────────────────────────────── */
-.badge-live {
-    display: inline-block;
-    padding: 2px 10px;
+.status-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 208, 156, 0.12);
+    border: 1px solid rgba(0, 208, 156, 0.3);
     border-radius: 20px;
-    font-size: 0.72rem;
+    padding: 4px 12px;
+    font-size: 0.75rem;
     font-weight: 700;
+    color: #00D09C;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
 }
 
-.badge-success { background: rgba(0, 208, 156, 0.15); color: #00D09C; border: 1px solid rgba(0, 208, 156, 0.3); }
-.badge-danger { background: rgba(255, 71, 87, 0.15); color: #FF4757; border: 1px solid rgba(255, 71, 87, 0.3); }
-.badge-warning { background: rgba(255, 184, 77, 0.15); color: #FFB84D; border: 1px solid rgba(255, 184, 77, 0.3); }
-.badge-info { background: rgba(88, 166, 255, 0.15); color: #58A6FF; border: 1px solid rgba(88, 166, 255, 0.3); }
-
-/* ── Glassmorphism Container ─────────────────────────────────────────────── */
-.glass-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
-    padding: 1.2rem;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+.status-paper {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 184, 77, 0.12);
+    border: 1px solid rgba(255, 184, 77, 0.3);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #FFB84D;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
 
-/* ── Pulse animation for live status ─────────────────────────────────────── */
-@keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 4px rgba(0, 208, 156, 0.4); }
-    50% { box-shadow: 0 0 12px rgba(0, 208, 156, 0.7); }
-}
-
-.live-dot {
+.pulse {
     display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: #00D09C;
-    animation: pulse-glow 2s ease-in-out infinite;
-    margin-right: 6px;
-    vertical-align: middle;
+    animation: pulse 2s infinite;
 }
 
-/* ── Chain badges ────────────────────────────────────────────────────────── */
-.chain-eth { color: #627EEA; }
-.chain-base { color: #0052FF; }
-.chain-arb { color: #28A0F0; }
-.chain-poly { color: #8247E5; }
-.chain-bsc { color: #F0B90B; }
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ── Score Badges ────────────────────────────────────────────────────────── */
+.score-high {
+    background: rgba(0, 208, 156, 0.15);
+    color: #00D09C;
+    border: 1px solid rgba(0, 208, 156, 0.3);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.score-mid {
+    background: rgba(255, 184, 77, 0.15);
+    color: #FFB84D;
+    border: 1px solid rgba(255, 184, 77, 0.3);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.score-low {
+    background: rgba(255, 71, 87, 0.15);
+    color: #FF4757;
+    border: 1px solid rgba(255, 71, 87, 0.3);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+/* ── Chain Pills ─────────────────────────────────────────────────────────── */
+.chain-eth  { background: rgba(98,126,234,0.15); color: #627EEA; border: 1px solid rgba(98,126,234,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+.chain-base { background: rgba(0,82,255,0.15);   color: #0052FF; border: 1px solid rgba(0,82,255,0.3);   border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+.chain-arb  { background: rgba(40,160,240,0.15); color: #28A0F0; border: 1px solid rgba(40,160,240,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+.chain-poly { background: rgba(130,71,229,0.15); color: #8247E5; border: 1px solid rgba(130,71,229,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+.chain-bsc  { background: rgba(240,185,11,0.15); color: #F0B90B; border: 1px solid rgba(240,185,11,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+.chain-sol  { background: rgba(153,69,255,0.15); color: #9945FF; border: 1px solid rgba(153,69,255,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: rgba(0, 208, 156, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 208, 156, 0.5); }
+
 </style>
 """
 
-
-# ── Plotly Chart Theme ───────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared Plotly layout — use via **PLOTLY_LAYOUT in fig.update_layout()
+# NOTE: Do NOT pass legend= separately when using **PLOTLY_LAYOUT; it is
+# already included here. To override legend for a specific chart, exclude it:
+#   fig.update_layout(**{k: v for k, v in PLOTLY_LAYOUT.items() if k != "legend"}, legend=dict(...))
+# ─────────────────────────────────────────────────────────────────────────────
 PLOTLY_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -328,6 +296,21 @@ PLOTLY_LAYOUT = dict(
     ),
 )
 
+# Horizontal legend variant — use for charts that need legend below the plot
+PLOTLY_LAYOUT_HLEGEND = {
+    **{k: v for k, v in PLOTLY_LAYOUT.items() if k != "legend"},
+    "legend": dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1,
+        bgcolor="rgba(0,0,0,0)",
+        bordercolor="rgba(0,0,0,0)",
+        font=dict(size=11, color="#8B949E"),
+    ),
+}
+
 ACCENT = "#00D09C"
 ACCENT_DIM = "rgba(0, 208, 156, 0.15)"
 DANGER = "#FF4757"
@@ -340,4 +323,5 @@ CHAIN_COLORS = {
     "arbitrum": "#28A0F0",
     "polygon": "#8247E5",
     "bsc": "#F0B90B",
+    "solana": "#9945FF",   # Solana purple
 }

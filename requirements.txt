@@ -3,9 +3,15 @@
 # Install: pip install -r requirements.txt
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Blockchain / Web3 ────────────────────────────────────────────────────────
+# ── Blockchain / Web3 (EVM) ───────────────────────────────────────────────────
 web3>=6.0.0                  # Ethereum/EVM chain interaction
 eth-account>=0.10.0          # Account management (sign txns from env vars)
+
+# ── Blockchain / Web3 (Solana) ────────────────────────────────────────────────
+# Solana trade execution via Jupiter aggregator
+solders>=0.20.0              # Solana Python SDK (keypair, transaction signing)
+solana>=0.32.0               # Solana JSON-RPC client
+base58>=2.1.1                # Base58 encoding/decoding for Solana keys
 
 # ── HTTP / Async ─────────────────────────────────────────────────────────────
 requests>=2.31.0             # Synchronous HTTP (DexScreener, GoPlus, etc.)

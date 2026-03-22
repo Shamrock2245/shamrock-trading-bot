@@ -79,7 +79,8 @@ class GemCandidate:
     @property
     def is_actionable(self) -> bool:
         """True if this gem is ready for trade consideration."""
-        return self.is_safe and self.gem_score >= 65.0
+        from config import settings
+        return self.is_safe and self.gem_score >= settings.MIN_GEM_SCORE
 
     def __str__(self) -> str:
         return (

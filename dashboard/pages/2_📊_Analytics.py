@@ -15,7 +15,7 @@ import plotly.express as px
 import pandas as pd
 from datetime import datetime, timezone
 
-from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, DANGER, WARNING, INFO
+from styles import PREMIUM_CSS, PLOTLY_LAYOUT, PLOTLY_LAYOUT_HLEGEND, ACCENT, CHAIN_COLORS, DANGER, WARNING, INFO
 from state import get_scan_history, get_gem_history, get_trades
 
 st.set_page_config(page_title="Analytics | Shamrock", page_icon="📊", layout="wide")
@@ -84,15 +84,8 @@ with tab1:
             hovertemplate="<b>Avg: %{y:.1f}</b><br>%{x|%b %d, %H:%M}<extra></extra>",
         ))
 
-    fig_freq.update_layout(
-        **{k: v for k, v in PLOTLY_LAYOUT.items() if k != "legend"},
-        height=350,
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-            bgcolor="rgba(0,0,0,0)", bordercolor="rgba(0,0,0,0)",
-            font=dict(size=11, color="#8B949E"),
-        ),
-    )
+    # Use PLOTLY_LAYOUT_HLEGEND to avoid duplicate legend kwargs
+    fig_freq.update_layout(**PLOTLY_LAYOUT_HLEGEND, height=350)
     st.plotly_chart(fig_freq, use_container_width=True, config={"displayModeBar": False})
 
 with tab2:

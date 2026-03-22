@@ -7,6 +7,7 @@ Usage:
     python main.py --scan           # Run one gem scan cycle and print results
     python main.py --snipe <addr> <chain>  # Test gem snipe for a specific token
     python main.py --analyze <addr> <chain>  # Run TA + Fibonacci analysis (no trade)
+    python main.py --positions      # Show all open positions and PnL
 
 Environment:
     MODE=paper   → Simulate trades (default, safe)
@@ -22,6 +23,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -60,6 +62,9 @@ from core.balance_fetcher import BalanceFetcher, fetch_and_print_balances
 from core.safety import check_token_safety
 from core.executor import TradeExecutor, build_gem_snipe_params
 from core.risk import risk_manager
+from core.position_monitor import PositionMonitor, register_position, load_positions
+from core.wallet_router import route_trade
+from core.signal_engine import SignalEngine
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
@@ -71,11 +76,11 @@ from dashboard.state import BotStateWriter
 # ─────────────────────────────────────────────────────────────────────────────
 
 BANNER = """
-╔══════════════════════════════════════════════════════════════╗
-║          ☘️  SHAMROCK TRADING BOT  ☘️                         ║
-║     Multi-Chain Gem Sniper with MEV Protection               ║
-║     Chains: ETH | Base | Arbitrum | Polygon | BSC            ║
-╚══════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════╗
+║           ☘️  SHAMROCK TRADING BOT  ☘️                            ║
+║     Multi-Chain Gem Sniper with MEV Protection                   ║
+║     Chains: ETH | Base | Arbitrum | Polygon | BSC | Solana       ║
+╚══════════════════════════════════════════════════════════════════╝
 """
 
 
@@ -107,11 +112,13 @@ async def run_gem_scan() -> list[GemCandidate]:
     for i, candidate in enumerate(candidates[:20], 1):
         token = candidate.token
         boosted = "🚀 BOOSTED" if token.is_boosted else ""
+        express = "⚡ EXPRESS" if getattr(candidate, "express_lane", False) else ""
         print(
             f"{i:2}. [{candidate.gem_score:5.1f}] {token.symbol:<12} | "
             f"{token.chain:<10} | liq=${token.liquidity_usd:>10,.0f} | "
             f"vol1h=${token.volume_1h:>8,.0f} | "
-            f"age={f'{token.age_hours:.1f}h' if token.age_hours else 'N/A':<8} {boosted}"
+            f"age={f'{token.age_hours:.1f}h' if token.age_hours else 'N/A':<8} "
+            f"{boosted} {express}"
         )
         if token.dex_url:
             print(f"     {token.dex_url}")
@@ -129,6 +136,7 @@ async def run_gem_scan() -> list[GemCandidate]:
                 "address": c.token.address,
                 "chain": c.token.chain,
                 "gem_score": c.gem_score,
+                "express_lane": getattr(c, "express_lane", False),
                 "price_usd": c.token.price_usd,
                 "market_cap": c.token.market_cap,
                 "liquidity_usd": c.token.liquidity_usd,
@@ -223,13 +231,13 @@ async def run_gem_snipe_example(token_address: str, chain: str) -> dict:
         chain=chain,
         token_address=token_address,
         eth_amount=risk.position_size_eth,
-        slippage_bps=200,  # 2% slippage for new gems
+        slippage_bps=200,
     )
     print(f"  Wallet:         {params.wallet.alias} ({params.wallet.address[:10]}...)")
     print(f"  Chain:          {params.chain}")
-    print(f"  Token in:       {params.token_in[:10]}... (native ETH)")
+    print(f"  Token in:       {params.token_in[:10]}... (native)")
     print(f"  Token out:      {params.token_out[:10]}...")
-    print(f"  Amount:         {params.amount_in_wei / 1e18:.6f} ETH")
+    print(f"  Amount:         {params.amount_in_wei / 1e18:.6f}")
     print(f"  Slippage:       {params.slippage_bps / 100:.1f}%")
     print(f"  Deadline:       {params.deadline_seconds}s\n")
 
@@ -290,23 +298,77 @@ async def run_gem_snipe_example(token_address: str, chain: str) -> dict:
     return output
 
 
+def run_show_positions():
+    """Display all open positions and their current PnL."""
+    positions = load_positions()
+    open_pos = [p for p in positions if p.get("status") == "open"]
+    closed_pos = [p for p in positions if p.get("status") == "closed"]
+
+    print(f"\n{'='*75}")
+    print(f"☘️  OPEN POSITIONS ({len(open_pos)})")
+    print(f"{'='*75}")
+
+    if not open_pos:
+        print("  No open positions.")
+    else:
+        for pos in open_pos:
+            entry = float(pos.get("entry_price", 0))
+            current = float(pos.get("current_price", entry))
+            pnl_pct = pos.get("unrealized_pnl_pct", 0)
+            pnl_sign = "+" if pnl_pct >= 0 else ""
+            tp1 = "✅" if pos.get("tp1_hit") else "⬜"
+            tp2 = "✅" if pos.get("tp2_hit") else "⬜"
+            tp3 = "✅" if pos.get("tp3_hit") else "⬜"
+            print(
+                f"  {pos.get('token_symbol','?'):<12} | {pos.get('chain','?'):<10} | "
+                f"entry=${entry:.6f} | now=${current:.6f} | "
+                f"PnL={pnl_sign}{pnl_pct:.1f}% | "
+                f"TP1={tp1} TP2={tp2} TP3={tp3} | "
+                f"wallet={pos.get('wallet','?')}"
+            )
+
+    print(f"\n{'='*75}")
+    print(f"CLOSED POSITIONS (last 10): {len(closed_pos)} total")
+    print(f"{'='*75}")
+    for pos in closed_pos[-10:]:
+        realized = float(pos.get("realized_pnl_usd", 0))
+        sign = "+" if realized >= 0 else ""
+        print(
+            f"  {pos.get('token_symbol','?'):<12} | {pos.get('chain','?'):<10} | "
+            f"PnL={sign}${realized:.2f} | reason={pos.get('last_sell_at','?')[:10]}"
+        )
+
+
 async def run_bot_loop():
     """
     Main bot loop — runs continuously until interrupted.
-    Cycle: balance check → gem scan → safety filter → risk check → execute
+    Cycle: balance check → gem scan → safety filter → signal check → risk check → execute
+    Position monitor runs in a background thread.
     """
+    is_paper = settings.MODE != "live"
     logger.info(f"Starting bot loop in {settings.MODE.upper()} mode")
     print(BANNER)
-    print(f"Mode: {settings.MODE.upper()}")
+    print(f"Mode:          {settings.MODE.upper()}")
     print(f"Scan interval: {settings.SCAN_INTERVAL_SECONDS}s")
     print(f"Min gem score: {settings.MIN_GEM_SCORE}")
-    print(f"Chains: {', '.join(settings.ACTIVE_CHAINS)}")
+    print(f"Express lane:  ≥{settings.EXPRESS_LANE_SCORE}")
+    print(f"Chains:        {', '.join(settings.ACTIVE_CHAINS)}")
     print()
+
+    # ── Start position monitor in background thread ───────────────────────────
+    monitor = PositionMonitor(is_paper=is_paper)
+    monitor_thread = threading.Thread(
+        target=monitor.run_forever,
+        name="PositionMonitor",
+        daemon=True,
+    )
+    monitor_thread.start()
+    logger.info("Position monitor started in background thread")
 
     # Startup notification
     notify_alert(
         "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s".format(
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
             settings.MODE.upper(),
             ", ".join(settings.ACTIVE_CHAINS),
             settings.SCAN_INTERVAL_SECONDS,
@@ -322,26 +384,30 @@ async def run_bot_loop():
     scanner = GemScanner()
     executor = TradeExecutor()
     strategy = GemSnipeStrategy()
+    signal_engine = SignalEngine()
     state_writer = BotStateWriter()
     cycle = 0
+    trades_this_session = 0
 
     while True:
         cycle += 1
+        trades_this_cycle = 0
         logger.info(f"--- Cycle {cycle} ---")
 
         try:
             # 1. Fetch balances
             fetcher = BalanceFetcher()
 
-            # 2. Scan for gems
+            # 2. Scan for gems (all chains including Solana)
             candidates = scanner.scan()
             logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
 
             # 3. Process top candidates through strategy
             for candidate in candidates[:settings.MAX_TRADES_PER_CYCLE]:
                 token = candidate.token
+                is_express = getattr(candidate, "express_lane", False)
 
-                # Safety check
+                # Safety check (mandatory — no bypass even for express lane)
                 safety = check_token_safety(token.address, token.chain)
                 if not safety.is_safe:
                     logger.info(f"Skipping {token.symbol}: {safety.block_reason}")
@@ -355,83 +421,165 @@ async def run_bot_loop():
                     "honeypot_passed": safety.honeypot_passed,
                 }
 
-                # Phase 2: Strategy evaluation (TA + Fibonacci gate)
-                if settings.TA_ENABLED:
+                # Phase 2: Signal engine (TA + momentum)
+                # Express lane tokens skip full TA — they already scored ≥82
+                if settings.TA_ENABLED and not is_express:
+                    signal = signal_engine.analyze(
+                        token_symbol=token.symbol,
+                        chain=token.chain,
+                        pair_address=token.pair_address,
+                        gem_score=candidate.gem_score,
+                        price_change_1h=token.price_change_1h,
+                        price_change_24h=token.price_change_24h,
+                        volume_1h=token.volume_1h,
+                        volume_24h=token.volume_24h,
+                        buys_1h=getattr(token, "buys_1h", 0),
+                        sells_1h=getattr(token, "sells_1h", 0),
+                    )
+
+                    if not signal.is_buy_signal:
+                        logger.info(
+                            f"Signal engine skipped {token.symbol}: "
+                            f"composite={signal.composite:.1f} "
+                            f"(rsi={signal.rsi}, macd={signal.macd_signal}, "
+                            f"bb={signal.bb_signal})"
+                        )
+                        continue
+
+                    logger.info(
+                        f"Signal approved {token.symbol}: "
+                        f"composite={signal.composite:.1f} | "
+                        f"fib={signal.fib_zone} | "
+                        f"rsi={signal.rsi:.1f if signal.rsi else 'N/A'}"
+                    )
+
+                    # Strategy evaluation (Fibonacci gate)
                     decision = strategy.evaluate(candidate)
                     if decision.action != "buy":
                         logger.info(
                             f"Strategy skipped {token.symbol}: {decision.reason}"
                         )
                         continue
+
+                elif is_express:
                     logger.info(
-                        f"Strategy approved {token.symbol} — "
-                        f"confidence={decision.confidence:.0f}, "
-                        f"fib_zone={decision.fib_result.current_zone if decision.fib_result else 'N/A'}"
+                        f"⚡ EXPRESS LANE: {token.symbol} score={candidate.gem_score:.0f} "
+                        f"— executing immediately"
                     )
 
-                # Get wallet balance for this chain
-                primary = WALLETS["primary"]
-                chain_data = fetcher.fetch_wallet_chain_balances(primary, token.chain)
-                native_balance = 0.0
-                for t in chain_data.get("tokens", []):
-                    if t.get("is_native"):
-                        native_balance = t.get("balance", 0.0)
-                        break
+                # ── Wallet routing (multi-wallet, conviction-based sizing) ──────
+                allocation = route_trade(
+                    chain=token.chain,
+                    gem_score=candidate.gem_score,
+                    strategy="gem_snipe",
+                )
 
-                # Check USDC balance on-chain (stablecoin capital)
+                if not allocation:
+                    logger.info(f"No wallet available for {token.symbol} on {token.chain}")
+                    continue
+
+                wallet = allocation.wallet
+                native_balance = allocation.native_balance
+
+                # ── USDC balance check ────────────────────────────────────────
                 usdc_balance = 0.0
                 try:
                     from config.chains import CHAINS
                     chain_cfg = CHAINS.get(token.chain)
-                    if chain_cfg and chain_cfg.usdc_address:
+                    if chain_cfg and chain_cfg.usdc_address and not chain_cfg.is_solana:
                         from web3 import Web3
                         w3 = Web3(Web3.HTTPProvider(chain_cfg.rpc_url))
-                        # ERC20 balanceOf ABI (minimal)
                         erc20_abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
                         usdc_contract = w3.eth.contract(
                             address=Web3.to_checksum_address(chain_cfg.usdc_address),
                             abi=erc20_abi,
                         )
                         raw_balance = usdc_contract.functions.balanceOf(
-                            Web3.to_checksum_address(primary.address)
+                            Web3.to_checksum_address(wallet.address)
                         ).call()
-                        usdc_balance = raw_balance / 1e6  # USDC has 6 decimals
+                        usdc_balance = raw_balance / 1e6
                         if usdc_balance > 1.0:
                             logger.info(f"USDC balance on {token.chain}: ${usdc_balance:.2f}")
                 except Exception as e:
-                    logger.warning(f"Could not fetch USDC balance: {e}")
+                    logger.debug(f"USDC balance check failed: {e}")
 
-                # Risk check (USDC-aware)
+                # ── Risk check ────────────────────────────────────────────────
                 risk = risk_manager.check_trade(
-                    primary, native_balance, token.address, token.chain,
+                    wallet, native_balance, token.address, token.chain,
                     usdc_balance=usdc_balance,
                 )
                 if not risk.approved:
                     logger.info(f"Risk blocked {token.symbol}: {risk.reason}")
                     continue
 
-                # Execute (use USDC capital when available)
-                params = build_gem_snipe_params(
-                    wallet=primary,
-                    chain=token.chain,
-                    token_address=token.address,
-                    eth_amount=risk.position_size_eth,
-                    use_usdc=risk.use_usdc,
-                    usdc_amount=risk.position_size_usdc,
-                )
-                result = executor.execute_trade(params)
-
-                if result.success:
+                # ── Solana execution path ─────────────────────────────────────
+                if token.chain == "solana":
+                    from core.solana_executor import execute_solana_buy
+                    sol_amount = allocation.position_size_native
+                    # Use Solana-specific address and key env for Solana chain
+                    sol_public_key = wallet.solana_address or wallet.address
+                    sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
+                    tx_hash = execute_solana_buy(
+                        token_mint=token.address,
+                        sol_amount=sol_amount,
+                        wallet_public_key=sol_public_key,
+                        wallet_private_key_env=sol_key_env,
+                        slippage_bps=150,
+                        is_paper=is_paper,
+                    )
+                    success = tx_hash is not None
+                    execution_path = "jupiter"
+                    amount_display = f"{sol_amount:.4f} SOL"
+                    amount_out = 0.0
+                    error = None if success else "Solana execution failed"
+                else:
+                    # ── EVM execution path ────────────────────────────────────
+                    params = build_gem_snipe_params(
+                        wallet=wallet,
+                        chain=token.chain,
+                        token_address=token.address,
+                        eth_amount=risk.position_size_eth,
+                        use_usdc=risk.use_usdc,
+                        usdc_amount=risk.position_size_usdc,
+                    )
+                    result = executor.execute_trade(params)
+                    success = result.success
+                    tx_hash = result.tx_hash
+                    execution_path = result.execution_path
+                    amount_out = result.amount_out
+                    error = result.error
                     amount_display = (
                         f"${risk.position_size_usdc:.2f} USDC"
                         if risk.use_usdc
                         else f"{risk.position_size_eth:.4f} ETH"
                     )
+
+                if success:
+                    trades_this_cycle += 1
+                    trades_this_session += 1
                     logger.info(
-                        f"\u2705 Trade executed: {token.symbol} | {token.chain} | "
-                        f"{amount_display} | path={result.execution_path} | tx={result.tx_hash}"
+                        f"✅ Trade executed: {token.symbol} | {token.chain} | "
+                        f"{amount_display} | path={execution_path} | tx={tx_hash}"
                     )
-                    risk_manager.record_trade_open(primary.alias)
+                    risk_manager.record_trade_open(wallet.alias)
+
+                    # ── Register position for auto-sell monitoring ────────────
+                    register_position(
+                        token_address=token.address,
+                        token_symbol=token.symbol,
+                        chain=token.chain,
+                        wallet=wallet.alias.lower().replace(" ", "_"),
+                        entry_price=token.price_usd,
+                        quantity=amount_out if amount_out > 0 else (
+                            allocation.position_size_usd / token.price_usd
+                            if token.price_usd > 0 else 0
+                        ),
+                        pair_address=token.pair_address,
+                        tx_hash=tx_hash or "",
+                        gem_score=candidate.gem_score,
+                        is_paper=is_paper,
+                    )
+
                     notify_trade(
                         action="BUY",
                         token_symbol=token.symbol,
@@ -439,14 +587,15 @@ async def run_bot_loop():
                         amount_eth=risk.position_size_eth,
                         score=candidate.gem_score,
                         mode=settings.MODE,
-                        extra="Capital: {} | Path: {} | Tx: {}".format(
+                        extra="Capital: {} | Path: {} | Tx: {} | Express: {}".format(
                             amount_display,
-                            result.execution_path,
-                            result.tx_hash or "N/A",
+                            execution_path,
+                            tx_hash or "N/A",
+                            "YES ⚡" if is_express else "no",
                         ),
                     )
                 else:
-                    logger.warning(f"\u274c Trade failed: {token.symbol} | {result.error}")
+                    logger.warning(f"❌ Trade failed: {token.symbol} | {error}")
                     notify_trade(
                         action="BUY",
                         token_symbol=token.symbol,
@@ -454,7 +603,7 @@ async def run_bot_loop():
                         amount_eth=risk.position_size_eth,
                         score=candidate.gem_score,
                         mode=settings.MODE,
-                        extra="\u274c FAILED: {}".format(result.error),
+                        extra=f"❌ FAILED: {error}",
                     )
 
             # Write dashboard state
@@ -468,15 +617,21 @@ async def run_bot_loop():
 
             # Periodic cycle summary (every 10 cycles)
             if cycle % 10 == 0:
+                open_count = len([p for p in load_positions() if p.get("status") == "open"])
                 notify_cycle_summary(
                     cycle=cycle,
                     candidates=len(candidates),
-                    trades=0,  # TODO: track trades_this_cycle
+                    trades=trades_this_session,
                     mode=settings.MODE,
+                )
+                logger.info(
+                    f"Session summary: {trades_this_session} trades | "
+                    f"{open_count} open positions"
                 )
 
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
+            monitor.stop()
             break
         except Exception as e:
             logger.error(f"Cycle {cycle} error: {e}", exc_info=True)
@@ -508,6 +663,8 @@ def main():
                         help="Test gem snipe for a specific token address and chain")
     parser.add_argument("--analyze", nargs=2, metavar=("TOKEN_ADDRESS", "CHAIN"),
                         help="Run TA + Fibonacci analysis on a token (no trade executed)")
+    parser.add_argument("--positions", action="store_true",
+                        help="Show all open positions and PnL")
     args = parser.parse_args()
 
     if args.balances:
@@ -520,6 +677,8 @@ def main():
     elif args.analyze:
         token_address, chain = args.analyze
         asyncio.run(run_token_analysis(token_address, chain))
+    elif args.positions:
+        run_show_positions()
     else:
         asyncio.run(run_bot_loop())
 
@@ -532,98 +691,33 @@ async def run_token_analysis(token_address: str, chain: str):
     from data.providers.ohlcv_provider import fetch_ohlcv, get_current_price
     from strategies.signal_scorer import analyze_token, format_analysis_report
 
-    print(f"\n\u2618\ufe0f  Analyzing {token_address} on {chain}...\n")
+    print(f"\n☘️  Analyzing {token_address} on {chain}...\n")
 
     # Step 1: Get current price
     print("Step 1: Fetching current price...")
     current_price = get_current_price(token_address, chain)
-    if not current_price or current_price <= 0:
-        print(f"\u274c Could not fetch price for {token_address} on {chain}")
+    print(f"  Current price: ${current_price:.8f}" if current_price else "  Price unavailable")
+
+    # Step 2: Fetch OHLCV
+    print("Step 2: Fetching OHLCV data...")
+    candles = fetch_ohlcv(token_address, chain, timeframe="1h", limit=100)
+    print(f"  Fetched {len(candles)} hourly candles")
+
+    if not candles:
+        print("  ⚠️  No OHLCV data available — cannot run full TA")
         return
-    print(f"  Current price: ${current_price:.10f}")
 
-    # Step 2: Fetch OHLCV data
-    print(f"\nStep 2: Fetching OHLCV data ({settings.OHLCV_LOOKBACK_DAYS}d lookback)...")
-    df = fetch_ohlcv(token_address, chain, days=settings.OHLCV_LOOKBACK_DAYS)
-    if df is None or len(df) < 3:
-        print(f"\u26a0\ufe0f Insufficient OHLCV data ({len(df) if df is not None else 0} candles)")
-        print("  Analysis will proceed with limited data.")
-        import pandas as pd
-        df = pd.DataFrame({
-            "open": [current_price],
-            "high": [current_price * 1.01],
-            "low": [current_price * 0.99],
-            "close": [current_price],
-            "volume": [0],
-        })
-    else:
-        print(f"  Fetched {len(df)} candles")
-
-    # Step 3: Run safety check
-    print("\nStep 3: Safety check...")
-    safety = check_token_safety(token_address, chain)
-    safe_str = "\u2705 YES" if safety.is_safe else f"\u274c NO — {safety.block_reason}"
-    print(f"  Safe: {safe_str}")
-    if safety.buy_tax is not None:
-        print(f"  Buy tax: {safety.buy_tax:.1%} | Sell tax: {safety.sell_tax:.1%}")
-
-    # Step 4: Run TA + Fibonacci
-    print("\nStep 4: Running Technical Analysis + Fibonacci...")
-    signal_score, ta_result, fib_result = analyze_token(
-        df=df,
-        current_price=current_price,
-        onchain_score=50.0,  # Default for standalone analysis
-        direction="buy",
-    )
-
-    # Step 5: Print full report
-    report = format_analysis_report(signal_score, ta_result, fib_result, token_address[:10])
+    # Step 3: Run analysis
+    print("Step 3: Running TA + Fibonacci analysis...")
+    analysis = analyze_token(candles, current_price)
+    report = format_analysis_report(analysis, token_address, chain)
     print(report)
 
-    # Step 6: Save to file
-    output = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "token_address": token_address,
-        "chain": chain,
-        "current_price": current_price,
-        "composite_score": signal_score.composite,
-        "signal": signal_score.signal,
-        "fib_aligned": fib_result.aligned,
-        "fib_zone": fib_result.current_zone,
-        "fib_confidence": fib_result.confidence,
-        "trend": fib_result.trend,
-        "fibonacci": {
-            "swing_high": fib_result.swing_high,
-            "swing_low": fib_result.swing_low,
-            "nearest_support": fib_result.nearest_support,
-            "nearest_resistance": fib_result.nearest_resistance,
-            "retracement_levels": {str(k): v for k, v in fib_result.retracement_levels.items()},
-            "extension_levels": {str(k): v for k, v in fib_result.extension_levels.items()},
-            "take_profit_targets": fib_result.take_profit_targets,
-            "stop_loss": fib_result.stop_loss_level,
-        },
-        "ta": {
-            "trend_score": ta_result.trend_score,
-            "momentum_score": ta_result.momentum_score,
-            "volume_score": ta_result.volume_score,
-            "rsi": ta_result.rsi,
-            "macd_signal": ta_result.macd_signal,
-            "ema_signal": ta_result.ema_signal,
-            "bb_signal": ta_result.bb_signal,
-            "volume_spike": ta_result.volume_spike,
-        },
-        "safety": {
-            "is_safe": safety.is_safe,
-            "block_reason": safety.block_reason,
-            "buy_tax": safety.buy_tax,
-            "sell_tax": safety.sell_tax,
-        },
-    }
-
-    output_path = OUTPUT_DIR / "analysis.json"
+    # Save report
+    output_path = OUTPUT_DIR / f"analysis_{token_address[:8]}_{chain}.txt"
     with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\n\u2705 Full analysis saved to {output_path}")
+        f.write(report)
+    print(f"\n✅ Analysis saved to {output_path}")
 
 
 if __name__ == "__main__":

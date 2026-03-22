@@ -5,6 +5,12 @@ The main bot writes structured JSON state files after each scan cycle.
 The Streamlit dashboard reads these files for real-time display.
 
 State directory: /app/data/dashboard/ (shared Docker volume)
+
+Schema notes:
+  - Positions are bridged from output/positions.json (position_monitor format)
+    to dashboard format on every read. No separate write needed.
+  - Trades are bridged from output/trades.json (position_monitor format).
+  - express_lane, Solana chain, and all new fields are supported.
 """
 
 import json
@@ -16,6 +22,10 @@ from typing import Any, Optional
 
 
 STATE_DIR = Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard"))
+
+# Paths to the position_monitor output files (source of truth for positions/trades)
+_POSITIONS_FILE = Path(os.getenv("POSITIONS_FILE", "output/positions.json"))
+_TRADES_FILE = Path(os.getenv("TRADES_FILE", "output/trades.json"))
 
 
 def _ensure_dir():
@@ -42,6 +52,106 @@ def _write_json(filename: str, data: Any):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2, default=str)
     tmp.replace(path)
+
+
+def _read_raw_json(path: Path, default: Any = None) -> Any:
+    """Read any JSON file by absolute path."""
+    if not path.exists():
+        return default if default is not None else []
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return default if default is not None else []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema Bridge: position_monitor → dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bridge_position(p: dict) -> dict:
+    """
+    Convert a position_monitor position dict to dashboard format.
+
+    position_monitor keys:
+      token_symbol, chain, entry_price, current_price, remaining_quantity,
+      unrealized_pnl_pct, status, entry_time, tp1_hit, tp2_hit, tp3_hit,
+      realized_pnl_usd, gem_score, is_paper, express_lane, wallet
+
+    Dashboard keys expected by pages/3_Positions.py:
+      symbol, chain, entry_price, current_price, amount_eth_spent,
+      unrealized_pnl_pct, is_open, fib_zone, fib_support, fib_resistance,
+      opened_at, tp1_hit, tp2_hit, tp3_hit, express_lane, wallet
+    """
+    entry_price = float(p.get("entry_price", 0))
+    current_price = float(p.get("current_price", entry_price))
+    qty = float(p.get("remaining_quantity", p.get("quantity", 0)))
+    # Estimate ETH/SOL spent from entry price × quantity (approximate)
+    chain = p.get("chain", "")
+    native_price = 3000.0 if chain != "solana" else 150.0  # rough fallback
+    amount_native = (entry_price * qty) / native_price if native_price > 0 else 0
+
+    return {
+        "symbol": p.get("token_symbol", p.get("symbol", "???")),
+        "chain": chain,
+        "entry_price": entry_price,
+        "current_price": current_price,
+        "amount_eth_spent": amount_native,
+        "amount_sol_spent": amount_native if chain == "solana" else 0,
+        "unrealized_pnl_pct": float(p.get("unrealized_pnl_pct", 0)),
+        "realized_pnl_usd": float(p.get("realized_pnl_usd", 0)),
+        "is_open": p.get("status", "open") == "open",
+        "fib_zone": p.get("fib_zone", ""),
+        "fib_support": p.get("fib_support", 0),
+        "fib_resistance": p.get("fib_resistance", 0),
+        "opened_at": p.get("entry_time", p.get("opened_at", "")),
+        "tp1_hit": p.get("tp1_hit", False),
+        "tp2_hit": p.get("tp2_hit", False),
+        "tp3_hit": p.get("tp3_hit", False),
+        "gem_score": p.get("gem_score", 0),
+        "express_lane": p.get("express_lane", False),
+        "wallet": p.get("wallet", "primary"),
+        "is_paper": p.get("is_paper", True),
+        "tx_hash_buy": p.get("tx_hash_buy", ""),
+    }
+
+
+def _bridge_trade(t: dict) -> dict:
+    """
+    Convert a position_monitor trade dict to dashboard format.
+
+    position_monitor keys:
+      timestamp, token_symbol, chain, wallet, action (BUY/SELL), reason,
+      quantity, price_usd, value_usd, pnl_usd, pnl_pct, is_paper, tx_hash
+
+    Dashboard keys expected by pages/3_Positions.py:
+      timestamp, symbol, chain, direction (buy/sell), amount_in, amount_out,
+      price_usd, gas_cost_eth, execution_path, status, gem_score
+    """
+    action = t.get("action", t.get("direction", "")).upper()
+    direction = "buy" if action == "BUY" else "sell"
+    qty = float(t.get("quantity", 0))
+    price = float(t.get("price_usd", 0))
+    pnl_usd = float(t.get("pnl_usd", 0))
+
+    return {
+        "timestamp": t.get("timestamp", ""),
+        "symbol": t.get("token_symbol", t.get("symbol", "???")),
+        "chain": t.get("chain", ""),
+        "direction": direction,
+        "amount_in": qty if direction == "buy" else qty,
+        "amount_out": qty + (pnl_usd / price if price > 0 else 0) if direction == "sell" else qty,
+        "price_usd": price,
+        "gas_cost_eth": float(t.get("gas_cost_eth", 0)),
+        "execution_path": t.get("execution_path", t.get("reason", "")),
+        "status": "success" if not t.get("error") else "failed",
+        "gem_score": float(t.get("gem_score", 0)),
+        "pnl_usd": pnl_usd,
+        "pnl_pct": float(t.get("pnl_pct", 0)),
+        "wallet": t.get("wallet", ""),
+        "is_paper": t.get("is_paper", True),
+        "tx_hash": t.get("tx_hash", ""),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +187,9 @@ class BotStateWriter:
             "last_cycle_at": now.isoformat(),
             "cycle_count": self.cycle_count,
             "chains_scanned": chains_scanned or [],
-            "uptime_seconds": int((now - datetime.fromisoformat(self._start_time)).total_seconds()),
+            "uptime_seconds": int(
+                (now - datetime.fromisoformat(self._start_time)).total_seconds()
+            ),
         })
         _write_json("bot_status.json", status)
 
@@ -116,6 +228,7 @@ class BotStateWriter:
                 "boost_amount": getattr(token, "boost_amount", 0),
                 "dex_url": getattr(token, "dex_url", ""),
                 "gem_score": getattr(c, "gem_score", 0),
+                "express_lane": getattr(c, "express_lane", False),
                 "safety_passed": getattr(c, "safety_passed", False),
                 "is_safe": getattr(c, "is_safe", False),
                 "discovered_at": now.isoformat(),
@@ -129,6 +242,10 @@ class BotStateWriter:
                     "social": getattr(c, "social_score", 0),
                     "boost": getattr(c, "boost_score", 0),
                     "smart_money": getattr(c, "smart_money_score", 0),
+                    "tvl": getattr(c, "tvl_score", 0),
+                    "social_sentiment": getattr(c, "social_sentiment_score", 0),
+                    "holder_concentration": getattr(c, "holder_concentration_score", 0),
+                    "unlock_risk": getattr(c, "unlock_risk_score", 0),
                 },
             }
 
@@ -157,49 +274,6 @@ class BotStateWriter:
         if len(all_gems) > 5000:
             all_gems = all_gems[-5000:]
         _write_json("gem_history.json", all_gems)
-
-        # ── Trades ────────────────────────────────────────────────────────
-        if trades:
-            trade_data = []
-            for t in trades:
-                trade_data.append({
-                    "id": getattr(t, "id", None),
-                    "symbol": getattr(t, "token_symbol", ""),
-                    "chain": getattr(t, "chain", ""),
-                    "direction": getattr(t, "direction", ""),
-                    "amount_in": getattr(t, "amount_in", 0),
-                    "amount_out": getattr(t, "amount_out", 0),
-                    "price_usd": getattr(t, "price_usd", 0),
-                    "gas_cost_eth": getattr(t, "gas_cost_eth", 0),
-                    "execution_path": getattr(t, "execution_path", ""),
-                    "status": getattr(t, "status", ""),
-                    "gem_score": getattr(t, "gem_score", 0),
-                    "signal_score": getattr(t, "signal_score", 0),
-                    "timestamp": getattr(t, "timestamp", now).isoformat() if hasattr(getattr(t, "timestamp", now), "isoformat") else str(getattr(t, "timestamp", now)),
-                })
-            all_trades = _read_json("trades.json", [])
-            all_trades.extend(trade_data)
-            _write_json("trades.json", all_trades)
-
-        # ── Positions ─────────────────────────────────────────────────────
-        if positions:
-            pos_data = []
-            for p in positions:
-                pos_data.append({
-                    "symbol": getattr(p, "token_symbol", ""),
-                    "chain": getattr(p, "chain", ""),
-                    "entry_price": getattr(p, "entry_price_usd", 0),
-                    "current_price": getattr(p, "current_price_usd", 0),
-                    "amount_tokens": getattr(p, "amount_tokens", 0),
-                    "amount_eth_spent": getattr(p, "amount_eth_spent", 0),
-                    "unrealized_pnl_pct": p.unrealized_pnl_pct if hasattr(p, "unrealized_pnl_pct") else 0,
-                    "is_open": getattr(p, "is_open", True),
-                    "fib_zone": getattr(p, "fib_zone", ""),
-                    "fib_support": getattr(p, "fib_support", 0),
-                    "fib_resistance": getattr(p, "fib_resistance", 0),
-                    "opened_at": getattr(p, "opened_at", now).isoformat() if hasattr(getattr(p, "opened_at", now), "isoformat") else str(getattr(p, "opened_at", now)),
-                })
-            _write_json("positions.json", pos_data)
 
         # ── Errors ────────────────────────────────────────────────────────
         if errors:
@@ -231,11 +305,29 @@ def get_latest_gems() -> list:
 def get_gem_history() -> list:
     return _read_json("gem_history.json", [])
 
-def get_trades() -> list:
-    return _read_json("trades.json", [])
-
-def get_positions() -> list:
-    return _read_json("positions.json", [])
-
 def get_errors() -> list:
     return _read_json("errors.json", [])
+
+
+def get_positions() -> list:
+    """
+    Read positions from output/positions.json (position_monitor source of truth)
+    and bridge to dashboard format. Falls back to dashboard state file.
+    """
+    raw = _read_raw_json(_POSITIONS_FILE, [])
+    if raw:
+        return [_bridge_position(p) for p in raw]
+    # Fallback: legacy dashboard state
+    return _read_json("positions.json", [])
+
+
+def get_trades() -> list:
+    """
+    Read trades from output/trades.json (position_monitor source of truth)
+    and bridge to dashboard format. Falls back to dashboard state file.
+    """
+    raw = _read_raw_json(_TRADES_FILE, [])
+    if raw:
+        return [_bridge_trade(t) for t in raw[-500:]]  # Last 500 trades
+    # Fallback: legacy dashboard state
+    return _read_json("trades.json", [])

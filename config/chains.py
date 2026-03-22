@@ -2,8 +2,8 @@
 config/chains.py — Multi-chain configuration for Shamrock Trading Bot.
 
 Defines RPC endpoints, chain IDs, block explorer APIs, and DEX router
-addresses for all supported chains. All sensitive values (RPC keys) are
-loaded from environment variables — never hardcoded.
+addresses for all supported chains including Solana. All sensitive values
+(RPC keys) are loaded from environment variables — never hardcoded.
 """
 
 import os
@@ -20,9 +20,10 @@ class ChainConfig:
     rpc_fallback: str
     explorer_api_url: str
     explorer_api_key_env: str          # Name of the env var holding the API key
-    native_token: str                  # e.g. "ETH", "MATIC", "BNB"
+    native_token: str                  # e.g. "ETH", "MATIC", "BNB", "SOL"
     native_token_decimals: int = 18
     wrapped_native: str = ""           # WETH, WMATIC, WBNB address
+    chain_type: str = "evm"            # "evm" or "solana"
     # DEX router addresses
     uniswap_v3_router: Optional[str] = None
     uniswap_v3_quoter: Optional[str] = None
@@ -31,6 +32,8 @@ class ChainConfig:
     camelot_router: Optional[str] = None     # Arbitrum only
     quickswap_router: Optional[str] = None   # Polygon only
     pancakeswap_v3_router: Optional[str] = None  # BSC only
+    jupiter_api_url: Optional[str] = None    # Solana only
+    raydium_program_id: Optional[str] = None # Solana only
     # CoW Protocol
     cow_settlement: Optional[str] = None
     cow_vault_relayer: Optional[str] = None
@@ -39,10 +42,20 @@ class ChainConfig:
     block_time_seconds: float = 12.0
     # Stablecoin addresses for profit-taking
     usdc_address: str = ""
+    # Solana-specific: USDC mint address
+    usdc_mint: str = ""
 
     @property
     def explorer_api_key(self) -> str:
         return os.getenv(self.explorer_api_key_env, "")
+
+    @property
+    def is_solana(self) -> bool:
+        return self.chain_type == "solana"
+
+    @property
+    def is_evm(self) -> bool:
+        return self.chain_type == "evm"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +80,7 @@ CHAINS: dict[str, ChainConfig] = {
         cow_vault_relayer="0xC92E8bdf79f0507f65a392b0ab4667716BFE0110",
         max_gas_gwei=int(os.getenv("MAX_GAS_GWEI", "50")),
         block_time_seconds=12.0,
-        usdc_address="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",  # USDC on Ethereum
+        usdc_address="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     ),
 
     "base": ChainConfig(
@@ -85,7 +98,7 @@ CHAINS: dict[str, ChainConfig] = {
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
         max_gas_gwei=5,
         block_time_seconds=2.0,
-        usdc_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
+        usdc_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     ),
 
     "arbitrum": ChainConfig(
@@ -103,7 +116,7 @@ CHAINS: dict[str, ChainConfig] = {
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
         max_gas_gwei=2,
         block_time_seconds=0.25,
-        usdc_address="0xaf88d065e77c8cC2239327C5EDb3A432268e5831",  # USDC on Arbitrum
+        usdc_address="0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     ),
 
     "polygon": ChainConfig(
@@ -121,7 +134,7 @@ CHAINS: dict[str, ChainConfig] = {
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
         max_gas_gwei=200,
         block_time_seconds=2.0,
-        usdc_address="0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # USDC on Polygon
+        usdc_address="0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
     ),
 
     "bsc": ChainConfig(
@@ -137,7 +150,30 @@ CHAINS: dict[str, ChainConfig] = {
         oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
         max_gas_gwei=5,
         block_time_seconds=3.0,
-        usdc_address="0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",  # USDC on BSC
+        usdc_address="0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+    ),
+
+    # ── Solana ────────────────────────────────────────────────────────────────
+    # Solana is not EVM — uses Jupiter aggregator for swaps, native SOL for gas.
+    # chain_id=900 is a convention used by DexScreener/GeckoTerminal for Solana.
+    "solana": ChainConfig(
+        name="Solana",
+        chain_id=900,
+        chain_type="solana",
+        rpc_url=os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
+        rpc_fallback=os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g.alchemy.com/v2/demo"),
+        explorer_api_url="https://api.solscan.io",
+        explorer_api_key_env="SOLSCAN_API_KEY",
+        native_token="SOL",
+        native_token_decimals=9,
+        wrapped_native="So11111111111111111111111111111111111111112",  # Wrapped SOL mint
+        jupiter_api_url=os.getenv("JUPITER_API_URL", "https://quote-api.jup.ag/v6"),
+        raydium_program_id="675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+        max_gas_gwei=0,          # Solana uses lamports, not gwei
+        block_time_seconds=0.4,  # ~400ms slot time
+        # USDC on Solana (SPL token mint address)
+        usdc_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        usdc_address="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     ),
 }
 
@@ -150,6 +186,7 @@ DEXSCREENER_CHAIN_MAP = {
     "arbitrum": "arbitrum",
     "polygon": "polygon",
     "bsc": "bsc",
+    "solana": "solana",
 }
 
 # GoPlus Security chain ID mapping
@@ -159,9 +196,10 @@ GOPLUS_CHAIN_MAP = {
     "arbitrum": "42161",
     "polygon": "137",
     "bsc": "56",
+    "solana": "solana",  # GoPlus uses string "solana" for Solana
 }
 
-# Honeypot.is chain ID mapping
+# Honeypot.is chain ID mapping (EVM only — Solana handled separately)
 HONEYPOT_CHAIN_MAP = {
     "ethereum": 1,
     "base": 8453,
@@ -182,3 +220,13 @@ def get_chain(chain_name: str) -> ChainConfig:
 def get_all_chains() -> list[ChainConfig]:
     """Return all configured chains."""
     return list(CHAINS.values())
+
+
+def get_evm_chains() -> list[ChainConfig]:
+    """Return only EVM-compatible chains."""
+    return [c for c in CHAINS.values() if c.is_evm]
+
+
+def get_solana_chain() -> ChainConfig:
+    """Return Solana chain config."""
+    return CHAINS["solana"]

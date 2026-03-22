@@ -40,7 +40,7 @@ trades = get_trades()
 open_positions = [p for p in positions if p.get("is_open", False)]
 closed_positions = [p for p in positions if not p.get("is_open", True)]
 
-total_invested = sum(p.get("amount_eth_spent", 0) for p in open_positions)
+total_invested = sum(p.get("amount_eth_spent", 0) or p.get("amount_sol_spent", 0) for p in open_positions)
 total_unrealized = sum(p.get("unrealized_pnl_pct", 0) for p in open_positions)
 avg_unrealized = total_unrealized / max(len(open_positions), 1)
 
@@ -73,7 +73,7 @@ with tab_pos:
             pnl = p.get("unrealized_pnl_pct", 0)
             pnl_emoji = "🟢" if pnl > 0 else ("🔴" if pnl < 0 else "⚪")
             chain = p.get("chain", "")
-            chain_emoji = {"ethereum": "⟠", "base": "🔵", "arbitrum": "🔷", "polygon": "🟣", "bsc": "🟡"}.get(chain, "⬡")
+            chain_emoji = {"ethereum": "⟠", "base": "🔵", "arbitrum": "🔷", "polygon": "🟣", "bsc": "🟡", "solana": "◎"}.get(chain, "⬡")
 
             pos_rows.append({
                 "": pnl_emoji,
@@ -83,6 +83,7 @@ with tab_pos:
                 "Current Price": f"${p.get('current_price', 0):.8f}",
                 "P&L": f"{pnl:+.2f}%",
                 "ETH Spent": f"{p.get('amount_eth_spent', 0):.4f}",
+                "Express": "⚡" if p.get("express_lane") else "",
                 "Fib Zone": p.get("fib_zone", "N/A"),
                 "Fib Support": f"${p.get('fib_support', 0):.8f}" if p.get("fib_support") else "—",
                 "Fib Resistance": f"${p.get('fib_resistance', 0):.8f}" if p.get("fib_resistance") else "—",

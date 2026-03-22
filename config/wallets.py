@@ -11,6 +11,9 @@ loaded exclusively from environment variables at runtime.
       - AWS Secrets Manager
       - HashiCorp Vault
     Never hardcode, log, or print private keys.
+
+Solana wallets use a separate keypair (base58-encoded private key) stored
+in WALLET_SOLANA_PRIVATE_KEY_PRIMARY / WALLET_SOLANA_PRIVATE_KEY_B env vars.
 """
 
 import os
@@ -22,8 +25,8 @@ from typing import Optional
 class WalletConfig:
     """Configuration for a single managed wallet."""
     alias: str                          # Human-readable name
-    address: str                        # Public address (safe to reference)
-    private_key_env: str                # Name of env var holding the private key
+    address: str                        # Public EVM address (safe to reference)
+    private_key_env: str                # Name of env var holding the EVM private key
     role: str                           # Description of wallet's purpose
     strategies: list[str]               # Assigned strategy names
     chains: list[str]                   # Active chains for this wallet
@@ -32,11 +35,14 @@ class WalletConfig:
     daily_loss_limit_eth: float         # Halt trading if daily loss exceeds this
     min_eth_balance_alert: float        # Alert if ETH balance drops below this
     is_cold_storage: bool = False       # If True, no automated trading — manual only
+    # Solana-specific
+    solana_address: str = ""            # Solana public key (base58)
+    solana_private_key_env: str = ""    # Env var for Solana keypair (base58)
 
     @property
     def private_key(self) -> Optional[str]:
         """
-        Load private key from environment variable.
+        Load EVM private key from environment variable.
         Returns None if not set (paper trading mode).
         Never logs or exposes the key value.
         """
@@ -46,16 +52,39 @@ class WalletConfig:
         return None
 
     @property
+    def solana_private_key(self) -> Optional[str]:
+        """
+        Load Solana private key (base58) from environment variable.
+        Returns None if not set.
+        """
+        if not self.solana_private_key_env:
+            return None
+        key = os.getenv(self.solana_private_key_env)
+        if key and not key.startswith("your_"):
+            return key
+        return None
+
+    @property
     def has_private_key(self) -> bool:
-        """Check if private key is configured (without exposing it)."""
+        """Check if EVM private key is configured (without exposing it)."""
         return self.private_key is not None
+
+    @property
+    def has_solana_key(self) -> bool:
+        """Check if Solana private key is configured."""
+        return self.solana_private_key is not None
+
+    def supports_chain(self, chain: str) -> bool:
+        """Check if this wallet is configured for a given chain."""
+        return chain.lower() in self.chains
 
     def __repr__(self) -> str:
         """Safe repr — never includes private key."""
         return (
             f"WalletConfig(alias={self.alias!r}, "
             f"address={self.address!r}, "
-            f"has_key={self.has_private_key})"
+            f"has_evm_key={self.has_private_key}, "
+            f"has_sol_key={self.has_solana_key})"
         )
 
 
@@ -69,9 +98,11 @@ WALLETS: dict[str, WalletConfig] = {
         alias="Primary",
         address="0x3eb320fad3f51fe4f2a4531f911ef56694346eef",
         private_key_env="WALLET_PRIVATE_KEY_PRIMARY",
+        solana_private_key_env="WALLET_SOLANA_PRIVATE_KEY_PRIMARY",
+        solana_address=os.getenv("WALLET_SOLANA_ADDRESS_PRIMARY", ""),
         role="Main trading wallet — gem sniping & active positions",
-        strategies=["gem_snipe", "momentum"],
-        chains=["ethereum", "base"],
+        strategies=["gem_snipe", "momentum", "breakout"],
+        chains=["ethereum", "base", "solana"],
         max_position_size_pct=float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0")),
         max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "10")),
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
@@ -82,9 +113,11 @@ WALLETS: dict[str, WalletConfig] = {
         alias="Wallet B",
         address="0x0835eb8447f3ac90351951bb5d22e77afd9b81c0",
         private_key_env="WALLET_PRIVATE_KEY_B",
-        role="Secondary wallet — DCA & mean-reversion strategies",
-        strategies=["dca", "mean_reversion"],
-        chains=["arbitrum", "polygon"],
+        solana_private_key_env="WALLET_SOLANA_PRIVATE_KEY_B",
+        solana_address=os.getenv("WALLET_SOLANA_ADDRESS_B", ""),
+        role="Secondary wallet — DCA, mean-reversion & Solana gem sniping",
+        strategies=["dca", "mean_reversion", "gem_snipe"],
+        chains=["arbitrum", "polygon", "bsc", "solana"],
         max_position_size_pct=float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0")),
         max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "10")),
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
@@ -127,9 +160,9 @@ def get_active_trading_wallets() -> list[WalletConfig]:
 
 def get_wallets_for_chain(chain_name: str) -> list[WalletConfig]:
     """Return wallets that are active on a given chain."""
-    return [w for w in WALLETS.values() if chain_name in w.chains]
+    return [w for w in WALLETS.values() if chain_name in w.chains and not w.is_cold_storage]
 
 
 def get_all_addresses() -> list[str]:
-    """Return all public wallet addresses (safe to use anywhere)."""
+    """Return all public EVM wallet addresses (safe to use anywhere)."""
     return [w.address for w in WALLETS.values()]
