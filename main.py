@@ -395,6 +395,31 @@ async def run_bot_loop():
         logger.info(f"--- Cycle {cycle} ---")
 
         try:
+            # ── Circuit breaker check ─────────────────────────────────────────
+            # Calculate portfolio change from positions and check threshold
+            if risk_manager.is_circuit_breaker_tripped:
+                logger.warning("🚨 Circuit breaker is tripped — skipping cycle")
+                await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                continue
+
+            # Check portfolio drawdown from open positions
+            open_positions = [p for p in load_positions() if p.get("status") == "open"]
+            if open_positions:
+                total_entry = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
+                total_current = sum(float(p.get("current_value_usd", 0)) for p in open_positions)
+                if total_entry > 0:
+                    portfolio_change_pct = ((total_current - total_entry) / total_entry) * 100
+                    if risk_manager.check_circuit_breaker(portfolio_change_pct):
+                        notify_alert(
+                            "🚨 CIRCUIT BREAKER TRIPPED",
+                            f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                            f"(threshold: {settings.CIRCUIT_BREAKER_PERCENT}%). "
+                            f"All trading halted. Manual reset required.",
+                            level="critical",
+                        )
+                        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                        continue
+
             # 1. Fetch balances
             fetcher = BalanceFetcher()
 

@@ -91,13 +91,19 @@ class GemCandidate:
 
 @dataclass
 class SignalScore:
-    """Technical analysis signal composite score."""
+    """
+    Unified technical analysis signal composite score.
+
+    Used by both:
+      - core/signal_engine.py (Phase 1 lightweight scoring)
+      - strategies/signal_scorer.py (Phase 2 full TA + Fibonacci)
+    """
     trend_score: float = 0.0       # -100 to +100 (bearish to bullish)
     momentum_score: float = 0.0    # 0 to 100
     volume_score: float = 0.0      # 0 to 100
     onchain_score: float = 0.0     # 0 to 100
 
-    # Fibonacci analysis
+    # Fibonacci analysis (Phase 2)
     fib_score: float = 0.0         # 0 to 100 (Fibonacci zone alignment)
     fib_zone: str = "unknown"      # "golden_pocket", "fib_618", "no_mans_land", etc.
     fib_aligned: bool = False      # True = price is in a valid Fibonacci zone
@@ -107,34 +113,63 @@ class SignalScore:
     macd_signal: Optional[str] = None    # "bullish", "bearish", "neutral"
     ema_signal: Optional[str] = None     # "golden_cross", "death_cross", "neutral"
     bb_signal: Optional[str] = None      # "squeeze", "breakout", "normal"
+    adx: Optional[float] = None
     volume_spike: bool = False
+    volume_spike_ratio: Optional[float] = None
+
+    # Express lane bypass (Phase 1 — gem_score ≥ 82 skips full TA)
+    express_lane: bool = False
 
     @property
     def composite(self) -> float:
         """
-        Weighted composite score with Fibonacci alignment.
-        >70 = BUY signal, <30 = SELL signal, 30–70 = HOLD/NEUTRAL
+        Weighted composite score.
 
-        Weights: trend=25%, momentum=20%, volume=15%, onchain=15%, fibonacci=25%
+        If fib_score is populated (Phase 2):
+          trend=25%, momentum=20%, volume=15%, onchain=15%, fibonacci=25%
+        Otherwise (Phase 1 fallback):
+          trend=30%, momentum=25%, volume=20%, onchain=25%
         """
-        # Normalize trend_score from -100/+100 to 0/100
         trend_normalized = (self.trend_score + 100) / 2
+        if self.fib_score > 0 or self.fib_aligned:
+            return (
+                trend_normalized * 0.25
+                + self.momentum_score * 0.20
+                + self.volume_score * 0.15
+                + self.onchain_score * 0.15
+                + self.fib_score * 0.25
+            )
+        # Phase 1 fallback (no Fibonacci data)
         return (
-            trend_normalized * 0.25
-            + self.momentum_score * 0.20
-            + self.volume_score * 0.15
-            + self.onchain_score * 0.15
-            + self.fib_score * 0.25
+            trend_normalized * 0.30
+            + self.momentum_score * 0.25
+            + self.volume_score * 0.20
+            + self.onchain_score * 0.25
         )
 
     @property
     def signal(self) -> str:
         score = self.composite
-        if score >= 70 and self.fib_aligned:
-            return "BUY"
-        elif score <= 30 or not self.fib_aligned:
-            return "SELL"
+        if self.fib_score > 0 or self.fib_aligned:
+            if score >= 70 and self.fib_aligned:
+                return "BUY"
+            elif score <= 30 or not self.fib_aligned:
+                return "SELL"
+        else:
+            if score >= 70:
+                return "BUY"
+            elif score <= 30:
+                return "SELL"
         return "NEUTRAL"
+
+    @property
+    def is_buy_signal(self) -> bool:
+        from config import settings
+        return self.composite >= settings.MIN_SIGNAL_SCORE
+
+    @property
+    def is_sell_signal(self) -> bool:
+        return self.composite < 30.0
 
 
 @dataclass

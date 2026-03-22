@@ -15,12 +15,14 @@ STABLECOINS: dict[str, dict] = {
         "arbitrum": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
         "polygon":  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
         "bsc":      "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+        "solana":   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     },
     "USDT": {
         "ethereum": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
         "arbitrum": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
         "polygon":  "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
         "bsc":      "0x55d398326f99059fF775485246999027B3197955",
+        "solana":   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     },
     "DAI": {
         "ethereum": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
@@ -33,14 +35,18 @@ STABLECOINS: dict[str, dict] = {
         "arbitrum": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
         "polygon":  "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
     },
+    "WSOL": {
+        "solana":   "So11111111111111111111111111111111111111112",
+    },
 }
 
-# Flat set of all stablecoin addresses (lowercase) for quick lookup
-STABLECOIN_ADDRESSES: set[str] = {
-    addr.lower()
-    for token_chains in STABLECOINS.values()
-    for addr in token_chains.values()
-}
+# Flat set of all stablecoin addresses for quick lookup
+# Includes both lowercase (EVM) and original case (Solana base58)
+STABLECOIN_ADDRESSES: set[str] = set()
+for _token_chains in STABLECOINS.values():
+    for _addr in _token_chains.values():
+        STABLECOIN_ADDRESSES.add(_addr.lower())
+        STABLECOIN_ADDRESSES.add(_addr)  # Preserve original case for Solana
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +70,14 @@ TRUSTED_WHITELIST: set[str] = {
     "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9",  # AAVE
     "0xd533a949740bb3306d119cc777fa900ba034cd52",  # CRV
     "0xc18360217d8f7ab5e7c516566761ea12ce7f9d72",  # ENS
+    # Solana blue chips (base58 mint addresses)
+    "So11111111111111111111111111111111111111112",   # Wrapped SOL (WSOL)
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",  # Jupiter (JUP)
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", # Bonk (BONK)
+    "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm", # WIF (dogwifhat)
+    "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3", # PYTH
+    "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",   # Jito (JTO)
+    "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",   # Render (RNDR)
 }
 
 
@@ -73,17 +87,17 @@ TRUSTED_WHITELIST: set[str] = {
 
 def is_stablecoin(address: str) -> bool:
     """Check if a token address is a stablecoin."""
-    return address.lower() in STABLECOIN_ADDRESSES
+    return address in STABLECOIN_ADDRESSES or address.lower() in STABLECOIN_ADDRESSES
 
 
 def is_blocked(address: str) -> bool:
     """Check if a token is on the permanent blocklist."""
-    return address.lower() in PERMANENT_BLOCKLIST
+    return address.lower() in PERMANENT_BLOCKLIST or address in PERMANENT_BLOCKLIST
 
 
 def is_trusted(address: str) -> bool:
     """Check if a token is on the trusted whitelist."""
-    return address.lower() in TRUSTED_WHITELIST
+    return address in TRUSTED_WHITELIST or address.lower() in TRUSTED_WHITELIST
 
 
 def add_to_blocklist(address: str, reason: str = "") -> None:

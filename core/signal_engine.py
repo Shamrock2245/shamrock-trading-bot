@@ -30,65 +30,14 @@ OHLCV Data Source:
 
 import logging
 import time
-from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
 
 from config import settings
+from data.models import SignalScore
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Signal Score dataclass
-# ─────────────────────────────────────────────────────────────────────────────
-
-@dataclass
-class SignalScore:
-    """
-    Composite signal score for a token.
-    Composite > 70 = BUY signal, < 30 = SELL signal.
-    """
-    trend_score: float = 50.0      # -100 to +100 (bearish to bullish)
-    momentum_score: float = 50.0   # 0 to 100
-    volume_score: float = 50.0     # 0 to 100
-    onchain_score: float = 50.0    # 0 to 100
-
-    # Indicator details
-    rsi: Optional[float] = None
-    macd_signal: Optional[str] = None      # "bullish_cross" | "bearish_cross" | "neutral"
-    bb_signal: Optional[str] = None        # "squeeze" | "breakout_up" | "breakout_down" | "normal"
-    ema_signal: Optional[str] = None       # "golden_cross" | "death_cross" | "above_ema" | "below_ema"
-    adx: Optional[float] = None
-    volume_spike_ratio: Optional[float] = None
-    fib_zone: str = "unknown"
-
-    # Express lane bypass
-    express_lane: bool = False
-
-    @property
-    def composite(self) -> float:
-        """
-        Weighted composite score.
-        > 70 = strong BUY, 50-70 = mild BUY, 30-50 = neutral, < 30 = SELL
-        """
-        # Normalize trend_score from -100/+100 to 0/100
-        trend_normalized = (self.trend_score + 100) / 2
-        return (
-            trend_normalized * 0.30
-            + self.momentum_score * 0.25
-            + self.volume_score * 0.20
-            + self.onchain_score * 0.25
-        )
-
-    @property
-    def is_buy_signal(self) -> bool:
-        return self.composite >= settings.MIN_SIGNAL_SCORE
-
-    @property
-    def is_sell_signal(self) -> bool:
-        return self.composite < 30.0
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OHLCV Data Fetching
