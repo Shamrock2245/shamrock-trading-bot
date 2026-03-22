@@ -5,15 +5,15 @@
 <h1 align="center">Shamrock Trading Bot</h1>
 
 <p align="center">
-  <strong>AI-powered multi-wallet crypto trading bot — gem discovery, MEV-protected execution, and automated portfolio management.</strong>
+  <strong>AI-powered multi-wallet crypto trading bot — gem discovery, MEV-protected execution, and automated portfolio management.<br/>Always on. Always scanning. Always compounding. 24/7/365.</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/mode-paper%20%7C%20live-orange?style=flat-square" alt="Mode" />
-  <img src="https://img.shields.io/badge/chains-ETH%20%7C%20Base%20%7C%20ARB%20%7C%20POLY%20%7C%20BSC-blue?style=flat-square" alt="Chains" />
-  <img src="https://img.shields.io/badge/wallets-3-blueviolet?style=flat-square" alt="Wallets" />
+  <img src="https://img.shields.io/badge/status-🟢%20LIVE%2024%2F7-00C853?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/badge/chains-ETH%20%7C%20Base%20%7C%20ARB%20%7C%20POLY%20%7C%20BSC%20%7C%20SOL-blue?style=flat-square" alt="Chains" />
+  <img src="https://img.shields.io/badge/infra-Hetzner%20CPX21-red?style=flat-square" alt="Infra" />
   <img src="https://img.shields.io/github/stars/Shamrock2245/shamrock-trading-bot?style=flat-square" alt="Stars" />
 </p>
 
@@ -34,7 +34,7 @@
 ## ✨ Features
 
 ### 🔍 Gem Discovery Engine
-- Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC)
+- Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC, **Solana**)
 - Real-time new pair detection via [DexScreener API](https://docs.dexscreener.com/api/reference)
 - Token scoring system (0–100) — volume spikes, liquidity depth, holder distribution, social signals
 - Boosted token tracking — community hype detection
@@ -269,18 +269,47 @@ shamrock-trading-bot/
 
 ---
 
-## 🏗️ Infrastructure
+## 🏗️ Infrastructure — Always On, Always Trading
 
-The bot is deployed on **Hetzner Cloud** (shamrock-trading project, Ashburn VA):
+The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS. It is always scanning, always scoring, and always executing.
 
 | Property | Value |
 |----------|-------|
-| Server type | CPX21 — 3 vCPU / 4 GB RAM / 80 GB SSD |
-| OS | Ubuntu 22.04 LTS |
-| Runtime | Docker + docker-compose |
-| Auto-restart | `restart: unless-stopped` |
+| **Server** | CPX21 — 3 vCPU / 4 GB RAM / 80 GB SSD |
+| **Server ID** | #124347708 |
+| **IP** | `5.161.126.32` |
+| **Location** | Ashburn, VA (us-east, datacenter `ash-dc1`) |
+| **OS** | Ubuntu 22.04 LTS |
+| **Runtime** | Docker + docker-compose |
+| **Auto-restart** | `restart: unless-stopped` |
+| **Cost** | $9.99/mo |
+| **Status** | 🟢 **ON** |
+
+### Operational Model
+- The bot **never sleeps** — it scans every 15 seconds across 6 chains
+- Heartbeat emitted every 5 minutes to confirm liveness
+- Circuit breaker auto-triggers on 15% portfolio drawdown
+- Kill switch available via `MODE=paper` in `.env` or process termination
+- Slack alerts on every trade, error, and daily summary
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for SSH access, update procedures, and monitoring setup.
+
+---
+
+## 📖 Behavioral Documentation (31 Docs)
+
+The `docs/` directory contains **31 detailed behavioral documents** that define exactly how the bot thinks, trades, and protects capital:
+
+| Category | Documents |
+|----------|-----------|
+| **Core** | [IDENTITY](docs/IDENTITY.md) · [SYSTEM](docs/SYSTEM.md) · [RULES](docs/RULES.md) |
+| **Trading** | [STRATEGIES](docs/STRATEGIES.md) · [SIGNALS](docs/SIGNALS.md) · [EXCHANGES](docs/EXCHANGES.md) · [TOOLS](docs/TOOLS.md) |
+| **Risk** | [RISK_MANAGEMENT](docs/RISK_MANAGEMENT.md) · [POSITION_SIZING](docs/POSITION_SIZING.md) · [MAX_DRAWDOWN_RULES](docs/MAX_DRAWDOWN_RULES.md) · [DAILY_LOSS_LIMITS](docs/DAILY_LOSS_LIMITS.md) · [EXPOSURE_LIMITS](docs/EXPOSURE_LIMITS.md) |
+| **Execution** | [ORDER_EXECUTION](docs/ORDER_EXECUTION.md) · [SLIPPAGE_RULES](docs/SLIPPAGE_RULES.md) · [LIQUIDITY_FILTERS](docs/LIQUIDITY_FILTERS.md) · [VOLATILITY_RULES](docs/VOLATILITY_RULES.md) |
+| **Operations** | [PAPER_TRADING](docs/PAPER_TRADING.md) · [LIVE_TRADING](docs/LIVE_TRADING.md) · [BACKTESTING](docs/BACKTESTING.md) · [MARKET_REGIMES](docs/MARKET_REGIMES.md) |
+| **Safety** | [FAILSAFES](docs/FAILSAFES.md) · [KILL_SWITCH](docs/KILL_SWITCH.md) · [SECRETS_HANDLING](docs/SECRETS_HANDLING.md) · [ERRORS_AND_RECOVERY](docs/ERRORS_AND_RECOVERY.md) |
+| **Monitoring** | [HEARTBEAT](docs/HEARTBEAT.md) · [STATE](docs/STATE.md) · [MEMORY](docs/MEMORY.md) · [TRADE_JOURNAL](docs/TRADE_JOURNAL.md) · [MODEL_EVALUATION](docs/MODEL_EVALUATION.md) |
+| **Meta** | [PARAMETERS](docs/PARAMETERS.md) · [CHANGELOG](docs/CHANGELOG.md) |
 
 ---
 
@@ -304,5 +333,5 @@ This project is licensed under the MIT License — see [LICENSE](./LICENSE) for 
 
 <p align="center">
   <strong>☘️ Shamrock Trading Bot</strong><br/>
-  <em>Three wallets. Zero tolerance for rugs. Let's find gems.</em> 💎
+  <em>Always on. Always scanning. Zero tolerance for rugs. Let's find gems.</em> 💎
 </p>
