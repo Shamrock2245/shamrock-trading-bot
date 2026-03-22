@@ -66,6 +66,12 @@ class GemCandidate:
     boost_score: float = 0.0
     smart_money_score: float = 0.0
 
+    # Enhanced signals (Phase 3)
+    tvl_score: float = 0.0              # DefiLlama TVL
+    social_sentiment_score: float = 0.0  # LunarCrush Galaxy Score
+    holder_concentration_score: float = 0.0  # On-chain holder analysis
+    unlock_risk_score: float = 0.0      # FDV/mcap dilution risk
+
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None

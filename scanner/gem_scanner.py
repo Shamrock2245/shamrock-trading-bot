@@ -5,16 +5,20 @@ Scans DexScreener for new/boosted tokens, scores each candidate 0–100
 using the weighted criteria from the project spec, and returns a ranked
 list of GemCandidates ready for safety checks and trade execution.
 
-Scoring weights (from project spec):
-  - Token age:           15%
-  - Volume spike:        20%
-  - Liquidity depth:     15%
-  - Contract verified:   10%
-  - Holder distribution: 10%
-  - Buy/sell tax:        10%
-  - Social signals:      10%
-  - DexScreener boost:    5%
-  - Smart money:          5%
+Scoring weights (rebalanced with Phase 3 enhanced signals):
+  - Token age:                12%
+  - Volume spike:             17%
+  - Liquidity depth:          13%
+  - Contract verified:         8%
+  - Holder distribution:       8%
+  - Buy/sell tax:              8%
+  - Social signals:            8%
+  - DexScreener boost:         4%
+  - Smart money:               4%
+  - TVL (DefiLlama):           5%   [NEW]
+  - Social sentiment (LC):     5%   [NEW]
+  - Holder concentration:      4%   [NEW]
+  - Unlock/dilution risk:      4%   [NEW]
   - Honeypot: PASS/FAIL (instant disqualify)
 """
 
@@ -31,6 +35,10 @@ from data.providers.dexscreener import (
     extract_gem_signals,
     get_token_pairs,
 )
+from data.providers.defillama import get_tvl_score
+from data.providers.lunarcrush import get_social_score
+from data.providers.holder_analysis import get_holder_score
+from data.providers.token_unlocks import get_unlock_risk_score
 
 logger = logging.getLogger(__name__)
 
@@ -112,12 +120,17 @@ class GemScanner:
 
     def _score_token(self, token: Token, is_boosted: bool = False) -> GemCandidate:
         """
-        Score a token 0–100 using weighted criteria from project spec.
+        Score a token 0–100 using weighted criteria.
         Returns a GemCandidate with all score components populated.
+
+        Phase 3 rebalanced weights (13 signals, sum = 100%):
+            age=12%, volume=17%, liquidity=13%, contract=8%, holder=8%,
+            tax=8%, social=8%, boost=4%, smart_money=4%,
+            tvl=5%, social_sentiment=5%, holder_conc=4%, unlock_risk=4%
         """
         candidate = GemCandidate(token=token)
 
-        # ── Age score (15%) ───────────────────────────────────────────────────
+        # ── Age score (12%) ───────────────────────────────────────────────────
         if token.age_hours is not None:
             if token.age_hours < 1:
                 candidate.age_score = 100
@@ -132,7 +145,7 @@ class GemScanner:
             else:
                 candidate.age_score = 10
 
-        # ── Volume spike score (20%) ──────────────────────────────────────────
+        # ── Volume spike score (17%) ──────────────────────────────────────────
         if token.volume_1h > 0 and token.volume_24h > 0:
             avg_hourly_vol = token.volume_24h / 24
             if avg_hourly_vol > 0:
@@ -152,7 +165,7 @@ class GemScanner:
         elif token.volume_24h >= 100_000:
             candidate.volume_score = 40
 
-        # ── Liquidity score (15%) ─────────────────────────────────────────────
+        # ── Liquidity score (13%) ─────────────────────────────────────────────
         liq = token.liquidity_usd
         if liq >= 500_000:
             candidate.liquidity_score = 100
@@ -167,7 +180,7 @@ class GemScanner:
         else:
             candidate.liquidity_score = 0  # Below minimum threshold
 
-        # ── Tax score (10%) ───────────────────────────────────────────────────
+        # ── Tax score (8%) ────────────────────────────────────────────────────
         max_tax = max(token.buy_tax, token.sell_tax)
         if max_tax == 0:
             candidate.tax_score = 100
@@ -180,7 +193,7 @@ class GemScanner:
         else:
             candidate.tax_score = 0  # >5% tax is a red flag
 
-        # ── Holder distribution score (10%) ───────────────────────────────────
+        # ── Holder distribution score (8%) ────────────────────────────────────
         if token.holder_count >= 1000:
             candidate.holder_score = 100
         elif token.holder_count >= 500:
@@ -194,12 +207,12 @@ class GemScanner:
         else:
             candidate.holder_score = 10
 
-        # ── Social signals score (10%) ────────────────────────────────────────
+        # ── Social signals score (8%) ─────────────────────────────────────────
         # Proxy: presence of website + social links
         candidate.social_score = 30  # Base score
         # (Full social scoring requires Twitter/Telegram API integration)
 
-        # ── DexScreener boost score (5%) ─────────────────────────────────────
+        # ── DexScreener boost score (4%) ──────────────────────────────────────
         if is_boosted:
             boost_amount = token.boost_amount
             if boost_amount >= 500:
@@ -213,25 +226,80 @@ class GemScanner:
         else:
             candidate.boost_score = 0
 
-        # ── Smart money score (5%) ────────────────────────────────────────────
+        # ── Smart money score (4%) ────────────────────────────────────────────
         # Placeholder — full implementation requires wallet tracking
         candidate.smart_money_score = 0
 
-        # ── Contract verified score (10%) — binary ────────────────────────────
+        # ── Contract verified score (8%) — binary ─────────────────────────────
         # Assumed verified if we got data (DexScreener only lists verified pairs)
         candidate.contract_score = 70  # Default; updated by safety check
 
-        # ── Composite score ───────────────────────────────────────────────────
+        # ── Initial composite (before enrichment) ─────────────────────────────
+        base_score = (
+            candidate.age_score * 0.12
+            + candidate.volume_score * 0.17
+            + candidate.liquidity_score * 0.13
+            + candidate.contract_score * 0.08
+            + candidate.holder_score * 0.08
+            + candidate.tax_score * 0.08
+            + candidate.social_score * 0.08
+            + candidate.boost_score * 0.04
+            + candidate.smart_money_score * 0.04
+        )
+
+        # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
+        # Only query external APIs for candidates that pass initial screening
+        # to conserve rate limits (especially LunarCrush: 100 req/day).
+        if base_score >= 50:
+            try:
+                candidate.tvl_score = get_tvl_score(token.address, token.chain)
+            except Exception as e:
+                logger.debug(f"TVL scoring failed for {token.symbol}: {e}")
+                candidate.tvl_score = 30.0  # Neutral fallback
+
+            try:
+                candidate.social_sentiment_score = get_social_score(token.symbol)
+            except Exception as e:
+                logger.debug(f"LunarCrush scoring failed for {token.symbol}: {e}")
+                candidate.social_sentiment_score = 30.0
+
+            try:
+                candidate.holder_concentration_score = get_holder_score(
+                    token.address, token.chain
+                )
+            except Exception as e:
+                logger.debug(f"Holder analysis failed for {token.symbol}: {e}")
+                candidate.holder_concentration_score = 40.0
+
+            try:
+                candidate.unlock_risk_score = get_unlock_risk_score(
+                    token.address, token.chain
+                )
+            except Exception as e:
+                logger.debug(f"Unlock risk scoring failed for {token.symbol}: {e}")
+                candidate.unlock_risk_score = 50.0
+        else:
+            # Below threshold — use neutral defaults (don't waste API calls)
+            candidate.tvl_score = 30.0
+            candidate.social_sentiment_score = 30.0
+            candidate.holder_concentration_score = 40.0
+            candidate.unlock_risk_score = 50.0
+
+        # ── Final composite score (13 signals) ────────────────────────────────
         candidate.gem_score = round(
-            candidate.age_score * 0.15
-            + candidate.volume_score * 0.20
-            + candidate.liquidity_score * 0.15
-            + candidate.contract_score * 0.10
-            + candidate.holder_score * 0.10
-            + candidate.tax_score * 0.10
-            + candidate.social_score * 0.10
-            + candidate.boost_score * 0.05
-            + candidate.smart_money_score * 0.05,
+            candidate.age_score * 0.12
+            + candidate.volume_score * 0.17
+            + candidate.liquidity_score * 0.13
+            + candidate.contract_score * 0.08
+            + candidate.holder_score * 0.08
+            + candidate.tax_score * 0.08
+            + candidate.social_score * 0.08
+            + candidate.boost_score * 0.04
+            + candidate.smart_money_score * 0.04
+            + candidate.tvl_score * 0.05
+            + candidate.social_sentiment_score * 0.05
+            + candidate.holder_concentration_score * 0.04
+            + candidate.unlock_risk_score * 0.04,
             2,
         )
 

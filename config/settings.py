@@ -47,6 +47,7 @@ CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY", "")
 TOKEN_SNIFFER_API_KEY = os.getenv("TOKEN_SNIFFER_API_KEY", "")
+LUNARCRUSH_API_KEY = os.getenv("LUNARCRUSH_API_KEY", "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Risk Management
@@ -118,6 +119,8 @@ RATE_LIMITS = {
     "etherscan": 5,       # per second — converted to 300/min
     "oneinch": 60,
     "moralis": 25,
+    "lunarcrush": 4,      # per minute — 100/day hard cap
+    "defillama": 500,     # generous, no key needed
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
