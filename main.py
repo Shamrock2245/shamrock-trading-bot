@@ -374,27 +374,58 @@ async def run_bot_loop():
                         native_balance = t.get("balance", 0.0)
                         break
 
-                # Risk check
+                # Check USDC balance on-chain (stablecoin capital)
+                usdc_balance = 0.0
+                try:
+                    from config.chains import CHAINS
+                    chain_cfg = CHAINS.get(token.chain)
+                    if chain_cfg and chain_cfg.usdc_address:
+                        from web3 import Web3
+                        w3 = Web3(Web3.HTTPProvider(chain_cfg.rpc_url))
+                        # ERC20 balanceOf ABI (minimal)
+                        erc20_abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                        usdc_contract = w3.eth.contract(
+                            address=Web3.to_checksum_address(chain_cfg.usdc_address),
+                            abi=erc20_abi,
+                        )
+                        raw_balance = usdc_contract.functions.balanceOf(
+                            Web3.to_checksum_address(primary.address)
+                        ).call()
+                        usdc_balance = raw_balance / 1e6  # USDC has 6 decimals
+                        if usdc_balance > 1.0:
+                            logger.info(f"USDC balance on {token.chain}: ${usdc_balance:.2f}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch USDC balance: {e}")
+
+                # Risk check (USDC-aware)
                 risk = risk_manager.check_trade(
-                    primary, native_balance, token.address, token.chain
+                    primary, native_balance, token.address, token.chain,
+                    usdc_balance=usdc_balance,
                 )
                 if not risk.approved:
                     logger.info(f"Risk blocked {token.symbol}: {risk.reason}")
                     continue
 
-                # Execute
+                # Execute (use USDC capital when available)
                 params = build_gem_snipe_params(
                     wallet=primary,
                     chain=token.chain,
                     token_address=token.address,
                     eth_amount=risk.position_size_eth,
+                    use_usdc=risk.use_usdc,
+                    usdc_amount=risk.position_size_usdc,
                 )
                 result = executor.execute_trade(params)
 
                 if result.success:
+                    amount_display = (
+                        f"${risk.position_size_usdc:.2f} USDC"
+                        if risk.use_usdc
+                        else f"{risk.position_size_eth:.4f} ETH"
+                    )
                     logger.info(
                         f"\u2705 Trade executed: {token.symbol} | {token.chain} | "
-                        f"path={result.execution_path} | tx={result.tx_hash}"
+                        f"{amount_display} | path={result.execution_path} | tx={result.tx_hash}"
                     )
                     risk_manager.record_trade_open(primary.alias)
                     notify_trade(
@@ -404,7 +435,8 @@ async def run_bot_loop():
                         amount_eth=risk.position_size_eth,
                         score=candidate.score,
                         mode=settings.MODE,
-                        extra="Path: {} | Tx: {}".format(
+                        extra="Capital: {} | Path: {} | Tx: {}".format(
+                            amount_display,
                             result.execution_path,
                             result.tx_hash or "N/A",
                         ),

@@ -414,29 +414,42 @@ def build_gem_snipe_params(
     token_address: str,
     eth_amount: float,
     slippage_bps: int = 200,
+    use_usdc: bool = True,
+    usdc_amount: float = 0.0,
 ) -> TradeParams:
     """
     Build TradeParams for a gem snipe trade.
-    Buys `token_address` using ETH/WETH from `wallet` on `chain`.
+
+    Prefers buying with USDC when available (stablecoin capital).
+    Falls back to native ETH/MATIC/BNB if USDC is not configured or use_usdc=False.
 
     Args:
         wallet: The wallet to trade from
         chain: Chain name (e.g., "base")
         token_address: Token to buy
-        eth_amount: Amount of ETH to spend
+        eth_amount: Amount of native token to spend (fallback)
         slippage_bps: Slippage in basis points (200 = 2%)
+        use_usdc: If True, prefer USDC as buy-side capital
+        usdc_amount: Amount of USDC to spend (if use_usdc=True)
     """
     chain_config = CHAINS[chain]
-    amount_wei = Web3.to_wei(eth_amount, "ether")
 
-    # Use WETH as token_in (or native ETH address for 1inch)
-    # 1inch uses 0xEeee...EEeE as the native ETH placeholder
-    native_eth_placeholder = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+    # Prefer USDC capital when available
+    if use_usdc and chain_config.usdc_address and usdc_amount > 0:
+        # USDC has 6 decimals
+        amount_wei = int(usdc_amount * 1e6)
+        token_in = Web3.to_checksum_address(chain_config.usdc_address)
+        logger.info(f"Buying with ${usdc_amount:.2f} USDC on {chain}")
+    else:
+        # Fallback: native ETH/MATIC/BNB
+        amount_wei = Web3.to_wei(eth_amount, "ether")
+        token_in = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        logger.info(f"Buying with {eth_amount:.4f} native on {chain}")
 
     return TradeParams(
         wallet=wallet,
         chain=chain,
-        token_in=native_eth_placeholder,
+        token_in=token_in,
         token_out=Web3.to_checksum_address(token_address),
         amount_in_wei=amount_wei,
         slippage_bps=slippage_bps,
