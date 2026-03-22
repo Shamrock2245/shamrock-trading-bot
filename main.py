@@ -148,6 +148,10 @@ async def run_gem_scan() -> list[GemCandidate]:
                     "social": c.social_score,
                     "boost": c.boost_score,
                     "smart_money": c.smart_money_score,
+                    "tvl": c.tvl_score,
+                    "social_sentiment": c.social_sentiment_score,
+                    "holder_concentration": c.holder_concentration_score,
+                    "unlock_risk": c.unlock_risk_score,
                 },
             }
             for i, c in enumerate(candidates[:50])
@@ -433,7 +437,7 @@ async def run_bot_loop():
                         token_symbol=token.symbol,
                         chain=token.chain,
                         amount_eth=risk.position_size_eth,
-                        score=candidate.score,
+                        score=candidate.gem_score,
                         mode=settings.MODE,
                         extra="Capital: {} | Path: {} | Tx: {}".format(
                             amount_display,
@@ -448,7 +452,7 @@ async def run_bot_loop():
                         token_symbol=token.symbol,
                         chain=token.chain,
                         amount_eth=risk.position_size_eth,
-                        score=candidate.score,
+                        score=candidate.gem_score,
                         mode=settings.MODE,
                         extra="\u274c FAILED: {}".format(result.error),
                     )
