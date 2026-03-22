@@ -251,12 +251,6 @@ with chart_col1:
             **PLOTLY_LAYOUT,
             height=320,
             showlegend=True,
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02,
-                xanchor="right", x=1,
-                font=dict(size=11, color="#8B949E"),
-                bgcolor="rgba(0,0,0,0)",
-            ),
             xaxis_title=None,
             yaxis_title=None,
         )
@@ -298,11 +292,6 @@ with chart_col2:
             **PLOTLY_LAYOUT,
             height=320,
             showlegend=True,
-            legend=dict(
-                orientation="h", yanchor="bottom", y=-0.15,
-                xanchor="center", x=0.5,
-                font=dict(size=10, color="#8B949E"),
-            ),
             annotations=[dict(
                 text=f"<b>{sum(counts)}</b><br>gems",
                 x=0.5, y=0.5, font_size=16,
