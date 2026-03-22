@@ -1,15 +1,21 @@
 """
 data/providers/dexscreener.py — DexScreener API wrapper.
 
-Endpoints used (updated March 2026):
-   - /token-profiles/latest/v1      → New token profiles
-   - /token-boosts/latest/v1        → Currently boosted tokens
-   - /token-boosts/top/v1           → Most boosted tokens
-   - /latest/dex/search             → Search by name/symbol
-   - /latest/dex/tokens/{addresses} → Pairs for specific tokens
-   - /latest/dex/pairs/{chain}/{pair} → Detailed pair data
+Endpoints used (updated March 2026 — full coverage):
+   - /token-profiles/latest/v1                     → New token profiles
+   - /community-takeovers/latest/v1                → Community takeovers (CTO signal)
+   - /ads/latest/v1                                → Latest ads (funded team signal)
+   - /token-boosts/latest/v1                       → Currently boosted tokens
+   - /token-boosts/top/v1                          → Most boosted tokens
+   - /orders/v1/{chainId}/{tokenAddress}           → Paid orders for a token
+   - /latest/dex/search                            → Search by name/symbol
+   - /latest/dex/tokens/{addresses}                → Pairs for specific tokens
+   - /latest/dex/pairs/{chain}/{pair}              → Detailed pair data
+   - /token-pairs/v1/{chainId}/{tokenAddress}      → Pools by chain + token
+   - /tokens/v1/{chainId}/{tokenAddresses}         → Batch token lookup by chain
 
-Rate limit: 60 req/min (free tier). Handled via tenacity retry.
+Rate limits: 60 req/min (profiles, boosts, CTO, ads, orders)
+            300 req/min (pairs, search, token lookups)
 """
 
 import logging
@@ -55,6 +61,34 @@ def get_latest_token_profiles() -> list[dict]:
         return data if isinstance(data, list) else []
     except Exception as e:
         logger.error(f"DexScreener latest profiles error: {e}")
+        return []
+
+
+def get_latest_community_takeovers() -> list[dict]:
+    """
+    GET /community-takeovers/latest/v1
+    Returns latest community takeovers — tokens where a new community has
+    taken over an abandoned project. Strong revival/pump signal.
+    """
+    try:
+        data = _get("/community-takeovers/latest/v1")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"DexScreener community takeovers error: {e}")
+        return []
+
+
+def get_latest_ads() -> list[dict]:
+    """
+    GET /ads/latest/v1
+    Returns latest token ads — projects paying for DexScreener visibility.
+    Indicates funded team with marketing budget.
+    """
+    try:
+        data = _get("/ads/latest/v1")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"DexScreener ads error: {e}")
         return []
 
 
@@ -122,6 +156,49 @@ def get_pair_data(chain_id: str, pair_address: str) -> Optional[dict]:
     except Exception as e:
         logger.error(f"DexScreener pair data error: {e}")
         return None
+
+
+def get_token_orders(chain_id: str, token_address: str) -> list[dict]:
+    """
+    GET /orders/v1/{chainId}/{tokenAddress}
+    Check paid orders (ads/boosts) for a specific token.
+    Tokens with paid orders have teams investing in visibility.
+    """
+    try:
+        data = _get(f"/orders/v1/{chain_id}/{token_address}")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"DexScreener orders error for {token_address}: {e}")
+        return []
+
+
+def get_token_pools_by_chain(chain_id: str, token_address: str) -> list[dict]:
+    """
+    GET /token-pairs/v1/{chainId}/{tokenAddress}
+    Get all pools for a token on a specific chain.
+    More targeted than get_token_pairs() which searches all chains.
+    """
+    try:
+        data = _get(f"/token-pairs/v1/{chain_id}/{token_address}")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"DexScreener token pools error for {chain_id}/{token_address}: {e}")
+        return []
+
+
+def get_tokens_by_chain(chain_id: str, token_addresses: list[str]) -> list[dict]:
+    """
+    GET /tokens/v1/{chainId}/{tokenAddresses}
+    Batch lookup — get pairs for multiple tokens on a specific chain.
+    Addresses are comma-separated (max 30 per API docs).
+    """
+    try:
+        addr_str = ",".join(token_addresses[:30])  # API limit
+        data = _get(f"/tokens/v1/{chain_id}/{addr_str}")
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.error(f"DexScreener batch token lookup error for {chain_id}: {e}")
+        return []
 
 
 def extract_gem_signals(pair: dict) -> dict:

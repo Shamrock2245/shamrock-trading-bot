@@ -32,6 +32,8 @@ from data.providers.dexscreener import (
     get_latest_token_profiles,
     get_latest_boosts,
     get_top_boosts,
+    get_latest_community_takeovers,
+    get_latest_ads,
     extract_gem_signals,
     get_token_pairs,
 )
@@ -149,6 +151,58 @@ class GemScanner:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True
                 signals["boost_amount"] = boost_amount
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                    break
+
+        # ── Source 4: Community takeovers (strong CTO revival signal) ─────────
+        ctos = get_latest_community_takeovers()
+        logger.info(f"Fetched {len(ctos)} community takeovers")
+        for cto in ctos:
+            token_addr = cto.get("tokenAddress", "")
+            chain_id = cto.get("chainId", "")
+            chain = self._dexscreener_to_chain(chain_id)
+            if not chain or not token_addr:
+                continue
+            if chain not in settings.ACTIVE_CHAINS:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr)
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True  # CTO = community investment signal
+                signals["boost_amount"] = 100  # Baseline CTO boost value
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                    break
+
+        # ── Source 5: Ads (funded team with marketing budget) ───────────────
+        ads = get_latest_ads()
+        logger.info(f"Fetched {len(ads)} latest ads")
+        for ad in ads:
+            token_addr = ad.get("tokenAddress", "")
+            chain_id = ad.get("chainId", "")
+            chain = self._dexscreener_to_chain(chain_id)
+            if not chain or not token_addr:
+                continue
+            if chain not in settings.ACTIVE_CHAINS:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr)
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True  # Ads = paid visibility signal
+                signals["boost_amount"] = 50   # Moderate boost for ads
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=True)
