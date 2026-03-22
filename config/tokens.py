@@ -53,10 +53,9 @@ for _token_chains in STABLECOINS.values():
 # Permanent Blocklist — Known scams, rugs, and honeypots
 # Add addresses here as they are discovered. Format: lowercase hex.
 # ─────────────────────────────────────────────────────────────────────────────
-PERMANENT_BLOCKLIST: set[str] = {
-    # Add confirmed scam/rug addresses here as discovered
-    # Example: "0xdeadbeef000000000000000000000000deadbeef",
-}
+PERMANENT_BLOCKLIST: set[str] = set()
+# Add confirmed scam/rug addresses here as discovered
+# Example: PERMANENT_BLOCKLIST.add("0xdeadbeef000000000000000000000000deadbeef")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

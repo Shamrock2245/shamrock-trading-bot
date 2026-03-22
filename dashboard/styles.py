@@ -284,6 +284,7 @@ PLOTLY_LAYOUT = dict(
         zerolinecolor="rgba(255,255,255,0.06)",
         tickfont=dict(size=11, color="#8B949E"),
     ),
+    showlegend=True,
     legend=dict(
         bgcolor="rgba(0,0,0,0)",
         bordercolor="rgba(0,0,0,0)",

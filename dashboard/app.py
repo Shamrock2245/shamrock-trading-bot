@@ -250,7 +250,6 @@ with chart_col1:
         fig.update_layout(
             **PLOTLY_LAYOUT,
             height=320,
-            showlegend=True,
             xaxis_title=None,
             yaxis_title=None,
         )
@@ -291,7 +290,6 @@ with chart_col2:
         fig_donut.update_layout(
             **PLOTLY_LAYOUT,
             height=320,
-            showlegend=True,
             annotations=[dict(
                 text=f"<b>{sum(counts)}</b><br>gems",
                 x=0.5, y=0.5, font_size=16,
