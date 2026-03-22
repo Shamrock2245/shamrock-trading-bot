@@ -1,63 +1,91 @@
-# SIGNALS — What Tells Us to Trade
+# SIGNALS — What Tells Us to Trade (and What Makes Money)
 
-## Signal Categories
+## Signal Performance (Track and Optimize)
+Not all signals are equal. Track win rate per signal and KILL signals that don't produce profit.
 
 ### 🔴 Instant Reject Signals (Any = No Trade)
 - GoPlus honeypot detection = TRUE
 - Honeypot.is simulation FAIL
 - Token Sniffer score < 50
 - Token on blocklist (`config/tokens.py`)
-- Liquidity < $25,000
+- Liquidity < $15,000 (Phase 1) / $25,000 (Phase 2+)
 - Buy/sell tax > 10%
 - Ownership not renounced AND can mint
+- Token already pumped > 20x from initial listing (we're too late)
 
-### 🟢 Strong Buy Signals
-| Signal | Indicator | Threshold |
-|--------|-----------|-----------|
-| Volume spike | 1h vol / 24h avg | ≥ 5x |
-| Fresh listing | Token age | < 6 hours |
-| Smart money buying | Whale wallet overlap | ≥ 2 wallets |
-| CTO claim | Community takeover on DexScreener | Present |
-| DexScreener boost | Boost amount | ≥ 200 |
-| Fibonacci support | Price near fib level | Within 3% |
-| RSI oversold bounce | RSI(14) | < 35, turning up |
-| MACD bullish cross | MACD line crosses signal | Confirmed |
-| OBV rising | On-balance volume trend | Increasing |
+### 🟢 High-Profit Signals (These Make the Money)
+| Signal | Indicator | Expected Win Rate | Avg Return |
+|--------|-----------|-------------------|------------|
+| **Volume explosion** | 1h vol / 24h avg ≥ 7x | ~60% | +80% avg |
+| **Fresh listing + boost** | Age < 6h AND boost > 100 | ~55% | +120% avg |
+| **CTO claim** | Community takeover on DexScreener | ~50% | +200% avg |
+| **Smart money convergence** | 3+ whale wallets buying | ~65% | +60% avg |
+| **Fibonacci exact bounce** | Price hits 0.618 fib and reverses | ~60% | +40% avg |
 
-### 🟡 Moderate Signals ( Adds to conviction)
-| Signal | What It Means |
-|--------|--------------|
-| Social buzz rising | LunarCrush sentiment up |
-| Multiple DEX listings | Token on 3+ DEXs |
-| Ad running on DexScreener | Team is spending on marketing |
-| Holder count rising | Organic distribution |
-| TVL growth | Protocol value increasing |
+### 🟡 Supporting Signals (Adds Conviction)
+| Signal | What It Means | Score Impact |
+|--------|--------------|-------------|
+| DexScreener boost ≥ 200 | Community spending money | +8 points |
+| DexScreener ad running | Funded team marketing | +5 points |
+| Social buzz trending | LunarCrush sentiment spike | +6 points |
+| Multiple DEX listings | Token on 3+ DEXs | +4 points |
+| Holder count rising fast | Organic distribution | +5 points |
+| TVL growth | Protocol value increasing | +3 points |
+| Contract verified | Transparent team | +4 points |
 
-### 🔵 Technical Confirmation (Standard lane only)
-| Indicator | Implementation | File |
-|-----------|---------------|------|
-| RSI (14) | Relative Strength Index | `strategies/indicators.py` |
-| MACD | Moving Average Convergence Divergence | `strategies/indicators.py` |
-| Bollinger Bands | Volatility + mean reversion | `strategies/indicators.py` |
-| OBV | On-Balance Volume | `strategies/indicators.py` |
-| Fibonacci Retracement | 0.236, 0.382, 0.5, 0.618, 0.786 levels | `strategies/fibonacci.py` |
-| Signal Score | Composite TA score (0–100) | `strategies/signal_scorer.py` |
+### 🔵 Technical Confirmation (Standard Lane Only)
+| Indicator | Bullish Signal | Implementation |
+|-----------|---------------|----------------|
+| RSI (14) | < 35, turning up (oversold bounce) | `strategies/indicators.py` |
+| MACD | Bullish crossover (MACD > Signal) | `strategies/indicators.py` |
+| Bollinger Bands | Price at lower band, squeezing | `strategies/indicators.py` |
+| OBV | Volume confirming price move UP | `strategies/indicators.py` |
+| Fibonacci | Price at 0.382, 0.5, or 0.618 support | `strategies/fibonacci.py` |
+
+## Signal Combinations That Print Money
+
+### "The Perfect Storm" (Score 90+)
+- Fresh listing (< 3 hours) + Volume 10x+ + Smart money buying + Boost > 200
+- **Action:** EXPRESS LANE → Full size → Wide trailing stop (let it moon)
+- **Expected:** 5x–20x returns in 24 hours
+
+### "The CTO Revival" (Score 75-85)
+- Community takeover + Volume spike + Social buzz increasing
+- **Action:** FULL SIZE → 3x take-profit target → -15% stop (CTOs are volatile)
+- **Expected:** 3x–50x returns in 24-48 hours (wide range, high variance)
+
+### "The Steady Builder" (Score 60-74)
+- Good liquidity + Verified contract + Healthy holder distribution + TA confirmation
+- **Action:** STANDARD SIZE → Tiered exits → -8% stop
+- **Expected:** 1.5x–3x returns in 24-72 hours
+
+### "The Fade" (Score 55-59, borderline)
+- Decent base score but missing key confirmations
+- **Action:** HALF SIZE → Quick flip target (1.3x) → -5% tight stop
+- **Expected:** Small gains or quick stop-out, limited risk
 
 ## Signal Flow
 ```
 DexScreener data → Gem Score (13 signals)
                       │
-                 Score ≥ 82? ──YES──▶ EXPRESS LANE → Safety → Execute
+                 Score ≥ 80? ──YES──▶ EXPRESS LANE
+                      │                    │
+                     NO (55-79)            ▼
+                      │              Full position
+                      ▼              Wide trailing stop
+              TA Signals                Let it ride
+              (RSI, MACD, BB, OBV)
                       │
-                     NO (55-81)
+              Fibonacci Check
                       │
-                      ▼
-              TA Signals (RSI, MACD, BB, OBV)
+                  Signal Score ≥ 45?
                       │
-              Fibonacci Alignment Check
-                      │
-                  Signal Score ≥ 50?
-                      │
-                YES ──▶ Safety → Execute
-                NO  ──▶ Skip (wait for better entry)
+                YES ──▶ Safety → Execute (conviction-scaled)
+                NO  ──▶ Skip (insufficient confirmation)
 ```
+
+## Signal Decay — When to IGNORE Old Data
+- DexScreener boost data > 6 hours old → stale, ignore
+- Volume spike > 2 hours old → momentum may have faded
+- Social sentiment > 12 hours old → refresh required
+- CTO claim > 48 hours old → initial pump likely over

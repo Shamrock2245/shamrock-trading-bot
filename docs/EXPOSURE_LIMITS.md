@@ -1,50 +1,77 @@
-# EXPOSURE LIMITS — Don't Put All Eggs in One Basket
+# EXPOSURE LIMITS — Diversification That Maximizes Profit
 
-## Portfolio Exposure Rules
+## The Balance
+With $5K you CAN'T over-diversify — tiny positions on many chains = death by gas fees. But you also can't put everything on one chain.
 
-### Per-Position Exposure
-- **Maximum:** 2% of portfolio per position
-- **Env var:** `MAX_POSITION_SIZE_PERCENT=2.0`
-- **Why:** One rug pull should cost at most 2% of your portfolio
+## Phase 1 Exposure Rules ($5K–$15K)
 
-### Total Exposure
-- **Maximum:** 20% of portfolio (10 positions × 2%)
-- **Env var:** `MAX_CONCURRENT_POSITIONS=10`
-- **Why:** 80% of portfolio stays in stable assets (ETH, SOL, stablecoins)
+### Total Portfolio Exposure
+- **Max positions:** 5
+- **Max per-position:** 5% ($250)
+- **Max total exposed:** 25% ($1,250)
+- **Remaining 75%:** Stays as gas reserves + dry powder for new opportunities
 
-### Per-Chain Exposure
+### Per-Chain Limits (Phase 1)
+| Chain | Max Positions | Max Exposure | Capital Allocated |
+|-------|-------------|-------------|-----------------|
+| **Solana** | 2 | 10% ($500) | $2,000 (40%) |
+| **Base** | 2 | 10% ($500) | $1,500 (30%) |
+| **Arbitrum** | 1 | 5% ($250) | $1,000 (20%) |
+| **BSC** | 1 | 5% ($250) | $500 (10%) |
+| **Ethereum** | 0 | 0% | $0 (Phase 1 skip) |
+
+### Why This Allocation
+- **Solana gets most capital** — cheapest gas, fastest execution, most memecoin gems
+- **Base is #2** — growing fast, low fees, lots of new listings
+- **Arbitrum backup** — for DeFi plays and quality tokens
+- **BSC selective** — only high-conviction plays, too many scams otherwise
+
+## Phase 2 Exposure Rules ($15K–$50K)
 | Chain | Max Positions | Max Exposure |
 |-------|-------------|-------------|
-| Ethereum | 3 | 6% of portfolio |
-| Base | 3 | 6% |
-| Arbitrum | 2 | 4% |
+| Solana | 3 | 9% |
+| Base | 2 | 6% |
+| Arbitrum | 2 | 6% |
+| Ethereum | 1 | 3% (high-value trades only) |
+| BSC | 1 | 3% |
+| Polygon | 1 | 3% |
+
+## Phase 3+ Exposure Rules ($50K+)
+| Chain | Max Positions | Max Exposure |
+|-------|-------------|-------------|
 | Solana | 3 | 6% |
-| BSC | 2 | 4% |
-| Polygon | 2 | 4% |
+| Ethereum | 2 | 4% |
+| Base | 2 | 4% |
+| Arbitrum | 2 | 4% |
+| BSC | 1 | 2% |
+| Polygon | 1 | 2% |
 
-### Per-Category Exposure
-| Token Category | Max Positions |
-|---------------|-------------|
-| Memecoins | 4 |
-| DeFi tokens | 4 |
-| Gaming/NFT tokens | 2 |
-| AI tokens | 3 |
+## Category Exposure (All Phases)
+| Token Category | Phase 1 Max | Phase 2+ Max |
+|---------------|------------|-------------|
+| Memecoins | 3 positions | 4 positions |
+| DeFi tokens | 2 positions | 4 positions |
+| AI tokens | 2 positions | 3 positions |
+| Gaming/NFT | 1 position | 2 positions |
 
-## Why Exposure Limits Matter
+## Why Exposure Limits Make You MORE Money
 ```
-Scenario A (No limits):
-  10 memecoins on BSC, each 5% of portfolio = 50% exposure on one chain
-  BSC RPC goes down → Can't exit any positions
-  Result: Potential 50% portfolio loss
+Scenario A: All 5 positions on Solana
+  → Solana RPC goes down for 2 hours
+  → Can't exit ANY position
+  → Market dumps during outage
+  → All 5 positions hit stop-loss = $100 total loss
 
-Scenario B (With limits):
-  3 memecoins on BSC, each 2% of portfolio = 6% exposure
-  BSC RPC goes down → Only 6% at risk
-  Other chains continue trading normally
-  Result: Maximum 6% portfolio loss from chain event
+Scenario B: 2 on Solana, 2 on Base, 1 on Arbitrum
+  → Solana RPC goes down
+  → Base and Arbitrum positions trade normally
+  → Only 2 positions affected = $40 total loss
+  → Other 3 positions might even profit during the event
 ```
 
-## Monitoring
-- Track total exposure per chain in real-time
-- Alert when any chain exceeds its limit
-- Block new entries on over-exposed chains
+## Dry Powder Philosophy
+Always keep 75% of portfolio unlocked:
+- **Opportunity fund** — the best gems appear unpredictably
+- **Gas reserves** — can't trade without gas
+- **Dollar-cost-averaging** — enter new positions on the next cycle
+- **Crisis buffer** — if all 5 positions stop-out, you still have $3,750 to restart
