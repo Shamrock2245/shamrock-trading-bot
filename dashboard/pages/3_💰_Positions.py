@@ -109,9 +109,9 @@ with tab_pos:
             ))
 
             fig_waterfall.update_layout(
-                **PLOTLY_LAYOUT, height=300,
+                **{**PLOTLY_LAYOUT, "showlegend": False},
+                height=300,
                 yaxis_title="Unrealized P&L %",
-                showlegend=False,
             )
             st.plotly_chart(fig_waterfall, use_container_width=True, config={"displayModeBar": False})
     else:

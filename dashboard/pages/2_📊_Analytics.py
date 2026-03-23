@@ -140,7 +140,7 @@ with analysis_col1:
             hovertemplate="<b>%{x}</b><br>%{y:,} gems<extra></extra>",
         ))
 
-        fig_bar.update_layout(**PLOTLY_LAYOUT, height=300, showlegend=False)
+        fig_bar.update_layout(**{**PLOTLY_LAYOUT, "showlegend": False}, height=300)
         st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
 with analysis_col2:
@@ -165,7 +165,7 @@ with analysis_col2:
             hovertemplate="<b>Score %{x}</b><br>%{y:,} gems<extra></extra>",
         ))
 
-        fig_scores.update_layout(**PLOTLY_LAYOUT, height=300, showlegend=False)
+        fig_scores.update_layout(**{**PLOTLY_LAYOUT, "showlegend": False}, height=300)
         st.plotly_chart(fig_scores, use_container_width=True, config={"displayModeBar": False})
 
 # ── Fibonacci Zone Distribution ──────────────────────────────────────────────

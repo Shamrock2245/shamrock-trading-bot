@@ -175,8 +175,8 @@ with error_col1:
             ))
 
         fig_errors.update_layout(
-            **PLOTLY_LAYOUT, height=280,
-            showlegend=False,
+            **{**PLOTLY_LAYOUT, "showlegend": False},
+            height=280,
             yaxis_title="Errors",
         )
         st.plotly_chart(fig_errors, use_container_width=True, config={"displayModeBar": False})
