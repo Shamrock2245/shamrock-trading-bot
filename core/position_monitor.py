@@ -573,8 +573,9 @@ class PositionMonitor:
 
                 # ── Dynamic trailing stop (tightens in God Mode and after pyramid adds) ──
                 dynamic_trailing_stop_pct = get_dynamic_trailing_stop_pct(
-                    offensive_state,
-                    pyramid_tier=int(pos.get("pyramid_tier", 0)),
+                    pos,
+                    base_stop_pct=settings.STOP_LOSS_PERCENT,
+                    state=offensive_state,
                 )
                 if dynamic_trailing_stop_pct != settings.STOP_LOSS_PERCENT:
                     pos["_dynamic_trailing_stop_pct"] = dynamic_trailing_stop_pct
