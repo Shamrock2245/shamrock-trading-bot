@@ -475,7 +475,7 @@ async def run_bot_loop():
                         f"Signal approved {token.symbol}: "
                         f"composite={signal.composite:.1f} | "
                         f"fib={signal.fib_zone} | "
-                        f"rsi={signal.rsi:.1f if signal.rsi else 'N/A'}"
+                        f"rsi={f'{signal.rsi:.1f}' if signal.rsi is not None else 'N/A'}"
                     )
 
                     # Strategy evaluation (Fibonacci gate)
