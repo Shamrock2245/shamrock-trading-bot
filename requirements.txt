@@ -19,10 +19,7 @@ aiohttp>=3.9.0               # Async HTTP for concurrent API calls
 
 # ── Data / Analysis ──────────────────────────────────────────────────────────
 pandas>=2.0.0                # DataFrames for OHLCV and signal processing
-# pandas-ta installed from git (PyPI version incompatible with Python 3.11+)
-# Install manually: pip install git+https://github.com/twopirllc/pandas-ta.git@development
-# For Phase 2 (TA signals) — not required for core Phase 1 workflow
-# pandas-ta>=0.3.14b
+pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@development  # TA indicators (Python 3.11+ compatible)
 numpy>=1.24.0                # Numerical operations
 
 # ── Configuration ────────────────────────────────────────────────────────────
