@@ -634,7 +634,6 @@ async def run_bot_loop():
                             executed = tx_hash is not None
                         else:
                             # EVM chain — buy with USDC via build_gem_snipe_params
-                            from core.executor import TradeExecutor, build_gem_snipe_params
                             scale_executor = TradeExecutor(is_paper=is_paper)
                             params = build_gem_snipe_params(
                                 wallet=wallet_conf,
