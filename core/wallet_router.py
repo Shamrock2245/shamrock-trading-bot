@@ -87,6 +87,7 @@ CHAIN_SLIPPAGE_BPS = {
     "arbitrum": 100,   # Good liquidity on major pairs
     "polygon": 150,    # Moderate liquidity
     "bsc": 200,        # Wide spreads on altcoins
+    "avalanche": 150,  # Similar to Polygon liquidity
     "solana": 150,     # Jupiter handles routing well
 }
 
@@ -250,23 +251,31 @@ def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
 
 
 def _get_sol_balance(wallet_address: str) -> float:
-    """Fetch SOL balance via Solana JSON-RPC."""
-    try:
-        import requests
-        rpc_url = settings.SOLANA_RPC_URL
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getBalance",
-            "params": [wallet_address],
-        }
-        resp = requests.post(rpc_url, json=payload, timeout=10)
-        result = resp.json().get("result", {})
-        lamports = result.get("value", 0)
-        return lamports / 1_000_000_000
-    except Exception as e:
-        logger.debug(f"SOL balance fetch failed for {wallet_address}: {e}")
-        return 0.0
+    """Fetch SOL balance via Solana JSON-RPC with fallback endpoints."""
+    rpc_urls = [
+        settings.SOLANA_RPC_URL,
+        getattr(settings, 'SOLANA_RPC_FALLBACK', 'https://solana-mainnet.g.alchemy.com/v2/demo'),
+    ]
+    for rpc_url in rpc_urls:
+        if not rpc_url:
+            continue
+        try:
+            import requests
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [wallet_address],
+            }
+            resp = requests.post(rpc_url, json=payload, timeout=10)
+            result = resp.json().get("result", {})
+            lamports = result.get("value", 0)
+            balance = lamports / 1_000_000_000
+            if balance > 0 or lamports == 0:
+                return balance
+        except Exception as e:
+            logger.debug(f"SOL balance fetch failed for {wallet_address} ({rpc_url}): {e}")
+    return 0.0
 
 
 def get_native_price_usd(native_token: str) -> float:
@@ -279,6 +288,7 @@ def get_native_price_usd(native_token: str) -> float:
         "MATIC": 0.85,
         "BNB": 580.0,
         "SOL": 175.0,
+        "AVAX": 35.0,
     }
     try:
         import requests
@@ -287,6 +297,7 @@ def get_native_price_usd(native_token: str) -> float:
             "MATIC": "matic-network",
             "BNB": "binancecoin",
             "SOL": "solana",
+            "AVAX": "avalanche-2",
         }
         coin_id = coin_ids.get(native_token.upper())
         if not coin_id:
