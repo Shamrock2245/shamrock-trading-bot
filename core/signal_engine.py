@@ -333,8 +333,15 @@ class SignalEngine:
         if pair_address and settings.TA_ENABLED:
             candles = get_ohlcv_geckoterminal(chain, pair_address, timeframe="hour", limit=100)
 
-        if not candles:
-            # Micro-cap gem fallback: use gem_score + enrichment + price data
+        if not candles or len(candles) < 24:
+            # Micro-cap gem fallback: not enough candles for meaningful TA
+            # RSI needs 14+ periods, MACD needs 26+, BB needs 20+
+            # With sparse data, TA produces garbage scores (composite ~20)
+            if candles:
+                logger.info(
+                    f"Only {len(candles)} candles for {token_symbol} — "
+                    f"using micro-cap scoring instead of sparse TA"
+                )
             return self._microcap_signals(
                 score=score,
                 token_symbol=token_symbol,
