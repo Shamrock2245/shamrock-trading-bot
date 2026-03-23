@@ -121,6 +121,39 @@ def get_current_price(token_address: str, chain: str, pair_address: str = "") ->
         return None
 
 
+def get_price_and_volume(token_address: str, chain: str, pair_address: str = "") -> dict:
+    """
+    Fetch current price AND volume data from DexScreener.
+    Returns dict with price, volume_1h, volume_24h. All may be None.
+    """
+    result = {"price": None, "volume_1h": None, "volume_24h": None}
+    try:
+        if pair_address:
+            url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
+        else:
+            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        pairs = data.get("pairs", [])
+        if not pairs:
+            return result
+
+        pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+        top = pairs[0]
+        price_str = top.get("priceUsd")
+        result["price"] = float(price_str) if price_str else None
+
+        vol = top.get("volume", {})
+        result["volume_1h"] = float(vol.get("h1", 0) or 0)
+        result["volume_24h"] = float(vol.get("h24", 0) or 0)
+
+    except Exception as e:
+        logger.debug(f"Price+volume fetch failed for {token_address}: {e}")
+
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Take-Profit / Stop-Loss Evaluation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +236,151 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
                 }
         except Exception:
             pass
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Offensive Guardrails — Work In Our Favor
+# ─────────────────────────────────────────────────────────────────────────────
+
+def evaluate_volume_surge_exit(pos: dict, current_price: float) -> Optional[dict]:
+    """
+    Volume surge fast exit: if volume spikes >10x 24h avg while position is
+    profitable, take partial profit immediately. Blowoff tops often precede
+    sharp reversals — we lock in gains before the dump.
+    """
+    if not settings.VOLUME_SURGE_EXIT_ENABLED:
+        return None
+
+    entry_price = float(pos.get("entry_price", 0))
+    if entry_price <= 0:
+        return None
+
+    gain_pct = ((current_price - entry_price) / entry_price) * 100
+    if gain_pct < settings.VOLUME_SURGE_MIN_GAIN_PCT:
+        return None
+
+    # Check volume surge (we store volume data on position updates)
+    volume_1h = float(pos.get("volume_1h", 0))
+    volume_24h = float(pos.get("volume_24h", 0))
+    if volume_24h > 0 and volume_1h > 0:
+        hourly_avg = volume_24h / 24
+        if hourly_avg > 0 and volume_1h / hourly_avg >= settings.VOLUME_SURGE_MULTIPLIER:
+            # Already did a surge exit? Don't do it again
+            if pos.get("volume_surge_exit_done"):
+                return None
+            return {
+                "reason": f"volume_surge_exit (vol={volume_1h/hourly_avg:.0f}x avg, gain={gain_pct:.0f}%)",
+                "sell_pct": settings.VOLUME_SURGE_SELL_PCT,
+                "urgency": "immediate",
+                "_mark": "volume_surge_exit_done",
+            }
+
+    return None
+
+
+def evaluate_underperformer_exit(pos: dict, current_price: float) -> Optional[dict]:
+    """
+    Underperformer rotation: close flat positions (±5% for 12+ hours) to free
+    capital for higher-scoring new gems. Dead money = opportunity cost.
+    """
+    if not settings.UNDERPERFORMER_EXIT_ENABLED:
+        return None
+
+    entry_price = float(pos.get("entry_price", 0))
+    if entry_price <= 0:
+        return None
+
+    # Don't exit if already in profit territory (TP system handles that)
+    gain_pct = ((current_price - entry_price) / entry_price) * 100
+    if abs(gain_pct) > settings.UNDERPERFORMER_FLAT_PCT:
+        return None
+
+    # Check how long the position has been open
+    entry_time = pos.get("entry_time")
+    if not entry_time:
+        return None
+
+    try:
+        entry_dt = datetime.fromisoformat(str(entry_time).replace("Z", "+00:00"))
+        age_hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+        if age_hours >= settings.UNDERPERFORMER_FLAT_HOURS:
+            return {
+                "reason": f"underperformer_rotation ({gain_pct:+.1f}% after {age_hours:.0f}h)",
+                "sell_pct": 1.0,
+                "urgency": "normal",
+            }
+    except Exception:
+        pass
+
+    return None
+
+
+def check_winner_scaling(pos: dict, current_price: float) -> Optional[dict]:
+    """
+    Winner scaling: if a position is up >30% and hasn't been scaled yet,
+    return a signal to buy more. The main loop handles the actual execution.
+    Returns a dict with scaling info if triggered, None otherwise.
+    """
+    if not settings.WINNER_SCALING_ENABLED:
+        return None
+
+    entry_price = float(pos.get("entry_price", 0))
+    if entry_price <= 0:
+        return None
+
+    gain_pct = ((current_price - entry_price) / entry_price) * 100
+    scale_count = int(pos.get("scale_in_count", 0))
+
+    if gain_pct >= settings.WINNER_SCALING_GAIN_PCT and scale_count < settings.WINNER_SCALING_MAX_ADDS:
+        return {
+            "action": "scale_in",
+            "token_address": pos.get("token_address"),
+            "token_symbol": pos.get("token_symbol"),
+            "chain": pos.get("chain"),
+            "wallet": pos.get("wallet"),
+            "gain_pct": gain_pct,
+            "current_price": current_price,
+        }
+
+    return None
+
+
+def check_smart_dca(pos: dict, current_price: float) -> Optional[dict]:
+    """
+    Smart DCA: if a high-conviction position dips 15% (above the 25% hard stop),
+    buy more to lower average entry. Only triggers once per position.
+    """
+    if not settings.SMART_DCA_ENABLED:
+        return None
+
+    entry_price = float(pos.get("entry_price", 0))
+    gem_score = float(pos.get("gem_score", 0))
+    if entry_price <= 0:
+        return None
+
+    # Only DCA on high-conviction picks
+    if gem_score < settings.SMART_DCA_MIN_GEM_SCORE:
+        return None
+
+    # Already DCA'd?
+    if pos.get("dca_done"):
+        return None
+
+    gain_pct = ((current_price - entry_price) / entry_price) * 100
+    # Dip range: between -SMART_DCA_DIP_PCT and -HARD_STOP_LOSS
+    if -settings.HARD_STOP_LOSS_PERCENT < gain_pct <= -settings.SMART_DCA_DIP_PCT:
+        return {
+            "action": "dca",
+            "token_address": pos.get("token_address"),
+            "token_symbol": pos.get("token_symbol"),
+            "chain": pos.get("chain"),
+            "wallet": pos.get("wallet"),
+            "gain_pct": gain_pct,
+            "current_price": current_price,
+            "gem_score": gem_score,
+        }
 
     return None
 
@@ -332,48 +510,98 @@ class PositionMonitor:
 
     def run_once(self) -> dict:
         """
-        Run a single check cycle.
-        Returns summary dict: {checked, sells_triggered, errors}
+        Run a single check cycle. Includes defensive (TP/SL) and offensive
+        (volume surge, underperformer, winner scaling, DCA) guardrails.
+
+        Returns summary dict: {checked, sells_triggered, errors,
+                               scaling_signals, dca_signals}
         """
         positions = load_positions()
         open_positions = [p for p in positions if p.get("status") == "open"]
 
         if not open_positions:
-            return {"checked": 0, "sells_triggered": 0, "errors": 0}
+            return {"checked": 0, "sells_triggered": 0, "errors": 0,
+                    "scaling_signals": 0, "dca_signals": 0}
 
         updated_positions = []
         sells_triggered = 0
+        scaling_signals = 0
+        dca_signals = 0
         errors = 0
 
         for pos in open_positions:
             try:
-                current_price = get_current_price(
+                # Fetch price + volume (enriched data for offensive guardrails)
+                pv = get_price_and_volume(
                     token_address=pos.get("token_address", ""),
                     chain=pos.get("chain", ""),
                     pair_address=pos.get("pair_address", ""),
                 )
+                current_price = pv["price"]
 
                 if current_price is None:
                     logger.debug(f"No price for {pos.get('token_symbol')} — skipping")
                     updated_positions.append(pos)
                     continue
 
-                # Update highest price seen
+                # Update position with latest data
                 pos = dict(pos)
                 if current_price > float(pos.get("highest_price", 0)):
                     pos["highest_price"] = current_price
 
-                # Update current price and unrealized PnL
+                # Enrich with volume data (enables volume surge detection)
+                if pv["volume_1h"] is not None:
+                    pos["volume_1h"] = pv["volume_1h"]
+                if pv["volume_24h"] is not None:
+                    pos["volume_24h"] = pv["volume_24h"]
+
                 pos["current_price"] = current_price
                 entry_price = float(pos.get("entry_price", 0))
                 if entry_price > 0:
                     pos["unrealized_pnl_pct"] = ((current_price - entry_price) / entry_price) * 100
 
-                # Evaluate sell conditions
+                # ── Defensive: standard TP/SL evaluation ─────────────────────
                 sell_action = evaluate_position(pos, current_price)
+
+                # ── Offensive: volume surge fast exit ─────────────────────────
+                if not sell_action:
+                    sell_action = evaluate_volume_surge_exit(pos, current_price)
+
+                # ── Offensive: underperformer rotation ────────────────────────
+                if not sell_action:
+                    sell_action = evaluate_underperformer_exit(pos, current_price)
+
                 if sell_action:
+                    # If the action has a _mark, apply it to position before sell
+                    mark = sell_action.pop("_mark", None)
+                    if mark:
+                        pos[mark] = True
                     pos = execute_sell(pos, sell_action, current_price, self.is_paper)
                     sells_triggered += 1
+
+                # ── Offensive: winner scaling signal ──────────────────────────
+                # Don't scale if we just sold or position is closed
+                if pos.get("status") == "open":
+                    scaling = check_winner_scaling(pos, current_price)
+                    if scaling:
+                        pos["_scaling_signal"] = scaling
+                        scaling_signals += 1
+                        logger.info(
+                            f"📈 Winner scaling signal: {pos.get('token_symbol')} "
+                            f"+{scaling['gain_pct']:.0f}% — flagged for scale-in"
+                        )
+
+                # ── Offensive: smart DCA signal ───────────────────────────────
+                if pos.get("status") == "open":
+                    dca = check_smart_dca(pos, current_price)
+                    if dca:
+                        pos["_dca_signal"] = dca
+                        dca_signals += 1
+                        logger.info(
+                            f"📉 Smart DCA signal: {pos.get('token_symbol')} "
+                            f"{dca['gain_pct']:+.0f}% dip (score={dca['gem_score']:.0f}) "
+                            f"— flagged for DCA buy"
+                        )
 
                 updated_positions.append(pos)
 
@@ -398,12 +626,19 @@ class PositionMonitor:
 
         save_positions(all_positions)
 
-        if sells_triggered > 0:
-            logger.info(f"Position monitor: {sells_triggered} sell(s) triggered, {errors} errors")
+        if sells_triggered > 0 or scaling_signals > 0 or dca_signals > 0:
+            logger.info(
+                f"Position monitor: {sells_triggered} sell(s), "
+                f"{scaling_signals} scale signal(s), "
+                f"{dca_signals} DCA signal(s), "
+                f"{errors} error(s)"
+            )
 
         return {
             "checked": len(open_positions),
             "sells_triggered": sells_triggered,
+            "scaling_signals": scaling_signals,
+            "dca_signals": dca_signals,
             "errors": errors,
         }
 

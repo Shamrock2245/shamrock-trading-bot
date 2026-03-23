@@ -389,6 +389,10 @@ async def run_bot_loop():
     cycle = 0
     trades_this_session = 0
 
+    # ── Profit boost tracker (offensive guardrail) ────────────────────────────
+    # After a big win, temporarily boost conviction for the next N trades
+    profit_boost_remaining = 0  # Countdown of boosted trades remaining
+
     while True:
         cycle += 1
         trades_this_cycle = 0
@@ -396,14 +400,16 @@ async def run_bot_loop():
 
         try:
             # ── Circuit breaker check ─────────────────────────────────────────
-            # Calculate portfolio change from positions and check threshold
             if risk_manager.is_circuit_breaker_tripped:
                 logger.warning("🚨 Circuit breaker is tripped — skipping cycle")
                 await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
                 continue
 
             # Check portfolio drawdown from open positions
-            open_positions = [p for p in load_positions() if p.get("status") == "open"]
+            all_positions = load_positions()
+            open_positions = [p for p in all_positions if p.get("status") == "open"]
+            closed_positions = [p for p in all_positions if p.get("status") == "closed"]
+
             if open_positions:
                 total_entry = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
                 total_current = sum(float(p.get("current_value_usd", 0)) for p in open_positions)
@@ -420,6 +426,56 @@ async def run_bot_loop():
                         await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
                         continue
 
+            # ── Build dedup sets (O(1) lookups in candidate loop) ─────────────
+            open_token_keys = {
+                p["token_address"].lower()
+                for p in open_positions
+                if p.get("token_address")
+            }
+
+            # Build cooldown set: tokens closed within COOLDOWN_HOURS
+            cooldown_token_keys = set()
+            if settings.COOLDOWN_HOURS > 0:
+                now_ts = datetime.now(timezone.utc).timestamp()
+                cooldown_window = settings.COOLDOWN_HOURS * 3600
+                for p in closed_positions:
+                    closed_at = p.get("closed_at")
+                    if closed_at:
+                        try:
+                            closed_ts = datetime.fromisoformat(
+                                str(closed_at).replace("Z", "+00:00")
+                            ).timestamp()
+                            if now_ts - closed_ts < cooldown_window:
+                                addr = p.get("token_address", "").lower()
+                                if addr:
+                                    cooldown_token_keys.add(addr)
+                        except Exception:
+                            pass
+
+            # ── Check profit boost: did we just close a big winner? ───────────
+            if settings.PROFIT_BOOST_ENABLED and profit_boost_remaining <= 0:
+                for p in closed_positions:
+                    closed_at = p.get("closed_at")
+                    if closed_at:
+                        try:
+                            closed_ts = datetime.fromisoformat(
+                                str(closed_at).replace("Z", "+00:00")
+                            ).timestamp()
+                            # Only boost from wins in the last hour
+                            if now_ts - closed_ts < 3600:
+                                realized_pnl_pct = float(p.get("unrealized_pnl_pct", 0))
+                                if realized_pnl_pct >= settings.PROFIT_BOOST_MIN_GAIN_PCT:
+                                    profit_boost_remaining = settings.PROFIT_BOOST_TRADES
+                                    logger.info(
+                                        f"🔥 PROFIT BOOST ACTIVATED: {p.get('token_symbol')} "
+                                        f"closed at +{realized_pnl_pct:.0f}% → "
+                                        f"next {settings.PROFIT_BOOST_TRADES} trades boosted "
+                                        f"{settings.PROFIT_BOOST_MULTIPLIER:.0%}"
+                                    )
+                                    break
+                        except Exception:
+                            pass
+
             # 1. Fetch balances
             fetcher = BalanceFetcher()
 
@@ -427,10 +483,56 @@ async def run_bot_loop():
             candidates = scanner.scan()
             logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
 
-            # 3. Process top candidates through strategy
-            for candidate in candidates[:settings.MAX_TRADES_PER_CYCLE]:
+            # 3. Process candidates (iterate all, but cap successful trades)
+            for candidate in candidates:
+                # ── Per-cycle trade cap (enforced on SUCCESSFUL trades) ────────
+                if trades_this_cycle >= settings.MAX_TRADES_PER_CYCLE:
+                    logger.info(
+                        f"Trade cap reached ({trades_this_cycle}/{settings.MAX_TRADES_PER_CYCLE}) "
+                        f"— stopping candidate processing"
+                    )
+                    break
+
                 token = candidate.token
                 is_express = getattr(candidate, "express_lane", False)
+                token_addr_lower = token.address.lower()
+
+                # ── GUARD 1: Dedup — skip tokens with open positions ──────────
+                if settings.DEDUP_GUARD_ENABLED and token_addr_lower in open_token_keys:
+                    logger.info(
+                        f"🛡️ Dedup guard: skipping {token.symbol} — already have open position"
+                    )
+                    continue
+
+                # ── GUARD 2: Cooldown — skip recently closed tokens ───────────
+                if token_addr_lower in cooldown_token_keys:
+                    logger.info(
+                        f"🛡️ Cooldown guard: skipping {token.symbol} — "
+                        f"closed within last {settings.COOLDOWN_HOURS}h"
+                    )
+                    continue
+
+                # ── GUARD 3: Exposure cap — skip if portfolio is over-deployed ─
+                if settings.MAX_PORTFOLIO_EXPOSURE_PCT < 100.0 and open_positions:
+                    try:
+                        total_deployed = sum(
+                            float(p.get("entry_value_usd", 0)) for p in open_positions
+                        )
+                        # Rough portfolio estimate: deployed + available balance
+                        # Use entry values as proxy (conservative)
+                        total_portfolio = total_deployed * (100.0 / max(
+                            len(open_positions) * (settings.MAX_POSITION_SIZE_PERCENT or 2.0), 1.0
+                        ))
+                        exposure_pct = (total_deployed / total_portfolio * 100) if total_portfolio > 0 else 0
+                        if exposure_pct >= settings.MAX_PORTFOLIO_EXPOSURE_PCT:
+                            logger.info(
+                                f"🛡️ Exposure cap: skipping {token.symbol} — "
+                                f"portfolio {exposure_pct:.0f}% deployed "
+                                f"(cap: {settings.MAX_PORTFOLIO_EXPOSURE_PCT}%)"
+                            )
+                            continue
+                    except Exception:
+                        pass  # Don't block trading on calc failure
 
                 # Safety check (mandatory — no bypass even for express lane)
                 safety = check_token_safety(token.address, token.chain)
@@ -517,6 +619,17 @@ async def run_bot_loop():
                 wallet = allocation.wallet
                 native_balance = allocation.native_balance
 
+                # ── OFFENSIVE: Apply profit boost to position sizing ──────────
+                if profit_boost_remaining > 0 and settings.PROFIT_BOOST_ENABLED:
+                    original_size = allocation.position_size_native
+                    allocation.position_size_native *= settings.PROFIT_BOOST_MULTIPLIER
+                    allocation.position_size_usd *= settings.PROFIT_BOOST_MULTIPLIER
+                    logger.info(
+                        f"🔥 Profit boost applied: {original_size:.4f} → "
+                        f"{allocation.position_size_native:.4f} "
+                        f"({settings.PROFIT_BOOST_MULTIPLIER:.0%}x)"
+                    )
+
                 # ── USDC balance check ────────────────────────────────────────
                 usdc_balance = 0.0
                 try:
@@ -593,6 +706,17 @@ async def run_bot_loop():
                 if success:
                     trades_this_cycle += 1
                     trades_this_session += 1
+
+                    # Decrement profit boost counter
+                    if profit_boost_remaining > 0:
+                        profit_boost_remaining -= 1
+                        logger.info(
+                            f"🔥 Profit boost trades remaining: {profit_boost_remaining}"
+                        )
+
+                    # Add to dedup set so we don't re-buy this cycle
+                    open_token_keys.add(token_addr_lower)
+
                     logger.info(
                         f"✅ Trade executed: {token.symbol} | {token.chain} | "
                         f"{amount_display} | path={execution_path} | tx={tx_hash}"

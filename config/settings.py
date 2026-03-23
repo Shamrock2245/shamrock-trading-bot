@@ -123,6 +123,48 @@ POSITIONS_FILE = os.getenv("POSITIONS_FILE", "output/positions.json")
 TRADES_FILE = os.getenv("TRADES_FILE", "output/trades.json")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Trade Loop Guardrails (Defensive)
+# ─────────────────────────────────────────────────────────────────────────────
+# Dedup guard: skip tokens with an existing open position
+DEDUP_GUARD_ENABLED = os.getenv("DEDUP_GUARD_ENABLED", "true").lower() == "true"
+# Cooldown: hours to wait before re-entering a recently closed token
+COOLDOWN_HOURS = float(os.getenv("COOLDOWN_HOURS", "2.0"))
+# Total exposure cap: max % of portfolio deployed in open positions
+MAX_PORTFOLIO_EXPOSURE_PCT = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "80.0"))
+# Stale price guard: reject candidates with price data older than this (seconds)
+MAX_PRICE_AGE_SECONDS = int(os.getenv("MAX_PRICE_AGE_SECONDS", "120"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Offensive Guardrails (Work In Our Favor)
+# ─────────────────────────────────────────────────────────────────────────────
+# Winner scaling: add to positions that are pumping (>30% gain, volume rising)
+WINNER_SCALING_ENABLED = os.getenv("WINNER_SCALING_ENABLED", "true").lower() == "true"
+WINNER_SCALING_GAIN_PCT = float(os.getenv("WINNER_SCALING_GAIN_PCT", "30.0"))  # Min gain to trigger
+WINNER_SCALING_MAX_ADDS = int(os.getenv("WINNER_SCALING_MAX_ADDS", "1"))  # Max scale-ins per position
+
+# Smart DCA: buy more if a high-conviction position dips (10-20% down, above stop)
+SMART_DCA_ENABLED = os.getenv("SMART_DCA_ENABLED", "true").lower() == "true"
+SMART_DCA_DIP_PCT = float(os.getenv("SMART_DCA_DIP_PCT", "15.0"))  # Dip threshold to trigger
+SMART_DCA_MIN_GEM_SCORE = float(os.getenv("SMART_DCA_MIN_GEM_SCORE", "65.0"))  # Min original score
+
+# Profit reinvestment: boost conviction multiplier after big wins
+PROFIT_BOOST_ENABLED = os.getenv("PROFIT_BOOST_ENABLED", "true").lower() == "true"
+PROFIT_BOOST_MIN_GAIN_PCT = float(os.getenv("PROFIT_BOOST_MIN_GAIN_PCT", "50.0"))  # Min gain to trigger
+PROFIT_BOOST_MULTIPLIER = float(os.getenv("PROFIT_BOOST_MULTIPLIER", "1.25"))  # 25% bigger next bets
+PROFIT_BOOST_TRADES = int(os.getenv("PROFIT_BOOST_TRADES", "3"))  # Number of boosted trades
+
+# Volume surge fast exit: take partial profit on blowoff tops
+VOLUME_SURGE_EXIT_ENABLED = os.getenv("VOLUME_SURGE_EXIT_ENABLED", "true").lower() == "true"
+VOLUME_SURGE_MULTIPLIER = float(os.getenv("VOLUME_SURGE_MULTIPLIER", "10.0"))  # Volume vs 24h avg
+VOLUME_SURGE_MIN_GAIN_PCT = float(os.getenv("VOLUME_SURGE_MIN_GAIN_PCT", "50.0"))  # Must be in profit
+VOLUME_SURGE_SELL_PCT = float(os.getenv("VOLUME_SURGE_SELL_PCT", "0.25"))  # Sell 25% of remaining
+
+# Underperformer rotation: close flat positions to free capital
+UNDERPERFORMER_EXIT_ENABLED = os.getenv("UNDERPERFORMER_EXIT_ENABLED", "true").lower() == "true"
+UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "12.0"))  # Hours flat
+UNDERPERFORMER_FLAT_PCT = float(os.getenv("UNDERPERFORMER_FLAT_PCT", "5.0"))  # ±5% = "flat"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Smart Money Tracking
 # ─────────────────────────────────────────────────────────────────────────────
 # Known smart money / whale wallet addresses to track across chains
