@@ -486,6 +486,9 @@ async def run_bot_loop():
                         f"rsi={rsi_str}"
                     )
 
+                    # Store signal on candidate so strategy can reuse it
+                    candidate.signal_score = signal
+
                     # Strategy evaluation (Fibonacci gate)
                     decision = strategy.evaluate(candidate)
                     if decision.action != "buy":

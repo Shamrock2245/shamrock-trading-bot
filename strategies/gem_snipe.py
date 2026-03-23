@@ -140,11 +140,21 @@ class GemSnipeStrategy:
                 direction="buy",
             )
         else:
-            # Insufficient OHLCV data — run with limited analysis
-            logger.warning(f"Limited OHLCV data for {token.symbol} — using gem score only")
+            # Insufficient OHLCV data — use signal engine's micro-cap score if available
             from strategies.fibonacci import FibResult as FR
             from strategies.indicators import TAResult as TA
-            signal_score = SignalScore(onchain_score=onchain_score)
+
+            if candidate.signal_score is not None:
+                # Reuse the signal engine's score (it already used gem_score + enrichment)
+                signal_score = candidate.signal_score
+                logger.info(
+                    f"Reusing signal engine score for {token.symbol}: "
+                    f"composite={signal_score.composite:.1f}"
+                )
+            else:
+                logger.warning(f"Limited OHLCV data for {token.symbol} — using gem score only")
+                signal_score = SignalScore(onchain_score=onchain_score)
+
             ta_result = TAResult()
             fib_result = FR(
                 aligned=True,  # Permissive when no data
@@ -152,7 +162,7 @@ class GemSnipeStrategy:
                 confidence=10.0,
                 current_price=current_price,
             )
-            # Signal score is mainly from on-chain/gem data
+            # Ensure fib fields are set
             signal_score.fib_score = 50.0
             signal_score.fib_zone = "insufficient_data"
             signal_score.fib_aligned = True
