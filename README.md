@@ -33,23 +33,29 @@
 
 ## ✨ Features
 
-### 🔍 Gem Discovery Engine
-- Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC, **Solana**)
+### 🔍 Gem Discovery Engine (14-Signal Pipeline)
+- Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC, **Solana**, **Avalanche**)
 - Real-time new pair detection via [DexScreener API](https://docs.dexscreener.com/api/reference)
-- Token scoring system (0–100) — volume spikes, liquidity depth, holder distribution, social signals
+- **[Moralis Discovery](https://moralis.io/)** — trending + buying-pressure token feeds across all chains
+- 14-signal composite scoring (0–100) — volume spikes, liquidity, holder distribution, social signals, smart money, unlock risk
 - Boosted token tracking — community hype detection
-- Smart money wallet tracking — follow the alpha
+- **Smart money wallet tracking** — follow known alpha wallets
+- **Grok/X sentiment analysis** — real-time social buzz scoring via X API
+- **Holder concentration analysis** — buy/sell ratio, LP concentration, transaction patterns
+- **Token unlock risk scoring** — circulating supply %, FDV ratio, vesting detection
 
 ### 🛡️ Safety First
-- **Honeypot detection** — [GoPlus Security](https://gopluslabs.io/) + [Honeypot.is](https://honeypot.is/) pre-trade checks
+- **Honeypot detection** — [GoPlus Security](https://gopluslabs.io/) + [Honeypot.is](https://honeypot.is/) + [TokenSniffer](https://tokensniffer.com/) pre-trade checks
 - **Rug pull protection** — contract verification, tax analysis, owner permissions audit
 - **MEV protection** — all trades routed through [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) / [MEV Blocker](https://mevblocker.io/)
 - **Circuit breakers** — auto-halt trading on 15% portfolio drawdown
 - **Exact token approvals** — never unlimited spending
 
-### 📊 Technical Analysis
-- 10+ indicators via [pandas-ta](https://github.com/twopirllc/pandas-ta) — RSI, MACD, Bollinger Bands, EMA crossovers, VWAP, ADX
-- Composite signal scoring — weighted trend, momentum, volume, and on-chain signals
+### 📊 Technical Analysis + Micro-Cap Scoring
+- **Full TA path** (24+ candles): RSI, MACD, Bollinger Bands, EMA crossovers, VWAP, ADX via manual indicators
+- **Micro-cap path** (<24 candles): Enrichment-aware scoring using gem_score + holder/smart money/unlock risk/Grok sentiment
+- Composite signal scoring — weighted trend, momentum, volume, on-chain, and sentiment signals
+- Fibonacci retracement zones for entry timing
 - On-chain analytics — holder growth, whale accumulation, DEX volume ratios
 
 ### ⚡ Trade Execution
@@ -170,20 +176,39 @@ streamlit run dashboard/app.py
 ## 🏗 Architecture
 
 ```
-┌──────────────┐    ┌──────────────────┐    ┌──────────────┐    ┌──────────────────┐
-│ Gem Scanner  │───→│ Signal Generator │───→│  Risk Check  │───→│ Trade Executor   │
-│              │    │                  │    │              │    │                  │
-│ • DexScreener│    │ • RSI / MACD     │    │ • Position   │    │ • 1inch / Uni V3 │
-│ • CoinGecko  │    │ • EMA crossovers │    │   sizing     │    │ • Flashbots RPC  │
-│ • GoPlus     │    │ • Volume spikes  │    │ • Stop-loss  │    │ • Multi-wallet   │
-│ • On-chain   │    │ • On-chain       │    │ • Circuit    │    │ • Gas optimized  │
-└──────────────┘    └──────────────────┘    │   breaker    │    └────────┬─────────┘
-                                            └──────────────┘             │
-                                                                    ┌────▼─────────┐
-┌──────────────┐                                                    │  Blockchain  │
-│  Dashboard   │←── Portfolio Manager ←── Trade Logs ←──────────────│  (ETH/Base/  │
-│  (Streamlit) │                                                    │   ARB/POLY)  │
-└──────────────┘                                                    └──────────────┘
+┌─────────────────────┐     ┌────────────────────┐     ┌─────────────────┐
+│   GEM SCANNER       │     │   SIGNAL ENGINE    │     │  GEM SNIPE      │
+│                     │     │                    │     │  STRATEGY       │
+│ • DexScreener       │────→│ ≥24 candles:       │────→│                 │
+│ • Moralis Discovery │     │   Full TA pipeline │     │ • Fib alignment │
+│ • LunarCrush        │     │   (RSI/MACD/BB)    │     │ • Signal gate   │
+│ • Grok Sentiment    │     │                    │     │ • TP/SL levels  │
+│ • HolderAnalysis    │     │ <24 candles:       │     └────────┬────────┘
+│ • SmartMoney        │     │   🔬 Micro-cap     │              │
+│ • UnlockRisk        │     │   (gem+enrichment) │     ┌────────▼────────┐
+│ • GoPlus/Honeypot   │     └────────────────────┘     │  WALLET ROUTER  │
+│ • TokenSniffer      │                                │                 │
+│ • DefiLlama         │     ┌────────────────────┐     │ • Kelly sizing  │
+└─────────────────────┘     │    SAFETY CHECK    │     │ • Phase scaling │
+         │                  │                    │     │ • Chain slippage│
+    14-signal score         │ • Honeypot pre-chk │     └────────┬────────┘
+    (gem_score 0-100)       │ • Stablecoin block │              │
+                            │ • Tax analysis     │     ┌────────▼────────┐
+                            └────────────────────┘     │  TRADE EXECUTOR │
+                                                       │                 │
+┌─────────────────┐                                    │ • Jupiter (SOL) │
+│   DASHBOARD     │←── Position Monitor ←── Trades ←───│ • 1inch (EVM)   │
+│   (Streamlit)   │                                    │ • Flashbots MEV │
+└─────────────────┘                                    └─────────────────┘
+```
+
+### Trade Pipeline Flow
+```
+Scanner → 14-Signal Scoring → Safety Check → Signal Engine → Strategy Gate → Wallet Router → Executor
+                                                    │                                │
+                                        ≥24 candles: Full TA          Kelly Criterion sizing
+                                        <24 candles: Micro-cap        Phase-based scaling
+                                        (gem_score + enrichment)      Chain-aware slippage
 ```
 
 ### Wallet Strategy Assignment
@@ -237,9 +262,9 @@ shamrock-trading-bot/
 ├── core/             # Balance fetcher, safety pipeline, executor, risk manager
 ├── data/
 │   ├── models.py     # Token, GemCandidate, Trade, Position, SignalScore
-│   └── providers/    # DexScreener, CoinGecko, GoPlus, 1inch, Honeypot.is
-├── scanner/          # Gem discovery + scoring engine (0–100)
-├── strategies/       # Trading strategies (gem snipe, DCA, momentum, etc.)
+│   └── providers/    # DexScreener, Moralis, GoPlus, Grok, LunarCrush, HolderAnalysis, etc.
+├── scanner/          # Gem discovery engine (14-signal scoring, 0–100)
+├── strategies/       # Trading strategies (GemSnipeStrategy + Fibonacci analysis)
 ├── ml/               # Machine learning models & feature engineering
 ├── notifications/    # Slack & Telegram alert modules
 ├── dashboard/        # Streamlit portfolio UI
