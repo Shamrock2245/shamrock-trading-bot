@@ -448,11 +448,19 @@ class SignalEngine:
         sells_1h: int,
     ) -> SignalScore:
         """
-        Basic signal scoring when OHLCV data is unavailable.
-        Uses DexScreener price change and volume data.
+        Signal scoring when OHLCV candle data is unavailable.
+
+        This is common for new/micro-cap gems (< 24h old) which are the bot's
+        primary targets. Uses DexScreener price change, volume, and buy/sell
+        data to produce a meaningful composite score.
+
+        Without this fallback producing scores above MIN_SIGNAL_SCORE (50),
+        the bot would NEVER trade new gems — defeating its purpose.
         """
-        # Trend from price change
-        if price_change_1h > 20:
+        # ── Trend from price change ────────────────────────────────────────
+        if price_change_1h > 50:
+            score.trend_score = 80
+        elif price_change_1h > 20:
             score.trend_score = 70
         elif price_change_1h > 10:
             score.trend_score = 55
@@ -463,7 +471,31 @@ class SignalEngine:
         else:
             score.trend_score = 20
 
-        # Volume spike
+        # ── Momentum from combined price action ────────────────────────────
+        # New gems won't have RSI/BB, so derive momentum from price changes
+        momentum = 50  # neutral baseline
+        if price_change_1h > 30:
+            momentum += 30
+        elif price_change_1h > 15:
+            momentum += 20
+        elif price_change_1h > 5:
+            momentum += 10
+        elif price_change_1h < -15:
+            momentum -= 25
+
+        # 24h trend adds context
+        if price_change_24h > 100:
+            momentum += 15
+        elif price_change_24h > 50:
+            momentum += 10
+        elif price_change_24h > 0:
+            momentum += 5
+        elif price_change_24h < -30:
+            momentum -= 15
+
+        score.momentum_score = max(0, min(100, momentum))
+
+        # ── Volume analysis ────────────────────────────────────────────────
         if volume_24h > 0 and volume_1h > 0:
             avg_hourly = volume_24h / 24
             if avg_hourly > 0:
@@ -477,11 +509,26 @@ class SignalEngine:
                     score.volume_score = 60
                 else:
                     score.volume_score = 45
+        elif volume_1h > 0:
+            # New token with 1h volume but no 24h yet — give neutral credit
+            score.volume_score = 55
+        else:
+            score.volume_score = 30
 
-        # Buy/sell ratio
+        # ── On-chain buy/sell ratio ────────────────────────────────────────
         total = buys_1h + sells_1h
         if total > 0:
             buy_ratio = buys_1h / total
             score.onchain_score = buy_ratio * 100
+        else:
+            score.onchain_score = 50  # neutral — don't penalize for missing data
+
+        logger.debug(
+            f"Fallback signals: trend={score.trend_score:.0f} "
+            f"momentum={score.momentum_score:.0f} "
+            f"volume={score.volume_score:.0f} "
+            f"onchain={score.onchain_score:.0f} "
+            f"→ composite={score.composite:.1f}"
+        )
 
         return score
