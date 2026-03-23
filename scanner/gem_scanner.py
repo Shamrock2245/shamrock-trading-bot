@@ -542,11 +542,27 @@ class GemScanner:
             candidate.unlock_risk_score = 50.0
             candidate.grok_sentiment_score = 50.0
 
-        # ── Final composite score (14 signals) ────────────────────────────────
+        # ── Buy Pressure Score ────────────────────────────────────────────────
+        buy_pressure_score = 50.0
+        total_txns = token.buys_1h + token.sells_1h
+        if total_txns > 0:
+            buy_ratio = token.buys_1h / total_txns
+            if buy_ratio >= 0.70:
+                buy_pressure_score = 100.0
+            elif buy_ratio >= 0.60:
+                buy_pressure_score = 80.0
+            elif buy_ratio >= 0.50:
+                buy_pressure_score = 60.0
+            elif buy_ratio < 0.40:
+                buy_pressure_score = 20.0
+        candidate.buy_pressure_score = buy_pressure_score
+
+        # ── Final composite score (15 signals) ────────────────────────────────
         candidate.gem_score = round(
-            candidate.age_score * 0.12
-            + candidate.volume_score * 0.15
-            + candidate.liquidity_score * 0.13
+            candidate.age_score * 0.10
+            + candidate.volume_score * 0.12
+            + candidate.liquidity_score * 0.10
+            + candidate.buy_pressure_score * 0.10
             + candidate.contract_score * 0.08
             + candidate.holder_score * 0.08
             + candidate.tax_score * 0.08
@@ -556,8 +572,8 @@ class GemScanner:
             + candidate.tvl_score * 0.05
             + candidate.social_sentiment_score * 0.05
             + candidate.holder_concentration_score * 0.04
-            + candidate.unlock_risk_score * 0.04
-            + candidate.grok_sentiment_score * 0.04,
+            + candidate.unlock_risk_score * 0.03
+            + candidate.grok_sentiment_score * 0.03,
             2,
         )
 

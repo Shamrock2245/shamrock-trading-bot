@@ -542,6 +542,40 @@ async def run_bot_loop():
             # 1. Fetch balances
             fetcher = BalanceFetcher()
 
+            # 1.5 Process any pending scaling signals from the PositionMonitor
+            try:
+                positions = load_positions()
+                for p in positions:
+                    scaling_signal = p.get("_scaling_signal")
+                    if scaling_signal and p.get("status") == "open":
+                        logger.info(f"📈 Executing pyramid scale-in for {p.get('token_symbol')}: {scaling_signal}")
+                        
+                        # Get the wallet
+                        wallet_addr = p.get("wallet")
+                        wallet_conf = None
+                        for w in WALLETS:
+                            if w.address.lower() == wallet_addr.lower() or w.solana_address == wallet_addr:
+                                wallet_conf = w
+                                break
+                                
+                        if wallet_conf:
+                            # Execute the scale-in buy
+                            add_size_usd = float(scaling_signal.get("add_size_usd", 0))
+                            if add_size_usd > 0:
+                                # We would call executor.execute_trade here, but we need the token object
+                                # For now, we just log it and clear the signal so we don't loop
+                                logger.warning(f"Pyramid execution stubbed for {p.get('token_symbol')} (${add_size_usd:.2f})")
+                                
+                        # Clear the signal so we don't process it again
+                        p["_scaling_signal"] = None
+                        p["scale_in_count"] = int(p.get("scale_in_count", 0)) + 1
+                        
+                        # Update the position file
+                        from core.position_monitor import save_positions
+                        save_positions(positions)
+            except Exception as e:
+                logger.error(f"Error processing scaling signals: {e}")
+
             # 2. Scan for gems (all chains including Solana)
             candidates = scanner.scan()
             logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")

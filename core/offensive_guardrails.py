@@ -114,6 +114,7 @@ def load_offensive_state() -> OffensiveState:
                 )
                 state.daily_realized_pnl_usd = 0.0
                 state.daily_pnl_date = _today_utc()
+
                 state.daily_trades_count = 0
                 state.daily_wins = 0
                 state.daily_losses = 0
@@ -222,6 +223,7 @@ def record_trade_result(state: OffensiveState, pnl_usd: float, token_symbol: str
     state.session_trades += 1
     state.daily_pnl_date = _today_utc()
 
+
     # Update house money pool (only from wins)
     if is_win and settings.HOUSE_MONEY_ENABLED:
         reinvest_pct = settings.HOUSE_MONEY_REINVEST_PCT / 100.0
@@ -275,7 +277,6 @@ def record_trade_result(state: OffensiveState, pnl_usd: float, token_symbol: str
                 )
 
     # Check God Mode
-    _check_god_mode(state)
 
     save_offensive_state(state)
     return state

@@ -181,7 +181,13 @@ GOD_MODE_ENABLED = os.getenv("GOD_MODE_ENABLED", "true").lower() == "true"
 GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "500.0"))
 GOD_MODE_KELLY_MULTIPLIER = float(os.getenv("GOD_MODE_KELLY_MULTIPLIER", "2.0"))  # Full Kelly
 GOD_MODE_TRAILING_STOP_PCT = float(os.getenv("GOD_MODE_TRAILING_STOP_PCT", "12.0"))  # Tighter stop
-GOD_MODE_SKIP_TP1 = os.getenv("GOD_MODE_SKIP_TP1", "true").lower() == "true"  # Skip 2x sell
+GOD_MODE_SKIP_TP1 = os.getenv("GOD_MODE_SKIP_TP1", "true").lower() == "true"
+
+# Deactivate God Mode if daily PnL drops this much below the peak (protect gains)
+GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD = float(os.getenv("GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD", "200.0"))
+# Lock and Coast: if daily PnL hits this, reduce max position size to protect the day's gains
+DAILY_PROFIT_LOCK_THRESHOLD_USD = float(os.getenv("DAILY_PROFIT_LOCK_THRESHOLD_USD", "2000.0"))
+  # Skip 2x sell
 
 # ── 3. House Money Protocol ───────────────────────────────────────────────────
 # Reinvests a % of each win's profit into a "house money pool".
@@ -245,19 +251,33 @@ FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "2.0"))  # Hours before che
 FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "10.0"))  # Down >10% = momentum dead
 FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "4.0"))  # Hours before stall check
 FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "15.0"))  # Must be up >15% in 4h
+FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "80.0"))  # Vol drops 80% from entry
 
 # ── 9. Momentum Reentry ───────────────────────────────────────────────────────
 # After TP1 is hit on a token, immediately re-enters if volume is still surging.
 # Captures the second leg of a pump (common in micro-caps).
 MOMENTUM_REENTRY_ENABLED = os.getenv("MOMENTUM_REENTRY_ENABLED", "true").lower() == "true"
 MOMENTUM_REENTRY_VOLUME_MULT = float(os.getenv("MOMENTUM_REENTRY_VOLUME_MULT", "3.0"))  # Vol must be 3x avg
-MOMENTUM_REENTRY_MAX_AGE_MINUTES = float(os.getenv("MOMENTUM_REENTRY_MAX_AGE_MINUTES", "30.0"))  # 30min window
+MOMENTUM_REENTRY_MAX_AGE_MINUTES = float(os.getenv("MOMENTUM_REENTRY_MAX_AGE_MINUTES", "60.0"))  # 30min window
 MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25"))  # 1.25x normal size
 
 # ── 10. Absolute Position Cap ─────────────────────────────────────────────────
 # Hard cap on any single trade after all offensive multipliers are applied.
 # Prevents runaway sizing even on a 6-win streak in God Mode.
 OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "5000.0"))
+
+# ── 11. Blitz Mode (Synergy Bonus) ────────────────────────────────────────────
+# When 3+ offensive conditions align (e.g. God Mode + Hot Streak + Express Lane),
+# apply an extra multiplier to maximize the perfect setup.
+BLITZ_MODE_ENABLED = os.getenv("BLITZ_MODE_ENABLED", "true").lower() == "true"
+BLITZ_MODE_MULTIPLIER = float(os.getenv("BLITZ_MODE_MULTIPLIER", "1.25"))
+
+# ── 12. Loss Streak Cooling ───────────────────────────────────────────────────
+# Increase MIN_GEM_SCORE threshold on losing streaks to force the bot to be pickier.
+LOSS_STREAK_COOLING_ENABLED = os.getenv("LOSS_STREAK_COOLING_ENABLED", "true").lower() == "true"
+LOSS_STREAK_SCORE_PENALTY = float(os.getenv("LOSS_STREAK_SCORE_PENALTY", "5.0"))  # +5 pts per loss
+LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "15.0"))     # Max +15 pts
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Smart Money Tracking
