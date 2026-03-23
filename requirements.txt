@@ -19,7 +19,10 @@ aiohttp>=3.9.0               # Async HTTP for concurrent API calls
 
 # ── Data / Analysis ──────────────────────────────────────────────────────────
 pandas>=2.0.0                # DataFrames for OHLCV and signal processing
-pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@development  # TA indicators (Python 3.11+ compatible)
+# pandas-ta — optional, all indicators have manual fallback calculations
+# PyPI version broken on Python 3.11+; git version fails in Docker
+# Bot works fully without it via strategies/indicators.py fallbacks
+# pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@development
 numpy>=1.24.0                # Numerical operations
 
 # ── Configuration ────────────────────────────────────────────────────────────
