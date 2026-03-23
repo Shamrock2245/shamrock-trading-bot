@@ -2,7 +2,7 @@
 core/solana_executor.py — Solana trade execution via Jupiter aggregator.
 
 Handles all Solana-specific trade execution:
-  - Quote fetching from Jupiter v6 API
+  - Quote fetching from Jupiter Swap API v1
   - Swap transaction building and signing
   - Transaction submission with retry logic
   - Paper trading simulation
@@ -36,7 +36,16 @@ from config.chains import CHAINS
 logger = logging.getLogger(__name__)
 
 JUPITER_API_URL = settings.JUPITER_API_URL
+JUPITER_API_KEY = settings.JUPITER_API_KEY
 SOLANA_RPC_URL = settings.SOLANA_RPC_URL
+
+
+def _jupiter_headers() -> dict:
+    """Build headers for Jupiter API requests (API key required since 2026)."""
+    headers = {"Content-Type": "application/json"}
+    if JUPITER_API_KEY:
+        headers["x-api-key"] = JUPITER_API_KEY
+    return headers
 
 # USDC mint on Solana (for profit-taking)
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -51,7 +60,7 @@ def get_jupiter_quote(
     slippage_bps: int = 100,  # 1% default slippage
 ) -> Optional[dict]:
     """
-    Get a swap quote from Jupiter v6 API.
+    Get a swap quote from Jupiter Swap API v1.
 
     Args:
         input_mint: Input token mint address
@@ -72,7 +81,7 @@ def get_jupiter_quote(
             "onlyDirectRoutes": "false",
             "asLegacyTransaction": "false",
         }
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, headers=_jupiter_headers(), timeout=15)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -101,7 +110,7 @@ def get_jupiter_swap_transaction(
             "dynamicComputeUnitLimit": True,
             "prioritizationFeeLamports": "auto",
         }
-        resp = requests.post(url, json=payload, timeout=15)
+        resp = requests.post(url, json=payload, headers=_jupiter_headers(), timeout=15)
         resp.raise_for_status()
         data = resp.json()
         return data.get("swapTransaction")

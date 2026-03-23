@@ -41,7 +41,8 @@ ONEINCH_API_KEY = os.getenv("ONEINCH_API_KEY", "")
 ONEINCH_API_URL = os.getenv("ONEINCH_API_URL", "https://api.1inch.dev/swap/v6.0")
 
 # Jupiter (Solana DEX aggregator)
-JUPITER_API_URL = os.getenv("JUPITER_API_URL", "https://quote-api.jup.ag/v6")
+JUPITER_API_URL = os.getenv("JUPITER_API_URL", "https://api.jup.ag/swap/v1")
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Provider API Keys
