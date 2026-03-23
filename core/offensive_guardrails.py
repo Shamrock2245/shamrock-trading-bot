@@ -277,6 +277,7 @@ def record_trade_result(state: OffensiveState, pnl_usd: float, token_symbol: str
                 )
 
     # Check God Mode
+    _check_god_mode(state)
 
     save_offensive_state(state)
     return state
@@ -289,6 +290,7 @@ def record_trade_result(state: OffensiveState, pnl_usd: float, token_symbol: str
 def _check_god_mode(state: OffensiveState) -> None:
     """
     Activate God Mode if daily PnL exceeds the threshold.
+    Deactivate if daily PnL drops $200 from peak (ceiling protection).
     God Mode: Full Kelly sizing, tighter trailing stops, skip TP1 (hold for 5x).
     """
     if not settings.GOD_MODE_ENABLED:
@@ -298,6 +300,19 @@ def _check_god_mode(state: OffensiveState) -> None:
         # Track peak PnL while in God Mode
         if state.daily_realized_pnl_usd > state.god_mode_peak_pnl_usd:
             state.god_mode_peak_pnl_usd = state.daily_realized_pnl_usd
+
+        # Deactivation ceiling: if PnL drops $200 from peak, turn off God Mode
+        drawdown_from_peak = state.god_mode_peak_pnl_usd - state.daily_realized_pnl_usd
+        if drawdown_from_peak >= settings.GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD:
+            logger.info(
+                f"⚡ GOD MODE DEACTIVATED — ceiling hit ⚡ "
+                f"Peak: ${state.god_mode_peak_pnl_usd:.2f} → "
+                f"Current: ${state.daily_realized_pnl_usd:.2f} "
+                f"(drawdown: ${drawdown_from_peak:.2f} >= "
+                f"${settings.GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD:.0f} limit)"
+            )
+            state.god_mode_active = False
+            state.god_mode_activated_at = None
         return
 
     if state.daily_realized_pnl_usd >= settings.GOD_MODE_DAILY_PNL_THRESHOLD_USD:
@@ -375,17 +390,31 @@ def get_house_money_bonus_usd(state: OffensiveState, base_position_usd: float) -
 
 def get_effective_min_gem_score(state: OffensiveState) -> float:
     """
-    Return the effective MIN_GEM_SCORE after applying cascade reduction.
-    Each win lowers the threshold slightly, allowing more gems through.
+    Return the effective MIN_GEM_SCORE after applying cascade reduction
+    and loss streak cooling penalty.
     """
-    if not settings.CASCADE_BOOST_ENABLED:
-        return settings.MIN_GEM_SCORE
-    effective = settings.MIN_GEM_SCORE - state.cascade_score_reduction
-    if state.cascade_score_reduction > 0:
+    effective = settings.MIN_GEM_SCORE
+
+    # Cascade boost: wins lower the threshold
+    if settings.CASCADE_BOOST_ENABLED and state.cascade_score_reduction > 0:
+        effective -= state.cascade_score_reduction
         logger.debug(
             f"Cascade boost: MIN_GEM_SCORE {settings.MIN_GEM_SCORE} → {effective:.1f} "
             f"(reduction: {state.cascade_score_reduction:.1f})"
         )
+
+    # Loss streak cooling: consecutive losses RAISE the threshold
+    if settings.LOSS_STREAK_COOLING_ENABLED and state.consecutive_losses > 0:
+        penalty = min(
+            state.consecutive_losses * settings.LOSS_STREAK_SCORE_PENALTY,
+            settings.LOSS_STREAK_MAX_PENALTY,
+        )
+        effective += penalty
+        logger.info(
+            f"❄️ Loss streak cooling: +{penalty:.0f} to MIN_GEM_SCORE "
+            f"(streak: {state.consecutive_losses}L → effective min: {effective:.1f})"
+        )
+
     return max(effective, settings.CASCADE_BOOST_FLOOR_SCORE)
 
 
@@ -605,6 +634,22 @@ def evaluate_fast_fail(pos: dict, current_price: float) -> Optional[dict]:
             "urgency": "normal",
         }
 
+    # ── Trigger C: Volume Collapse (pump-and-dump detection) ──────────────────
+    entry_volume_1h = float(pos.get("entry_volume_1h", 0))
+    current_volume_1h = float(pos.get("volume_1h", 0))
+    if entry_volume_1h > 0 and current_volume_1h > 0:
+        vol_drop_pct = ((entry_volume_1h - current_volume_1h) / entry_volume_1h) * 100
+        if vol_drop_pct >= settings.FAST_FAIL_VOLUME_COLLAPSE_PCT:
+            return {
+                "reason": (
+                    f"fast_fail_volume_collapse "
+                    f"(vol dropped {vol_drop_pct:.0f}% from entry — "
+                    f"${current_volume_1h:,.0f} vs ${entry_volume_1h:,.0f} at entry)"
+                ),
+                "sell_pct": 1.0,
+                "urgency": "immediate",
+            }
+
     return None
 
 
@@ -736,6 +781,23 @@ def calculate_offensive_position_size(
     if is_momentum_reentry and settings.MOMENTUM_REENTRY_ENABLED:
         multiplier *= settings.MOMENTUM_REENTRY_SIZE_MULT
         reasons.append(f"reentry={settings.MOMENTUM_REENTRY_SIZE_MULT:.2f}x🔄")
+
+    # 6. Blitz Mode: 3+ offensive conditions active → synergy bonus
+    if settings.BLITZ_MODE_ENABLED:
+        active_conditions = sum([
+            streak_mult > 1.0,       # Hot streak active
+            god_mult > 1.0,          # God Mode active
+            express_mult > 1.0,      # Express Lane active
+            state.profit_boost_remaining > 0,  # Profit boost active
+            is_momentum_reentry,     # Momentum reentry
+        ])
+        if active_conditions >= 3:
+            multiplier *= settings.BLITZ_MODE_MULTIPLIER
+            reasons.append(f"blitz={settings.BLITZ_MODE_MULTIPLIER:.2f}x🚀({active_conditions} conditions)")
+            logger.info(
+                f"🚀 BLITZ MODE: {active_conditions} offensive conditions aligned → "
+                f"{settings.BLITZ_MODE_MULTIPLIER:.2f}x synergy bonus"
+            )
 
     # Apply multiplier to base position
     final_position_usd = base_position_usd * multiplier
