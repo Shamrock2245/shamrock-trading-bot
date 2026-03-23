@@ -1,10 +1,19 @@
 """
 scanner/gem_scanner.py — Multi-chain gem discovery and scoring engine.
 
-Scans DexScreener for new/boosted tokens across Ethereum, Base, Arbitrum,
-Polygon, BSC, Avalanche, and Solana. Scores each candidate 0–100 using
-weighted criteria and returns a ranked list of GemCandidates ready for
-safety checks and execution.
+Scans DexScreener + Moralis for new/boosted/trending tokens across Ethereum,
+Base, Arbitrum, Polygon, BSC, Avalanche, and Solana. Scores each candidate
+0–100 using weighted criteria and returns a ranked list of GemCandidates
+ready for safety checks and execution.
+
+Data sources:
+  1. DexScreener latest token profiles
+  2. DexScreener latest boosts
+  3. DexScreener top boosts
+  4. DexScreener community takeovers (CTO Revival)
+  5. DexScreener ads
+  6. Moralis trending tokens + buying pressure (Pro plan)
+  7. Gem Watchlist re-evaluation (near-miss tokens from prior cycles)
 
 Scoring weights (rebalanced, 14 signals, sum = 100%):
   - Token age:                12%
@@ -44,6 +53,8 @@ from data.providers.social_scoring import get_social_score
 from data.providers.smart_money import get_smart_money_score
 from data.providers.holder_analysis import get_holder_score
 from data.providers.token_unlocks import get_unlock_risk_score
+from data.providers.moralis_discovery import discover_tokens as moralis_discover
+from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +80,11 @@ class GemScanner:
       - Prioritize volume spikes (>5x hourly average)
       - Require smart money overlap or strong social momentum
       - Express lane for score ≥ 82 (skip full TA, execute immediately)
+      - Re-evaluate near-miss tokens via watchlist (score 35-49)
     """
+
+    def __init__(self):
+        self.watchlist = GemWatchlist()
 
     def scan(self) -> list[GemCandidate]:
         """
@@ -105,6 +120,8 @@ class GemScanner:
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "profiles")
                     break  # Use first (most liquid) pair only
 
         # ── Source 2: Latest boosts ───────────────────────────────────────────
@@ -132,6 +149,8 @@ class GemScanner:
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "boosts")
                     break
 
         # ── Source 3: Top boosts (strongest community push) ───────────────────
@@ -159,6 +178,8 @@ class GemScanner:
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "top_boosts")
                     break
 
         # ── Source 4: Community takeovers (CTO Revival — top-tier signal) ──────
@@ -194,6 +215,8 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=True, is_cto=True)
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "cto_revival")
                         seen_addresses.add(token_addr.lower())
                     break
 
@@ -223,25 +246,113 @@ class GemScanner:
                         seen_addresses.add(token_addr.lower())
                     break
 
+        # ── Source 6: Moralis trending + buying pressure ──────────────────────
+        # Moralis surfaces tokens with volume spikes and rising buy:sell ratios
+        # across all chains. Each token gets pair data from DexScreener and
+        # enters the same 14-signal scoring pipeline.
+        try:
+            moralis_tokens = moralis_discover(chains=settings.ACTIVE_CHAINS)
+            moralis_added = 0
+            for mt in moralis_tokens:
+                token_addr = mt.get("token_address", "")
+                chain = mt.get("chain", "")
+                if not token_addr or not chain:
+                    continue
+                if chain not in settings.ACTIVE_CHAINS:
+                    continue
+                if token_addr.lower() in seen_addresses:
+                    continue
+                pairs = get_token_pairs(token_addr) or []
+                for pair in pairs:
+                    signals = extract_gem_signals(pair)
+                    # Moralis trending = moderate boost signal
+                    signals["is_boosted"] = True
+                    signals["boost_amount"] = 75  # Moralis trending weight
+                    token = self._signals_to_token(signals, chain)
+                    if token:
+                        candidate = self._score_token(token, is_boosted=True)
+                        if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                            candidate.strategy_tag = "moralis_trending"
+                            candidates.append(candidate)
+                            seen_addresses.add(token_addr.lower())
+                            moralis_added += 1
+                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                            self.add_near_miss(token, candidate.gem_score, "moralis")
+                        break
+            if moralis_added:
+                logger.info(f"Moralis: {moralis_added} tokens passed scoring")
+        except Exception as e:
+            logger.warning(f"Moralis discovery error: {e}")
+
+        # ── Source 7: Watchlist re-evaluation (near-miss promotions) ───────────
+        # Re-score watched tokens using fresh DexScreener data. Tokens that
+        # improved since last cycle get promoted to full candidates.
+        try:
+            promoted = self.watchlist.re_evaluate(
+                score_fn=self._watchlist_score_fn
+            )
+            for promo in promoted:
+                token_addr = promo["token_address"]
+                chain = promo["chain"]
+                if token_addr.lower() in seen_addresses:
+                    continue
+                signals = promo["signals"]
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=False)
+                    candidate.gem_score = promo["score"]  # Use watchlist score
+                    candidate.strategy_tag = "watchlist_promotion"
+                    candidates.append(candidate)
+                    seen_addresses.add(token_addr.lower())
+                    logger.info(
+                        f"☘️ Watchlist promoted {promo['symbol']} "
+                        f"(score {promo['initial_score']:.1f} → {promo['score']:.1f}) "
+                        f"after {promo['checks']} checks"
+                    )
+        except Exception as e:
+            logger.warning(f"Watchlist re-evaluation error: {e}")
+
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
         logger.info(
             f"Scan complete: {len(candidates)} candidates above "
             f"score threshold {settings.MIN_GEM_SCORE} "
-            f"({express_count} express lane)"
+            f"({express_count} express lane) "
+            f"| watchlist: {self.watchlist.size} tokens watched"
         )
         return candidates
+
+    def _watchlist_score_fn(self, token_address: str, chain: str, signals: dict) -> float:
+        """Scoring callback for watchlist re-evaluation."""
+        token = self._signals_to_token(signals, chain)
+        if not token:
+            return 0.0
+        candidate = self._score_token(token, is_boosted=False)
+        return candidate.gem_score
+
+    def add_near_miss(self, token: Token, score: float, source: str = ""):
+        """Add a near-miss token to the watchlist for future re-evaluation."""
+        self.watchlist.add_near_miss(
+            token_address=token.address,
+            chain=token.chain,
+            symbol=token.symbol,
+            name=token.name,
+            score=score,
+            source=source,
+            pair_address=getattr(token, "pair_address", ""),
+        )
 
     def _score_token(self, token: Token, is_boosted: bool = False, is_cto: bool = False) -> GemCandidate:
         """
         Score a token 0–100 using weighted criteria.
         Returns a GemCandidate with all score components populated.
 
-        Phase 3 rebalanced weights (13 signals, sum = 100%):
-            age=12%, volume=17%, liquidity=13%, contract=8%, holder=8%,
-            tax=8%, social=8%, boost=4%, smart_money=4%,
-            tvl=5%, social_sentiment=5%, holder_conc=4%, unlock_risk=4%
+        Phase 3 rebalanced weights (14 signals, sum = 100%):
+            age=12%, volume=15%, liquidity=13%, contract=8%, holder=8%,
+            tax=8%, social=6%, boost=4%, smart_money=4%,
+            tvl=5%, social_sentiment=5%, holder_conc=4%, unlock_risk=4%,
+            grok_sentiment=4%
         """
         candidate = GemCandidate(token=token)
 
