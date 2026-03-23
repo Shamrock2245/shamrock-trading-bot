@@ -31,6 +31,7 @@ class Token:
     sell_tax: float = 0.0
     is_boosted: bool = False
     boost_amount: int = 0
+    is_cto: bool = False               # Community takeover flag
     dex_url: str = ""
     discovered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -75,6 +76,11 @@ class GemCandidate:
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None
+
+    # Strategy and routing metadata
+    strategy_tag: str = "gem_snipe"   # "gem_snipe", "cto_revival", "boost_momentum"
+    express_lane: bool = False         # True = skip full TA, execute immediately
+    is_cto: bool = False               # True = community takeover token
 
     @property
     def is_actionable(self) -> bool:

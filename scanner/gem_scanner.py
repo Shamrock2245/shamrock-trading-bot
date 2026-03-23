@@ -159,7 +159,10 @@ class GemScanner:
                         seen_addresses.add(token_addr.lower())
                     break
 
-        # ── Source 4: Community takeovers (strong CTO revival signal) ─────────
+        # ── Source 4: Community takeovers (CTO Revival — top-tier signal) ──────
+        # CTO = original dev abandoned, community took over and is pumping it.
+        # Per docs/SIGNALS.md: CTO Revival is a high-profit setup — treat as
+        # full-conviction express lane candidate if volume + social confirm.
         ctos = get_latest_community_takeovers()
         logger.info(f"Fetched {len(ctos)} community takeovers")
         for cto in ctos:
@@ -175,11 +178,18 @@ class GemScanner:
             pairs = get_token_pairs(token_addr)
             for pair in pairs:
                 signals = extract_gem_signals(pair)
-                signals["is_boosted"] = True  # CTO = community investment signal
-                signals["boost_amount"] = 100  # Baseline CTO boost value
+                signals["is_boosted"] = True
+                signals["boost_amount"] = 200   # CTO gets higher boost weight than regular boosts
+                signals["is_cto"] = True        # CTO flag for scoring bonus
                 token = self._signals_to_token(signals, chain)
                 if token:
-                    candidate = self._score_token(token, is_boosted=True)
+                    # CTO signal decay: only valid within 48h of CTO claim
+                    # (per docs/SIGNALS.md stale-data window)
+                    age_h = token.age_hours or 0
+                    if age_h > 48:
+                        logger.debug(f"CTO signal expired for {token.symbol} (age={age_h:.0f}h > 48h)")
+                        break
+                    candidate = self._score_token(token, is_boosted=True, is_cto=True)
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
@@ -221,7 +231,7 @@ class GemScanner:
         )
         return candidates
 
-    def _score_token(self, token: Token, is_boosted: bool = False) -> GemCandidate:
+    def _score_token(self, token: Token, is_boosted: bool = False, is_cto: bool = False) -> GemCandidate:
         """
         Score a token 0–100 using weighted criteria.
         Returns a GemCandidate with all score components populated.
@@ -423,8 +433,25 @@ class GemScanner:
             2,
         )
 
+        # ── CTO Revival bonus ─────────────────────────────────────────────────
+        # CTO tokens get a +8 point bonus on top of composite score.
+        # Rationale: community-driven revival is a high-conviction signal that
+        # the token has organic support beyond the original dev.
+        # Capped at 100 to prevent score inflation.
+        if is_cto:
+            candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+            candidate.strategy_tag = "cto_revival"  # Tag for position monitor exit rules
+        else:
+            candidate.strategy_tag = "gem_snipe"
+
         # ── Express lane flag ─────────────────────────────────────────────────
-        candidate.express_lane = candidate.gem_score >= settings.EXPRESS_LANE_SCORE
+        # CTO tokens with score >= 75 also qualify for express lane
+        # (lower threshold than standard 82 — CTO is inherently high-conviction)
+        cto_express_threshold = 75.0
+        candidate.express_lane = (
+            candidate.gem_score >= settings.EXPRESS_LANE_SCORE
+            or (is_cto and candidate.gem_score >= cto_express_threshold)
+        )
 
         return candidate
 
@@ -463,6 +490,7 @@ class GemScanner:
         token.socials = signals.get("socials", [])
         token.buys_1h = signals.get("buys_1h", 0)
         token.sells_1h = signals.get("sells_1h", 0)
+        token.is_cto = signals.get("is_cto", False)
 
         return token
 

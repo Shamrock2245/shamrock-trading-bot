@@ -30,6 +30,7 @@ from config.chains import CHAINS, ChainConfig
 from config.wallets import WalletConfig
 from config import settings
 from core.safety import check_token_safety, SafetyResult
+from core.mev_protection import execute_via_cow_live, execute_via_flashbots
 
 logger = logging.getLogger(__name__)
 
@@ -190,12 +191,28 @@ class TradeExecutor:
                     execution_path="cow",
                 )
 
-            # In live mode: sign the order and submit
-            # (Full CoW signing implementation requires eth_sign of order digest)
-            logger.info("CoW order submission (live mode) — signing order...")
+            # Live mode: full EIP-712 signing via mev_protection module
+            logger.info("CoW order submission (live mode) — signing via EIP-712...")
+            order_uid = execute_via_cow_live(
+                sell_token=params.token_in,
+                buy_token=params.token_out,
+                sell_amount_wei=params.amount_in_wei,
+                wallet_address=params.wallet.address,
+                private_key=private_key,
+                slippage_bps=params.slippage_bps,
+                chain=params.chain,
+            )
+            if order_uid:
+                return TradeResult(
+                    success=True,
+                    tx_hash=order_uid,
+                    amount_in=params.amount_in_wei / 1e18,
+                    amount_out=float(quote.get("quote", {}).get("buyAmount", 0)) / 1e18,
+                    execution_path="cow_live",
+                )
             return TradeResult(
                 success=False,
-                error="CoW live signing not yet implemented — use paper mode",
+                error="CoW live order submission failed — see logs",
                 execution_path="cow",
             )
 
