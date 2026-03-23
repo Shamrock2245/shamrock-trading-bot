@@ -4,7 +4,7 @@ description: How to sync Manus changes and redeploy the trading bot to Hetzner
 // turbo-all
 
 ## Prerequisites
-- SSH access to Hetzner VPS: `ssh root@5.78.100.228`
+- SSH access to Hetzner VPS: `ssh root@5.161.126.32`
 - Bot repo cloned at `/root/shamrock-trading-bot` on the server
 - Docker and docker-compose installed on the server
 
@@ -12,7 +12,7 @@ description: How to sync Manus changes and redeploy the trading bot to Hetzner
 
 1. SSH into the Hetzner server:
 ```bash
-ssh root@5.78.100.228
+ssh root@5.161.126.32
 ```
 
 2. Navigate to the repo directory:
