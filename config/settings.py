@@ -165,6 +165,101 @@ UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "12.0")
 UNDERPERFORMER_FLAT_PCT = float(os.getenv("UNDERPERFORMER_FLAT_PCT", "5.0"))  # ±5% = "flat"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Advanced Offensive Guardrails (Seven-Figure Acceleration System)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1. Hot Streak Kelly Scaling ───────────────────────────────────────────────
+# Scales Kelly fraction up/down based on consecutive wins/losses.
+# 2+ wins → 1.25x Kelly | 4+ wins → 1.5x Kelly | 6+ wins → Full Kelly (2.0x)
+# 1 loss  → 0.85x Kelly | 2 losses → 0.70x | 3+ losses → 0.50x (Quarter-Kelly)
+HOT_STREAK_ENABLED = os.getenv("HOT_STREAK_ENABLED", "true").lower() == "true"
+
+# ── 2. God Mode ───────────────────────────────────────────────────────────────
+# Activates when daily realized PnL crosses threshold.
+# Switches to Full Kelly sizing, tightens trailing stops, skips TP1 (hold for 5x).
+GOD_MODE_ENABLED = os.getenv("GOD_MODE_ENABLED", "true").lower() == "true"
+GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "500.0"))
+GOD_MODE_KELLY_MULTIPLIER = float(os.getenv("GOD_MODE_KELLY_MULTIPLIER", "2.0"))  # Full Kelly
+GOD_MODE_TRAILING_STOP_PCT = float(os.getenv("GOD_MODE_TRAILING_STOP_PCT", "12.0"))  # Tighter stop
+GOD_MODE_SKIP_TP1 = os.getenv("GOD_MODE_SKIP_TP1", "true").lower() == "true"  # Skip 2x sell
+
+# ── 3. House Money Protocol ───────────────────────────────────────────────────
+# Reinvests a % of each win's profit into a "house money pool".
+# Pool is deployed as a bonus on top of the next high-conviction trade.
+HOUSE_MONEY_ENABLED = os.getenv("HOUSE_MONEY_ENABLED", "true").lower() == "true"
+HOUSE_MONEY_REINVEST_PCT = float(os.getenv("HOUSE_MONEY_REINVEST_PCT", "30.0"))  # 30% of wins → pool
+HOUSE_MONEY_MAX_POOL_USD = float(os.getenv("HOUSE_MONEY_MAX_POOL_USD", "2000.0"))  # Max pool size
+HOUSE_MONEY_MIN_DEPLOY_USD = float(os.getenv("HOUSE_MONEY_MIN_DEPLOY_USD", "10.0"))  # Min to deploy
+HOUSE_MONEY_MAX_DEPLOY_PCT = float(os.getenv("HOUSE_MONEY_MAX_DEPLOY_PCT", "50.0"))  # Max % of pool per trade
+HOUSE_MONEY_MAX_POSITION_MULT = float(os.getenv("HOUSE_MONEY_MAX_POSITION_MULT", "1.5"))  # Max 1.5x base
+
+# ── 4. Dynamic Profit Boost (enhanced from existing) ─────────────────────────
+# Existing PROFIT_BOOST_* settings are the baseline.
+# Large wins trigger an even bigger boost.
+PROFIT_BOOST_MIN_GAIN_USD = float(os.getenv("PROFIT_BOOST_MIN_GAIN_USD", "50.0"))  # Min USD gain
+PROFIT_BOOST_LARGE_WIN_USD = float(os.getenv("PROFIT_BOOST_LARGE_WIN_USD", "500.0"))  # Large win threshold
+PROFIT_BOOST_LARGE_MULTIPLIER = float(os.getenv("PROFIT_BOOST_LARGE_MULTIPLIER", "1.75"))  # 75% bigger bets
+PROFIT_BOOST_LARGE_TRADES = int(os.getenv("PROFIT_BOOST_LARGE_TRADES", "5"))  # 5 boosted trades
+
+# ── 5. Cascade Score Boost ────────────────────────────────────────────────────
+# Each profitable trade lowers MIN_GEM_SCORE by CASCADE_BOOST_PER_WIN points.
+# Allows more aggressive discovery as the bot builds a winning streak.
+# Losses recover the threshold. Floor prevents going too low.
+CASCADE_BOOST_ENABLED = os.getenv("CASCADE_BOOST_ENABLED", "true").lower() == "true"
+CASCADE_BOOST_PER_WIN = float(os.getenv("CASCADE_BOOST_PER_WIN", "0.5"))  # -0.5 per win
+CASCADE_BOOST_MAX_REDUCTION = float(os.getenv("CASCADE_BOOST_MAX_REDUCTION", "10.0"))  # Max -10 pts
+CASCADE_BOOST_RECOVERY_PER_LOSS = float(os.getenv("CASCADE_BOOST_RECOVERY_PER_LOSS", "1.0"))  # +1 per loss
+CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "40.0"))  # Never below 40
+
+# ── 6. Express Lane Overdrive ─────────────────────────────────────────────────
+# Highest-conviction snipes (score ≥ EXPRESS_LANE_SCORE) get 1.5-2.0x sizing
+# and wider slippage to guarantee entry on fast-moving tokens.
+EXPRESS_OVERDRIVE_ENABLED = os.getenv("EXPRESS_OVERDRIVE_ENABLED", "true").lower() == "true"
+EXPRESS_OVERDRIVE_EXTRA_SLIPPAGE_BPS = int(os.getenv("EXPRESS_OVERDRIVE_EXTRA_SLIPPAGE_BPS", "100"))  # +1%
+
+# ── 7. Tiered Pyramiding ──────────────────────────────────────────────────────
+# Adds to winners at 3 gain tiers. Trailing stop tightens with each add.
+# Replaces the single WINNER_SCALING with a full pyramid strategy.
+PYRAMID_SCALING_ENABLED = os.getenv("PYRAMID_SCALING_ENABLED", "true").lower() == "true"
+# Tier 1: +30% gain → add 50% of original position, trailing stop = 20%
+PYRAMID_TIER1_ENABLED = os.getenv("PYRAMID_TIER1_ENABLED", "true").lower() == "true"
+PYRAMID_TIER1_GAIN_PCT = float(os.getenv("PYRAMID_TIER1_GAIN_PCT", "30.0"))
+PYRAMID_TIER1_ADD_PCT = float(os.getenv("PYRAMID_TIER1_ADD_PCT", "50.0"))  # 50% of original
+PYRAMID_TIER1_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER1_TRAILING_STOP_PCT", "20.0"))
+# Tier 2: +100% gain → add 25% of original, trailing stop = 15%
+PYRAMID_TIER2_ENABLED = os.getenv("PYRAMID_TIER2_ENABLED", "true").lower() == "true"
+PYRAMID_TIER2_GAIN_PCT = float(os.getenv("PYRAMID_TIER2_GAIN_PCT", "100.0"))
+PYRAMID_TIER2_ADD_PCT = float(os.getenv("PYRAMID_TIER2_ADD_PCT", "25.0"))  # 25% of original
+PYRAMID_TIER2_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER2_TRAILING_STOP_PCT", "15.0"))
+# Tier 3: +300% gain → add 10% of original, trailing stop = 10%
+PYRAMID_TIER3_ENABLED = os.getenv("PYRAMID_TIER3_ENABLED", "true").lower() == "true"
+PYRAMID_TIER3_GAIN_PCT = float(os.getenv("PYRAMID_TIER3_GAIN_PCT", "300.0"))
+PYRAMID_TIER3_ADD_PCT = float(os.getenv("PYRAMID_TIER3_ADD_PCT", "10.0"))  # 10% of original
+PYRAMID_TIER3_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER3_TRAILING_STOP_PCT", "10.0"))
+
+# ── 8. Fast Fail ──────────────────────────────────────────────────────────────
+# Cuts momentum-dead positions quickly to free capital for live opportunities.
+# Replaces the 12-hour underperformer rotation with faster, smarter exits.
+FAST_FAIL_ENABLED = os.getenv("FAST_FAIL_ENABLED", "true").lower() == "true"
+FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "2.0"))  # Hours before checking
+FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "10.0"))  # Down >10% = momentum dead
+FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "4.0"))  # Hours before stall check
+FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "15.0"))  # Must be up >15% in 4h
+
+# ── 9. Momentum Reentry ───────────────────────────────────────────────────────
+# After TP1 is hit on a token, immediately re-enters if volume is still surging.
+# Captures the second leg of a pump (common in micro-caps).
+MOMENTUM_REENTRY_ENABLED = os.getenv("MOMENTUM_REENTRY_ENABLED", "true").lower() == "true"
+MOMENTUM_REENTRY_VOLUME_MULT = float(os.getenv("MOMENTUM_REENTRY_VOLUME_MULT", "3.0"))  # Vol must be 3x avg
+MOMENTUM_REENTRY_MAX_AGE_MINUTES = float(os.getenv("MOMENTUM_REENTRY_MAX_AGE_MINUTES", "30.0"))  # 30min window
+MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25"))  # 1.25x normal size
+
+# ── 10. Absolute Position Cap ─────────────────────────────────────────────────
+# Hard cap on any single trade after all offensive multipliers are applied.
+# Prevents runaway sizing even on a 6-win streak in God Mode.
+OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "5000.0"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Smart Money Tracking
 # ─────────────────────────────────────────────────────────────────────────────
 # Known smart money / whale wallet addresses to track across chains

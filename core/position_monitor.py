@@ -35,6 +35,14 @@ import requests
 
 from config import settings
 from data.models import Position, Trade
+from core.offensive_guardrails import (
+    get_offensive_state,
+    save_offensive_state,
+    evaluate_pyramid_scaling,
+    get_dynamic_trailing_stop_pct,
+    evaluate_fast_fail,
+    should_skip_tp1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -560,14 +568,39 @@ class PositionMonitor:
                 if entry_price > 0:
                     pos["unrealized_pnl_pct"] = ((current_price - entry_price) / entry_price) * 100
 
-                # ── Defensive: standard TP/SL evaluation ─────────────────────
+                # ── Load offensive state for this cycle ─────────────────────────────────────────
+                offensive_state = get_offensive_state()
+
+                # ── Dynamic trailing stop (tightens in God Mode and after pyramid adds) ──
+                dynamic_trailing_stop_pct = get_dynamic_trailing_stop_pct(
+                    offensive_state,
+                    pyramid_tier=int(pos.get("pyramid_tier", 0)),
+                )
+                if dynamic_trailing_stop_pct != settings.STOP_LOSS_PERCENT:
+                    pos["_dynamic_trailing_stop_pct"] = dynamic_trailing_stop_pct
+
+                # ── Defensive: standard TP/SL evaluation ─────────────────────────────────────
                 sell_action = evaluate_position(pos, current_price)
 
-                # ── Offensive: volume surge fast exit ─────────────────────────
+                # ── God Mode: skip TP1 (hold for 5x+ instead of 2x) ───────────────────────
+                if sell_action and sell_action.get("reason") == "tp1_2x":
+                    if should_skip_tp1(offensive_state):
+                        logger.info(
+                            f"⚡ God Mode: skipping TP1 on {pos.get('token_symbol')} — holding for 5x+"
+                        )
+                        sell_action = None
+
+                # ── Offensive: volume surge fast exit ─────────────────────────────────────
                 if not sell_action:
                     sell_action = evaluate_volume_surge_exit(pos, current_price)
 
-                # ── Offensive: underperformer rotation ────────────────────────
+                # ── Offensive: fast fail (momentum-dead exit) ──────────────────────────────
+                if not sell_action:
+                    fast_fail = evaluate_fast_fail(pos, current_price)
+                    if fast_fail:
+                        sell_action = fast_fail
+
+                # ── Offensive: underperformer rotation ────────────────────────────────────────
                 if not sell_action:
                     sell_action = evaluate_underperformer_exit(pos, current_price)
 

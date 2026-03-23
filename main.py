@@ -65,6 +65,20 @@ from core.risk import risk_manager
 from core.position_monitor import PositionMonitor, register_position, load_positions
 from core.wallet_router import route_trade
 from core.signal_engine import SignalEngine
+from core.offensive_guardrails import (
+    get_offensive_state,
+    save_offensive_state,
+    record_trade_result,
+    get_effective_min_gem_score,
+    calculate_offensive_position_size,
+    get_express_overdrive_slippage_bps,
+    get_momentum_reentry_candidates,
+    register_momentum_reentry,
+    evaluate_pyramid_scaling,
+    evaluate_fast_fail,
+    should_skip_tp1,
+    get_daily_summary,
+)
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
@@ -389,9 +403,17 @@ async def run_bot_loop():
     cycle = 0
     trades_this_session = 0
 
-    # ── Profit boost tracker (offensive guardrail) ────────────────────────────
-    # After a big win, temporarily boost conviction for the next N trades
-    profit_boost_remaining = 0  # Countdown of boosted trades remaining
+    # ── Offensive guardrails state (persistent, survives restarts) ─────────────
+    offensive_state = get_offensive_state()
+    logger.info(
+        f"Offensive state loaded: streak={offensive_state.consecutive_wins}W/"
+        f"{offensive_state.consecutive_losses}L | "
+        f"daily_pnl=${offensive_state.daily_realized_pnl_usd:.2f} | "
+        f"god_mode={'ON ⚡' if offensive_state.god_mode_active else 'off'} | "
+        f"house_money=${offensive_state.house_money_pool_usd:.2f}"
+    )
+    # Legacy profit boost counter (now managed inside offensive_state)
+    profit_boost_remaining = offensive_state.profit_boost_remaining
 
     while True:
         cycle += 1
@@ -452,30 +474,71 @@ async def run_bot_loop():
                         except Exception:
                             pass
 
-            # ── Check profit boost: did we just close a big winner? ───────────
-            if settings.PROFIT_BOOST_ENABLED and profit_boost_remaining <= 0:
-                for p in closed_positions:
-                    closed_at = p.get("closed_at")
-                    if closed_at:
-                        try:
-                            closed_ts = datetime.fromisoformat(
-                                str(closed_at).replace("Z", "+00:00")
-                            ).timestamp()
-                            # Only boost from wins in the last hour
-                            if now_ts - closed_ts < 3600:
-                                realized_pnl_pct = float(p.get("unrealized_pnl_pct", 0))
-                                if realized_pnl_pct >= settings.PROFIT_BOOST_MIN_GAIN_PCT:
-                                    profit_boost_remaining = settings.PROFIT_BOOST_TRADES
-                                    logger.info(
-                                        f"🔥 PROFIT BOOST ACTIVATED: {p.get('token_symbol')} "
-                                        f"closed at +{realized_pnl_pct:.0f}% → "
-                                        f"next {settings.PROFIT_BOOST_TRADES} trades boosted "
-                                        f"{settings.PROFIT_BOOST_MULTIPLIER:.0%}"
-                                    )
-                                    break
-                        except Exception:
-                            pass
+            # ── Sync offensive state with recently closed positions ──────────────
+            # Reload offensive state each cycle to pick up any changes
+            offensive_state = get_offensive_state()
+            profit_boost_remaining = offensive_state.profit_boost_remaining
 
+            # Process newly closed positions: update streak, PnL, house money, etc.
+            for p in closed_positions:
+                closed_at = p.get("closed_at")
+                if not closed_at:
+                    continue
+                # Only process positions closed since last cycle (within 2x scan interval)
+                try:
+                    closed_ts = datetime.fromisoformat(
+                        str(closed_at).replace("Z", "+00:00")
+                    ).timestamp()
+                    if now_ts - closed_ts > settings.SCAN_INTERVAL_SECONDS * 2:
+                        continue  # Too old — already processed
+                except Exception:
+                    continue
+
+                # Skip if we've already recorded this close
+                pos_id = p.get("id", "")
+                if not pos_id or p.get("_offensive_recorded"):
+                    continue
+
+                realized_pnl_usd = float(p.get("realized_pnl_usd", 0))
+                token_symbol = p.get("token_symbol", "?")
+                offensive_state = record_trade_result(
+                    offensive_state, realized_pnl_usd, token_symbol
+                )
+                profit_boost_remaining = offensive_state.profit_boost_remaining
+
+                # Check for momentum reentry (TP1 hit with volume still surging)
+                if p.get("tp1_hit") and settings.MOMENTUM_REENTRY_ENABLED:
+                    volume_1h = float(p.get("volume_1h", 0))
+                    volume_24h = float(p.get("volume_24h", 0))
+                    register_momentum_reentry(
+                        offensive_state,
+                        token_address=p.get("token_address", ""),
+                        token_symbol=token_symbol,
+                        chain=p.get("chain", ""),
+                        tp1_price=float(p.get("last_sell_price", 0)),
+                        gem_score=float(p.get("gem_score", 0)),
+                        volume_1h=volume_1h,
+                        volume_24h=volume_24h,
+                    )
+
+            # Effective MIN_GEM_SCORE (lowered by cascade boost on winning streaks)
+            effective_min_score = get_effective_min_gem_score(offensive_state)
+
+            # Get momentum reentry candidates (tokens to re-enter after TP1)
+            reentry_candidates = get_momentum_reentry_candidates(offensive_state)
+            if reentry_candidates:
+                logger.info(
+                    f"🔄 Momentum reentry candidates: "
+                    f"{[c['token_symbol'] for c in reentry_candidates]}"
+                )
+
+            # Log God Mode status
+            if offensive_state.god_mode_active:
+                logger.info(
+                    f"⚡⚡⚡ GOD MODE ACTIVE ⚡⚡⚡ "
+                    f"daily_pnl=${offensive_state.daily_realized_pnl_usd:.2f} | "
+                    f"Full Kelly sizing | TP1 {'skipped' if settings.GOD_MODE_SKIP_TP1 else 'active'}"
+                )
             # 1. Fetch balances
             fetcher = BalanceFetcher()
 
@@ -617,20 +680,35 @@ async def run_bot_loop():
                     continue
 
                 wallet = allocation.wallet
-                native_balance = allocation.native_balance
+                native_balance = allocation.native_balan                # ── OFFENSIVE: Apply all offensive multipliers to position sizing ──────
+                is_momentum_reentry = any(
+                    r["address"] == token_addr_lower for r in reentry_candidates
+                )
+                base_position_usd = allocation.position_size_usd
+                final_position_usd, sizing_reason = calculate_offensive_position_size(
+                    base_position_usd=base_position_usd,
+                    gem_score=candidate.gem_score,
+                    is_express=is_express,
+                    state=offensive_state,
+                    is_momentum_reentry=is_momentum_reentry,
+                )
+                save_offensive_state(offensive_state)  # Save after boost consumption
+                profit_boost_remaining = offensive_state.profit_boost_remaining
 
-                # ── OFFENSIVE: Apply profit boost to position sizing ──────────
-                if profit_boost_remaining > 0 and settings.PROFIT_BOOST_ENABLED:
-                    original_size = allocation.position_size_native
-                    allocation.position_size_native *= settings.PROFIT_BOOST_MULTIPLIER
-                    allocation.position_size_usd *= settings.PROFIT_BOOST_MULTIPLIER
-                    logger.info(
-                        f"🔥 Profit boost applied: {original_size:.4f} → "
-                        f"{allocation.position_size_native:.4f} "
-                        f"({settings.PROFIT_BOOST_MULTIPLIER:.0%}x)"
+                if final_position_usd != base_position_usd:
+                    scale_factor = final_position_usd / base_position_usd if base_position_usd > 0 else 1.0
+                    allocation.position_size_usd = final_position_usd
+                    allocation.position_size_native *= scale_factor
+
+                # Express Lane Overdrive: wider slippage to guarantee entry
+                if is_express and settings.EXPRESS_OVERDRIVE_ENABLED:
+                    from core.wallet_router import get_chain_slippage_bps
+                    base_slippage = get_chain_slippage_bps(token.chain, is_express=True)
+                    allocation.slippage_bps = get_express_overdrive_slippage_bps(
+                        is_express=True, base_slippage_bps=base_slippage
                     )
 
-                # ── USDC balance check ────────────────────────────────────────
+                # ── USDC balance check ────────────────────────────────────────────────────────────────────────────────
                 usdc_balance = 0.0
                 try:
                     from config.chains import CHAINS
