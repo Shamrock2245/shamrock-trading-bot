@@ -106,12 +106,13 @@ def get_jupiter_swap_transaction(
             "quoteResponse": quote,
             "userPublicKey": user_public_key,
             "wrapAndUnwrapSol": wrap_and_unwrap_sol,
-            "computeUnitPriceMicroLamports": compute_unit_price_micro_lamports,
             "dynamicComputeUnitLimit": True,
             "prioritizationFeeLamports": "auto",
         }
         resp = requests.post(url, json=payload, headers=_jupiter_headers(), timeout=15)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            logger.error(f"Jupiter swap error {resp.status_code}: {resp.text[:500]}")
+            return None
         data = resp.json()
         return data.get("swapTransaction")
     except Exception as e:
@@ -150,11 +151,13 @@ def sign_and_send_transaction(
         tx_bytes = base64.b64decode(serialized_tx_b64)
         tx = VersionedTransaction.from_bytes(tx_bytes)
 
-        # Sign transaction
-        tx.sign([keypair])
+        # Sign the transaction message and create new signed tx
+        # solders 0.27+ VersionedTransaction is immutable after deserialization
+        from solders.presigner import Presigner  # type: ignore
+        signed_tx = VersionedTransaction(tx.message, [keypair])
 
         # Serialize signed transaction
-        signed_tx_bytes = bytes(tx)
+        signed_tx_bytes = bytes(signed_tx)
         signed_tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
 
         # Send transaction with retries

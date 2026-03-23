@@ -36,3 +36,4 @@ data/*.csv
 data/*.json
 !data/models.py
 !data/providers.py
+.env.example

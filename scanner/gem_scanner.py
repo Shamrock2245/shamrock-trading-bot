@@ -58,8 +58,8 @@ from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 logger = logging.getLogger(__name__)
 
-# All supported chains including Solana
-SCAN_CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "solana"]
+# Chains to scan (EVM + Solana)
+SCAN_CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "avalanche", "solana"]
 
 # DexScreener chain ID → internal chain name (including Solana)
 _DEXSCREENER_CHAIN_MAP = {
@@ -357,21 +357,25 @@ class GemScanner:
         candidate = GemCandidate(token=token)
 
         # ── Age score (12%) ───────────────────────────────────────────────────
-        if token.age_hours is not None:
-            if token.age_hours < 1:
-                candidate.age_score = 100
-            elif token.age_hours < 6:
-                candidate.age_score = 90
-            elif token.age_hours < 24:
-                candidate.age_score = 75
-            elif token.age_hours < 72:
-                candidate.age_score = 50
-            elif token.age_hours < 168:
-                candidate.age_score = 25
-            else:
-                candidate.age_score = 10
+        # New tokens are better for sniping.
+        # < 24h = 100, < 48h = 75, < 72h = 50, < 168h = 25, > 168h = 10
+        # For Moralis trending tokens (which are often older), we are more lenient
+        is_moralis_trending = getattr(token, "is_moralis_trending", False)
+        
+        if token.age_hours is None:
+            candidate.age_score = 50.0
+        elif token.age_hours <= 24:
+            candidate.age_score = 100.0
+        elif token.age_hours <= 48:
+            candidate.age_score = 85.0 if is_moralis_trending else 75.0
+        elif token.age_hours <= 72:
+            candidate.age_score = 70.0 if is_moralis_trending else 50.0
+        elif token.age_hours <= 168:
+            candidate.age_score = 50.0 if is_moralis_trending else 25.0
+        else:
+            candidate.age_score = 30.0 if is_moralis_trending else 10.0
 
-        # ── Volume spike score (17%) ──────────────────────────────────────────
+        # ── Volume spike score (15%) ──────────────────────────────────────────────
         if token.volume_1h > 0 and token.volume_24h > 0:
             avg_hourly_vol = token.volume_24h / 24
             if avg_hourly_vol > 0:

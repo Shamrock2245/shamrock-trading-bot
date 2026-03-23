@@ -61,7 +61,7 @@ class CapitalPhase:
 
 
 CAPITAL_PHASES = [
-    CapitalPhase("seed",         0,       15_000,   5.0, 5,  "Seed — concentrate, move fast"),
+    CapitalPhase("seed",         0,       15_000,   25.0, 5,  "Seed — concentrate, move fast"),
     CapitalPhase("growth",       15_000,  50_000,   3.0, 8,  "Growth — scale with discipline"),
     CapitalPhase("acceleration", 50_000,  250_000,  2.0, 10, "Acceleration — diversify"),
     CapitalPhase("whale",        250_000, float("inf"), 1.0, 15, "Whale — wealth preservation"),
@@ -248,8 +248,6 @@ def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
         except Exception as e:
             logger.debug(f"EVM balance fetch failed ({rpc_url}): {e}")
     return 0.0
-
-
 def _get_sol_balance(wallet_address: str) -> float:
     """Fetch SOL balance via Solana JSON-RPC with fallback endpoints."""
     rpc_urls = [
@@ -268,11 +266,12 @@ def _get_sol_balance(wallet_address: str) -> float:
                 "params": [wallet_address],
             }
             resp = requests.post(rpc_url, json=payload, timeout=10)
-            result = resp.json().get("result", {})
-            lamports = result.get("value", 0)
-            balance = lamports / 1_000_000_000
-            if balance > 0 or lamports == 0:
-                return balance
+            data = resp.json()
+            if "result" in data and "value" in data["result"]:
+                lamports = data["result"]["value"]
+                return lamports / 1_000_000_000
+            else:
+                logger.warning(f"Solana RPC returned unexpected format: {data}")
         except Exception as e:
             logger.debug(f"SOL balance fetch failed for {wallet_address} ({rpc_url}): {e}")
     return 0.0
@@ -417,7 +416,9 @@ def route_trade(
     # Calculate slippage recommendation for this trade
     slippage_bps = get_chain_slippage_bps(chain, is_express=is_express, token_age_hours=token_age_hours)
 
+    logger.info(f"Routing {chain} trade: {len(strategy_wallets)} wallets eligible, strategy={strategy}")
     for wallet in strategy_wallets:
+        logger.info(f"  Evaluating {wallet.alias} for {chain}...")
         # Check max concurrent positions
         open_count = get_open_position_count(wallet.alias.lower().replace(" ", "_"))
         if open_count >= wallet.max_concurrent_positions:
@@ -430,6 +431,7 @@ def route_trade(
         # Check daily loss limit (in USD)
         daily_loss_usd = get_daily_loss_usd(wallet.alias.lower().replace(" ", "_"))
         native_price = get_native_price_usd(chain_config.native_token)
+        logger.info(f"  {wallet.alias} native_price={native_price:.2f} USD for {chain_config.native_token}")
         daily_loss_limit_usd = wallet.daily_loss_limit_eth * native_price
         if daily_loss_usd >= daily_loss_limit_usd:
             logger.warning(
@@ -439,15 +441,22 @@ def route_trade(
             continue
 
         # Fetch live balance
-        balance_address = (
-            wallet.solana_address if chain_config.is_solana and wallet.solana_address
-            else wallet.address
-        )
+        if chain_config.is_solana:
+            if not wallet.solana_address:
+                logger.warning(f"Wallet {wallet.alias} missing solana_address, skipping for Solana trade")
+                continue
+            balance_address = wallet.solana_address
+            min_balance_required = 0.005  # 0.005 SOL minimum for rent + priority fees
+        else:
+            balance_address = wallet.address
+            min_balance_required = wallet.min_eth_balance_alert
+
         native_balance = get_native_balance(balance_address, chain)
-        if native_balance <= wallet.min_eth_balance_alert:
+        logger.info(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
+        if native_balance <= min_balance_required:
             logger.warning(
-                f"Wallet {wallet.alias} balance too low: "
-                f"{native_balance:.4f} {chain_config.native_token}"
+                f"Wallet {wallet.alias} balance too low on {chain}: "
+                f"{native_balance:.4f} <= {min_balance_required} {chain_config.native_token}"
             )
             continue
 
@@ -500,8 +509,11 @@ def route_trade(
             min_trade_usd = 1.0
         elif chain == "ethereum":
             min_trade_usd = 100.0
+        elif chain == "solana":
+            min_trade_usd = 1.0   # Allow micro-cap sniping with small wallets
         else:
             min_trade_usd = 25.0
+        logger.info(f"  {wallet.alias} phase={phase.name} max_pct={phase_max_pct:.1%} balance_usd={wallet_balance_usd:.2f} pos_size={position_size_usd:.2f} min_trade={min_trade_usd}")
         if position_size_usd < min_trade_usd:
             logger.debug(
                 f"Position size too small for {wallet.alias} on {chain}: "
