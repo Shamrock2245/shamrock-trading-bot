@@ -153,6 +153,23 @@ CHAINS: dict[str, ChainConfig] = {
         usdc_address="0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
     ),
 
+    # ── Avalanche C-Chain ──────────────────────────────────────────────────────
+    "avalanche": ChainConfig(
+        name="Avalanche C-Chain",
+        chain_id=43114,
+        rpc_url=os.getenv("AVAX_RPC_URL", "https://api.avax.network/ext/bc/C/rpc"),
+        rpc_fallback=os.getenv("AVAX_RPC_FALLBACK", "https://avalanche.publicnode.com"),
+        explorer_api_url="https://api.snowtrace.io/api",
+        explorer_api_key_env="SNOWTRACE_API_KEY",
+        native_token="AVAX",
+        wrapped_native="0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",  # WAVAX
+        uniswap_v3_router="0xbb00FF08d01D300023C629E8fFfFcb65A5a578cEa",  # Uniswap V3 on Avax
+        oneinch_router="0x1111111254EEB25477B68fb85Ed929f73A960582",
+        max_gas_gwei=50,
+        block_time_seconds=2.0,
+        usdc_address="0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",  # USDC on Avalanche
+    ),
+
     # ── Solana ────────────────────────────────────────────────────────────────
     # Solana is not EVM — uses Jupiter aggregator for swaps, native SOL for gas.
     # chain_id=900 is a convention used by DexScreener/GeckoTerminal for Solana.
@@ -186,6 +203,7 @@ DEXSCREENER_CHAIN_MAP = {
     "arbitrum": "arbitrum",
     "polygon": "polygon",
     "bsc": "bsc",
+    "avalanche": "avalanche",
     "solana": "solana",
 }
 
@@ -196,6 +214,7 @@ GOPLUS_CHAIN_MAP = {
     "arbitrum": "42161",
     "polygon": "137",
     "bsc": "56",
+    "avalanche": "43114",
     "solana": "solana",  # GoPlus uses string "solana" for Solana
 }
 
@@ -206,6 +225,7 @@ HONEYPOT_CHAIN_MAP = {
     "arbitrum": 42161,
     "polygon": 137,
     "bsc": 56,
+    "avalanche": 43114,
 }
 
 

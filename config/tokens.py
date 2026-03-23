@@ -15,6 +15,7 @@ STABLECOINS: dict[str, dict] = {
         "arbitrum": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
         "polygon":  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
         "bsc":      "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+        "avalanche":"0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
         "solana":   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     },
     "USDT": {
@@ -22,6 +23,7 @@ STABLECOINS: dict[str, dict] = {
         "arbitrum": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
         "polygon":  "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
         "bsc":      "0x55d398326f99059fF775485246999027B3197955",
+        "avalanche":"0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7",
         "solana":   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     },
     "DAI": {
@@ -34,6 +36,9 @@ STABLECOINS: dict[str, dict] = {
         "base":     "0x4200000000000000000000000000000000000006",
         "arbitrum": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
         "polygon":  "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+    },
+    "WAVAX": {
+        "avalanche":"0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
     },
     "WSOL": {
         "solana":   "So11111111111111111111111111111111111111112",
