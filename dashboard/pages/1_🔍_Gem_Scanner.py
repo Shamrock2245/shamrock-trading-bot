@@ -91,7 +91,7 @@ if filtered:
 
         with st.expander(
             f"{'🚀 ' if gem.get('is_boosted') else ''}"
-            f"**{gem.get('symbol', '???')}** — "
+            f"{gem.get('symbol', '???')} — "
             f"Score: {score:.1f} — "
             f"{chain.capitalize()} — "
             f"{'✅ Safe' if gem.get('is_safe') else '⚠️ Unverified'}",
