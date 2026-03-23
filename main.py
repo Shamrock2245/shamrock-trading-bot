@@ -471,11 +471,12 @@ async def run_bot_loop():
                         )
                         continue
 
+                    rsi_str = f"{signal.rsi:.1f}" if signal.rsi is not None else "N/A"
                     logger.info(
                         f"Signal approved {token.symbol}: "
                         f"composite={signal.composite:.1f} | "
                         f"fib={signal.fib_zone} | "
-                        f"rsi={signal.rsi:.1f}" if signal.rsi is not None else "rsi=N/A"
+                        f"rsi={rsi_str}"
                     )
 
                     # Strategy evaluation (Fibonacci gate)
