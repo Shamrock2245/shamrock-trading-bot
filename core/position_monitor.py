@@ -34,7 +34,7 @@ from typing import Optional
 import requests
 
 from config import settings
-from data.models import Position, Trade, TradeAction
+from data.models import Position, Trade
 
 logger = logging.getLogger(__name__)
 
