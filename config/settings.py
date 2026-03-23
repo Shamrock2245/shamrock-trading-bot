@@ -53,6 +53,7 @@ TOKEN_SNIFFER_API_KEY = os.getenv("TOKEN_SNIFFER_API_KEY", "")
 LUNARCRUSH_API_KEY = os.getenv("LUNARCRUSH_API_KEY", "")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
 BASESCAN_API_KEY = os.getenv("BASESCAN_API_KEY", "")
+GROK_API_KEY = os.getenv("GROK_API_KEY", "")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g.alchemy.com/v2/demo")
 
@@ -170,6 +171,7 @@ RATE_LIMITS = {
     "lunarcrush": 4,      # per minute — 100/day hard cap
     "defillama": 500,     # generous, no key needed
     "jupiter": 600,       # Solana Jupiter API — very generous
+    "grok": 30,           # Grok X sentiment — conservative to control costs
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

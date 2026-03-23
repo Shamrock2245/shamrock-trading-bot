@@ -2,23 +2,25 @@
 scanner/gem_scanner.py — Multi-chain gem discovery and scoring engine.
 
 Scans DexScreener for new/boosted tokens across Ethereum, Base, Arbitrum,
-Polygon, BSC, and Solana. Scores each candidate 0–100 using weighted criteria
-and returns a ranked list of GemCandidates ready for safety checks and execution.
+Polygon, BSC, Avalanche, and Solana. Scores each candidate 0–100 using
+weighted criteria and returns a ranked list of GemCandidates ready for
+safety checks and execution.
 
-Scoring weights (rebalanced, sum = 100%):
+Scoring weights (rebalanced, 14 signals, sum = 100%):
   - Token age:                12%
-  - Volume spike:             17%
+  - Volume spike:             15%
   - Liquidity depth:          13%
   - Contract verified:         8%
   - Holder distribution:       8%
   - Buy/sell tax:              8%
-  - Social signals:            8%  ← real social scoring (LunarCrush + CoinGecko)
+  - Social signals:            6%  ← real social scoring (LunarCrush + CoinGecko)
   - DexScreener boost:         4%
   - Smart money:               4%  ← real wallet overlap scoring
   - TVL (DefiLlama):           5%
   - Social sentiment (LC):     5%
   - Holder concentration:      4%
   - Unlock/dilution risk:      4%
+  - Grok X sentiment:          4%  ← Grok AI real-time X/Twitter analysis
   - Honeypot: PASS/FAIL (instant disqualify)
 """
 
@@ -366,12 +368,12 @@ class GemScanner:
         # ── Initial composite (before enrichment) ─────────────────────────────
         base_score = (
             candidate.age_score * 0.12
-            + candidate.volume_score * 0.17
+            + candidate.volume_score * 0.15
             + candidate.liquidity_score * 0.13
             + candidate.contract_score * 0.08
             + candidate.holder_score * 0.08
             + candidate.tax_score * 0.08
-            + candidate.social_score * 0.08
+            + candidate.social_score * 0.06
             + candidate.boost_score * 0.04
             + candidate.smart_money_score * 0.04
         )
@@ -409,27 +411,38 @@ class GemScanner:
             except Exception as e:
                 logger.debug(f"Unlock risk scoring failed for {token.symbol}: {e}")
                 candidate.unlock_risk_score = 50.0
+
+            try:
+                from data.providers.grok_sentiment import get_grok_sentiment_score
+                candidate.grok_sentiment_score = get_grok_sentiment_score(
+                    token.symbol, token.chain
+                )
+            except Exception as e:
+                logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
+                candidate.grok_sentiment_score = 50.0
         else:
             candidate.tvl_score = 30.0
             candidate.social_sentiment_score = 30.0
             candidate.holder_concentration_score = 40.0
             candidate.unlock_risk_score = 50.0
+            candidate.grok_sentiment_score = 50.0
 
-        # ── Final composite score (13 signals) ────────────────────────────────
+        # ── Final composite score (14 signals) ────────────────────────────────
         candidate.gem_score = round(
             candidate.age_score * 0.12
-            + candidate.volume_score * 0.17
+            + candidate.volume_score * 0.15
             + candidate.liquidity_score * 0.13
             + candidate.contract_score * 0.08
             + candidate.holder_score * 0.08
             + candidate.tax_score * 0.08
-            + candidate.social_score * 0.08
+            + candidate.social_score * 0.06
             + candidate.boost_score * 0.04
             + candidate.smart_money_score * 0.04
             + candidate.tvl_score * 0.05
             + candidate.social_sentiment_score * 0.05
             + candidate.holder_concentration_score * 0.04
-            + candidate.unlock_risk_score * 0.04,
+            + candidate.unlock_risk_score * 0.04
+            + candidate.grok_sentiment_score * 0.04,
             2,
         )
 

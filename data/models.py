@@ -72,6 +72,7 @@ class GemCandidate:
     social_sentiment_score: float = 0.0  # LunarCrush Galaxy Score
     holder_concentration_score: float = 0.0  # On-chain holder analysis
     unlock_risk_score: float = 0.0      # FDV/mcap dilution risk
+    grok_sentiment_score: float = 0.0   # Grok AI real-time X/Twitter sentiment
 
     # Signals
     signal_score: Optional["SignalScore"] = None
