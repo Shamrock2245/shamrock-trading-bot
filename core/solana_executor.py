@@ -15,10 +15,25 @@ Security:
   - Never logged, stored, or transmitted in plaintext
   - Paper mode: all logic runs but transactions are NOT broadcast
 
+Signing (solders 0.21+):
+  - VersionedTransaction has NO .sign() method — it is immutable after
+    deserialization from bytes.
+  - CORRECT pattern (verified against real Jupiter transactions):
+      tx = VersionedTransaction.from_bytes(tx_bytes)
+      signed_tx = VersionedTransaction(tx.message, [keypair])
+  - Fallback pattern (if constructor rejects keypair list):
+      sig = keypair.sign_message(bytes(tx.message))
+      signed_tx = VersionedTransaction.populate(tx.message, [sig])
+
+Jupiter API:
+  - Primary:  https://api.jup.ag/swap/v1  (requires API key)
+  - Fallback: https://lite-api.jup.ag/swap/v1  (free, no key needed)
+  - The bot automatically falls back to lite-api if primary returns 401.
+
 Dependencies:
   - solders (Solana Python SDK)
   - solana-py
-  Install: pip install solders solana
+  Install: pip install solders solana base58
 """
 
 import base64
@@ -35,22 +50,34 @@ from config.chains import CHAINS
 
 logger = logging.getLogger(__name__)
 
-JUPITER_API_URL = settings.JUPITER_API_URL
+# Jupiter API endpoints — primary (keyed) and lite (free fallback)
+_JUPITER_PRIMARY_URL = settings.JUPITER_API_URL          # https://api.jup.ag/swap/v1
+_JUPITER_LITE_URL = "https://lite-api.jup.ag/swap/v1"   # Always available, no key needed
 JUPITER_API_KEY = settings.JUPITER_API_KEY
 SOLANA_RPC_URL = settings.SOLANA_RPC_URL
-
-
-def _jupiter_headers() -> dict:
-    """Build headers for Jupiter API requests (API key required since 2026)."""
-    headers = {"Content-Type": "application/json"}
-    if JUPITER_API_KEY:
-        headers["x-api-key"] = JUPITER_API_KEY
-    return headers
 
 # USDC mint on Solana (for profit-taking)
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 # Wrapped SOL mint
 WSOL_MINT = "So11111111111111111111111111111111111111112"
+
+
+def _jupiter_base_url() -> str:
+    """
+    Return the active Jupiter base URL.
+    Uses primary (api.jup.ag) if JUPITER_API_KEY is set, otherwise lite-api.
+    """
+    if JUPITER_API_KEY:
+        return _JUPITER_PRIMARY_URL
+    return _JUPITER_LITE_URL
+
+
+def _jupiter_headers() -> dict:
+    """Build headers for Jupiter API requests."""
+    headers = {"Content-Type": "application/json"}
+    if JUPITER_API_KEY:
+        headers["x-api-key"] = JUPITER_API_KEY
+    return headers
 
 
 def get_jupiter_quote(
@@ -62,6 +89,8 @@ def get_jupiter_quote(
     """
     Get a swap quote from Jupiter Swap API v1.
 
+    Automatically falls back to lite-api.jup.ag if primary returns 401.
+
     Args:
         input_mint: Input token mint address
         output_mint: Output token mint address
@@ -71,53 +100,100 @@ def get_jupiter_quote(
     Returns:
         Quote dict from Jupiter, or None on failure
     """
-    try:
-        url = f"{JUPITER_API_URL}/quote"
-        params = {
-            "inputMint": input_mint,
-            "outputMint": output_mint,
-            "amount": str(amount_lamports),
-            "slippageBps": str(slippage_bps),
-            "onlyDirectRoutes": "false",
-            "asLegacyTransaction": "false",
-        }
-        resp = requests.get(url, params=params, headers=_jupiter_headers(), timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.error(f"Jupiter quote failed: {e}")
-        return None
+    params = {
+        "inputMint": input_mint,
+        "outputMint": output_mint,
+        "amount": str(amount_lamports),
+        "slippageBps": str(slippage_bps),
+        "onlyDirectRoutes": "false",
+        "asLegacyTransaction": "false",
+    }
+
+    # Try primary URL first, fall back to lite if 401
+    urls_to_try = [_jupiter_base_url()]
+    if urls_to_try[0] != _JUPITER_LITE_URL:
+        urls_to_try.append(_JUPITER_LITE_URL)
+
+    for base_url in urls_to_try:
+        try:
+            url = f"{base_url}/quote"
+            resp = requests.get(url, params=params, headers=_jupiter_headers(), timeout=15)
+            if resp.status_code == 401 and base_url != _JUPITER_LITE_URL:
+                logger.warning(f"Jupiter primary API returned 401 — falling back to lite-api")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if "outAmount" in data:
+                logger.debug(f"Jupiter quote via {base_url}: {data['outAmount']} out")
+                return data
+            logger.warning(f"Jupiter quote missing outAmount: {data}")
+            return None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401 and base_url != _JUPITER_LITE_URL:
+                logger.warning("Jupiter primary 401 — trying lite-api")
+                continue
+            logger.error(f"Jupiter quote HTTP error ({base_url}): {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Jupiter quote failed ({base_url}): {e}")
+            if base_url != _JUPITER_LITE_URL:
+                continue
+            return None
+
+    logger.error("All Jupiter quote endpoints failed")
+    return None
 
 
 def get_jupiter_swap_transaction(
     quote: dict,
     user_public_key: str,
     wrap_and_unwrap_sol: bool = True,
-    compute_unit_price_micro_lamports: int = 1000,  # Priority fee
 ) -> Optional[str]:
     """
     Get a serialized swap transaction from Jupiter.
 
+    Uses the same URL that successfully returned the quote (primary or lite).
     Returns base64-encoded transaction string, or None on failure.
     """
-    try:
-        url = f"{JUPITER_API_URL}/swap"
-        payload = {
-            "quoteResponse": quote,
-            "userPublicKey": user_public_key,
-            "wrapAndUnwrapSol": wrap_and_unwrap_sol,
-            "dynamicComputeUnitLimit": True,
-            "prioritizationFeeLamports": "auto",
-        }
-        resp = requests.post(url, json=payload, headers=_jupiter_headers(), timeout=15)
-        if resp.status_code != 200:
-            logger.error(f"Jupiter swap error {resp.status_code}: {resp.text[:500]}")
+    payload = {
+        "quoteResponse": quote,
+        "userPublicKey": user_public_key,
+        "wrapAndUnwrapSol": wrap_and_unwrap_sol,
+        "dynamicComputeUnitLimit": True,
+        "prioritizationFeeLamports": "auto",
+        # NOTE: Do NOT set computeUnitPriceMicroLamports when using
+        # prioritizationFeeLamports — they conflict and Jupiter will error.
+    }
+
+    urls_to_try = [_jupiter_base_url()]
+    if urls_to_try[0] != _JUPITER_LITE_URL:
+        urls_to_try.append(_JUPITER_LITE_URL)
+
+    for base_url in urls_to_try:
+        try:
+            url = f"{base_url}/swap"
+            resp = requests.post(url, json=payload, headers=_jupiter_headers(), timeout=20)
+            if resp.status_code == 401 and base_url != _JUPITER_LITE_URL:
+                logger.warning("Jupiter swap primary 401 — trying lite-api")
+                continue
+            if resp.status_code != 200:
+                logger.error(f"Jupiter swap error {resp.status_code} ({base_url}): {resp.text[:500]}")
+                if base_url != _JUPITER_LITE_URL:
+                    continue
+                return None
+            data = resp.json()
+            tx = data.get("swapTransaction")
+            if tx:
+                return tx
+            logger.error(f"Jupiter swap missing swapTransaction field: {data}")
             return None
-        data = resp.json()
-        return data.get("swapTransaction")
-    except Exception as e:
-        logger.error(f"Jupiter swap transaction failed: {e}")
-        return None
+        except Exception as e:
+            logger.error(f"Jupiter swap transaction failed ({base_url}): {e}")
+            if base_url != _JUPITER_LITE_URL:
+                continue
+            return None
+
+    return None
 
 
 def sign_and_send_transaction(
@@ -127,13 +203,22 @@ def sign_and_send_transaction(
     max_retries: int = 3,
 ) -> Optional[str]:
     """
-    Sign and broadcast a Solana transaction.
+    Sign and broadcast a Solana VersionedTransaction.
+
+    Signing strategy (verified against solders 0.21+ with real Jupiter txns):
+      1. Deserialize: tx = VersionedTransaction.from_bytes(tx_bytes)
+      2. Sign:        signed_tx = VersionedTransaction(tx.message, [keypair])
+         - This constructs a new VersionedTransaction with the keypair signing
+           the message. The keypair list is used directly as signers.
+      3. Fallback:    If Pattern 1 raises TypeError, use populate():
+           sig = keypair.sign_message(bytes(tx.message))
+           signed_tx = VersionedTransaction.populate(tx.message, [sig])
 
     Args:
         serialized_tx_b64: Base64-encoded transaction from Jupiter
         private_key_b58: Base58-encoded private key (from env var)
         rpc_url: Solana RPC endpoint
-        max_retries: Number of retry attempts
+        max_retries: Number of retry attempts on RPC errors
 
     Returns:
         Transaction signature (hash) on success, None on failure
@@ -143,25 +228,55 @@ def sign_and_send_transaction(
         from solders.transaction import VersionedTransaction  # type: ignore
         import base58
 
-        # Load keypair from base58 private key
+        # ── Load keypair ──────────────────────────────────────────────────────
         private_key_bytes = base58.b58decode(private_key_b58)
         keypair = Keypair.from_bytes(private_key_bytes)
+        logger.debug(f"Loaded keypair: {keypair.pubkey()}")
 
-        # Deserialize transaction
+        # ── Deserialize transaction ───────────────────────────────────────────
         tx_bytes = base64.b64decode(serialized_tx_b64)
         tx = VersionedTransaction.from_bytes(tx_bytes)
+        logger.debug(f"Deserialized tx, message version: {tx.version}")
 
-        # Sign the transaction message and create new signed tx
-        # solders 0.27+ VersionedTransaction is immutable after deserialization
-        from solders.presigner import Presigner  # type: ignore
-        signed_tx = VersionedTransaction(tx.message, [keypair])
+        # ── Sign transaction (Pattern 1 — verified working) ───────────────────
+        # VersionedTransaction(message, signers) constructs a signed tx.
+        # The signers list must contain Keypair objects (not Signature objects).
+        try:
+            signed_tx = VersionedTransaction(tx.message, [keypair])
+            logger.debug("Signing Pattern 1 (VersionedTransaction constructor) succeeded")
+        except (TypeError, Exception) as e1:
+            logger.warning(f"Pattern 1 failed ({e1}), trying Pattern 2 (populate)")
+            # Pattern 2: sign_message → Signature → populate
+            try:
+                sig = keypair.sign_message(bytes(tx.message))
+                signed_tx = VersionedTransaction.populate(tx.message, [sig])
+                logger.debug("Signing Pattern 2 (populate) succeeded")
+            except Exception as e2:
+                logger.error(f"Both signing patterns failed. P1: {e1} | P2: {e2}")
+                return None
 
-        # Serialize signed transaction
+        # ── Verify signature is non-zero ──────────────────────────────────────
+        sigs = signed_tx.signatures
+        if not sigs:
+            logger.error("Signed transaction has no signatures")
+            return None
+        zero_sig = "1" * 88  # base58-encoded zero signature
+        if str(sigs[0]).startswith("111111111111111111111111"):
+            logger.error("Signature is zero — signing failed silently")
+            return None
+        logger.debug(f"Signature verified non-zero: {str(sigs[0])[:16]}...")
+
+        # ── Serialize signed transaction ──────────────────────────────────────
         signed_tx_bytes = bytes(signed_tx)
         signed_tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
 
-        # Send transaction with retries
+        # ── Send with retries ─────────────────────────────────────────────────
+        rpc_urls = [rpc_url]
+        if hasattr(settings, "SOLANA_RPC_FALLBACK") and settings.SOLANA_RPC_FALLBACK:
+            rpc_urls.append(settings.SOLANA_RPC_FALLBACK)
+
         for attempt in range(max_retries):
+            active_rpc = rpc_urls[min(attempt, len(rpc_urls) - 1)]
             try:
                 payload = {
                     "jsonrpc": "2.0",
@@ -177,35 +292,44 @@ def sign_and_send_transaction(
                         },
                     ],
                 }
-                resp = requests.post(rpc_url, json=payload, timeout=30)
+                resp = requests.post(active_rpc, json=payload, timeout=30)
                 result = resp.json()
 
                 if "error" in result:
-                    logger.error(f"Transaction error (attempt {attempt+1}): {result['error']}")
+                    err = result["error"]
+                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    logger.error(f"RPC error (attempt {attempt+1}/{max_retries}): {err_msg}")
+                    # Blockhash expired — no point retrying same tx
+                    if "BlockhashNotFound" in err_msg or "block height exceeded" in err_msg.lower():
+                        logger.error("Blockhash expired — transaction must be rebuilt")
+                        return None
                     if attempt < max_retries - 1:
                         time.sleep(2 ** attempt)
                     continue
 
                 signature = result.get("result")
                 if signature:
-                    logger.info(f"Solana tx broadcast: {signature}")
+                    logger.info(f"✅ Solana tx broadcast: {signature}")
                     return signature
+
+                logger.error(f"Unexpected RPC response: {result}")
 
             except Exception as e:
                 logger.error(f"Send attempt {attempt+1} failed: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
 
+        logger.error(f"Transaction failed after {max_retries} attempts")
         return None
 
     except ImportError:
         logger.error(
-            "solders/solana packages not installed. "
+            "solders/base58 packages not installed. "
             "Run: pip install solders solana base58"
         )
         return None
     except Exception as e:
-        logger.error(f"Sign and send failed: {e}")
+        logger.error(f"sign_and_send_transaction failed: {e}", exc_info=True)
         return None
 
 
@@ -234,7 +358,7 @@ def execute_solana_buy(
     lamports = int(sol_amount * 1_000_000_000)
 
     logger.info(
-        f"{'PAPER' if is_paper else 'LIVE'} Solana BUY: "
+        f"{'📄 PAPER' if is_paper else '🔴 LIVE'} Solana BUY: "
         f"{sol_amount:.4f} SOL → {token_mint[:8]}..."
     )
 
@@ -254,8 +378,8 @@ def execute_solana_buy(
     price_impact = float(quote.get("priceImpactPct", 0))
 
     logger.info(
-        f"Jupiter quote: {sol_amount:.4f} SOL → {out_amount} tokens | "
-        f"price impact: {price_impact:.2f}%"
+        f"Jupiter quote: {sol_amount:.4f} SOL → {out_amount:,} tokens | "
+        f"price impact: {price_impact:.3f}%"
     )
 
     # Reject if price impact is too high
@@ -264,10 +388,13 @@ def execute_solana_buy(
         return None
 
     if is_paper:
-        logger.info(f"PAPER MODE: Simulated buy of {token_mint[:8]}... for {sol_amount:.4f} SOL")
+        logger.info(
+            f"📄 PAPER MODE: Simulated buy of {token_mint[:8]}... "
+            f"for {sol_amount:.4f} SOL → {out_amount:,} tokens"
+        )
         return "PAPER_TX"
 
-    # Live execution
+    # ── Live execution ────────────────────────────────────────────────────────
     private_key = os.getenv(wallet_private_key_env)
     if not private_key:
         logger.error(f"Private key not found in env var: {wallet_private_key_env}")
@@ -290,9 +417,9 @@ def execute_solana_buy(
     )
 
     if signature:
-        logger.info(f"Solana buy executed: {signature}")
+        logger.info(f"✅ Solana buy executed: https://solscan.io/tx/{signature}")
     else:
-        logger.error(f"Solana buy failed for {token_mint}")
+        logger.error(f"❌ Solana buy failed for {token_mint}")
 
     return signature
 
@@ -322,8 +449,8 @@ def execute_solana_sell(
         Transaction signature on success, "PAPER_TX" in paper mode, None on failure
     """
     logger.info(
-        f"{'PAPER' if is_paper else 'LIVE'} Solana SELL: "
-        f"{token_amount} units of {token_mint[:8]}..."
+        f"{'📄 PAPER' if is_paper else '🔴 LIVE'} Solana SELL: "
+        f"{token_amount:,} units of {token_mint[:8]}..."
     )
 
     quote = get_jupiter_quote(
@@ -340,12 +467,12 @@ def execute_solana_sell(
     out_amount = int(quote.get("outAmount", 0))
     price_impact = float(quote.get("priceImpactPct", 0))
     logger.info(
-        f"Jupiter sell quote: {token_amount} tokens → {out_amount/1e9:.4f} SOL | "
-        f"price impact: {price_impact:.2f}%"
+        f"Jupiter sell quote: {token_amount:,} tokens → {out_amount/1e9:.4f} SOL | "
+        f"price impact: {price_impact:.3f}%"
     )
 
     if is_paper:
-        logger.info(f"PAPER MODE: Simulated sell of {token_mint[:8]}...")
+        logger.info(f"📄 PAPER MODE: Simulated sell of {token_mint[:8]}...")
         return "PAPER_TX"
 
     private_key = os.getenv(wallet_private_key_env)
@@ -361,7 +488,14 @@ def execute_solana_sell(
     if not swap_tx:
         return None
 
-    return sign_and_send_transaction(
+    signature = sign_and_send_transaction(
         serialized_tx_b64=swap_tx,
         private_key_b58=private_key,
     )
+
+    if signature:
+        logger.info(f"✅ Solana sell executed: https://solscan.io/tx/{signature}")
+    else:
+        logger.error(f"❌ Solana sell failed for {token_mint}")
+
+    return signature

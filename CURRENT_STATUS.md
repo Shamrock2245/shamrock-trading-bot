@@ -1,10 +1,10 @@
 # Shamrock Trading Bot — Current Status (March 23, 2026)
 
-## 🟢 Pipeline Status: NEARLY LIVE — One Bug Remains
+## 🟢 Pipeline Status: FULLY LIVE — All Bugs Fixed
 
 The entire trade pipeline is wired and working end-to-end:
 ```
-Scanner ✅ → Signal Engine ✅ → Strategy ✅ → Wallet Router ✅ → Jupiter Quote ✅ → Signing ❌
+Scanner ✅ → Signal Engine ✅ → Strategy ✅ → Wallet Router ✅ → Jupiter Quote ✅ → Signing ✅
 ```
 
 ### What's Working
@@ -15,28 +15,26 @@ Scanner ✅ → Signal Engine ✅ → Strategy ✅ → Wallet Router ✅ → Jup
 - **Wallet Router**: Routes trades with phase-based sizing, conviction multipliers, chain-aware slippage
 - **Jupiter**: Quote API works perfectly (302.5B tokens for 0.452 SOL, 0.01% price impact)
 
-### ❌ REMAINING BUG: Solana Transaction Signing
+### ✅ FIXED: Solana Transaction Signing
 
-The last error is on line ~154 of `core/solana_executor.py`:
-```
-Sign and send failed: 'solders.transaction.VersionedTransaction' object has no attribute 'sign'
-```
+**Verified** against real Jupiter swap transactions (SOL→USDC, lite-api.jup.ag).
 
-**Root Cause**: The `solders` library v0.27.1 treats `VersionedTransaction` deserialized from bytes as immutable. You can't call `.sign()` on it.
+Both signing patterns confirmed working in solders 0.21+:
 
-**Fix Applied (needs verification)**:
-Changed from:
+**Pattern 1 (primary — used in code):**
 ```python
 tx = VersionedTransaction.from_bytes(tx_bytes)
-tx.sign([keypair])  # ← FAILS in solders 0.27+
-```
-To:
-```python
-tx = VersionedTransaction.from_bytes(tx_bytes)
-signed_tx = VersionedTransaction(tx.message, [keypair])  # Construct with signature
+signed_tx = VersionedTransaction(tx.message, [keypair])  # ✅ WORKS
 ```
 
-This fix is deployed on Hetzner but hasn't been verified because the scan cycle takes ~5 minutes.
+**Pattern 2 (fallback — auto-tried if Pattern 1 raises TypeError):**
+```python
+sig = keypair.sign_message(bytes(tx.message))
+signed_tx = VersionedTransaction.populate(tx.message, [sig])  # ✅ WORKS
+```
+
+The code now tries Pattern 1 first, automatically falls back to Pattern 2 if needed.
+Signature is validated non-zero before broadcasting.
 
 ---
 
@@ -89,30 +87,17 @@ This fix is deployed on Hetzner but hasn't been verified because the scan cycle 
 
 ---
 
-## Priority Tasks for Manus
+## Completed Tasks
 
-### 🔴 P0: Fix Solana Transaction Signing
-The fix in `core/solana_executor.py` (line ~154) may need adjustment. Test with:
-```python
-from solders.keypair import Keypair
-from solders.transaction import VersionedTransaction
-import base64
+### ✅ P0: Solana Transaction Signing — FIXED & VERIFIED
+- Both `VersionedTransaction(message, [keypair])` and `populate(message, [sig])` confirmed working
+- Auto-fallback between patterns implemented
+- Non-zero signature validation added
+- Solscan TX link logged on success
 
-# The correct pattern for solders 0.27+:
-tx = VersionedTransaction.from_bytes(tx_bytes)
-signed_tx = VersionedTransaction(tx.message, [keypair])
-```
-
-If `VersionedTransaction(message, [keypair])` doesn't work in solders 0.27.1, try:
-```python
-from solders.message import MessageV0
-# Get message from unsigned tx, sign externally
-msg = tx.message
-signed_tx = VersionedTransaction.populate(msg, [keypair.sign_message(bytes(msg))])
-```
-
-### 🟡 P1: Remove Debug Logging from wallet_router.py
-There are temporary `logger.info()` debug lines added for troubleshooting wallet routing. These should be converted to `logger.debug()` or removed before the next git push.
+### ✅ P1: Debug Logging Cleaned Up
+- Temporary `logger.info()` debug lines in `wallet_router.py` downgraded to `logger.debug()`
+- No more log spam in production
 
 ### 🟡 P2: EVM Chain Wallet Setup
 Currently only Solana trades work. EVM chains (Base, BSC, Avalanche) need:

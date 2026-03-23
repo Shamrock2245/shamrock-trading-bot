@@ -418,7 +418,7 @@ def route_trade(
 
     logger.info(f"Routing {chain} trade: {len(strategy_wallets)} wallets eligible, strategy={strategy}")
     for wallet in strategy_wallets:
-        logger.info(f"  Evaluating {wallet.alias} for {chain}...")
+        logger.debug(f"  Evaluating {wallet.alias} for {chain}...")
         # Check max concurrent positions
         open_count = get_open_position_count(wallet.alias.lower().replace(" ", "_"))
         if open_count >= wallet.max_concurrent_positions:
@@ -431,7 +431,7 @@ def route_trade(
         # Check daily loss limit (in USD)
         daily_loss_usd = get_daily_loss_usd(wallet.alias.lower().replace(" ", "_"))
         native_price = get_native_price_usd(chain_config.native_token)
-        logger.info(f"  {wallet.alias} native_price={native_price:.2f} USD for {chain_config.native_token}")
+        logger.debug(f"  {wallet.alias} native_price={native_price:.2f} USD for {chain_config.native_token}")
         daily_loss_limit_usd = wallet.daily_loss_limit_eth * native_price
         if daily_loss_usd >= daily_loss_limit_usd:
             logger.warning(
@@ -452,7 +452,7 @@ def route_trade(
             min_balance_required = wallet.min_eth_balance_alert
 
         native_balance = get_native_balance(balance_address, chain)
-        logger.info(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
+        logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
         if native_balance <= min_balance_required:
             logger.warning(
                 f"Wallet {wallet.alias} balance too low on {chain}: "
@@ -513,7 +513,7 @@ def route_trade(
             min_trade_usd = 1.0   # Allow micro-cap sniping with small wallets
         else:
             min_trade_usd = 25.0
-        logger.info(f"  {wallet.alias} phase={phase.name} max_pct={phase_max_pct:.1%} balance_usd={wallet_balance_usd:.2f} pos_size={position_size_usd:.2f} min_trade={min_trade_usd}")
+        logger.debug(f"  {wallet.alias} phase={phase.name} max_pct={phase_max_pct:.1%} balance_usd={wallet_balance_usd:.2f} pos_size={position_size_usd:.2f} min_trade={min_trade_usd}")
         if position_size_usd < min_trade_usd:
             logger.debug(
                 f"Position size too small for {wallet.alias} on {chain}: "

@@ -41,7 +41,9 @@ ONEINCH_API_KEY = os.getenv("ONEINCH_API_KEY", "")
 ONEINCH_API_URL = os.getenv("ONEINCH_API_URL", "https://api.1inch.dev/swap/v6.0")
 
 # Jupiter (Solana DEX aggregator)
+# Primary API requires a key (https://portal.jup.ag). Falls back to lite-api automatically.
 JUPITER_API_URL = os.getenv("JUPITER_API_URL", "https://api.jup.ag/swap/v1")
+JUPITER_LITE_URL = "https://lite-api.jup.ag/swap/v1"  # Free fallback — no key needed
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,9 +92,9 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
-# Lowered from 65.0 → 55.0 to surface real candidates.
-# Raise back to 60-65 once you confirm the scoring distribution.
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "55.0"))
+# Lowered from 65.0 → 50.0 to surface Moralis trending tokens (typically score 42-50).
+# Raise back to 55-60 once scoring distribution is confirmed in live trading.
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "50.0"))
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "3"))
