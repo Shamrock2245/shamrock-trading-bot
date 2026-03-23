@@ -495,7 +495,13 @@ def route_trade(
 
         # ── Chain-specific minimum trade sizes ────────────────────────────────
         # Ethereum: min $100 (gas is expensive), others: min $25
-        min_trade_usd = 100.0 if chain == "ethereum" else 25.0
+        # Paper mode: min $1 (allow proof-of-concept with small balances)
+        if settings.MODE == "paper":
+            min_trade_usd = 1.0
+        elif chain == "ethereum":
+            min_trade_usd = 100.0
+        else:
+            min_trade_usd = 25.0
         if position_size_usd < min_trade_usd:
             logger.debug(
                 f"Position size too small for {wallet.alias} on {chain}: "
