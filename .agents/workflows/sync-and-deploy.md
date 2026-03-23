@@ -1,58 +1,58 @@
 ---
 description: How to sync Manus changes and redeploy the trading bot to Hetzner
 ---
-
-# Sync & Deploy Trading Bot
-
 // turbo-all
 
-## Server Details
-- **Trading Bot VPS**: `5.161.126.32` (SSH via `~/.ssh/id_ed25519`)
-- **Node-RED VPS**: `178.156.179.237` (SSH via `~/.ssh/id_ed25519`)
-- **Bot directory**: `/root/shamrock-trading-bot`
-- **Docker services**: `shamrock-bot`, `shamrock-dashboard`, `shamrock-health`, `shamrock-db`
-- **Dashboard URL**: `http://5.161.126.32:8501`
+## Prerequisites
+- SSH access to Hetzner VPS: `ssh root@5.78.100.228`
+- Bot repo cloned at `/root/shamrock-trading-bot` on the server
+- Docker and docker-compose installed on the server
 
-## 1. Pull latest code locally
+## Steps
 
+1. SSH into the Hetzner server:
 ```bash
-cd /Users/brendan/Desktop/shamrock-trading-bot
-git fetch origin
-git diff HEAD..origin/main --stat
-# If behind, update HEAD ref directly (workaround for macOS .git/logs permission lock):
-# Write the latest SHA to .git/refs/heads/main using filesystem write tool
+ssh root@5.78.100.228
 ```
 
-## 2. Review changes
-
+2. Navigate to the repo directory:
 ```bash
-git log --oneline origin/main -10
+cd /root/shamrock-trading-bot
 ```
 
-## 3. Pull and redeploy on Hetzner VPS
-
+3. Pull the latest changes from GitHub:
 ```bash
-ssh -i ~/.ssh/id_ed25519 root@5.161.126.32 "\
-  cd /root/shamrock-trading-bot && \
-  git stash && \
-  git pull origin main && \
-  docker compose build bot && \
-  docker compose up -d --no-deps bot && \
-  sleep 5 && \
-  docker compose logs bot --tail=20"
+git pull origin main
 ```
 
-## 4. Verify deployment
-
+4. Stop the running Docker containers:
 ```bash
-ssh -i ~/.ssh/id_ed25519 root@5.161.126.32 "docker compose -f /root/shamrock-trading-bot/docker-compose.yml ps"
+docker compose down
 ```
 
-## 5. Check bot health via dashboard
+5. Rebuild the Docker images (no cache to pick up all changes):
+```bash
+docker compose build --no-cache
+```
 
-Open `http://5.161.126.32:8501/System_Health` in browser.
+6. Start the containers in detached mode:
+```bash
+docker compose up -d
+```
+
+7. Verify the containers are running:
+```bash
+docker compose ps
+```
+
+8. Check the bot logs to confirm it started correctly:
+```bash
+docker compose logs -f --tail=50 bot
+```
 
 ## Notes
-- The `.env` on the server has `MODE=live` — check this is intentional before deploying
-- The local repo has a macOS permission lock on `.git/logs/refs` — use `git fetch` + manual ref write as workaround
-- To rebuild all services: `docker compose build && docker compose up -d`
+- If you only need to rebuild a specific service: `docker compose build --no-cache bot`
+- To check if the bot is trading: look for "Cycle" log entries and guardrail messages
+- The `.env` file on the server should already have all required API keys configured
+- If Docker build fails, check for Python dependency issues in `requirements.txt`
+- To quickly restart without rebuilding: `docker compose restart bot`
