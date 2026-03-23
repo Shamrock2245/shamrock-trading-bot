@@ -27,6 +27,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
+
 from notifications.slack import notify_trade, notify_alert, notify_cycle_summary
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -545,36 +547,135 @@ async def run_bot_loop():
             # 1.5 Process any pending scaling signals from the PositionMonitor
             try:
                 positions = load_positions()
+                scaling_dirty = False  # track if we need to save
                 for p in positions:
                     scaling_signal = p.get("_scaling_signal")
-                    if scaling_signal and p.get("status") == "open":
-                        logger.info(f"📈 Executing pyramid scale-in for {p.get('token_symbol')}: {scaling_signal}")
-                        
-                        # Get the wallet
-                        wallet_addr = p.get("wallet")
-                        wallet_conf = None
-                        for w in WALLETS:
-                            if w.address.lower() == wallet_addr.lower() or w.solana_address == wallet_addr:
-                                wallet_conf = w
-                                break
-                                
-                        if wallet_conf:
-                            # Execute the scale-in buy
-                            add_size_usd = float(scaling_signal.get("add_size_usd", 0))
-                            if add_size_usd > 0:
-                                # We would call executor.execute_trade here, but we need the token object
-                                # For now, we just log it and clear the signal so we don't loop
-                                logger.warning(f"Pyramid execution stubbed for {p.get('token_symbol')} (${add_size_usd:.2f})")
-                                
-                        # Clear the signal so we don't process it again
+                    if not scaling_signal or p.get("status") != "open":
+                        continue
+
+                    token_sym = p.get("token_symbol", "???")
+                    chain = p.get("chain", scaling_signal.get("chain", ""))
+                    add_size_usd = float(scaling_signal.get("add_size_usd", 0))
+                    tier = scaling_signal.get("tier", "?")
+                    new_trailing = scaling_signal.get("new_trailing_stop_pct")
+
+                    logger.info(
+                        f"📈 Pyramid tier {tier} scale-in for {token_sym} — "
+                        f"${add_size_usd:.2f} on {chain}"
+                    )
+
+                    # Guard: nothing to buy
+                    if add_size_usd <= 0:
+                        logger.warning(f"Pyramid signal for {token_sym} has add_size_usd={add_size_usd}, skipping")
                         p["_scaling_signal"] = None
+                        scaling_dirty = True
+                        continue
+
+                    # Guard: don't exceed max position size
+                    max_pos = float(getattr(settings, "OFFENSIVE_MAX_POSITION_USD", 500))
+                    current_value = float(p.get("entry_value_usd", 0))
+                    if current_value + add_size_usd > max_pos:
+                        logger.warning(
+                            f"Pyramid for {token_sym} would exceed max (${current_value:.0f}+${add_size_usd:.0f} > ${max_pos:.0f}), capping"
+                        )
+                        add_size_usd = max(0, max_pos - current_value)
+                        if add_size_usd < 5:  # too small to bother
+                            p["_scaling_signal"] = None
+                            scaling_dirty = True
+                            continue
+
+                    # Resolve wallet config from address stored on position
+                    wallet_addr = p.get("wallet", "")
+                    wallet_conf = None
+                    for wk, wv in WALLETS.items():
+                        if (wv.address.lower() == wallet_addr.lower()
+                                or wv.solana_address == wallet_addr):
+                            wallet_conf = wv
+                            break
+
+                    if not wallet_conf:
+                        logger.error(f"Pyramid: no wallet found for address {wallet_addr}, skipping")
+                        p["_scaling_signal"] = None
+                        scaling_dirty = True
+                        continue
+
+                    # Execute the buy
+                    executed = False
+                    tx_hash = None
+                    try:
+                        if chain.lower() == "solana":
+                            from core.solana_executor import execute_solana_buy
+                            # Convert USD → SOL using CoinGecko
+                            try:
+                                sol_price_resp = requests.get(
+                                    "https://api.coingecko.com/api/v3/simple/price",
+                                    params={"ids": "solana", "vs_currencies": "usd"},
+                                    timeout=10,
+                                )
+                                sol_price = sol_price_resp.json().get("solana", {}).get("usd", 0)
+                            except Exception:
+                                sol_price = 0
+                            if sol_price <= 0:
+                                logger.error("Cannot fetch SOL price for pyramid — skipping")
+                                p["_scaling_signal"] = None
+                                scaling_dirty = True
+                                continue
+                            sol_amount = add_size_usd / sol_price
+                            sol_public_key = wallet_conf.solana_address or wallet_conf.address
+                            sol_key_env = wallet_conf.solana_private_key_env or wallet_conf.private_key_env
+                            tx_hash = execute_solana_buy(
+                                token_mint=p.get("token_address", ""),
+                                sol_amount=sol_amount,
+                                wallet_public_key=sol_public_key,
+                                wallet_private_key_env=sol_key_env,
+                                slippage_bps=150,
+                                is_paper=is_paper,
+                            )
+                            executed = tx_hash is not None
+                        else:
+                            # EVM chain — buy with USDC via build_gem_snipe_params
+                            from core.executor import TradeExecutor, build_gem_snipe_params
+                            scale_executor = TradeExecutor(is_paper=is_paper)
+                            params = build_gem_snipe_params(
+                                wallet=wallet_conf,
+                                chain=chain,
+                                token_address=p.get("token_address", ""),
+                                eth_amount=0.0,  # not using native — using USDC
+                                use_usdc=True,
+                                usdc_amount=add_size_usd,
+                            )
+                            result = scale_executor.execute_trade(params)
+                            executed = result.success
+                            tx_hash = result.tx_hash
+                    except Exception as ex:
+                        logger.error(f"Pyramid execution failed for {token_sym}: {ex}")
+                        executed = False
+
+                    # Update position metadata only on success
+                    if executed:
                         p["scale_in_count"] = int(p.get("scale_in_count", 0)) + 1
-                        
-                        # Update the position file
-                        from core.position_monitor import save_positions
-                        save_positions(positions)
+                        p["entry_value_usd"] = current_value + add_size_usd
+                        if new_trailing is not None:
+                            p["trailing_stop_pct"] = new_trailing
+                        logger.info(
+                            f"✅ Pyramid scale-in SUCCESS: {token_sym} tier {tier} "
+                            f"+${add_size_usd:.2f} (total invested: ${p['entry_value_usd']:.2f}, "
+                            f"scale-ins: {p['scale_in_count']})"
+                        )
+                    else:
+                        logger.warning(f"❌ Pyramid scale-in FAILED for {token_sym} — no metadata update")
+
+                    # Always clear signal to prevent re-processing
+                    p["_scaling_signal"] = None
+                    scaling_dirty = True
+
+                # Save once after processing all signals
+                if scaling_dirty:
+                    from core.position_monitor import save_positions
+                    save_positions(positions)
+
             except Exception as e:
-                logger.error(f"Error processing scaling signals: {e}")
+                logger.error(f"Error processing scaling signals: {e}", exc_info=True)
 
             # 2. Scan for gems (all chains including Solana)
             candidates = scanner.scan()

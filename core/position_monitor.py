@@ -560,6 +560,9 @@ class PositionMonitor:
                 # Enrich with volume data (enables volume surge detection)
                 if pv["volume_1h"] is not None:
                     pos["volume_1h"] = pv["volume_1h"]
+                    # Capture entry volume (first time only) for Fast Fail Volume Collapse
+                    if "entry_volume_1h" not in pos:
+                        pos["entry_volume_1h"] = pv["volume_1h"]
                 if pv["volume_24h"] is not None:
                     pos["volume_24h"] = pv["volume_24h"]
 
@@ -613,16 +616,17 @@ class PositionMonitor:
                     pos = execute_sell(pos, sell_action, current_price, self.is_paper)
                     sells_triggered += 1
 
-                # ── Offensive: winner scaling signal ──────────────────────────
+                # ── Offensive: pyramid scaling signal (3-tier) ────────────────
                 # Don't scale if we just sold or position is closed
                 if pos.get("status") == "open":
-                    scaling = check_winner_scaling(pos, current_price)
+                    scaling = evaluate_pyramid_scaling(pos, current_price)
                     if scaling:
                         pos["_scaling_signal"] = scaling
                         scaling_signals += 1
                         logger.info(
-                            f"📈 Winner scaling signal: {pos.get('token_symbol')} "
-                            f"+{scaling['gain_pct']:.0f}% — flagged for scale-in"
+                            f"📈 Pyramid tier {scaling.get('tier', '?')} signal: "
+                            f"{pos.get('token_symbol')} +{scaling['gain_pct']:.0f}% "
+                            f"— add ${scaling.get('add_size_usd', 0):.2f} (tier {scaling.get('tier')})"
                         )
 
                 # ── Offensive: smart DCA signal ───────────────────────────────
