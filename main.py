@@ -460,6 +460,13 @@ async def run_bot_loop():
                         volume_24h=token.volume_24h,
                         buys_1h=getattr(token, "buys_1h", 0),
                         sells_1h=getattr(token, "sells_1h", 0),
+                        # Enrichment data from gem scanner
+                        holder_concentration_score=getattr(candidate, "holder_concentration_score", 0.0),
+                        smart_money_score=getattr(candidate, "smart_money_score", 0.0),
+                        unlock_risk_score=getattr(candidate, "unlock_risk_score", 0.0),
+                        grok_sentiment_score=getattr(candidate, "grok_sentiment_score", 0.0),
+                        age_hours=getattr(token, "age_hours", None),
+                        safety_passed=candidate.is_safe,
                     )
 
                     if not signal.is_buy_signal:

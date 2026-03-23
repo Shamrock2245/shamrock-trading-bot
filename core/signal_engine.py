@@ -296,9 +296,20 @@ class SignalEngine:
         volume_24h: float = 0.0,
         buys_1h: int = 0,
         sells_1h: int = 0,
+        # ── Enrichment data from gem scanner ────────────────────────────────
+        holder_concentration_score: float = 0.0,
+        smart_money_score: float = 0.0,
+        unlock_risk_score: float = 0.0,
+        grok_sentiment_score: float = 0.0,
+        age_hours: float = None,
+        safety_passed: bool = False,
     ) -> SignalScore:
         """
         Run full technical analysis for a token.
+
+        For tokens with OHLCV data: uses RSI, MACD, Bollinger Bands, etc.
+        For micro-cap gems without OHLCV: uses gem_score + enrichment data
+        (Moralis, holder analysis, smart money, safety) as quality proxy.
 
         Returns SignalScore with composite score and individual indicators.
         """
@@ -323,10 +334,23 @@ class SignalEngine:
             candles = get_ohlcv_geckoterminal(chain, pair_address, timeframe="hour", limit=100)
 
         if not candles:
-            # Fallback: use price change data for basic signals
-            return self._fallback_signals(
-                score, price_change_1h, price_change_24h,
-                volume_1h, volume_24h, buys_1h, sells_1h
+            # Micro-cap gem fallback: use gem_score + enrichment + price data
+            return self._microcap_signals(
+                score=score,
+                token_symbol=token_symbol,
+                gem_score=gem_score,
+                price_change_1h=price_change_1h,
+                price_change_24h=price_change_24h,
+                volume_1h=volume_1h,
+                volume_24h=volume_24h,
+                buys_1h=buys_1h,
+                sells_1h=sells_1h,
+                holder_concentration_score=holder_concentration_score,
+                smart_money_score=smart_money_score,
+                unlock_risk_score=unlock_risk_score,
+                grok_sentiment_score=grok_sentiment_score,
+                age_hours=age_hours,
+                safety_passed=safety_passed,
             )
 
         closes = [c["close"] for c in candles]
@@ -437,28 +461,46 @@ class SignalEngine:
 
         return score
 
-    def _fallback_signals(
+    def _microcap_signals(
         self,
         score: SignalScore,
+        token_symbol: str,
+        gem_score: float,
         price_change_1h: float,
         price_change_24h: float,
         volume_1h: float,
         volume_24h: float,
         buys_1h: int,
         sells_1h: int,
+        holder_concentration_score: float = 0.0,
+        smart_money_score: float = 0.0,
+        unlock_risk_score: float = 0.0,
+        grok_sentiment_score: float = 0.0,
+        age_hours: float = None,
+        safety_passed: bool = False,
     ) -> SignalScore:
         """
-        Signal scoring when OHLCV candle data is unavailable.
+        Micro-cap gem signal scoring when OHLCV candle data is unavailable.
 
-        This is common for new/micro-cap gems (< 24h old) which are the bot's
-        primary targets. Uses DexScreener price change, volume, and buy/sell
-        data to produce a meaningful composite score.
+        This is THE critical path for new gem sniping. Most micro-cap tokens
+        are < 24h old and have no candle history on GeckoTerminal. Instead of
+        blocking these (which defeats the bot's purpose), we build a composite
+        from:
 
-        Without this fallback producing scores above MIN_SIGNAL_SCORE (50),
-        the bot would NEVER trade new gems — defeating its purpose.
+        1. Gem score (14-signal pipeline: Moralis, holder analysis, smart money,
+           unlock risk, social sentiment, contract verification, etc.)
+        2. Price momentum from DexScreener (1h + 24h changes)
+        3. Volume spike detection
+        4. On-chain buy/sell pressure
+        5. Enrichment signals (holder concentration, smart money, safety)
+
+        A gem scoring 60+ on the 14-signal pipeline with positive momentum
+        should produce a composite of ~55-70, clearing the MIN_SIGNAL_SCORE gate.
         """
-        # ── Trend from price change ────────────────────────────────────────
-        if price_change_1h > 50:
+        # ── Trend from price action ────────────────────────────────────────
+        if price_change_1h > 100:
+            score.trend_score = 90
+        elif price_change_1h > 50:
             score.trend_score = 80
         elif price_change_1h > 20:
             score.trend_score = 70
@@ -471,19 +513,22 @@ class SignalEngine:
         else:
             score.trend_score = 20
 
-        # ── Momentum from combined price action ────────────────────────────
-        # New gems won't have RSI/BB, so derive momentum from price changes
-        momentum = 50  # neutral baseline
-        if price_change_1h > 30:
+        # ── Momentum from combined price action + gem quality ──────────────
+        # Instead of RSI/BB, we derive momentum from price changes
+        # AND the gem_score (which already incorporates 14 quality signals)
+        momentum = 40  # baseline
+
+        # Price momentum
+        if price_change_1h > 50:
             momentum += 30
-        elif price_change_1h > 15:
+        elif price_change_1h > 20:
             momentum += 20
         elif price_change_1h > 5:
             momentum += 10
         elif price_change_1h < -15:
             momentum -= 25
 
-        # 24h trend adds context
+        # 24h context
         if price_change_24h > 100:
             momentum += 15
         elif price_change_24h > 50:
@@ -492,6 +537,16 @@ class SignalEngine:
             momentum += 5
         elif price_change_24h < -30:
             momentum -= 15
+
+        # Gem score quality boost — the 14-signal pipeline already validated
+        # token quality (holders, liquidity, safety, social, contract, etc.)
+        # A gem_score ≥ 65 means strong fundamentals across multiple signals
+        if gem_score >= 70:
+            momentum += 15
+        elif gem_score >= 60:
+            momentum += 10
+        elif gem_score >= 55:
+            momentum += 5
 
         score.momentum_score = max(0, min(100, momentum))
 
@@ -510,25 +565,75 @@ class SignalEngine:
                 else:
                     score.volume_score = 45
         elif volume_1h > 0:
-            # New token with 1h volume but no 24h yet — give neutral credit
-            score.volume_score = 55
+            score.volume_score = 55  # New token — neutral credit
         else:
             score.volume_score = 30
 
-        # ── On-chain buy/sell ratio ────────────────────────────────────────
-        total = buys_1h + sells_1h
-        if total > 0:
-            buy_ratio = buys_1h / total
-            score.onchain_score = buy_ratio * 100
-        else:
-            score.onchain_score = 50  # neutral — don't penalize for missing data
+        # ── On-chain scoring (buy/sell + enrichment data) ──────────────────
+        # This replaces pure buy/sell ratio with a richer composite that
+        # includes holder concentration, smart money, and unlock risk data
+        # already collected by the gem scanner.
+        onchain = 40  # baseline
 
-        logger.debug(
-            f"Fallback signals: trend={score.trend_score:.0f} "
+        # Buy/sell pressure
+        total_txns = buys_1h + sells_1h
+        if total_txns > 0:
+            buy_ratio = buys_1h / total_txns
+            if buy_ratio >= 0.70:
+                onchain += 30
+            elif buy_ratio >= 0.60:
+                onchain += 20
+            elif buy_ratio >= 0.50:
+                onchain += 10
+            elif buy_ratio < 0.40:
+                onchain -= 15
+
+        # Holder concentration (from gem scanner — already on-chain verified)
+        if holder_concentration_score >= 80:
+            onchain += 15  # Well distributed, not whale-dominated
+        elif holder_concentration_score >= 60:
+            onchain += 8
+        elif holder_concentration_score < 30:
+            onchain -= 10  # Whale-dominated = rug risk
+
+        # Smart money overlap (known profitable wallets hold this token)
+        if smart_money_score >= 80:
+            onchain += 15  # Strong smart money signal
+        elif smart_money_score >= 50:
+            onchain += 8
+        elif smart_money_score >= 25:
+            onchain += 3
+
+        # Unlock/dilution risk (low risk = safer to hold)
+        if unlock_risk_score >= 80:
+            onchain += 5  # Minimal dilution risk
+        elif unlock_risk_score < 30:
+            onchain -= 10  # High dilution risk
+
+        # Safety passed bonus — token cleared GoPlus + Honeypot + TokenSniffer
+        if safety_passed:
+            onchain += 5
+
+        score.onchain_score = max(0, min(100, onchain))
+
+        # ── Sentiment indicator (Grok X/Twitter analysis) ──────────────────
+        # Use Grok sentiment as a proxy for social/market buzz
+        if grok_sentiment_score >= 75:
+            score.trend_score = min(100, score.trend_score + 10)
+        elif grok_sentiment_score >= 60:
+            score.trend_score = min(100, score.trend_score + 5)
+        elif grok_sentiment_score < 25:
+            score.trend_score = max(-100, score.trend_score - 10)
+
+        logger.info(
+            f"🔬 Micro-cap signal [{token_symbol}]: "
+            f"gem={gem_score:.0f} → "
+            f"trend={score.trend_score:.0f} "
             f"momentum={score.momentum_score:.0f} "
             f"volume={score.volume_score:.0f} "
             f"onchain={score.onchain_score:.0f} "
-            f"→ composite={score.composite:.1f}"
+            f"→ composite={score.composite:.1f} "
+            f"(need ≥{settings.MIN_SIGNAL_SCORE})"
         )
 
         return score
