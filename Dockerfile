@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies first (layer caching)
