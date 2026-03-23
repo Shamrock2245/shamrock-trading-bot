@@ -34,14 +34,15 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Try to import pandas-ta (requires git install)
+# Catches both ImportError and RuntimeError (numba caching fails in Docker)
 try:
     import pandas_ta as ta
     HAS_PANDAS_TA = True
-except ImportError:
+except Exception:
     HAS_PANDAS_TA = False
     logger.warning(
-        "pandas-ta not installed. Using fallback calculations. "
-        "Install: pip install git+https://github.com/twopirllc/pandas-ta.git@development"
+        "pandas-ta not available. Using fallback calculations. "
+        "This is normal in Docker — manual indicators are production-ready."
     )
 
 
