@@ -94,7 +94,7 @@ class GemScanner:
                 continue
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr)
+            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 token = self._signals_to_token(signals, chain)
@@ -119,7 +119,7 @@ class GemScanner:
                 continue
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr)
+            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True
@@ -146,7 +146,7 @@ class GemScanner:
                 continue
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr)
+            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True
@@ -175,7 +175,7 @@ class GemScanner:
                 continue
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr)
+            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True
@@ -208,7 +208,7 @@ class GemScanner:
                 continue
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr)
+            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True  # Ads = paid visibility signal
