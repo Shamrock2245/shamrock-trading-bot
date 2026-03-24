@@ -440,7 +440,11 @@ async def run_bot_loop():
             if open_positions:
                 total_entry = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
                 total_current = sum(float(p.get("current_value_usd", 0)) for p in open_positions)
-                if total_entry > 0:
+
+                # Only check if we have meaningful entry data AND current prices are populated
+                # When current_value_usd is 0 for all positions, it means prices haven't
+                # been refreshed yet — NOT a real 100% loss
+                if total_entry > 10 and total_current > 0:
                     portfolio_change_pct = ((total_current - total_entry) / total_entry) * 100
                     if risk_manager.check_circuit_breaker(portfolio_change_pct):
                         notify_alert(
@@ -452,6 +456,11 @@ async def run_bot_loop():
                         )
                         await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
                         continue
+                elif total_entry > 10 and total_current == 0:
+                    logger.debug(
+                        f"Circuit breaker check skipped: current values are stale "
+                        f"(entry=${total_entry:.2f}, current=$0.00)"
+                    )
 
             # ── Build dedup sets (O(1) lookups in candidate loop) ─────────────
             open_token_keys = {

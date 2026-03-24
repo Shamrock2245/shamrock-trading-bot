@@ -383,9 +383,10 @@ if chain_totals:
             textfont=dict(color="#E6EDF3", size=11, family="JetBrains Mono, Inter"),
             hovertemplate="<b>%{y}</b><br>$%{x:,.2f}<extra></extra>",
         ))
-        bar_layout = {**PLOTLY_LAYOUT, "showlegend": False}
+        bar_layout = {k: v for k, v in PLOTLY_LAYOUT.items() if k not in ("xaxis", "yaxis", "showlegend")}
         fig_bar.update_layout(
             **bar_layout,
+            showlegend=False,
             height=max(180, len(sorted_chains) * 50),
             yaxis=dict(
                 autorange="reversed",
