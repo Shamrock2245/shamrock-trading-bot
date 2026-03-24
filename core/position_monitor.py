@@ -64,7 +64,24 @@ def load_positions() -> list[dict]:
         if POSITIONS_FILE.exists():
             with open(POSITIONS_FILE) as f:
                 data = json.load(f)
-                return data if isinstance(data, list) else []
+                positions = data if isinstance(data, list) else []
+
+                # ── Backfill migration for older positions ─────────────────
+                migrated = False
+                for p in positions:
+                    if "entry_value_usd" not in p or float(p.get("entry_value_usd", 0)) <= 0:
+                        entry_px = float(p.get("entry_price", 0))
+                        qty = float(p.get("quantity", 0))
+                        p["entry_value_usd"] = entry_px * qty if entry_px > 0 and qty > 0 else 10.0
+                        migrated = True
+                    if "scale_in_count" not in p:
+                        p["scale_in_count"] = 0
+                        migrated = True
+                if migrated:
+                    save_positions(positions)
+                    logger.info("Migrated positions: backfilled entry_value_usd / scale_in_count")
+
+                return positions
     except Exception as e:
         logger.error(f"Failed to load positions: {e}")
     return []
