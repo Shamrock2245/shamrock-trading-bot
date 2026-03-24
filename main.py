@@ -382,6 +382,16 @@ async def run_bot_loop():
     monitor_thread.start()
     logger.info("Position monitor started in background thread")
 
+    # ── Check for Base USDC deployment plan ───────────────────────────────────
+    try:
+        if os.path.exists("reports/base_deploy_plan.json"):
+            with open("reports/base_deploy_plan.json", "r") as f:
+                base_plan = json.load(f)
+                if base_plan.get("trades"):
+                    logger.info(f"Found Base USDC deployment plan with {len(base_plan['trades'])} trades pending.")
+    except Exception as e:
+        logger.debug(f"Failed to load Base deploy plan: {e}")
+
     # Startup notification
     notify_alert(
         "Shamrock Bot Started",
@@ -426,6 +436,57 @@ async def run_bot_loop():
         logger.info(f"--- Cycle {cycle} ---")
 
         try:
+            # ── Execute Base USDC Deployment Plan (if exists) ─────────────────
+            try:
+                if os.path.exists("reports/base_deploy_plan.json"):
+                    with open("reports/base_deploy_plan.json", "r") as f:
+                        base_plan = json.load(f)
+                        
+                    if base_plan.get("trades"):
+                        logger.info(f"🚀 Executing Base USDC deployment plan: {len(base_plan['trades'])} trades")
+                        for trade in base_plan["trades"]:
+                            logger.info(f"Deploying ${trade['size_usdc']} USDC into {trade['token_symbol']} on Base")
+                            
+                            # Execute via EVM path
+                            params = build_gem_snipe_params(
+                                wallet=WALLETS["primary"],
+                                chain="base",
+                                token_address=trade["token_address"],
+                                eth_amount=0.0,
+                                use_usdc=True,
+                                usdc_amount=trade["size_usdc"],
+                                slippage_bps=trade.get("slippage_bps", 300)
+                            )
+                            
+                            # Apply gas bribe for God Signals
+                            if trade.get("score", 0) >= 85.0:
+                                params.gas_price_multiplier = 1.5
+                                
+                            result = executor.execute_trade(params)
+                            if result.success:
+                                logger.info(f"✅ Base deploy success: {trade['token_symbol']} | tx: {result.tx_hash}")
+                                register_position(
+                                    token_address=trade["token_address"],
+                                    token_symbol=trade["token_symbol"],
+                                    chain="base",
+                                    wallet=WALLETS["primary"].alias,
+                                    pair_address="", # Will be updated by monitor
+                                    entry_price=result.amount_out / trade["size_usdc"] if result.amount_out > 0 else 0,
+                                    quantity=result.amount_out,
+                                    tx_hash=result.tx_hash,
+                                    gem_score=trade["score"],
+                                    is_paper=is_paper,
+                                    entry_value_usd=trade["size_usdc"]
+                                )
+                            else:
+                                logger.error(f"❌ Base deploy failed for {trade['token_symbol']}: {result.error}")
+                                
+                        # Clear the plan after execution
+                        os.remove("reports/base_deploy_plan.json")
+                        logger.info("Base deployment plan executed and cleared.")
+            except Exception as e:
+                logger.error(f"Error executing Base deploy plan: {e}")
+
             # ── Circuit breaker check ─────────────────────────────────────────
             if risk_manager.is_circuit_breaker_tripped:
                 logger.warning("🚨 Circuit breaker is tripped — skipping cycle")
