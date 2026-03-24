@@ -656,6 +656,7 @@ class GemScanner:
                     has_image=True,  # DexScreener tokens usually have images
                     has_description=has_socials,  # proxy
                     has_website=has_website,
+                    token_address=token.address,
                 )
                 candidate.copycat_score = copy_score
                 candidate.copycat_flags = copy_flags
@@ -790,7 +791,7 @@ class GemScanner:
         # Block obvious impersonators before spending API calls on enrichment
         token_name = signals.get("base_token_name", symbol)
         try:
-            if is_token_copycat(token_name, symbol):
+            if is_token_copycat(token_name, symbol, token_address=address):
                 logger.info(
                     f"🚫 Rejected copycat token: {symbol} ({token_name}) on {chain}"
                 )

@@ -782,6 +782,7 @@ def register_position(
     tx_hash: str = "",
     gem_score: float = 0.0,
     is_paper: bool = True,
+    entry_value_usd: float = 0.0,
 ) -> dict:
     """
     Register a new open position after a buy is executed.
@@ -799,6 +800,7 @@ def register_position(
         "entry_price": entry_price,
         "quantity": quantity,
         "remaining_quantity": quantity,
+        "entry_value_usd": entry_value_usd if entry_value_usd > 0 else (entry_price * quantity),
         "highest_price": entry_price,
         "current_price": entry_price,
         "entry_time": now,
@@ -806,6 +808,7 @@ def register_position(
         "tp1_hit": False,
         "tp2_hit": False,
         "tp3_hit": False,
+        "scale_in_count": 0,
         "realized_pnl_usd": 0.0,
         "unrealized_pnl_pct": 0.0,
         "tx_hash_buy": tx_hash,

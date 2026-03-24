@@ -57,6 +57,53 @@ PROTECTED_SYMBOLS: set[str] = {
     "HNT", "RAY", "MNDE",
 }
 
+# ── Verified contract addresses — canonical tokens are NEVER copycats ─────────
+# All addresses lowercased for O(1) lookup. Covers Solana, Ethereum, BSC,
+# Base, and Avalanche. These are the REAL tokens — any DexScreener pair
+# with these addresses should bypass copycat scoring entirely.
+VERIFIED_CONTRACTS: set[str] = {
+    # ── Solana SPL tokens ──────────────────────────────────────────────────
+    "epjfwdd5aufqssqem2qn1xzybapC8G4wEGGkZwyTDt1v".lower(),   # USDC
+    "es9vmfrzacermjfrf4h2fyd4kconky11mcce8benwnyb".lower(),    # USDT
+    "so11111111111111111111111111111111111111112",               # WSOL
+    "jup6lkbzyjus1zuriaqkn9nnevemltjcuhcer6buyph6g".lower(),   # JUP
+    "dzxx6xgn9un8yt5gcnrz19cwreoyqt6en5zp4piq1p5s".lower(),   # BONK (DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263)
+    "dezxaz8z7pnrnrjjz3wxborgixca6xjnb7yab1ppb263",           # BONK canonical
+    "ekpqgsjsafjxp9jneai4kjzp1zttjlqy979mij7j6xch".lower(),   # WIF
+    "7gcihgsb3rtjq6tsa5dwbbcijwzrouqj9pcdi2hneadp".lower(),   # POPCAT
+    "me1wdcjqcuqebr7qhvahpuxzarh76svwnrx8nfswxdj2".lower(),   # MEW (unofficial)
+    "jtojtomepa8bean8to3jfsexfigfqkashhfmaxkfbodya".lower(),   # JTO
+    "hzwqbkezmmi9nirxngu2wyyqeewapduyd".lower(),               # PYTH (HZ9J7k2...)
+    "rndrizke3at8r1tr2sqsznp8tfjfuk65xnfcgdgmd".lower(),       # RNDR
+    "hntysd3myfmt5v20gndwn3bvuqpfkdq1b1ge9e5fjqmh".lower(),   # HNT
+    "4k3dyjzvzp8emzwuevi5oh6ti3gnb7dsszc4axy4zy7i6".lower(),   # RAY
+    "mndenkxnzqc2bmdomhgzxnwbcqtkt1h2peuqj2csemeh2".lower(),   # MNDE
+    # ── Ethereum (ERC-20) ──────────────────────────────────────────────────
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",              # USDC
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",              # USDT
+    "0x6b175474e89094c44da98b954eedeac495271d0f",              # DAI
+    "0x514910771af9ca656af840dff83e8264ecf986ca",              # LINK
+    "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",              # UNI
+    "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9",              # AAVE
+    "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2",              # MKR
+    "0x6982508145454ce325ddbe47a25d4ec3d2311933",              # PEPE
+    "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",              # WBTC
+    # ── BSC (BEP-20) ──────────────────────────────────────────────────────
+    "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",              # USDC (BSC)
+    "0x55d398326f99059ff775485246999027b3197955",              # USDT (BSC)
+    "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",              # WBNB
+    "0xf4c8e32eadec4bfe97e0f595add0f4450a863a11",              # LINK (BSC)
+    "0xbf5140a22578168fd562dccf235e5d43a02ce9b1",              # UNI (BSC)
+    # ── Base ──────────────────────────────────────────────────────────────
+    "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",              # USDC (Base)
+    "0x4200000000000000000000000000000000000006",              # WETH (Base)
+    "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",              # DAI (Base)
+    # ── Avalanche (C-Chain) ───────────────────────────────────────────────
+    "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",              # USDC (Avax)
+    "0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7",              # USDT (Avax)
+    "0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7",              # WAVAX
+}
+
 
 def get_copycat_score(
     name: str,
@@ -64,10 +111,14 @@ def get_copycat_score(
     has_image: bool = True,
     has_description: bool = True,
     has_website: bool = True,
+    token_address: str = "",
 ) -> tuple[float, list[str]]:
     """
     Score a token 0–100 on originality & metadata quality (higher = safer).
     Returns (score, flags).
+
+    If `token_address` matches a known verified contract, returns 100 immediately
+    (real tokens like USDC, SOL, JUP should never be penalized).
 
     Scoring breakdown:
         - Not a copycat name:       35 pts
@@ -76,6 +127,10 @@ def get_copycat_score(
         - Has description:          15 pts
         - Has website/social:       10 pts
     """
+    # ── Verified contract whitelist — real tokens are never copycats ───────
+    if token_address and token_address.lower() in VERIFIED_CONTRACTS:
+        return 100.0, ["✅ Verified contract address — authentic token"]
+
     cache_key = f"{name}:{symbol}".lower()
 
     if cache_key in _copycat_cache:
@@ -176,10 +231,14 @@ def _check_copycat_name(name: str, symbol: str) -> bool:
     return False
 
 
-def is_token_copycat(name: str, symbol: str) -> bool:
+def is_token_copycat(name: str, symbol: str, token_address: str = "") -> bool:
     """
     Simple boolean check — can be used as an instant disqualifier
     in the scanner pipeline when a token clearly impersonates a major project.
     """
-    score, flags = get_copycat_score(name, symbol, has_image=True, has_description=True, has_website=True)
+    score, flags = get_copycat_score(
+        name, symbol,
+        has_image=True, has_description=True, has_website=True,
+        token_address=token_address,
+    )
     return score < 40  # Below 40 = definite copycat

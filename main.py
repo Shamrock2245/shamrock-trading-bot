@@ -971,6 +971,7 @@ async def run_bot_loop():
                         tx_hash=tx_hash or "",
                         gem_score=candidate.gem_score,
                         is_paper=is_paper,
+                        entry_value_usd=allocation.position_size_usd,
                     )
 
                     notify_trade(
@@ -1086,6 +1087,7 @@ async def run_bot_loop():
                                             tx_hash=tx_hash or "",
                                             gem_score=fib_sig.gem_score or 60.0,
                                             is_paper=is_paper,
+                                            entry_value_usd=allocation.position_size_usd,
                                         )
                                         notify_trade(
                                             action="BUY",
