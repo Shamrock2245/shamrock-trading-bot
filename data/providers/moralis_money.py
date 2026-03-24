@@ -581,48 +581,56 @@ def get_token_analytics(token_address: str, chain: str) -> Optional[dict]:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Batch Token Analytics  (POST /tokens/analytics)
-#    Enrich up to 30 tokens at once — used after gem scan to bulk-score
+#    Enrich up to 200 tokens at once — used after gem scan to bulk-score
 # ─────────────────────────────────────────────────────────────────────────────
 def get_batch_analytics(tokens: list[dict]) -> list[dict]:
     """
-    Batch analytics for up to 30 tokens.
+    Batch analytics for up to 200 tokens.
     tokens: list of {"chain": "base", "token_address": "0x..."}
     Returns analytics results in the same order.
     """
     if not MORALIS_API_KEY or not tokens:
         return []
-    # Moralis accepts max 30 per call
-    tokens = tokens[:30]
-    payload = {
-        "tokens": [
-            {
-                "chain": CHAIN_HEX.get(CHAIN_MAP.get(t["chain"], ""), "0x1"),
-                "tokenAddress": t["token_address"],
-            }
-            for t in tokens
-            if t.get("chain") in CHAIN_MAP and t.get("token_address")
-        ]
-    }
-    if not payload["tokens"]:
-        return []
+        
+    # Moralis accepts max 30 per call, so we chunk up to 200 tokens
+    tokens = tokens[:200]
+    all_results = []
+    
+    for i in range(0, len(tokens), 30):
+        chunk = tokens[i:i+30]
+        payload = {
+            "tokens": [
+                {
+                    "chain": CHAIN_HEX.get(CHAIN_MAP.get(t["chain"], ""), "0x1"),
+                    "tokenAddress": t["token_address"],
+                }
+                for t in chunk
+                if t.get("chain") in CHAIN_MAP and t.get("token_address")
+            ]
+        }
+        if not payload["tokens"]:
+            continue
 
-    _rate_check()
-    try:
-        resp = requests.post(
-            f"{BASE_URL}/tokens/analytics",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug("Moralis batch analytics: plan limitation")
-            return []
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("categories", data) if isinstance(data, dict) else data
-    except Exception as e:
-        logger.warning(f"Moralis batch analytics error: {e}")
-        return []
+        _rate_check()
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/tokens/analytics",
+                json=payload,
+                headers=_json_headers(),
+                timeout=20,
+            )
+            if resp.status_code in (402, 403):
+                logger.debug("Moralis batch analytics: plan limitation")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("categories", data) if isinstance(data, dict) else data
+            if isinstance(results, list):
+                all_results.extend(results)
+        except Exception as e:
+            logger.warning(f"Moralis batch analytics error for chunk: {e}")
+            
+    return all_results
 
 
 # ─────────────────────────────────────────────────────────────────────────────

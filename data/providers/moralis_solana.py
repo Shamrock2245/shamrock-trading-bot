@@ -12,6 +12,7 @@ Solana-native intelligence endpoints:
   7. get_token_pairs(token_address)              → Trading pairs with liquidity (25 CU)
   8. get_token_price(token_address)              → Current price in USD (10 CU)
   9. get_wallet_swaps(address)                   → DEX swap history (50 CU)
+ 10. get_token_ohlcv(pair_address)              → Candlestick OHLCV data (10 CU)
 
 Base URL: https://solana-gateway.moralis.io
 Auth: X-Api-Key header (same key as EVM Moralis API)
@@ -613,3 +614,76 @@ def get_usage_stats() -> dict:
         "cache_entries": len(_cache),
         "cache_ttl_seconds": CACHE_TTL,
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. Token OHLCV (Candlesticks)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_token_ohlcv(
+    pair_address: str,
+    timeframe: str = "1h",
+    currency: str = "usd",
+    limit: int = 1000
+) -> Optional[list[dict]]:
+    """
+    GET /token/{network}/pairs/{pairAddress}/ohlcv
+    Cost: 10 CU
+    
+    Fetch OHLCV (candlestick) data for a specific Solana pair.
+    
+    Args:
+        pair_address: The DEX pair address (e.g., Raydium pool)
+        timeframe: "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"
+        currency: "usd" or "native"
+        limit: Number of candles to return (max 1000)
+        
+    Returns:
+        List of dicts with keys: timestamp, open, high, low, close, volume
+    """
+    if not _available():
+        return None
+
+    cache_key = f"ohlcv_solana_{pair_address}_{timeframe}_{currency}_{limit}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    try:
+        _rate_check()
+        url = f"{BASE_URL}/token/{NETWORK}/pairs/{pair_address}/ohlcv"
+        params = {
+            "timeframe": timeframe,
+            "currency": currency,
+            "limit": limit
+        }
+        
+        resp = requests.get(url, headers=_headers(), params=params, timeout=10)
+        
+        if resp.status_code == 404:
+            logger.debug(f"Moralis Solana OHLCV: pair not found {pair_address}")
+            return None
+            
+        resp.raise_for_status()
+        data = resp.json()
+        
+        candles = data.get("result", [])
+        if not candles:
+            return None
+            
+        # Format to match expected OHLCV structure
+        formatted_candles = []
+        for c in candles:
+            formatted_candles.append({
+                "timestamp": c.get("timestamp"),
+                "open": float(c.get("open", 0)),
+                "high": float(c.get("high", 0)),
+                "low": float(c.get("low", 0)),
+                "close": float(c.get("close", 0)),
+                "volume": float(c.get("volume", 0))
+            })
+            
+        _cache[cache_key] = {"ts": time.time(), "data": formatted_candles}
+        return formatted_candles
+
+    except Exception as e:
+        logger.debug(f"Moralis Solana OHLCV error for {pair_address}: {e}")
+        return None

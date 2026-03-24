@@ -131,10 +131,12 @@
 
 ## 🚧 TODO: Skills to Build
 
-- [ ] Wire sniper detection into `gem_scanner.py` safety checks
-- [ ] Add Pump.fun graduated token monitor as new signal source
-- [ ] Implement Moralis Solana OHLCV as primary candlestick provider
-- [ ] Build "Smart Sniper Filter" combo (Combo A)
-- [ ] Add holder growth rate to signal scoring
-- [ ] Create trade reconciliation pipeline (Combo C)
+- [x] Wire sniper detection into `gem_scanner.py` safety checks *(Antigravity)*
+- [x] Add Pump.fun graduated token monitor as new signal source *(Antigravity)*
+- [x] Implement Moralis Solana OHLCV as primary candlestick provider *(Manus — `moralis_solana.get_token_ohlcv`, wired into `ohlcv_provider.py` Source 0)*
+- [x] Build "Smart Sniper Filter" combo (Combo A) *(Antigravity)*
+- [x] Add holder growth rate to signal scoring *(Antigravity — via `get_discovery_token_details`)*
+- [x] Create trade reconciliation pipeline (Combo C) *(Manus — `position_monitor.reconcile_onchain_positions`)*
+- [x] Upgrade batch analytics to 200 tokens per call (chunked 30/req) *(Manus)*
 - [ ] Replace raw RPC SOL balance with Moralis portfolio endpoint
+- [ ] Slack alert integration for reconciliation mismatches and sniper warnings

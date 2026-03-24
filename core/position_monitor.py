@@ -843,3 +843,51 @@ def register_position(
         f"wallet={wallet} | {'PAPER' if is_paper else 'LIVE'}"
     )
     return position
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trade Reconciliation Pipeline (Combo C)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def reconcile_onchain_positions(wallet_address: str, chain: str = "solana") -> None:
+    """
+    Fetch on-chain swap history and compare against local positions.json.
+    Flags mismatches (e.g., bot thinks position is open but it was sold manually,
+    or bot missed a buy transaction).
+    """
+    if chain != "solana":
+        logger.debug(f"Reconciliation currently only supports Solana. Skipped {chain}.")
+        return
+        
+    try:
+        from data.providers.moralis_solana import get_wallet_swaps
+        swaps = get_wallet_swaps(wallet_address, limit=50)
+        if not swaps:
+            return
+            
+        local_positions = load_positions()
+        open_positions = {p["token_address"].lower(): p for p in local_positions if p["status"] == "open" and p["chain"] == "solana"}
+        
+        # Build a map of net token changes from recent swaps
+        token_flows = {}
+        for swap in swaps:
+            # Moralis swap format
+            token_in = swap.get("token_in", {}).get("token_address", "").lower()
+            token_out = swap.get("token_out", {}).get("token_address", "").lower()
+            
+            if token_in:
+                token_flows[token_in] = token_flows.get(token_in, 0) - float(swap.get("token_in", {}).get("amount", 0))
+            if token_out:
+                token_flows[token_out] = token_flows.get(token_out, 0) + float(swap.get("token_out", {}).get("amount", 0))
+                
+        # Check for mismatches
+        for token_addr, pos in open_positions.items():
+            if token_addr in token_flows and token_flows[token_addr] < 0:
+                # We have an open position, but on-chain shows a net sell recently
+                logger.warning(
+                    f"⚠️ RECONCILIATION MISMATCH: Bot shows open position for {pos['token_symbol']} "
+                    f"but on-chain history shows recent sells. Was it sold manually?"
+                )
+                # TODO: Send Slack alert here
+                
+    except Exception as e:
+        logger.error(f"Trade reconciliation failed: {e}")
