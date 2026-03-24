@@ -512,7 +512,7 @@ class GemScanner:
 
             try:
                 # social_sentiment_score uses LunarCrush galaxy score
-                from data.providers.lunarcrush import get_social_score as get_lc_score
+                from data.providers.coingecko_social import get_social_score as get_lc_score
                 candidate.social_sentiment_score = get_lc_score(token.symbol)
             except Exception as e:
                 logger.debug(f"LunarCrush scoring failed for {token.symbol}: {e}")

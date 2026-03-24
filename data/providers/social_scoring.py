@@ -72,54 +72,7 @@ def _score_social_presence(websites: list[str], socials: list[dict]) -> float:
 
     return min(score, 25.0)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LunarCrush API
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_lunarcrush_score(symbol: str) -> float:
-    """
-    Query LunarCrush for galaxy score and social volume.
-    Returns 0-35 points.
-    """
-    api_key = settings.LUNARCRUSH_API_KEY
-    if not api_key:
-        return 0.0
-
-    try:
-        url = "https://lunarcrush.com/api4/public/coins/list/v1"
-        headers = {"Authorization": f"Bearer {api_key}"}
-        params = {"symbol": symbol.upper()}
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
-
-        if resp.status_code != 200:
-            return 0.0
-
-        data = resp.json()
-        coins = data.get("data", [])
-        if not coins:
-            return 0.0
-
-        coin = coins[0]
-        galaxy_score = float(coin.get("galaxy_score", 0) or 0)
-        alt_rank = int(coin.get("alt_rank", 9999) or 9999)
-        social_volume_24h = float(coin.get("social_volume_24h", 0) or 0)
-
-        # Galaxy score is 0-100; normalize to 0-25 pts
-        galaxy_pts = (galaxy_score / 100.0) * 25.0
-
-        # Alt rank bonus: top 50 = 10 pts, top 200 = 5 pts
-        rank_pts = 0.0
-        if alt_rank <= 50:
-            rank_pts = 10.0
-        elif alt_rank <= 200:
-            rank_pts = 5.0
-
-        return min(galaxy_pts + rank_pts, 35.0)
-
-    except Exception as e:
-        logger.debug(f"LunarCrush error for {symbol}: {e}")
-        return 0.0
+# LunarCrush removed (no free API)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,30 +212,26 @@ def get_social_score(
     # 1. Social presence (static data from DexScreener profile)
     presence_score = _score_social_presence(websites, socials)
 
-    # 2. LunarCrush (cached separately)
-    lunar_score = _get_lunarcrush_score(symbol)
-
-    # 3. CoinGecko trending
+    # 2. CoinGecko trending (replaces LunarCrush)
     cg_score = _get_coingecko_score(symbol)
 
-    # 4. Community activity (dynamic — not cached)
+    # 3. Community activity (dynamic — not cached)
     community_score = _score_community_activity(buys_1h, sells_1h, volume_1h, market_cap)
 
-    # 5. DexScreener boost bonus (community investing in visibility = signal)
+    # 4. DexScreener boost bonus (community investing in visibility = signal)
     boost_bonus = 0.0
     if is_boosted:
         boost_bonus = min(boost_amount / 100.0 * 5.0, 10.0)  # Max 10 pts
 
-    total = presence_score + lunar_score + cg_score + community_score + boost_bonus
+    total = presence_score + cg_score + community_score + boost_bonus
 
     # Cache the static components (not community score)
-    static_score = presence_score + lunar_score + cg_score + boost_bonus
+    static_score = presence_score + cg_score + boost_bonus
     _store(cache_key, static_score)
 
     logger.debug(
-        f"Social score {symbol}: presence={presence_score:.0f} lunar={lunar_score:.0f} "
-        f"cg={cg_score:.0f} community={community_score:.0f} boost={boost_bonus:.0f} "
-        f"total={total:.1f}"
+        f"Social score {symbol}: presence={presence_score:.0f} "
+        f"cg={cg_score:.0f} comm={community_score:.0f} boost={boost_bonus:.0f} -> {total:.0f}"
     )
 
     return min(total, 100.0)
