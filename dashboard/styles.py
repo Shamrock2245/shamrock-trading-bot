@@ -496,6 +496,154 @@ hr {
     border-radius: var(--radius-sm) !important;
 }
 
+/* ── LEGIBILITY FIXES — Streamlit dark-mode overrides ───────────────────── */
+
+/* Force all text to be bright on our dark background */
+.stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+.stApp .stMarkdown, .stApp [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stMarkdownContainer"] p {
+    color: var(--text-primary) !important;
+}
+
+/* Markdown headings — bright gradient or solid white */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+    color: #E6EDF3 !important;
+    font-weight: 700 !important;
+}
+
+/* Override Streamlit's dark theme muted small text */
+.stApp small, .stApp .caption, .stApp figcaption {
+    color: var(--text-secondary) !important;
+}
+
+/* ── DataFrames: header + cells must be high-contrast ───────────────────── */
+[data-testid="stDataFrame"] th,
+[data-testid="stDataFrame"] [role="columnheader"] {
+    background: rgba(13, 17, 23, 0.95) !important;
+    color: #E6EDF3 !important;
+    font-weight: 700 !important;
+    font-size: 0.78rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    border-bottom: 2px solid rgba(0, 208, 156, 0.15) !important;
+}
+
+[data-testid="stDataFrame"] td,
+[data-testid="stDataFrame"] [role="gridcell"] {
+    color: #C9D1D9 !important;
+    font-family: 'JetBrains Mono', 'Inter', monospace !important;
+    font-size: 0.8rem !important;
+    background: rgba(6, 9, 15, 0.6) !important;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.3) !important;
+}
+
+[data-testid="stDataFrame"] [role="row"]:hover td,
+[data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] {
+    background: rgba(0, 208, 156, 0.04) !important;
+}
+
+/* Glide (Streamlit data grid) overrides */
+.dvn-scroller {
+    background: rgba(6, 9, 15, 0.8) !important;
+}
+
+/* ── Selectbox, multiselect, slider labels ──────────────────────────────── */
+[data-testid="stSelectbox"] label,
+[data-testid="stMultiSelect"] label,
+[data-testid="stSlider"] label,
+[data-testid="stToggle"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stTextInput"] label,
+.stSelectbox label,
+.stSlider label {
+    color: var(--text-secondary) !important;
+    font-weight: 600 !important;
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+}
+
+/* Selectbox dropdown text */
+[data-baseweb="select"] [data-testid="stMarkdownContainer"],
+[data-baseweb="select"] span,
+[data-baseweb="select"] div {
+    color: #E6EDF3 !important;
+}
+
+[data-baseweb="select"] [role="option"] {
+    color: #E6EDF3 !important;
+    background: #0D1117 !important;
+}
+
+[data-baseweb="select"] [role="option"]:hover {
+    background: rgba(0, 208, 156, 0.08) !important;
+}
+
+[data-baseweb="select"] [data-baseweb="popover"] {
+    background: #0D1117 !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+/* ── Slider thumb and track ─────────────────────────────────────────────── */
+[data-testid="stSlider"] [role="slider"] {
+    background: var(--accent) !important;
+}
+
+[data-testid="stSlider"] [data-testid="stThumbValue"] {
+    color: #E6EDF3 !important;
+    font-weight: 600 !important;
+}
+
+/* ── Expanders ─ ensure text inside is bright ───────────────────────────── */
+.streamlit-expanderContent p,
+.streamlit-expanderContent span,
+.streamlit-expanderContent div,
+[data-testid="stExpander"] p,
+[data-testid="stExpander"] span,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] {
+    color: #C9D1D9 !important;
+}
+
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] [data-testid="stExpanderToggleDetails"],
+.streamlit-expanderHeader {
+    color: #E6EDF3 !important;
+    font-weight: 600 !important;
+}
+
+/* ── Toggle switch labels ───────────────────────────────────────────────── */
+[data-testid="stToggle"] span {
+    color: var(--text-primary) !important;
+}
+
+/* ── Tooltips and help text ──────────────────────────────────────────────── */
+[data-testid="stTooltipIcon"] {
+    color: var(--text-muted) !important;
+}
+
+/* ── Select slider formatted values ─────────────────────────────────────── */
+[data-testid="stTickBarMin"],
+[data-testid="stTickBarMax"] {
+    color: var(--text-secondary) !important;
+}
+
+/* ── Alert/info/warning boxes ────────────────────────────────────────────── */
+.stAlert p, .stAlert span {
+    color: #E6EDF3 !important;
+}
+
+/* ── Plotly modebar — hide extra buttons ─────────────────────────────────── */
+.modebar { display: none !important; }
+
+/* ── Responsive fixes for mobile ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .stat-card .stat-value { font-size: 1.2rem; }
+    .pnl-hero .pnl-value { font-size: 2rem; }
+    .glass-card { padding: 1rem !important; }
+    .gem-row { flex-direction: column; gap: 8px; }
+}
+
 </style>
 """
 
