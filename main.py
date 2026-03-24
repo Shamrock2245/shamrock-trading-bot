@@ -662,7 +662,9 @@ async def run_bot_loop():
                     wallet_conf = None
                     for wk, wv in WALLETS.items():
                         if (wv.address.lower() == wallet_addr.lower()
-                                or wv.solana_address == wallet_addr):
+                                or wv.solana_address == wallet_addr
+                                or wk == wallet_addr.lower()
+                                or wv.alias.lower() == wallet_addr.lower()):
                             wallet_conf = wv
                             break
 

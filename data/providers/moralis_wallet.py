@@ -147,7 +147,7 @@ def get_wallet_net_worth(
                 + [("exclude_spam", str(exclude_spam).lower()),
                    ("exclude_unverified_contracts", str(exclude_unverified).lower())],
             headers=_headers(),
-            timeout=20,
+            timeout=10,
         )
         if resp.status_code in (400, 404):
             logger.debug(f"Moralis net worth: wallet not found {wallet_address[:12]}...")
@@ -251,7 +251,7 @@ def get_wallet_pnl(
             f"{BASE_URL}/wallets/{wallet_address}/profitability",
             params=params,
             headers=_headers(),
-            timeout=20,
+            timeout=10,
         )
         if resp.status_code in (400, 404):
             return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0, "tokens": []}
@@ -344,7 +344,7 @@ def get_wallet_token_balances(
             f"{BASE_URL}/{wallet_address}/erc20",
             params=params,
             headers=_headers(),
-            timeout=15,
+            timeout=8,
         )
         if resp.status_code in (400, 404):
             return []
@@ -429,7 +429,7 @@ def get_wallet_pnl_summary(
             f"{BASE_URL}/wallets/{wallet_address}/profitability/summary",
             params={"chain": CHAIN_HEX[chain], "days": days},
             headers=_headers(),
-            timeout=15,
+            timeout=8,
         )
         if resp.status_code in (400, 404):
             return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0}
@@ -520,7 +520,7 @@ def get_wallet_token_balances_v2(
             f"{BASE_URL}/wallets/{wallet_address}/tokens",
             params=params,
             headers=_headers(),
-            timeout=20,
+            timeout=10,
         )
         if resp.status_code in (400, 404):
             return []
@@ -676,7 +676,7 @@ def get_enhanced_token_metadata(
             f"{BASE_URL}/erc20/metadata",
             params=params,
             headers=_headers(),
-            timeout=15,
+            timeout=8,
         )
         if resp.status_code in (400, 404):
             return []

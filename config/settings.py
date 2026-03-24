@@ -53,6 +53,7 @@ CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY", "")
 TOKEN_SNIFFER_API_KEY = os.getenv("TOKEN_SNIFFER_API_KEY", "")
+GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")  # Optional — enhances GoPlus rate limits
 # LunarCrush removed (no free API)
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
 BASESCAN_API_KEY = os.getenv("BASESCAN_API_KEY", "")

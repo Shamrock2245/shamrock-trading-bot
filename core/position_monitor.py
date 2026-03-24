@@ -484,14 +484,34 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     is_paper=False,
                 )
             else:
-                from core.executor import execute_token_sell
-                tx_hash = execute_token_sell(
-                    token_address=pos["token_address"],
+                from core.executor import TradeExecutor, build_take_profit_params
+                from config.wallets import WALLETS
+                wallet_alias = pos.get("wallet", "primary")
+                wallet = WALLETS.get(wallet_alias)
+                if not wallet:
+                    # Try matching by address or alias
+                    for wk, wv in WALLETS.items():
+                        if (wv.address.lower() == wallet_alias.lower()
+                                or wv.alias.lower() == wallet_alias.lower()):
+                            wallet = wv
+                            break
+                if not wallet:
+                    raise ValueError(f"No wallet found for '{wallet_alias}'")
+                # Convert sell_qty to token wei (use decimals from position or default 18)
+                decimals = int(pos.get("token_decimals", 18))
+                token_amount_wei = int(sell_qty * (10 ** decimals))
+                params = build_take_profit_params(
+                    wallet=wallet,
                     chain=chain,
-                    wallet_alias=pos.get("wallet", "primary"),
-                    quantity=sell_qty,
-                    urgency=sell_action.get("urgency", "normal"),
+                    token_address=pos["token_address"],
+                    token_amount_wei=token_amount_wei,
+                    slippage_bps=300,  # wider slippage for exits
                 )
+                sell_executor = TradeExecutor()
+                result = sell_executor.execute_trade(params)
+                tx_hash = result.tx_hash if result.success else None
+                if not result.success:
+                    raise RuntimeError(f"EVM sell failed: {result.error}")
             trade_record["tx_hash"] = tx_hash
             logger.info(
                 f"LIVE SELL: {pos['token_symbol']} {sell_pct*100:.0f}% "

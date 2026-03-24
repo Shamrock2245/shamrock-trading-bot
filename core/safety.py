@@ -137,8 +137,9 @@ def _call_goplus(token_address: str, chain_id: str) -> dict:
     url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
     params = {"contract_addresses": token_address}
     headers = {}
-    if settings.GOPLUS_API_KEY:
-        headers["Authorization"] = settings.GOPLUS_API_KEY
+    goplus_key = getattr(settings, "GOPLUS_API_KEY", "") or ""
+    if goplus_key:
+        headers["Authorization"] = goplus_key
     resp = requests.get(url, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
