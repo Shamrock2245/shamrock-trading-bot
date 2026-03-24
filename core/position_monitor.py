@@ -131,10 +131,10 @@ def get_current_price(token_address: str, chain: str, pair_address: str = "") ->
 
 def get_price_and_volume(token_address: str, chain: str, pair_address: str = "") -> dict:
     """
-    Fetch current price AND volume data from DexScreener.
-    Returns dict with price, volume_1h, volume_24h. All may be None.
+    Fetch current price, volume, AND liquidity data from DexScreener.
+    Returns dict with price, volume_1h, volume_24h, liquidity_usd. All may be None.
     """
-    result = {"price": None, "volume_1h": None, "volume_24h": None}
+    result = {"price": None, "volume_1h": None, "volume_24h": None, "liquidity_usd": None}
     try:
         if pair_address:
             url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
@@ -155,6 +155,10 @@ def get_price_and_volume(token_address: str, chain: str, pair_address: str = "")
         vol = top.get("volume", {})
         result["volume_1h"] = float(vol.get("h1", 0) or 0)
         result["volume_24h"] = float(vol.get("h24", 0) or 0)
+
+        # Liquidity data (for liquidity drain exit)
+        liq = top.get("liquidity", {})
+        result["liquidity_usd"] = float(liq.get("usd", 0) or 0)
 
     except Exception as e:
         logger.debug(f"Price+volume fetch failed for {token_address}: {e}")
@@ -206,44 +210,54 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
                 "urgency": "immediate",
             }
 
-    # ── Take-profit tiers ─────────────────────────────────────────────────────
-    # TP1: 2x (100% gain) → sell 40%
-    if not tp1_hit and gain_pct >= 100.0:
+    # ── Take-profit tiers (Offensive Playbook "House Money" Strategy) ────────
+    # TP1 at 2x: sell 50% → lock in capital + profit
+    tp1_gain = (settings.TAKE_PROFIT_TP1_MULT - 1) * 100  # 100% for 2x
+    if not tp1_hit and gain_pct >= tp1_gain:
         return {
-            "reason": "tp1_2x",
-            "sell_pct": 0.40,
+            "reason": f"tp1_{settings.TAKE_PROFIT_TP1_MULT:.0f}x",
+            "sell_pct": settings.TAKE_PROFIT_TP1_SELL_PCT,
             "urgency": "normal",
         }
 
-    # TP2: 5x (400% gain) → sell 35% of remaining
-    if tp1_hit and not tp2_hit and gain_pct >= 400.0:
+    # TP2 at 3x: sell 50% of remaining (= 25% of original)
+    tp2_gain = (settings.TAKE_PROFIT_TP2_MULT - 1) * 100  # 200% for 3x
+    if tp1_hit and not tp2_hit and gain_pct >= tp2_gain:
         return {
-            "reason": "tp2_5x",
-            "sell_pct": 0.35,
+            "reason": f"tp2_{settings.TAKE_PROFIT_TP2_MULT:.0f}x",
+            "sell_pct": settings.TAKE_PROFIT_TP2_SELL_PCT,
             "urgency": "normal",
         }
 
-    # TP3: 10x (900% gain) → sell 20% of remaining
-    if tp2_hit and not tp3_hit and gain_pct >= 900.0:
-        return {
-            "reason": "tp3_10x",
-            "sell_pct": 0.20,
-            "urgency": "normal",
-        }
+    # After TP2, remaining 25% rides with the trailing stop (handled above)
+    # No TP3 — the trailing stop handles the "let the runner run" case
 
-    # ── Time-based exit: no 50% gain in 48h → exit ───────────────────────────
+    # ── Time-based exit: dead capital is wasted capital ───────────────────────
     if entry_time and not tp1_hit:
         try:
             entry_dt = datetime.fromisoformat(str(entry_time).replace("Z", "+00:00"))
             age_hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
-            if age_hours >= 48 and gain_pct < 50.0:
+            if age_hours >= settings.TIME_EXIT_HOURS and gain_pct < settings.TIME_EXIT_MIN_GAIN_PCT:
                 return {
-                    "reason": f"time_exit_48h (gain={gain_pct:.1f}%)",
+                    "reason": f"time_exit_{settings.TIME_EXIT_HOURS:.0f}h (gain={gain_pct:.1f}%)",
                     "sell_pct": 1.0,
                     "urgency": "normal",
                 }
         except Exception:
             pass
+
+    # ── Liquidity drain emergency exit ────────────────────────────────────────
+    if settings.LIQUIDITY_DRAIN_EXIT_ENABLED:
+        entry_liq = float(pos.get("entry_liquidity_usd", 0))
+        current_liq = float(pos.get("current_liquidity_usd", 0))
+        if entry_liq > 0 and current_liq > 0:
+            liq_drop_pct = ((entry_liq - current_liq) / entry_liq) * 100
+            if liq_drop_pct >= settings.LIQUIDITY_DRAIN_DROP_PCT:
+                return {
+                    "reason": f"liquidity_drain ({liq_drop_pct:.0f}% pool drop)",
+                    "sell_pct": 1.0,
+                    "urgency": "immediate",
+                }
 
     return None
 
@@ -566,6 +580,13 @@ class PositionMonitor:
                 if pv["volume_24h"] is not None:
                     pos["volume_24h"] = pv["volume_24h"]
 
+                # Capture liquidity data (for liquidity drain exit)
+                if pv["liquidity_usd"] is not None and pv["liquidity_usd"] > 0:
+                    pos["current_liquidity_usd"] = pv["liquidity_usd"]
+                    # First capture = entry liquidity (for drain comparison)
+                    if "entry_liquidity_usd" not in pos:
+                        pos["entry_liquidity_usd"] = pv["liquidity_usd"]
+
                 pos["current_price"] = current_price
                 entry_price = float(pos.get("entry_price", 0))
                 if entry_price > 0:
@@ -586,8 +607,8 @@ class PositionMonitor:
                 # ── Defensive: standard TP/SL evaluation ─────────────────────────────────────
                 sell_action = evaluate_position(pos, current_price)
 
-                # ── God Mode: skip TP1 (hold for 5x+ instead of 2x) ───────────────────────
-                if sell_action and sell_action.get("reason") == "tp1_2x":
+                # ── God Mode: skip TP1 (hold for higher target) ────────────────────────
+                if sell_action and sell_action.get("reason", "").startswith("tp1_"):
                     if should_skip_tp1(offensive_state):
                         logger.info(
                             f"⚡ God Mode: skipping TP1 on {pos.get('token_symbol')} — holding for 5x+"
@@ -607,6 +628,33 @@ class PositionMonitor:
                 # ── Offensive: underperformer rotation ────────────────────────────────────────
                 if not sell_action:
                     sell_action = evaluate_underperformer_exit(pos, current_price)
+
+                # ── Rebalancing: dust sweep (Offensive Playbook §6) ──────────────────────────
+                if not sell_action and pos.get("status") == "open":
+                    remaining_qty = float(pos.get("remaining_quantity", 0))
+                    pos_value_usd = remaining_qty * current_price if current_price else 0
+                    if 0 < pos_value_usd < settings.DUST_THRESHOLD_USD:
+                        logger.info(
+                            f"🧹 Dust position: {pos.get('token_symbol')} worth ${pos_value_usd:.2f} — skipping (below ${settings.DUST_THRESHOLD_USD})"
+                        )
+                        # Don't actively sell dust — just flag it and skip monitoring
+                        pos["is_dust"] = True
+
+                # ── Rebalancing: underperformer + low liquidity liquidation (Playbook §6) ────
+                if not sell_action and pos.get("status") == "open":
+                    gain_pct_val = float(pos.get("unrealized_pnl_pct", 0))
+                    current_liq = float(pos.get("current_liquidity_usd", 0))
+                    if (gain_pct_val <= -settings.UNDERPERFORMER_LIQ_DOWN_PCT
+                            and 0 < current_liq < settings.UNDERPERFORMER_LIQ_MIN_USD):
+                        sell_action = {
+                            "reason": f"underperformer_liquidation (down {gain_pct_val:.0f}%, liq=${current_liq:.0f})",
+                            "sell_pct": 1.0,
+                            "urgency": "normal",
+                        }
+                        logger.info(
+                            f"💀 Liquidating underperformer: {pos.get('token_symbol')} "
+                            f"({gain_pct_val:+.0f}%, liq=${current_liq:.0f})"
+                        )
 
                 if sell_action:
                     # If the action has a _mark, apply it to position before sell

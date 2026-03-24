@@ -80,6 +80,7 @@ from core.offensive_guardrails import (
     evaluate_fast_fail,
     should_skip_tp1,
     get_daily_summary,
+    get_gas_bribe_multiplier,
 )
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
@@ -904,6 +905,10 @@ async def run_bot_loop():
                         use_usdc=risk.use_usdc,
                         usdc_amount=risk.position_size_usdc,
                     )
+                    # MEV Protection: apply gas bribe for God Signal tokens
+                    gas_multiplier = get_gas_bribe_multiplier(candidate.gem_score)
+                    if gas_multiplier > 1.0:
+                        params.gas_price_multiplier = gas_multiplier
                     result = executor.execute_trade(params)
                     success = result.success
                     tx_hash = result.tx_hash
