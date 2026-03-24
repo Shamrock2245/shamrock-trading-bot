@@ -85,6 +85,7 @@ def calculate_composite_score(
     ta_result: TAResult,
     fib_result: FibResult,
     onchain_score: float = 50.0,
+    chain: str = "",
 ) -> SignalScore:
     """
     Calculate the final composite signal score from all analysis components.
@@ -99,10 +100,23 @@ def calculate_composite_score(
     """
     fib_score = _fib_to_score(fib_result)
 
+
     # Build the composite
     trend_normalized = ta_result.trend_score
     momentum_normalized = ta_result.momentum_score
     volume_normalized = ta_result.volume_score
+
+    # ── Chain-Specific Enhancements ───────────────────────────────────────────
+    # Base and Avalanche are currently hot chains for gem sniping.
+    # We apply a slight momentum and volume multiplier to tokens on these chains
+    # to encourage the bot to take positions.
+    if chain.lower() in ["base", "avalanche"]:
+        momentum_normalized = min(100.0, momentum_normalized * 1.15)
+        volume_normalized = min(100.0, volume_normalized * 1.15)
+        # If we have a volume spike on Base/AVAX, it's a very strong signal
+        if ta_result.volume_spike:
+            onchain_score = min(100.0, onchain_score + 10.0)
+
 
     composite = (
         trend_normalized * WEIGHTS["trend"]
@@ -146,6 +160,7 @@ def analyze_token(
     current_price: float,
     onchain_score: float = 50.0,
     direction: str = "buy",
+    chain: str = "",
 ) -> tuple[SignalScore, TAResult, FibResult]:
     """
     Run complete analysis pipeline on a token.
@@ -168,7 +183,7 @@ def analyze_token(
     fib_result = check_fibonacci_alignment(df, current_price, direction=direction)
 
     # Step 3: Composite scoring
-    signal_score = calculate_composite_score(ta_result, fib_result, onchain_score)
+    signal_score = calculate_composite_score(ta_result, fib_result, onchain_score, chain)
 
     return signal_score, ta_result, fib_result
 

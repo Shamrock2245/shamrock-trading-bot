@@ -1,0 +1,34 @@
+{
+  "scan_time": "2026-03-24T02:40:30.132301+00:00",
+  "chains_scanned": [
+    "base",
+    "avalanche"
+  ],
+  "moralis_enabled": false,
+  "filters": {
+    "min_liquidity_usd": 50000,
+    "min_volume_24h": 20000,
+    "min_security_score": 60,
+    "max_age_hours": 168
+  },
+  "results": {
+    "base": [],
+    "avalanche": []
+  },
+  "summary": {
+    "base": {
+      "total_candidates": 0,
+      "buy_signals": 0,
+      "watchlist": 0,
+      "top_pick": null,
+      "top_score": 0
+    },
+    "avalanche": {
+      "total_candidates": 0,
+      "buy_signals": 0,
+      "watchlist": 0,
+      "top_pick": null,
+      "top_score": 0
+    }
+  }
+}

@@ -452,15 +452,20 @@ def route_trade(
             min_balance_required = wallet.min_eth_balance_alert
 
         native_balance = get_native_balance(balance_address, chain)
-        logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
-        if native_balance <= min_balance_required:
-            logger.warning(
-                f"Wallet {wallet.alias} balance too low on {chain}: "
-                f"{native_balance:.4f} <= {min_balance_required} {chain_config.native_token}"
-            )
-            continue
-
-        wallet_balance_usd = native_balance * native_price
+        usdc_balance = get_usdc_balance(balance_address, chain)
+        
+        if chain == "avalanche" and usdc_balance > 25.0:
+            wallet_balance_usd = usdc_balance
+            logger.debug(f"  {wallet.alias} using USDC balance={usdc_balance:.2f} on {chain}")
+        else:
+            logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
+            if native_balance <= min_balance_required:
+                logger.warning(
+                    f"Wallet {wallet.alias} balance too low on {chain}: "
+                    f"{native_balance:.4f} <= {min_balance_required} {chain_config.native_token}"
+                )
+                continue
+            wallet_balance_usd = native_balance * native_price
 
         # ── Phase-based capital scaling ───────────────────────────────────────
         phase = get_capital_phase(wallet_balance_usd)
@@ -548,3 +553,42 @@ def route_trade(
 
     logger.warning(f"No eligible wallet found for {chain} trade (score={gem_score:.0f})")
     return None
+
+def get_usdc_balance(wallet_address: str, chain: str) -> float:
+    """
+    Fetch current USDC balance from public RPC.
+    Returns 0.0 on failure.
+    """
+    chain_config = CHAINS.get(chain)
+    if not chain_config or not chain_config.usdc_address:
+        return 0.0
+
+    if chain_config.is_solana:
+        # Solana USDC balance fetching not implemented here yet
+        return 0.0
+    else:
+        for rpc_url in [chain_config.rpc_url, chain_config.rpc_fallback]:
+            if not rpc_url:
+                continue
+            try:
+                import requests
+                # ERC20 balanceOf signature: 0x70a08231
+                # padded address
+                addr_padded = wallet_address.lower().replace("0x", "").zfill(64)
+                data = f"0x70a08231{addr_padded}"
+                payload = {
+                    "jsonrpc": "2.0",
+                    "method": "eth_call",
+                    "params": [{"to": chain_config.usdc_address, "data": data}, "latest"],
+                    "id": 1
+                }
+                resp = requests.post(rpc_url, json=payload, timeout=5)
+                if resp.status_code == 200:
+                    res_json = resp.json()
+                    if "result" in res_json and res_json["result"] != "0x":
+                        # USDC has 6 decimals
+                        balance_wei = int(res_json["result"], 16)
+                        return balance_wei / 1e6
+            except Exception as e:
+                logger.debug(f"USDC balance fetch failed on {chain} via {rpc_url}: {e}")
+        return 0.0

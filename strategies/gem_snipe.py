@@ -138,6 +138,7 @@ class GemSnipeStrategy:
                 current_price=current_price,
                 onchain_score=onchain_score,
                 direction="buy",
+                chain=token.chain,
             )
         else:
             # Insufficient OHLCV data — use signal engine's micro-cap score if available

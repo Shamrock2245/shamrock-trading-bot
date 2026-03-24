@@ -867,6 +867,8 @@ async def run_bot_loop():
 
                 # ── Risk check ────────────────────────────────────────────────
                 risk = risk_manager.check_trade(
+                    position_size_native=allocation.position_size_native,
+                    position_size_usd=allocation.position_size_usd,
                     wallet, native_balance, token.address, token.chain,
                     usdc_balance=usdc_balance,
                 )

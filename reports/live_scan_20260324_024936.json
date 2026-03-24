@@ -1,0 +1,29 @@
+{
+  "scan_time": "2026-03-24T02:49:36.285696+00:00",
+  "moralis_enabled": false,
+  "filters": {
+    "min_liq": 50000,
+    "min_vol24h": 15000,
+    "min_security": 60
+  },
+  "results": {
+    "base": [],
+    "avalanche": []
+  },
+  "summary": {
+    "base": {
+      "total": 0,
+      "buy_signals": 0,
+      "watchlist": 0,
+      "top_pick": null,
+      "top_score": 0
+    },
+    "avalanche": {
+      "total": 0,
+      "buy_signals": 0,
+      "watchlist": 0,
+      "top_pick": null,
+      "top_score": 0
+    }
+  }
+}

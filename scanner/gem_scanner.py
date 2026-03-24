@@ -53,7 +53,11 @@ from data.providers.social_scoring import get_social_score
 from data.providers.smart_money import get_smart_money_score
 from data.providers.holder_analysis import get_holder_score
 from data.providers.token_unlocks import get_unlock_risk_score
-from data.providers.moralis_discovery import discover_tokens as moralis_discover
+from data.providers.moralis_money import (
+    discover_tokens as moralis_discover,
+    enrich_candidate as moralis_enrich,
+    calculate_moralis_score_contribution as moralis_score_contribution,
+)
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 logger = logging.getLogger(__name__)
@@ -542,6 +546,41 @@ class GemScanner:
             candidate.unlock_risk_score = 50.0
             candidate.grok_sentiment_score = 50.0
 
+        # ── Moralis Money Enrichment (PRIMARY source — 12% weight) ─────────────
+        # Enrich every candidate that passes base_score >= 45 with Moralis
+        # token score, buy/sell analytics, and net buyer counts.
+        # Moralis Money is one of our MAIN data sources — high-conviction signal.
+        moralis_enrichment_score = 50.0  # default neutral
+        if base_score >= 45:
+            try:
+                enrichment = moralis_enrich(token.address, token.chain)
+                moralis_enrichment_score = moralis_score_contribution(enrichment)
+                # Store enrichment fields on candidate for dashboard/logging
+                candidate.moralis_score = enrichment.get("moralis_score", 0)
+                candidate.moralis_buy_pressure = enrichment.get("moralis_buy_pressure", 0.5)
+                candidate.moralis_net_buyers_1h = enrichment.get("moralis_net_buyers_1h", 0)
+                candidate.moralis_buyers_1h = enrichment.get("moralis_buyers_1h", 0)
+                candidate.moralis_sellers_1h = enrichment.get("moralis_sellers_1h", 0)
+                candidate.moralis_txns_1h = enrichment.get("moralis_txns_1h", 0)
+                candidate.moralis_top10_pct = enrichment.get("moralis_top10_pct", 0.0)
+                if enrichment.get("moralis_score", 0) > 0:
+                    logger.debug(
+                        f"Moralis enrichment {token.symbol}: "
+                        f"score={enrichment['moralis_score']} "
+                        f"buy_pressure={enrichment['moralis_buy_pressure']:.2f} "
+                        f"net_buyers_1h={enrichment['moralis_net_buyers_1h']}"
+                    )
+            except Exception as e:
+                logger.debug(f"Moralis enrichment failed for {token.symbol}: {e}")
+                candidate.moralis_score = 0
+                candidate.moralis_buy_pressure = 0.5
+                candidate.moralis_net_buyers_1h = 0
+        else:
+            candidate.moralis_score = 0
+            candidate.moralis_buy_pressure = 0.5
+            candidate.moralis_net_buyers_1h = 0
+        candidate.moralis_enrichment_score = moralis_enrichment_score
+
         # ── Buy Pressure Score ────────────────────────────────────────────────
         buy_pressure_score = 50.0
         total_txns = token.buys_1h + token.sells_1h
@@ -557,22 +596,25 @@ class GemScanner:
                 buy_pressure_score = 20.0
         candidate.buy_pressure_score = buy_pressure_score
 
-        # ── Final composite score (15 signals) ────────────────────────────────
+        # ── Final composite score (16 signals — Moralis Money as primary) ────────
+        # Weights sum to 1.00. Moralis enrichment replaces the old 4% smart-money
+        # weight and gets its own 12% allocation as a PRIMARY data source.
         candidate.gem_score = round(
-            candidate.age_score * 0.10
-            + candidate.volume_score * 0.12
-            + candidate.liquidity_score * 0.10
-            + candidate.buy_pressure_score * 0.10
-            + candidate.contract_score * 0.08
-            + candidate.holder_score * 0.08
-            + candidate.tax_score * 0.08
-            + candidate.social_score * 0.06
-            + candidate.boost_score * 0.04
-            + candidate.smart_money_score * 0.04
-            + candidate.tvl_score * 0.05
+            candidate.age_score              * 0.09
+            + candidate.volume_score         * 0.11
+            + candidate.liquidity_score      * 0.09
+            + candidate.buy_pressure_score   * 0.09
+            + candidate.moralis_enrichment_score * 0.12   # ← Moralis Money PRIMARY
+            + candidate.contract_score       * 0.07
+            + candidate.holder_score         * 0.07
+            + candidate.tax_score            * 0.07
+            + candidate.social_score         * 0.05
+            + candidate.boost_score          * 0.04
+            + candidate.smart_money_score    * 0.03
+            + candidate.tvl_score            * 0.05
             + candidate.social_sentiment_score * 0.05
             + candidate.holder_concentration_score * 0.04
-            + candidate.unlock_risk_score * 0.03
+            + candidate.unlock_risk_score    * 0.03
             + candidate.grok_sentiment_score * 0.03,
             2,
         )
