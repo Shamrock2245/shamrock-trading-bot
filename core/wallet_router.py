@@ -35,6 +35,7 @@ Security:
 
 import logging
 import math
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -419,12 +420,14 @@ def route_trade(
     logger.info(f"Routing {chain} trade: {len(strategy_wallets)} wallets eligible, strategy={strategy}")
     for wallet in strategy_wallets:
         logger.debug(f"  Evaluating {wallet.alias} for {chain}...")
-        # Check max concurrent positions
+        # Check max concurrent positions (relaxed in moonshot mode)
         open_count = get_open_position_count(wallet.alias.lower().replace(" ", "_"))
-        if open_count >= wallet.max_concurrent_positions:
+        moonshot_mode = os.getenv("MOONSHOT_MODE", "false").lower() in ("true", "1", "yes")
+        max_pos = max(wallet.max_concurrent_positions, 20) if moonshot_mode else wallet.max_concurrent_positions
+        if open_count >= max_pos:
             logger.debug(
                 f"Wallet {wallet.alias} at max positions "
-                f"({open_count}/{wallet.max_concurrent_positions})"
+                f"({open_count}/{max_pos})"
             )
             continue
 

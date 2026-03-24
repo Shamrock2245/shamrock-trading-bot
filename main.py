@@ -1000,6 +1000,123 @@ async def run_bot_loop():
                         extra=f"❌ FAILED: {error}",
                     )
 
+            # ────────────────────────────────────────────────────────────────
+            # 4. OFFENSIVE MODULES (Rebalance → Fib Hunt → Moonshot Spray)
+            # ────────────────────────────────────────────────────────────────
+            moonshot_mode = os.getenv("MOONSHOT_MODE", "false").lower() in ("true", "1", "yes")
+
+            if moonshot_mode:
+                # 4a. Portfolio Rebalancer (every 6h per wallet/chain)
+                try:
+                    from core.portfolio_rebalancer import run_rebalance_cycle
+                    is_paper = settings.MODE != "live"
+                    rebalance_plans = run_rebalance_cycle(dry_run=is_paper)
+                    if rebalance_plans:
+                        total_recovery = sum(p.estimated_recovery_usd for p in rebalance_plans)
+                        logger.info(
+                            f"🔄 Rebalanced {len(rebalance_plans)} wallet/chain combos "
+                            f"(est. recovery: ${total_recovery:.2f})"
+                        )
+                except Exception as e:
+                    logger.error(f"Rebalancer error: {e}", exc_info=True)
+
+                # 4b. Fibonacci Entry Hunter
+                try:
+                    from core.fib_hunter import run_fib_hunt_sweep
+                    fib_signals = run_fib_hunt_sweep()
+                    for fib_sig in fib_signals:
+                        if trades_this_cycle >= settings.MAX_TRADES_PER_CYCLE:
+                            break
+                        logger.info(
+                            f"🎯 Fib entry: {fib_sig.symbol} on {fib_sig.chain} "
+                            f"at {fib_sig.fib_zone} (conf={fib_sig.fib_confidence:.0f}%)"
+                        )
+                        # Route through existing wallet router
+                        try:
+                            allocation = route_trade(
+                                chain=fib_sig.chain,
+                                gem_score=fib_sig.gem_score or 60.0,
+                                strategy="fib_entry",
+                            )
+                            if allocation:
+                                wallet = allocation.wallet
+                                risk = risk_manager.check_trade(
+                                    position_size_native=allocation.position_size_native,
+                                    position_size_usd=allocation.position_size_usd,
+                                    wallet=wallet,
+                                    native_balance=allocation.native_balance,
+                                    token_address=fib_sig.token_address,
+                                    chain=fib_sig.chain,
+                                )
+                                if risk.approved:
+                                    if fib_sig.chain == "solana":
+                                        from core.solana_executor import execute_solana_buy
+                                        sol_key = wallet.solana_address or wallet.address
+                                        sol_pk = wallet.solana_private_key_env or wallet.private_key_env
+                                        tx_hash = execute_solana_buy(
+                                            token_mint=fib_sig.token_address,
+                                            sol_amount=allocation.position_size_native,
+                                            wallet_public_key=sol_key,
+                                            wallet_private_key_env=sol_pk,
+                                            is_paper=is_paper,
+                                        )
+                                    else:
+                                        fib_executor = TradeExecutor(is_paper=is_paper)
+                                        params = build_gem_snipe_params(
+                                            wallet=wallet,
+                                            chain=fib_sig.chain,
+                                            token_address=fib_sig.token_address,
+                                            eth_amount=allocation.position_size_native,
+                                        )
+                                        result = fib_executor.execute_trade(params)
+                                        tx_hash = result.tx_hash if result.success else None
+
+                                    if tx_hash:
+                                        trades_this_cycle += 1
+                                        trades_this_session += 1
+                                        register_position(
+                                            token_address=fib_sig.token_address,
+                                            token_symbol=fib_sig.symbol,
+                                            chain=fib_sig.chain,
+                                            wallet=wallet.alias.lower().replace(" ", "_"),
+                                            entry_price=fib_sig.current_price,
+                                            quantity=allocation.position_size_usd / fib_sig.current_price
+                                                if fib_sig.current_price > 0 else 0,
+                                            pair_address="",
+                                            tx_hash=tx_hash or "",
+                                            gem_score=fib_sig.gem_score or 60.0,
+                                            is_paper=is_paper,
+                                        )
+                                        notify_trade(
+                                            action="BUY",
+                                            token_symbol=fib_sig.symbol,
+                                            chain=fib_sig.chain,
+                                            amount_eth=allocation.position_size_native,
+                                            score=fib_sig.gem_score or 60.0,
+                                            mode=settings.MODE,
+                                            extra=f"🎯 FIB ENTRY: {fib_sig.fib_zone} "
+                                                  f"conf={fib_sig.fib_confidence:.0f}%",
+                                        )
+                                        logger.info(f"✅ Fib entry executed: {fib_sig.symbol}")
+                                else:
+                                    logger.debug(f"Fib entry risk blocked: {risk.reason}")
+                        except Exception as fib_exec_err:
+                            logger.error(f"Fib entry execution error: {fib_exec_err}")
+                except Exception as e:
+                    logger.error(f"Fib Hunter error: {e}", exc_info=True)
+
+                # 4c. Moonshot Spray Allocator
+                try:
+                    from core.moonshot_allocator import run_moonshot_spray
+                    spray_result = run_moonshot_spray(dry_run=(settings.MODE != "live"))
+                    if spray_result.positions_opened > 0:
+                        logger.info(
+                            f"🚀 Moonshot Spray opened {spray_result.positions_opened} positions "
+                            f"(${spray_result.total_allocated_usd:.2f} allocated)"
+                        )
+                except Exception as e:
+                    logger.error(f"Moonshot Spray error: {e}", exc_info=True)
+
             # Write dashboard state
             try:
                 state_writer.write_cycle(
