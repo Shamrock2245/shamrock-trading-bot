@@ -17,6 +17,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 8.8.4.4
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -68,6 +72,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 8.8.4.4
     environment:
       - DASHBOARD_STATE_DIR=/app/data/dashboard
     command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
@@ -88,6 +96,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 8.8.4.4
     command: python3 -m cosmos.cosmos_main
     volumes:
       - ./logs:/app/logs
@@ -109,6 +121,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 8.8.4.4
     command: python3 scripts/health_check.py
     volumes:
       - ./logs:/app/logs
