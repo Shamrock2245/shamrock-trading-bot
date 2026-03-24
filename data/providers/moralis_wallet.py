@@ -383,6 +383,346 @@ def get_wallet_token_balances(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 4. Wallet PnL Summary  (GET /wallets/{address}/profitability/summary)  — 30 CU
+#    Lightweight alternative to the per-token breakdown (50 CU). Use this when
+#    you only need totals, not per-token detail.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_pnl_summary(
+    wallet_address: str,
+    chain: str = "ethereum",
+    days: str = "30",
+) -> dict:
+    """
+    Get a lightweight P&L summary for a wallet — total trades, volume,
+    realized profit, buy/sell counts. Only 30 CU vs 50 CU for the breakdown.
+
+    Args:
+        wallet_address: EVM wallet address
+        chain: Chain to query
+        days: Lookback period ('all', '7', '30', '60', '90')
+
+    Returns:
+        {
+            "total_count_of_trades": int,
+            "total_trade_volume": float,
+            "total_realized_profit_usd": float,
+            "total_realized_profit_percentage": float,
+            "total_buys": int,
+            "total_sells": int,
+            "total_bought_volume_usd": float,
+            "total_sold_volume_usd": float,
+            "win_rate": float,  # derived: sells > buys = net profitable
+        }
+
+    Cost: 30 Compute Units per call.
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0}
+
+    cache_key = f"pnl_summary_{chain}_{wallet_address.lower()}_{days}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{wallet_address}/profitability/summary",
+            params={"chain": CHAIN_HEX[chain], "days": days},
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (400, 404):
+            return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0}
+        if resp.status_code in (402, 403):
+            logger.debug("Moralis PnL summary: plan limitation")
+            return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0}
+        resp.raise_for_status()
+
+        data = resp.json()
+        total_buys = int(data.get("total_buys", 0) or 0)
+        total_sells = int(data.get("total_sells", 0) or 0)
+
+        result = {
+            "total_count_of_trades": int(data.get("total_count_of_trades", 0) or 0),
+            "total_trade_volume": float(data.get("total_trade_volume", 0) or 0),
+            "total_realized_profit_usd": float(data.get("total_realized_profit_usd", 0) or 0),
+            "total_realized_profit_percentage": float(data.get("total_realized_profit_percentage", 0) or 0),
+            "total_buys": total_buys,
+            "total_sells": total_sells,
+            "total_bought_volume_usd": float(data.get("total_bought_volume_usd", 0) or 0),
+            "total_sold_volume_usd": float(data.get("total_sold_volume_usd", 0) or 0),
+            "wallet_address": wallet_address,
+            "chain": chain,
+            "days": days,
+        }
+        _set_cache(cache_key, result)
+        logger.info(
+            f"Moralis PnL summary: ${result['total_realized_profit_usd']:+,.2f} "
+            f"({result['total_count_of_trades']} trades) for {wallet_address[:12]}... on {chain}"
+        )
+        return result
+
+    except Exception as e:
+        logger.warning(f"Moralis PnL summary error for {wallet_address[:12]}... on {chain}: {e}")
+        return {"total_realized_profit_usd": 0.0, "total_count_of_trades": 0}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Enhanced Token Balances v2  (GET /wallets/{address}/tokens)  — 100 CU
+#    Richer than the old /erc20 endpoint: includes USD prices, spam filtering,
+#    verified status, portfolio %, and liquidity-based filtering.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_token_balances_v2(
+    wallet_address: str,
+    chain: str,
+    exclude_spam: bool = True,
+    exclude_unverified: bool = False,
+    min_liquidity_usd: float = 0,
+    max_token_inactivity_days: int = 0,
+) -> list[dict]:
+    """
+    Enhanced token balances with USD prices, spam/liquidity filtering.
+    Uses the newer /wallets/{address}/tokens endpoint (100 CU) which
+    returns richer data including portfolio percentages.
+
+    Args:
+        wallet_address: EVM wallet address
+        chain: Chain to query
+        exclude_spam: Filter out known spam tokens
+        exclude_unverified: Filter out unverified contracts
+        min_liquidity_usd: Minimum single-side liquidity in USD
+        max_token_inactivity_days: Exclude tokens inactive > N days (0=disabled)
+
+    Returns list of enriched token holdings.
+    Cost: 100 Compute Units per call.
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return []
+
+    cache_key = f"balances_v2_{chain}_{wallet_address.lower()}_{min_liquidity_usd}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        params = {
+            "chain": CHAIN_HEX[chain],
+            "exclude_spam": str(exclude_spam).lower(),
+            "exclude_unverified_contracts": str(exclude_unverified).lower(),
+            "exclude_native": "false",
+        }
+        if min_liquidity_usd > 0:
+            params["min_pair_side_liquidity_usd"] = str(min_liquidity_usd)
+        if max_token_inactivity_days > 0:
+            params["max_token_inactivity"] = str(max_token_inactivity_days)
+
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{wallet_address}/tokens",
+            params=params,
+            headers=_headers(),
+            timeout=20,
+        )
+        if resp.status_code in (400, 404):
+            return []
+        resp.raise_for_status()
+
+        data = resp.json()
+        items = data.get("result", data) if isinstance(data, dict) else data
+        results = []
+        for t in (items if isinstance(items, list) else []):
+            balance_formatted = float(t.get("balance_formatted", 0) or 0)
+            if balance_formatted <= 0:
+                continue
+            results.append({
+                "address": (t.get("token_address", "") or "").lower(),
+                "symbol": t.get("symbol", "???"),
+                "name": t.get("name", ""),
+                "balance": balance_formatted,
+                "decimals": int(t.get("decimals", 18) or 18),
+                "logo": t.get("logo", t.get("thumbnail", "")),
+                "usd_price": float(t.get("usd_price", 0) or 0),
+                "usd_price_24hr_change": float(t.get("usd_price_24hr_percent_change", 0) or 0),
+                "usd_value": float(t.get("usd_value", 0) or 0),
+                "portfolio_percentage": float(t.get("portfolio_percentage", 0) or 0),
+                "possible_spam": t.get("possible_spam", False),
+                "verified_contract": t.get("verified_contract", False),
+                "native_token": t.get("native_token", False),
+                "total_supply": t.get("total_supply_formatted", ""),
+                "pct_of_total_supply": float(t.get("percentage_relative_to_total_supply", 0) or 0),
+                "chain": chain,
+            })
+
+        # Sort by USD value descending
+        results.sort(key=lambda x: x.get("usd_value", 0), reverse=True)
+
+        _set_cache(cache_key, results)
+        total_usd = sum(r.get("usd_value", 0) for r in results)
+        logger.info(
+            f"Moralis balances v2: {len(results)} tokens (${total_usd:,.2f}) "
+            f"for {wallet_address[:12]}... on {chain}"
+        )
+        return results
+
+    except Exception as e:
+        logger.warning(f"Moralis balances v2 error for {wallet_address[:12]}... on {chain}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Wallet Stats  (GET /wallets/{address}/stats)  — 50 CU
+#    Quick wallet profiling: total tx count, NFTs, collections, transfers.
+#    Used for smart money detection — high tx count = experienced trader.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_stats(
+    wallet_address: str,
+    chain: str = "ethereum",
+) -> dict:
+    """
+    Get quick stats for a wallet — total transactions, NFT counts,
+    token transfer counts. Useful for smart money profiling.
+
+    Cost: 50 Compute Units per call.
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return {"transactions_total": 0}
+
+    cache_key = f"stats_{chain}_{wallet_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{wallet_address}/stats",
+            params={"chain": CHAIN_HEX[chain]},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404):
+            return {"transactions_total": 0}
+        if resp.status_code in (402, 403):
+            return {"transactions_total": 0}
+        resp.raise_for_status()
+
+        data = resp.json()
+        result = {
+            "nfts": int(data.get("nfts", 0) or 0),
+            "collections": int(data.get("collections", 0) or 0),
+            "transactions_total": int(
+                (data.get("transactions") or {}).get("total", 0) or 0
+            ),
+            "nft_transfers_total": int(
+                (data.get("nft_transfers") or {}).get("total", 0) or 0
+            ),
+            "token_transfers_total": int(
+                (data.get("token_transfers") or {}).get("total", 0) or 0
+            ),
+            "wallet_address": wallet_address,
+            "chain": chain,
+        }
+        _set_cache(cache_key, result)
+        logger.info(
+            f"Moralis wallet stats: {result['transactions_total']} txns, "
+            f"{result['token_transfers_total']} token transfers "
+            f"for {wallet_address[:12]}... on {chain}"
+        )
+        return result
+
+    except Exception as e:
+        logger.warning(f"Moralis wallet stats error for {wallet_address[:12]}... on {chain}: {e}")
+        return {"transactions_total": 0}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Enhanced Token Metadata  (GET /erc20/metadata)  — 10 CU
+#    Rich metadata: FDV, market cap, categories, social links, spam detection,
+#    verification status. Essential for gem scoring enrichment.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_enhanced_token_metadata(
+    token_addresses: list[str],
+    chain: str = "ethereum",
+) -> list[dict]:
+    """
+    Get rich metadata for up to 10 tokens in one call.
+    Includes FDV, market cap, categories, social links, spam/verified flags.
+
+    Args:
+        token_addresses: List of token contract addresses (max 10)
+        chain: Chain to query
+
+    Returns list of token metadata dicts with enhanced fields.
+    Cost: 10 Compute Units per call (very cheap!).
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return []
+    if not token_addresses:
+        return []
+
+    # Limit to 10 per Moralis constraint
+    token_addresses = token_addresses[:10]
+
+    # Check cache for all addresses
+    cache_key = f"metadata_{chain}_{'_'.join(sorted(a.lower() for a in token_addresses))}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        params = [("chain", CHAIN_HEX[chain])]
+        for addr in token_addresses:
+            params.append(("addresses", addr))
+
+        resp = requests.get(
+            f"{BASE_URL}/erc20/metadata",
+            params=params,
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (400, 404):
+            return []
+        resp.raise_for_status()
+
+        data = resp.json()
+        items = data if isinstance(data, list) else [data]
+        results = []
+        for t in items:
+            links = t.get("links", {}) or {}
+            results.append({
+                "address": (t.get("address", "") or "").lower(),
+                "name": t.get("name", ""),
+                "symbol": t.get("symbol", ""),
+                "decimals": int(t.get("decimals", 18) or 18),
+                "logo": t.get("logo", ""),
+                "total_supply": t.get("total_supply_formatted", ""),
+                "fdv": float(t.get("fully_diluted_valuation", 0) or 0),
+                "market_cap": float(t.get("market_cap", 0) or 0),
+                "circulating_supply": t.get("circulating_supply", ""),
+                "possible_spam": t.get("possible_spam", False),
+                "verified_contract": t.get("verified_contract", False),
+                "categories": t.get("categories", []) or [],
+                "created_at": t.get("created_at", ""),
+                # Social links — useful for assessing project legitimacy
+                "twitter": links.get("twitter", ""),
+                "website": links.get("website", ""),
+                "telegram": links.get("telegram", ""),
+                "discord": links.get("discord", ""),
+                "github": links.get("github", ""),
+                "reddit": links.get("reddit", ""),
+                "chain": chain,
+            })
+
+        _set_cache(cache_key, results)
+        logger.info(
+            f"Moralis metadata: {len(results)} tokens enriched on {chain}"
+        )
+        return results
+
+    except Exception as e:
+        logger.warning(f"Moralis metadata error on {chain}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Aggregate Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def get_total_portfolio_value(wallets: dict = None) -> float:

@@ -65,37 +65,85 @@ try:
 except ImportError:
     pass
 
+moralis_solana_available = False
+try:
+    from data.providers.moralis_solana import get_solana_portfolio
+    moralis_solana_available = True
+except ImportError:
+    pass
 
-# ── Solana balance helpers ────────────────────────────────────────────────────
-def _get_sol_balance(wallet_address: str) -> float:
-    """Fetch SOL balance via Solana JSON-RPC."""
+
+# ── Solana portfolio helper ───────────────────────────────────────────────────
+def _get_solana_portfolio_data(wallet_address: str) -> dict:
+    """
+    Fetch full Solana portfolio via Moralis: native SOL + all SPL tokens.
+    Returns {"sol_balance": float, "sol_usd": float, "spl_tokens": [...]}.
+    Falls back to raw RPC if Moralis unavailable.
+    """
+    result = {"sol_balance": 0.0, "sol_usd": 0.0, "spl_tokens": []}
     if not wallet_address:
-        return 0.0
+        return result
+
+    # ── Primary: Moralis Portfolio (10 CU) ────────────────────────────────
+    if moralis_solana_available:
+        try:
+            portfolio = get_solana_portfolio(wallet_address)
+            native = portfolio.get("nativeBalance", {})
+            sol_bal = float(native.get("solana", 0))
+            lamports = float(native.get("lamports", 0))
+            if sol_bal <= 0 and lamports > 0:
+                sol_bal = lamports / 1_000_000_000
+
+            # Build SPL token list
+            spl_tokens = []
+            for t in portfolio.get("tokens", []):
+                amt_raw = float(t.get("amount", 0))
+                decimals = int(t.get("decimals", 0))
+                balance = amt_raw / (10 ** decimals) if decimals > 0 else amt_raw
+                usd_price = float(t.get("usdPrice", 0))
+                usd_value = balance * usd_price if usd_price else 0
+                if usd_value < 0.001 and balance < 0.001:
+                    continue  # Skip dust
+                spl_tokens.append({
+                    "symbol": t.get("symbol", "???"),
+                    "name": t.get("name", ""),
+                    "balance": balance,
+                    "usd_price": usd_price,
+                    "usd_value": usd_value,
+                    "mint": t.get("mint", ""),
+                    "chain": "solana",
+                    "verified_contract": bool(t.get("verifiedContract")),
+                })
+
+            # Estimate SOL USD from first SPL with SOL pair, or CoinGecko
+            sol_price = _get_sol_price_fallback()
+            result["sol_balance"] = sol_bal
+            result["sol_usd"] = sol_bal * sol_price
+            result["spl_tokens"] = spl_tokens
+            return result
+        except Exception:
+            pass  # Fall through to RPC
+
+    # ── Fallback: raw RPC ─────────────────────────────────────────────────
     try:
         import requests as _req
         from config import settings
-        rpc_urls = [
-            getattr(settings, 'SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
-            getattr(settings, 'SOLANA_RPC_FALLBACK', ''),
-        ]
-        for rpc_url in rpc_urls:
-            if not rpc_url:
-                continue
-            try:
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [wallet_address]}
-                resp = _req.post(rpc_url, json=payload, timeout=10)
-                data = resp.json()
-                if "result" in data and "value" in data["result"]:
-                    return data["result"]["value"] / 1_000_000_000
-            except Exception:
-                continue
+        rpc_url = getattr(settings, 'SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com')
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [wallet_address]}
+        resp = _req.post(rpc_url, json=payload, timeout=10)
+        data = resp.json()
+        if "result" in data and "value" in data["result"]:
+            sol_bal = data["result"]["value"] / 1_000_000_000
+            sol_price = _get_sol_price_fallback()
+            result["sol_balance"] = sol_bal
+            result["sol_usd"] = sol_bal * sol_price
     except Exception:
         pass
-    return 0.0
+    return result
 
 
-def _get_sol_price_usd() -> float:
-    """Fetch current SOL price from CoinGecko."""
+def _get_sol_price_fallback() -> float:
+    """Fetch current SOL price from CoinGecko (fallback only)."""
     try:
         import requests as _req
         resp = _req.get(
@@ -131,19 +179,22 @@ def safe_token_balances(address: str, chain: str) -> list:
 # ── Aggregate portfolio data ─────────────────────────────────────────────────
 total_portfolio_usd = 0.0
 wallet_data = {}
-sol_price = _get_sol_price_usd()
 
 if wallets_available:
     for key, wallet in WALLETS.items():
         nw = safe_net_worth(wallet.address)
         evm_usd = nw.get("total_networth_usd", 0.0)
 
-        # Fetch Solana balance if wallet has a Solana address
+        # Fetch Solana portfolio (SOL + SPL tokens) via Moralis
         sol_addr = getattr(wallet, "solana_address", "")
-        sol_balance = _get_sol_balance(sol_addr) if sol_addr else 0.0
-        sol_usd = sol_balance * sol_price
+        sol_portfolio = _get_solana_portfolio_data(sol_addr) if sol_addr else {"sol_balance": 0, "sol_usd": 0, "spl_tokens": []}
+        sol_balance = sol_portfolio["sol_balance"]
+        sol_usd = sol_portfolio["sol_usd"]
+        spl_tokens = sol_portfolio.get("spl_tokens", [])
 
-        wallet_total_usd = evm_usd + sol_usd
+        # Add SPL token values to total
+        spl_total_usd = sum(t.get("usd_value", 0) for t in spl_tokens)
+        wallet_total_usd = evm_usd + sol_usd + spl_total_usd
         total_portfolio_usd += wallet_total_usd
 
         wallet_data[key] = {
@@ -151,6 +202,8 @@ if wallets_available:
             "net_worth": nw,
             "sol_balance": sol_balance,
             "sol_usd": sol_usd,
+            "spl_tokens": spl_tokens,
+            "spl_total_usd": spl_total_usd,
             "total_usd": wallet_total_usd,
         }
 
@@ -399,7 +452,19 @@ target_wallets = WALLETS.items() if wallet_filter == "All Wallets" else [
 for key, wallet in target_wallets:
     for chain in wallet.chains:
         if chain == "solana":
-            continue  # Solana SPL tokens handled separately by RPC
+            # Add Solana SPL tokens from Moralis portfolio data
+            spl_tokens = wallet_data.get(key, {}).get("spl_tokens", [])
+            for t in spl_tokens:
+                all_tokens.append({
+                    "wallet": wallet.alias,
+                    "symbol": t.get("symbol", "???"),
+                    "chain": "solana",
+                    "balance": t.get("balance", 0),
+                    "usd_price": t.get("usd_price", 0),
+                    "usd_value": t.get("usd_value", 0),
+                    "verified_contract": t.get("verified_contract", False),
+                })
+            continue
         tokens = safe_token_balances(wallet.address, chain)
         for t in tokens:
             t["wallet"] = wallet.alias

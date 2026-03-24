@@ -560,13 +560,25 @@ class GemScanner:
                     candidate.sniper_score = get_sniper_score(pair_addr)
                     candidate.sniper_count = sniper_data.get("sniper_count", 0)
                     candidate.sniper_risk = sniper_data.get("risk_level", "unknown")
-                    if sniper_data["risk_level"] in ("high", "critical"):
+                    if sniper_data.get("sniper_count", 0) >= 5 or sniper_data.get("risk_level", "unknown") in ("high", "critical"):
                         logger.warning(
                             f"🎯 SNIPER ALERT {token.symbol}: "
                             f"{sniper_data['sniper_count']} snipers "
                             f"(${sniper_data['total_sniped_usd']:,.0f} sniped) "
                             f"— risk={sniper_data['risk_level']}"
                         )
+                        # Slack alert for high sniper activity
+                        try:
+                            from notifications.slack import notify_alert
+                            notify_alert(
+                                "🎯 Sniper Warning",
+                                f"{token.symbol} has {sniper_data['sniper_count']} snipers "
+                                f"(${sniper_data['total_sniped_usd']:,.0f} sniped) — "
+                                f"risk: {sniper_data['risk_level']}",
+                                level="warning",
+                            )
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.debug(f"Sniper detection failed for {token.symbol}: {e}")
                     candidate.sniper_score = 50.0
@@ -668,6 +680,62 @@ class GemScanner:
             except Exception as e:
                 logger.debug(f"Copycat detection failed for {token.symbol}: {e}")
                 candidate.copycat_score = 70.0  # Neutral — not penalizing
+
+            # ── Moralis Token Metadata Enrichment (Onchain Skills: FDV/Spam/Social) ──
+            # Uses get_enhanced_token_metadata() — only 10 CU for up to 10 tokens.
+            # Provides: FDV, market cap, spam detection, social links, verified contract.
+            # Applied as score modifiers rather than a separate weight.
+            try:
+                from data.providers.moralis_wallet import get_enhanced_token_metadata
+                metadata_list = get_enhanced_token_metadata(
+                    [token.address], chain=token.chain
+                )
+                if metadata_list:
+                    meta = metadata_list[0]
+                    candidate.moralis_fdv = meta.get("fdv", 0.0)
+                    candidate.moralis_market_cap = meta.get("market_cap", 0.0)
+                    candidate.moralis_verified = meta.get("verified_contract", False)
+                    candidate.moralis_spam = meta.get("possible_spam", False)
+                    candidate.moralis_has_website = bool(meta.get("website", ""))
+                    candidate.moralis_has_twitter = bool(meta.get("twitter", ""))
+                    candidate.moralis_categories = meta.get("categories", [])
+
+                    # Spam token → instant reject
+                    if meta.get("possible_spam", False):
+                        logger.info(
+                            f"🚫 Moralis spam flag: {token.symbol} — skipping"
+                        )
+                        return None
+
+                    # Verified contract → score boost (+5 to contract_score)
+                    if meta.get("verified_contract", False):
+                        candidate.contract_score = min(
+                            100.0, candidate.contract_score + 5.0
+                        )
+
+                    # Social presence (website + twitter) → social score boost
+                    social_links = sum([
+                        bool(meta.get("website", "")),
+                        bool(meta.get("twitter", "")),
+                        bool(meta.get("telegram", "")),
+                        bool(meta.get("discord", "")),
+                    ])
+                    if social_links >= 2:
+                        candidate.social_score = min(
+                            100.0, candidate.social_score + 3.0
+                        )
+
+                    # FDV sanity check — if FDV > $1B but liquidity < $100K, likely fake
+                    if meta.get("fdv", 0) > 1_000_000_000 and token.liquidity_usd < 100_000:
+                        logger.info(
+                            f"⚠️ FDV anomaly: {token.symbol} FDV=${meta['fdv']:,.0f} "
+                            f"but liquidity=${token.liquidity_usd:,.0f}"
+                        )
+                        candidate.contract_score = max(
+                            0.0, candidate.contract_score - 15.0
+                        )
+            except Exception as e:
+                logger.debug(f"Moralis metadata enrichment failed for {token.symbol}: {e}")
         else:
             candidate.tvl_score = 30.0
             candidate.social_sentiment_score = 30.0
@@ -694,12 +762,47 @@ class GemScanner:
                 candidate.moralis_sellers_1h = enrichment.get("moralis_sellers_1h", 0)
                 candidate.moralis_txns_1h = enrichment.get("moralis_txns_1h", 0)
                 candidate.moralis_top10_pct = enrichment.get("moralis_top10_pct", 0.0)
+                # New whale accumulation + discovery signals
+                candidate.moralis_exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
+                candidate.moralis_exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+                candidate.moralis_holders_change_1d = enrichment.get("moralis_holders_change_1d", 0)
+                candidate.moralis_holders_change_1w = enrichment.get("moralis_holders_change_1w", 0)
+                candidate.moralis_on_chain_strength = enrichment.get("moralis_on_chain_strength", 0.0)
+                candidate.moralis_liquidity_locked_pct = enrichment.get("moralis_liquidity_locked_pct", 0.0)
+                candidate.moralis_security_score = enrichment.get("moralis_security_score", 0)
+                candidate.moralis_token_age_days = enrichment.get("moralis_token_age_days", 0.0)
+
+                # Whale accumulation bonus: log strong whale interest
+                exp_net_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+                if exp_net_1w >= 10:
+                    logger.info(
+                        f"🐋 WHALE ACCUMULATION: {token.symbol} — "
+                        f"{exp_net_1w} experienced net buyers this week!"
+                    )
+
+                # Security score from discovery: if score < 40 → deduct from contract_score
+                disc_security = enrichment.get("moralis_security_score", 0)
+                if disc_security > 0 and disc_security < 40:
+                    candidate.contract_score = max(
+                        0.0, candidate.contract_score - 10.0
+                    )
+                    logger.debug(
+                        f"⚠️ Low Moralis security score for {token.symbol}: "
+                        f"{disc_security}/100 → contract score penalized"
+                    )
+                elif disc_security >= 80:
+                    candidate.contract_score = min(
+                        100.0, candidate.contract_score + 5.0
+                    )
+
                 if enrichment.get("moralis_score", 0) > 0:
                     logger.debug(
                         f"Moralis enrichment {token.symbol}: "
                         f"score={enrichment['moralis_score']} "
                         f"buy_pressure={enrichment['moralis_buy_pressure']:.2f} "
-                        f"net_buyers_1h={enrichment['moralis_net_buyers_1h']}"
+                        f"net_buyers_1h={enrichment['moralis_net_buyers_1h']} "
+                        f"whale_1w={exp_net_1w} "
+                        f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)}"
                     )
             except Exception as e:
                 logger.debug(f"Moralis enrichment failed for {token.symbol}: {e}")

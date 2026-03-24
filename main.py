@@ -1142,6 +1142,24 @@ async def run_bot_loop():
                     f"{open_count} open positions"
                 )
 
+                # On-chain position reconciliation (Solana)
+                try:
+                    from core.reconciliation import reconcile_solana_positions
+                    # Find first wallet with a Solana address
+                    sol_addr = ""
+                    for _wk, _wv in WALLETS.items():
+                        if getattr(_wv, "solana_address", ""):
+                            sol_addr = _wv.solana_address
+                            break
+                    if sol_addr:
+                        recon_mismatches = reconcile_solana_positions(sol_addr)
+                        if recon_mismatches:
+                            logger.warning(
+                                f"⚠️ Reconciliation found {len(recon_mismatches)} mismatch(es)"
+                            )
+                except Exception as recon_err:
+                    logger.debug(f"Reconciliation error: {recon_err}")
+
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
             monitor.stop()

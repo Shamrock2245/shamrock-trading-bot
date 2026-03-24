@@ -175,12 +175,12 @@ def get_filtered_tokens(
                 },
                 {
                     "metric": "totalLiquidityUsd",
-                    "timeFrame": "oneHour",
+                    "timeFrame": "oneDay",  # Point-in-time metric — must use oneDay
                     "gt": min_liquidity_usd,
                 },
                 {
                     "metric": "securityScore",
-                    "timeFrame": "oneHour",
+                    "timeFrame": "oneDay",  # Point-in-time metric — must use oneDay
                     "gt": min_security_score,
                 },
             ],
@@ -270,6 +270,158 @@ def get_filtered_tokens(
         return []
     except Exception as e:
         logger.warning(f"Moralis filtered tokens error for {chain}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1b. Whale Accumulation Discovery  (POST /discovery/tokens)
+#     Uses netExperiencedBuyers — the most powerful smart-money signal.
+#     Finds tokens where experienced wallets are net BUYING heavily.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_whale_accumulation_tokens(
+    chain: str,
+    min_net_experienced_buyers_1w: int = 20,
+    min_net_volume_usd_1d: float = 50_000,
+    min_liquidity_usd: float = 100_000,
+    limit: int = 15,
+) -> list[dict]:
+    """
+    Whale accumulation detector — finds tokens where experienced wallets
+    (500+ lifetime txns) are net accumulating over the past week.
+
+    This is the single highest-signal discovery filter because it identifies
+    tokens that smart money is buying BEFORE price moves.
+
+    Filters:
+      - netExperiencedBuyers > threshold over 1 week
+      - netVolumeUsd > threshold over 1 day (positive buy pressure)
+      - totalLiquidityUsd > threshold (not illiquid)
+    """
+    if not _available(chain) or chain == "solana":
+        return []  # getFilteredTokens is EVM-only for now
+    moralis_chain = CHAIN_MAP[chain]
+    chain_hex = CHAIN_HEX.get(moralis_chain, "0x1")
+    cache_key = f"whale_accum_{chain}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        payload = {
+            "chain": chain_hex,
+            "filters": [
+                {
+                    "metric": "netExperiencedBuyers",
+                    "timeFrame": "oneWeek",
+                    "gt": min_net_experienced_buyers_1w,
+                },
+                {
+                    "metric": "netVolumeUsd",
+                    "timeFrame": "oneDay",
+                    "gt": min_net_volume_usd_1d,
+                },
+                {
+                    "metric": "totalLiquidityUsd",
+                    "timeFrame": "oneDay",
+                    "gt": min_liquidity_usd,
+                },
+            ],
+            "sortBy": {
+                "metric": "netExperiencedBuyers",
+                "timeFrame": "oneWeek",
+                "type": "DESC",
+            },
+            "limit": limit,
+            "categories": {"exclude": ["stablecoin"]},
+            "metricsToReturn": [
+                "netExperiencedBuyers",
+                "experiencedBuyers",
+                "experiencedSellers",
+                "netBuyers",
+                "netVolumeUsd",
+                "volumeUsd",
+                "holders",
+                "totalHolders",
+                "usdPrice",
+                "usdPricePercentChange",
+                "totalLiquidityUsd",
+                "securityScore",
+                "fullyDilutedValuation",
+            ],
+            "timeFramesToReturn": ["oneDay", "oneWeek"],
+            "excludeMetadata": False,
+        }
+        resp = requests.post(
+            f"{BASE_URL}/discovery/tokens",
+            json=payload,
+            headers=_json_headers(),
+            timeout=20,
+        )
+        if resp.status_code in (402, 403):
+            logger.debug(f"Moralis whale accumulation: plan limitation for {chain}")
+            return []
+        resp.raise_for_status()
+        raw = resp.json()
+        items = raw if isinstance(raw, list) else raw.get("result", [])
+        result = []
+        for item in items:
+            meta = item.get("metadata", item)
+            metrics = item.get("metrics", {})
+            net_exp_buyers_1w = _safe_int(
+                (metrics.get("netExperiencedBuyers") or {}).get("oneWeek", 0)
+            )
+            result.append({
+                "token_address": meta.get("tokenAddress", meta.get("token_address", "")),
+                "token_symbol":  meta.get("symbol", meta.get("token_symbol", "")),
+                "token_name":    meta.get("name", meta.get("token_name", "")),
+                "chain":         chain,
+                "price_usd":     _safe_float(meta.get("usdPrice", 0)),
+                "market_cap":    _safe_float(meta.get("marketCap", 0)),
+                "liquidity_usd": _safe_float(meta.get("totalLiquidityUsd", 0)),
+                "security_score": _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
+                # Whale accumulation signals
+                "net_experienced_buyers_1w": net_exp_buyers_1w,
+                "experienced_buyers_1d": _safe_int(
+                    (metrics.get("experiencedBuyers") or {}).get("oneDay", 0)
+                ),
+                "net_volume_usd_1d": _safe_float(
+                    (metrics.get("netVolumeUsd") or {}).get("oneDay", 0)
+                ),
+                "holder_change_1d": _safe_int(
+                    (metrics.get("holders") or {}).get("oneDay", 0)
+                ),
+                "holder_change_1w": _safe_int(
+                    (metrics.get("holders") or {}).get("oneWeek", 0)
+                ),
+                "total_holders": _safe_int(
+                    (metrics.get("totalHolders") or {}).get("oneDay", 0)
+                ),
+                "fdv": _safe_float(
+                    (metrics.get("fullyDilutedValuation") or {}).get("oneDay", 0)
+                ),
+                "price_change_1d": _safe_float(
+                    (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)
+                ),
+                "price_change_1w": _safe_float(
+                    (metrics.get("usdPricePercentChange") or {}).get("oneWeek", 0)
+                ),
+                "source": "moralis_whale_accumulation",
+                "whale_signal_strength": min(100, net_exp_buyers_1w * 2),  # 0–100 signal
+            })
+        _set_cache(cache_key, result)
+        logger.info(
+            f"🐋 Moralis whale accumulation: {len(result)} tokens on {chain}"
+        )
+        return result
+    except requests.exceptions.HTTPError as e:
+        code = e.response.status_code if e.response is not None else 0
+        if code in (402, 403):
+            logger.debug(f"Moralis whale accumulation: plan limitation ({code}) for {chain}")
+        else:
+            logger.warning(f"Moralis whale accumulation error for {chain}: {e}")
+        return []
+    except Exception as e:
+        logger.warning(f"Moralis whale accumulation error for {chain}: {e}")
         return []
 
 
@@ -678,14 +830,97 @@ def get_holder_count(token_address: str, chain: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 11. Discovery Token Details (GET /discovery/token)
+#     Deep per-token intel — works for BOTH EVM and Solana (chain=solana)
+#     Returns security_score, holders_change, experienced_net_buyers_change,
+#     liquidity_change_usd, on_chain_strength_index, and social links.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_discovery_token_details(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Get comprehensive discovery details for a specific token.
+    This is the richest single-token endpoint — provides security score,
+    holder growth, experienced buyer trends, liquidity trends, and social links.
+
+    Works for Solana via chain=solana parameter (same EVM endpoint).
+    Lower CU cost than combining multiple separate calls.
+    """
+    if not _available(chain):
+        return None
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"discovery_detail_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/discovery/token",
+            params={"chain": moralis_chain, "token_address": token_address},
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (402, 403, 404):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "token_address":   data.get("token_address", token_address),
+            "token_name":      data.get("token_name", ""),
+            "token_symbol":    data.get("token_symbol", ""),
+            "chain":           chain,
+            "price_usd":       _safe_float(data.get("price_usd", 0)),
+            "market_cap":      _safe_float(data.get("market_cap", 0)),
+            "fdv":             _safe_float(data.get("fully_diluted_valuation", 0)),
+            "security_score":  _safe_int(data.get("security_score", 0)),
+            "token_age_days":  _safe_float(data.get("token_age_in_days", 0)),
+            "on_chain_strength": _safe_float(data.get("on_chain_strength_index", 0)),
+            "twitter_followers": _safe_int(data.get("twitter_followers", 0)),
+            # Time-series holder changes
+            "holders_change_1h": _safe_int((data.get("holders_change") or {}).get("1h", 0)),
+            "holders_change_1d": _safe_int((data.get("holders_change") or {}).get("1d", 0)),
+            "holders_change_1w": _safe_int((data.get("holders_change") or {}).get("1w", 0)),
+            "holders_change_1m": _safe_int((data.get("holders_change") or {}).get("1M", 0)),
+            # Experienced net buyers — whale signal
+            "exp_net_buyers_1h": _safe_int((data.get("experienced_net_buyers_change") or {}).get("1h", 0)),
+            "exp_net_buyers_1d": _safe_int((data.get("experienced_net_buyers_change") or {}).get("1d", 0)),
+            "exp_net_buyers_1w": _safe_int((data.get("experienced_net_buyers_change") or {}).get("1w", 0)),
+            # Liquidity changes
+            "liquidity_change_1h": _safe_float((data.get("liquidity_change_usd") or {}).get("1h", 0)),
+            "liquidity_change_1d": _safe_float((data.get("liquidity_change_usd") or {}).get("1d", 0)),
+            "liquidity_change_1w": _safe_float((data.get("liquidity_change_usd") or {}).get("1w", 0)),
+            # Volume trends
+            "volume_change_1h": _safe_float((data.get("volume_change_usd") or {}).get("1h", 0)),
+            "volume_change_1d": _safe_float((data.get("volume_change_usd") or {}).get("1d", 0)),
+            # Net volume (buy - sell)
+            "net_volume_1h": _safe_float((data.get("net_volume_change_usd") or {}).get("1h", 0)),
+            "net_volume_1d": _safe_float((data.get("net_volume_change_usd") or {}).get("1d", 0)),
+            # Price changes
+            "price_change_1h": _safe_float((data.get("price_percent_change_usd") or {}).get("1h", 0)),
+            "price_change_1d": _safe_float((data.get("price_percent_change_usd") or {}).get("1d", 0)),
+            "price_change_1w": _safe_float((data.get("price_percent_change_usd") or {}).get("1w", 0)),
+            # Social links
+            "links": data.get("links", {}),
+            # Locked supply/liquidity percentages
+            "total_liquidity_locked_pct": _safe_float(data.get("total_liquidity_locked_in_percent", 0)),
+            "total_supply_locked_pct": _safe_float(data.get("total_supply_locked_in_percent", 0)),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis discovery token detail error for {token_address} on {chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Unified Discovery  — called by gem_scanner.py
 # ─────────────────────────────────────────────────────────────────────────────
 def discover_tokens(chains: list[str] = None) -> list[dict]:
     """
     PRIMARY DISCOVERY FUNCTION — called by GemScanner on every cycle.
 
-    Aggregates tokens from ALL five Moralis discovery endpoints:
+    Aggregates tokens from ALL six Moralis discovery endpoints:
       1. Filtered Tokens (experienced buyers + liquidity + security filters)
+      1b. Whale Accumulation (netExperiencedBuyers — strongest smart-money signal)
       2. Trending Tokens
       3. Top Gainers (1h)
       4. Buying Pressure
@@ -714,6 +949,10 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
     for chain in chains:
         # 1. Filtered tokens — highest signal quality
         for t in get_filtered_tokens(chain):
+            _dedup_add(t, chain, seen, all_tokens)
+
+        # 1b. Whale accumulation — strongest smart-money signal
+        for t in get_whale_accumulation_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
         # 2. Trending
@@ -756,12 +995,14 @@ def _dedup_add(token: dict, chain: str, seen: set, result: list) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def enrich_candidate(token_address: str, chain: str) -> dict:
     """
-    Enrich a gem candidate with Moralis token score + analytics.
-    Returns a dict with moralis_score, buy_pressure_ratio, net_buyers_1h, etc.
+    Enrich a gem candidate with Moralis token score + analytics + discovery details.
+    Returns a dict with moralis_score, buy_pressure_ratio, net_buyers_1h,
+    whale accumulation signals, and comprehensive discovery data.
     Called by the gem scorer for each candidate that passes initial filters.
     """
     score_data = get_token_score(token_address, chain)
     analytics_data = get_token_analytics(token_address, chain)
+    discovery_data = get_discovery_token_details(token_address, chain)
 
     enrichment = {
         "moralis_score":         0,
@@ -772,6 +1013,17 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         "moralis_buy_pressure":  0.5,
         "moralis_buyers_1h":     0,
         "moralis_sellers_1h":    0,
+        # Discovery token intel
+        "moralis_security_score":    0,
+        "moralis_on_chain_strength": 0.0,
+        "moralis_exp_net_buyers_1d": 0,
+        "moralis_exp_net_buyers_1w": 0,
+        "moralis_holders_change_1d": 0,
+        "moralis_holders_change_1w": 0,
+        "moralis_liquidity_change_1d": 0.0,
+        "moralis_net_volume_1d":     0.0,
+        "moralis_token_age_days":    0.0,
+        "moralis_liquidity_locked_pct": 0.0,
     }
 
     if score_data:
@@ -786,6 +1038,25 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         enrichment["moralis_buyers_1h"]     = analytics_data.get("buyers_1h", 0)
         enrichment["moralis_sellers_1h"]    = analytics_data.get("sellers_1h", 0)
 
+    # Discovery token deep intel — works for both EVM and Solana
+    if discovery_data:
+        enrichment["moralis_security_score"]     = discovery_data.get("security_score", 0)
+        enrichment["moralis_on_chain_strength"]  = discovery_data.get("on_chain_strength", 0.0)
+        enrichment["moralis_exp_net_buyers_1d"]  = discovery_data.get("exp_net_buyers_1d", 0)
+        enrichment["moralis_exp_net_buyers_1w"]  = discovery_data.get("exp_net_buyers_1w", 0)
+        enrichment["moralis_holders_change_1d"]  = discovery_data.get("holders_change_1d", 0)
+        enrichment["moralis_holders_change_1w"]  = discovery_data.get("holders_change_1w", 0)
+        enrichment["moralis_liquidity_change_1d"]= discovery_data.get("liquidity_change_1d", 0.0)
+        enrichment["moralis_net_volume_1d"]      = discovery_data.get("net_volume_1d", 0.0)
+        enrichment["moralis_token_age_days"]     = discovery_data.get("token_age_days", 0.0)
+        enrichment["moralis_liquidity_locked_pct"]= discovery_data.get("total_liquidity_locked_pct", 0.0)
+        # Override security score with discovery data if higher (more accurate)
+        if discovery_data.get("security_score", 0) > enrichment.get("moralis_score", 0):
+            enrichment["moralis_score"] = max(
+                enrichment["moralis_score"],
+                discovery_data["security_score"]
+            )
+
     return enrichment
 
 
@@ -797,11 +1068,17 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     Convert Moralis enrichment data into a 0–100 score contribution.
     This is added to the gem candidate's composite score with a 15% weight.
 
-    Scoring logic:
-      - Moralis token score (0–100):          40% of contribution
-      - Buy pressure ratio (0–1 → 0–100):     25% of contribution
-      - Net buyers 1h (capped at 100):         20% of contribution
-      - Transaction count 1h (capped at 100):  15% of contribution
+    Scoring logic (base — 80% of contribution):
+      - Moralis token score (0–100):          35% of contribution
+      - Buy pressure ratio (0–1 → 0–100):     20% of contribution
+      - Net buyers 1h (capped at 100):         15% of contribution
+      - Transaction count 1h (capped at 100):  10% of contribution
+
+    Whale accumulation bonus (20% of contribution — from discovery token details):
+      - Experienced net buyers 1d/1w:          8%  (whale accumulation signal)
+      - Holder growth 1d:                      4%  (organic adoption signal)
+      - On-chain strength index:               4%  (overall health signal)
+      - Liquidity locked %:                    4%  (rug-pull protection signal)
     """
     moralis_score    = min(100.0, enrichment.get("moralis_score", 0))
     buy_pressure     = enrichment.get("moralis_buy_pressure", 0.5)
@@ -809,13 +1086,37 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     net_buyers       = min(100.0, max(0.0, enrichment.get("moralis_net_buyers_1h", 0) * 2))
     txns             = min(100.0, enrichment.get("moralis_txns_1h", 0) / 10)  # 1000 txns = 100
 
-    contribution = (
-        moralis_score    * 0.40
-        + buy_pressure_pct * 0.25
-        + net_buyers       * 0.20
-        + txns             * 0.15
+    # Base contribution (80%)
+    base = (
+        moralis_score    * 0.35
+        + buy_pressure_pct * 0.20
+        + net_buyers       * 0.15
+        + txns             * 0.10
     )
-    return round(contribution, 2)
+
+    # Whale accumulation bonus (20%) — from discovery token details
+    exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+    exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
+    # Scale whale signal: 50+ experienced net buyers over 1 week = max score
+    whale_signal = min(100.0, max(0.0, (exp_net_buyers_1w + exp_net_buyers_1d) * 1.5))
+
+    holder_growth = enrichment.get("moralis_holders_change_1d", 0)
+    # Scale holder growth: 200+ new holders/day = max score
+    holder_signal = min(100.0, max(0.0, holder_growth * 0.5))
+
+    on_chain_strength = min(100.0, enrichment.get("moralis_on_chain_strength", 0))
+
+    liquidity_locked = min(100.0, enrichment.get("moralis_liquidity_locked_pct", 0))
+
+    whale_bonus = (
+        whale_signal       * 0.08
+        + holder_signal    * 0.04
+        + on_chain_strength * 0.04
+        + liquidity_locked  * 0.04
+    )
+
+    contribution = base + whale_bonus
+    return round(min(100.0, contribution), 2)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,5745 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# RPC Nodes
+
+> Moralis Nodes give you reliable, low-latency access to blockchain networks for reading data and submitting transactions - ideal for powering wallets, dapps, indexers, bots, and custom infrastructure at scale.
+
+## Overview
+
+**Moralis RPC Nodes** provide reliable, low-latency access to blockchain networks for reading on-chain data and submitting transactions.
+
+Instead of running your own nodes, Moralis handles the infrastructure so you can focus on building your application.
+
+***
+
+## What Are RPC Nodes?
+
+RPC (Remote Procedure Call) nodes are your gateway to blockchain networks. They allow you to:
+
+* **Read Data** - Query blockchain state, balances, and transactions
+* **Submit Transactions** - Send signed transactions to the network
+* **Subscribe to Events** - Listen for new blocks and contract events
+* **Access Archives** - Query historical blockchain state
+
+***
+
+## Key Features
+
+* **High Availability** - 99.9% uptime SLA
+* **Low Latency** - Optimized for fast response times
+* **Multi-Chain** - Support for 20+ blockchain networks
+* **Archive Access** - Full historical data on supported chains
+* **WebSocket Support** - Real-time subscriptions and event streaming
+* **Rate Limits** - Generous limits with burst capacity
+* **Global Distribution** - Edge nodes for reduced latency
+
+***
+
+## Supported Networks
+
+Moralis RPC Nodes support major blockchain networks:
+
+* **Ethereum** - Mainnet and testnets
+* **Polygon** - PoS and zkEVM
+* **BNB Chain** - BSC and opBNB
+* **Arbitrum** - One and Nova
+* **Optimism** - Mainnet
+* **Base** - Mainnet
+* **Avalanche** - C-Chain
+* **And more** - Linea, zkSync, Blast, Mantle, and others
+
+***
+
+## Common Use Cases
+
+* **Wallets**\
+  (query balances and submit transactions)
+* **dApps**\
+  (interact with smart contracts)
+* **Indexers**\
+  (fetch and process blockchain data)
+* **Trading Bots**\
+  (monitor mempool and execute trades)
+* **Analytics**\
+  (query historical blockchain state)
+* **Backend Services**\
+  (reliable blockchain connectivity)
+
+***
+
+## Get Started
+
+Choose a network to get started:
+
+* [**Ethereum**](/rpc-nodes/ethereum/overview)
+* [**Polygon**](/rpc-nodes/polygon/overview)
+* [**BNB Chain**](/rpc-nodes/bsc/overview)
+* [**Arbitrum**](/rpc-nodes/arbitrum/overview)
+* [**Optimism**](/rpc-nodes/optimism/overview)
+* [**Base**](/rpc-nodes/base/overview)
+* [**Avalanche**](/rpc-nodes/avalanche/overview)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore Ethereum JSON-RPC methods
+
+## Introduction
+
+Ethereum is the pioneering smart contract platform that enables developers to build decentralized applications (dApps) on a permissionless blockchain. It supports smart contracts, decentralized finance (DeFi), and a broad array of token standards, including ERC-20 and ERC-721. Ethereum’s consensus mechanism transitioned from Proof of Work (PoW) to Proof of Stake (PoS) with the Ethereum 2.0 upgrade, making it more energy-efficient. As the largest smart contract platform by market capitalization and developer activity, Ethereum remains a leader in the blockchain space.
+
+## Supported Networks
+
+The Ethereum RPC API is available for the following networks:
+
+1. **Ethereum Mainnet**
+2. **Ethereum Sepolia Testnet**
+
+## Network Details
+
+| **Network**          | **Chain ID**        | **Path Parameter** |
+| :------------------- | :------------------ | :----------------- |
+| **Ethereum Mainnet** | 0x1 (1)             | `eth`              |
+| **Ethereum Sepolia** | 0xaa36a7 (11155111) | `sepolia`          |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/ethereum/eth-blockNumber)
+* [eth\_call](/rpc-nodes/ethereum/eth-call)
+* [eth\_chainId](/rpc-nodes/ethereum/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/ethereum/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/ethereum/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/ethereum/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/ethereum/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/ethereum/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/ethereum/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/ethereum/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/ethereum/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/ethereum/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/ethereum/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/ethereum/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/ethereum/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/ethereum/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/ethereum/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/ethereum/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/ethereum/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/ethereum/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/ethereum/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/ethereum/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/ethereum/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/ethereum/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/ethereum/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/ethereum/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/ethereum/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_blockNumber
+
+> Returns the number of most recent block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/eth/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x4b7"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_call
+
+> Executes a new message call immediately without creating a transaction on the blockchain.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string" required>
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x0000000000000000000000000000000000000000",
+    "to": "0x0000000000000000000000000000000000000000",
+    "gas": "0x76c0",
+    "gasPrice": "0x9184e72a000",
+    "value": "0x9184e72a",
+    "data": "0x"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/eth/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_call", "params": [{"from": "0xb60e8dd61c5d32be8058bb8eb970870f07233155", "to": "0xd46e8dd67c5d32be8058bb8eb970870f07244567", "gas": "0x76c0", "gasPrice": "0x9184e72a000", "value": "0x9184e72a", "data": "0xd46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x15536ee"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore Base JSON-RPC methods
+
+## Introduction
+
+Base is an Ethereum Layer 2 (L2) network that offers high-speed, low-cost transactions with the security of Ethereum. It leverages the Optimism rollup technology to process transactions off-chain, reducing fees and improving throughput. Base is designed to bring the power of Ethereum to more developers and users, enabling a more scalable decentralized finance (DeFi) ecosystem, NFTs, and other dApps.
+
+## Supported Networks
+
+The Base RPC API is available for the following networks:
+
+1. **Base Mainnet**
+2. **Base Sepolia Testnet**
+
+## Network Details
+
+| **Network**      | **Chain ID**    | **Path Parameter** |
+| :--------------- | :-------------- | :----------------- |
+| **Base Mainnet** | 0x2105 (8453)   | `base`             |
+| **Base Sepolia** | 0x14a34 (84532) | `base-sepolia`     |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/base/eth-blockNumber)
+* [eth\_call](/rpc-nodes/base/eth-call)
+* [eth\_chainId](/rpc-nodes/base/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/base/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/base/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/base/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/base/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/base/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/base/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/base/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/base/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/base/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/base/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/base/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/base/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/base/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/base/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/base/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/base/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/base/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/base/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/base/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/base/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore Base JSON-RPC methods
+
+## Introduction
+
+Base is an Ethereum Layer 2 (L2) network that offers high-speed, low-cost transactions with the security of Ethereum. It leverages the Optimism rollup technology to process transactions off-chain, reducing fees and improving throughput. Base is designed to bring the power of Ethereum to more developers and users, enabling a more scalable decentralized finance (DeFi) ecosystem, NFTs, and other dApps.
+
+## Supported Networks
+
+The Base RPC API is available for the following networks:
+
+1. **Base Mainnet**
+2. **Base Sepolia Testnet**
+
+## Network Details
+
+| **Network**      | **Chain ID**    | **Path Parameter** |
+| :--------------- | :-------------- | :----------------- |
+| **Base Mainnet** | 0x2105 (8453)   | `base`             |
+| **Base Sepolia** | 0x14a34 (84532) | `base-sepolia`     |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/base/eth-blockNumber)
+* [eth\_call](/rpc-nodes/base/eth-call)
+* [eth\_chainId](/rpc-nodes/base/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/base/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/base/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/base/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/base/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/base/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/base/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/base/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/base/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/base/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/base/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/base/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/base/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/base/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/base/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/base/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/base/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/base/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/base/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/base/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/base/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore Base JSON-RPC methods
+
+## Introduction
+
+Base is an Ethereum Layer 2 (L2) network that offers high-speed, low-cost transactions with the security of Ethereum. It leverages the Optimism rollup technology to process transactions off-chain, reducing fees and improving throughput. Base is designed to bring the power of Ethereum to more developers and users, enabling a more scalable decentralized finance (DeFi) ecosystem, NFTs, and other dApps.
+
+## Supported Networks
+
+The Base RPC API is available for the following networks:
+
+1. **Base Mainnet**
+2. **Base Sepolia Testnet**
+
+## Network Details
+
+| **Network**      | **Chain ID**    | **Path Parameter** |
+| :--------------- | :-------------- | :----------------- |
+| **Base Mainnet** | 0x2105 (8453)   | `base`             |
+| **Base Sepolia** | 0x14a34 (84532) | `base-sepolia`     |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/base/eth-blockNumber)
+* [eth\_call](/rpc-nodes/base/eth-call)
+* [eth\_chainId](/rpc-nodes/base/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/base/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/base/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/base/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/base/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/base/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/base/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/base/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/base/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/base/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/base/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/base/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/base/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/base/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/base/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/base/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/base/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/base/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/base/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/base/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/base/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/base/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/base/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_chainId
+
+> Returns the chain ID of the current connected node as described in EIP-695.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_chainId
+
+> Returns the chain ID of the current connected node as described in EIP-695.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_estimateGas
+
+> Generates and returns an estimate of how much gas is necessary to allow the transaction to complete.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9",
+    "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601",
+    "value": "0x186a0"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_estimateGas", "params": [{"from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9", "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601", "value": "0x186a0"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x5208"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_estimateGas
+
+> Generates and returns an estimate of how much gas is necessary to allow the transaction to complete.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9",
+    "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601",
+    "value": "0x186a0"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_estimateGas", "params": [{"from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9", "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601", "value": "0x186a0"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x5208"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_gasPrice
+
+> Returns the current price per gas in wei.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x09184e72a000"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBalance
+
+> Returns the balance of the account of given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to check for balance
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBalance", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0234c8a3397aab58"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBalance
+
+> Returns the balance of the account of given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to check for balance
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBalance", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0234c8a3397aab58"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockByNumber
+
+> Returns information about a block by block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="fullTransactionObjects" type="boolean" required>
+  If true it returns the full transaction objects, if false only the hashes of the transactions
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1b4",
+  true
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockByNumber", "params": ["0x1b4", true], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": "0x3319bb0",
+      "blobGasUsed": "0x120000",
+      "difficulty": "0x0",
+      "excessBlobGas": "0xa576243",
+      "extraData": "0xe29ca82051756173617220287175617361722e77696e2920e29ca8",
+      "gasLimit": "0x3938700",
+      "gasUsed": "0x2965eaa",
+      "hash": "0xc319ec0da50d354ce425b63fb6914a42aafdb9ee9807518edd595809e25fbe38",
+      "logsBloom": "0x7feeeb37793b4fdfff7ab7aefde2d7fdfff9575bfef5bdff3fb97bfef7bcddbbdf9d55e77fdf7ead7b98ffd9bb6fefff7e77b163bf9eeebdddd1ffbf376cfbeb7efffef83ffbe9eb7ff7776ab3dcf8bfee7ebaddfffdf7fe3fffdf6ed3f7dff77cf2fd7efffff7a19ef7ffbbe3e8befdb7fff76b6ed6e7ffceeb99ff7eeb5efebfff3fff7da1fb39f9fff3fd7f3f77b6dd0bed39f5fff3bfa7fbbce7f9f6ec6e0fff50bfe7f9f79efff35ff6d93fecfefbffdaf7b7eff35ec6ff42fe7e6f77f7deff7eff57f6aafa597feebdffff7bbd677e27ffbfadfdf57f7e7d2aeeffffff6676ffa7f3f375eb95eecf9ffa235cbfcdefafbf8feed9dc7b56ff2fdfedfefe",
+      "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+      "mixHash": "0x07444bb5750f746e200e1dcd8d83221b26576d3357b833cc1e434e7966d0e774",
+      "nonce": "0x0000000000000000",
+      "number": "0x1736791",
+      "parentBeaconBlockRoot": "0x2759f248e2d1cb1a2f5c2657c4efcc623dd8ea7f23e8700162e7fccdacedfd5d",
+      "parentHash": "0xdf0e4dee910167d7b1687a6cb677983ce7ed351ae78ab7e2c5ba39d793c80391",
+      "receiptsRoot": "0x5f1c58e498161509245daad0f60319d9abab7f04d2ca60e99a3674cfdc9b8327",
+      "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x1ef1e",
+      "stateRoot": "0x728c7e38107037b573d719e67b6872ee3ca4e01b47818598316cd696bfe24f2c",
+      "timestamp": "0x697b4bcb",
+      "transactions": [
+        "0xbf7bd0cf98c3b65525f1f7267b1d02e7ccd7cd133b137f46723a91cf187616d5",
+        "0x06ac9281da76d530aa19600e2c34aae7564a78702d3eb52b1fb363985473e296"
+      ],
+      "transactionsRoot": "0xa8c680f6ad8ccc7a49db5ab76cbd9194c88e16dbcfa440104f7787e5ba815c4f",
+      "uncles": [],
+      "withdrawals": [
+        {
+          "index": "0x6f78bfb",
+          "validatorIndex": "0x955f5",
+          "address": "0x5d3ca1842d0988816434ea51ca420182f3f1e31a",
+          "amount": "0x102d2f1"
+        }
+      ],
+      "withdrawalsRoot": "0x9b7ecf1ba575fc02e4b4c14bd65d5ca95c0e066adaae3fc2ef16f5acd90214d8"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByHash
+
+> Returns the number of transactions in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByHash
+
+> Returns the number of transactions in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockReceipts
+
+> Returns all transaction receipts for a given block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf21d9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockReceipts", "params": ["0xf21d9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "blockHash": "0x8243343df08b9751f5ca0c5f8c9c0460d8a9b6351066fae0acbd4d3e776de8bb",
+        "blockNumber": "0xf21d9c",
+        "contractAddress": null,
+        "cumulativeGasUsed": "0x5208",
+        "effectiveGasPrice": "0x1dcd6500",
+        "from": "0x8ba1f109551bd432803012645haca66c9834d7c6",
+        "gasUsed": "0x5208",
+        "logs": [],
+        "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "status": "0x1",
+        "to": "0x95cED938F7991cd0dFcb48F0a06a40FA1aF46EBC",
+        "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+        "transactionIndex": "0x0",
+        "type": "0x2"
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getCode
+
+> Returns code at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get the code from
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+  "0x2"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getCode", "params": ["0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x2"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x600160008035811a818181146012578301005b601b6001356025565b8060005260206000f25b600060078202905091905056"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getLogs
+
+> Returns an array of all logs matching a given filter object.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="fromBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="toBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Contract address or a list of addresses from which logs should originate
+</ResponseField>
+
+<ResponseField name="topics" type="array">
+  Array of 32 Bytes DATA topics. Topics are order-dependent
+</ResponseField>
+
+<ResponseField name="blockhash" type="string">
+  Using blockhash is equivalent to fromBlock = toBlock = the block number with hash blockhash
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "fromBlock": "0x1",
+    "toBlock": "0x2",
+    "address": "0x8888f1f195afa192cfee860698584c030f4c9db1",
+    "topics": [
+      "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+      null,
+      [
+        "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"
+      ]
+    ]
+  }
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getLogs", "params": [{"fromBlock": "0x1", "toBlock": "0x2", "address": "0x8888f1f195afa192cfee860698584c030f4c9db1", "topics": ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", null, ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"]]}], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "logIndex": "0x1",
+        "blockNumber": "0x1b4",
+        "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "transactionHash": "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
+        "transactionIndex": "0x0",
+        "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "topics": [
+          "0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"
+        ]
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getLogs
+
+> Returns an array of all logs matching a given filter object.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="fromBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="toBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Contract address or a list of addresses from which logs should originate
+</ResponseField>
+
+<ResponseField name="topics" type="array">
+  Array of 32 Bytes DATA topics. Topics are order-dependent
+</ResponseField>
+
+<ResponseField name="blockhash" type="string">
+  Using blockhash is equivalent to fromBlock = toBlock = the block number with hash blockhash
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "fromBlock": "0x1",
+    "toBlock": "0x2",
+    "address": "0x8888f1f195afa192cfee860698584c030f4c9db1",
+    "topics": [
+      "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+      null,
+      [
+        "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"
+      ]
+    ]
+  }
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getLogs", "params": [{"fromBlock": "0x1", "toBlock": "0x2", "address": "0x8888f1f195afa192cfee860698584c030f4c9db1", "topics": ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", null, ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"]]}], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "logIndex": "0x1",
+        "blockNumber": "0x1b4",
+        "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "transactionHash": "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
+        "transactionIndex": "0x0",
+        "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "topics": [
+          "0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"
+        ]
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getStorageAt
+
+> Returns the value from a storage position at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address of the storage
+</ResponseField>
+
+<ResponseField name="position" type="string" required>
+  Integer of the position in the storage
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x295a70b2de5e3953354a6a8344e616ed314d7251",
+  "0x0",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getStorageAt", "params": ["0x295a70b2de5e3953354a6a8344e616ed314d7251", "0x0", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x00000000000000000000000000000000000000000000000000000000000004d2"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByHash
+
+> Returns the information about a transaction requested by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByHash", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x41",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockHashAndIndex
+
+> Returns information about a transaction by block hash and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  Integer of the transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockNumberAndIndex
+
+> Returns information about a transaction by block number and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockNumberAndIndex", "params": ["0x5BAE9E", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5BAE9E",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionCount
+
+> Returns the number of transactions sent from an address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get transaction count for
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionCount", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionReceipt
+
+> Returns the receipt of a transaction by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionReceipt", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "transactionIndex": "0x41",
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "cumulativeGasUsed": "0x33bc",
+      "gasUsed": "0x4dc",
+      "contractAddress": null,
+      "logs": [],
+      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "status": "0x1"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockHashAndIndex
+
+> Returns information about an uncle of a block by hash and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x1b4",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockNumberAndIndex
+
+> Returns information about an uncle of a block by number and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x29c",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockNumberAndIndex", "params": ["0x29c", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x29c",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockHash
+
+> Returns the number of uncles in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockHash", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockNumber
+
+> Returns the number of uncles in a block from a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockNumber", "params": ["0x5BAE9E"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_maxPriorityFeePerGas
+
+> Returns a suggestion for the max priority fee per gas for dynamic fee transactions in wei.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_maxPriorityFeePerGas", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x59682f00"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_sendRawTransaction
+
+> Submits a pre-signed transaction for broadcast to the network.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="data" type="string" required>
+  The signed transaction data
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/base/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_sendRawTransaction", "params": ["0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore BNB Smart Chain JSON-RPC methods
+
+## Introduction
+
+Binance Smart Chain (BSC) is a blockchain network built for running smart contract–based applications. BSC is compatible with the Ethereum Virtual Machine (EVM), which allows Ethereum dApps and tools to be easily ported over. The network is known for its fast transactions and low fees, making it ideal for decentralized finance (DeFi), decentralized exchanges (DEXs), and other blockchain applications.
+
+## Supported Networks
+
+The Binance Smart Chain RPC API is available for the following networks:
+
+1. **Binance Smart Chain Mainnet**
+2. **Binance Smart Chain Testnet**
+
+## Network Details
+
+| **Network**                 | **Chain ID** | **Path Parameter** |
+| :-------------------------- | :----------- | :----------------- |
+| **BNB Smart Chain Mainnet** | 0x38 (56)    | `bsc`              |
+| **BNB Smart Chain Testnet** | 0x61 (97)    | `bsc-tesnet`       |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/bsc/eth-blockNumber)
+* [eth\_call](/rpc-nodes/bsc/eth-call)
+* [eth\_chainId](/rpc-nodes/bsc/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/bsc/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/bsc/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/bsc/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/bsc/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/bsc/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/bsc/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/bsc/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/bsc/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/bsc/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/bsc/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/bsc/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/bsc/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/bsc/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/bsc/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/bsc/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/bsc/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/bsc/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/bsc/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/bsc/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/bsc/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/bsc/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/bsc/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/bsc/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/bsc/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore BNB Smart Chain JSON-RPC methods
+
+## Introduction
+
+Binance Smart Chain (BSC) is a blockchain network built for running smart contract–based applications. BSC is compatible with the Ethereum Virtual Machine (EVM), which allows Ethereum dApps and tools to be easily ported over. The network is known for its fast transactions and low fees, making it ideal for decentralized finance (DeFi), decentralized exchanges (DEXs), and other blockchain applications.
+
+## Supported Networks
+
+The Binance Smart Chain RPC API is available for the following networks:
+
+1. **Binance Smart Chain Mainnet**
+2. **Binance Smart Chain Testnet**
+
+## Network Details
+
+| **Network**                 | **Chain ID** | **Path Parameter** |
+| :-------------------------- | :----------- | :----------------- |
+| **BNB Smart Chain Mainnet** | 0x38 (56)    | `bsc`              |
+| **BNB Smart Chain Testnet** | 0x61 (97)    | `bsc-tesnet`       |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/bsc/eth-blockNumber)
+* [eth\_call](/rpc-nodes/bsc/eth-call)
+* [eth\_chainId](/rpc-nodes/bsc/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/bsc/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/bsc/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/bsc/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/bsc/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/bsc/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/bsc/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/bsc/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/bsc/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/bsc/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/bsc/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/bsc/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/bsc/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/bsc/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/bsc/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/bsc/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/bsc/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/bsc/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/bsc/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/bsc/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/bsc/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/bsc/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/bsc/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/bsc/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/bsc/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_call
+
+> Executes a new message call immediately without creating a transaction on the blockchain.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string" required>
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x0000000000000000000000000000000000000000",
+    "to": "0x0000000000000000000000000000000000000000",
+    "gas": "0x76c0",
+    "gasPrice": "0x9184e72a000",
+    "value": "0x9184e72a",
+    "data": "0x"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_call", "params": [{"from": "0xb60e8dd61c5d32be8058bb8eb970870f07233155", "to": "0xd46e8dd67c5d32be8058bb8eb970870f07244567", "gas": "0x76c0", "gasPrice": "0x9184e72a000", "value": "0x9184e72a", "data": "0xd46e8dd67c5d32be8d46e8dd67c5d32be8058bb8eb970870f072445675058bb8eb970870f072445675"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x15536ee"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_chainId
+
+> Returns the chain ID of the current connected node as described in EIP-695.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_createAccessList
+
+> Creates an access list that you can include in a transaction.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="maxPriorityFeePerGas" type="string">
+  Maximum fee per gas the sender is willing to pay to miners
+</ResponseField>
+
+<ResponseField name="maxFeePerGas" type="string">
+  Maximum total fee per gas the sender is willing to pay
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8ba1f109551bd432803012645haca66c9834d7c6",
+    "to": "0x6b175474e89094c44da98b954eedeac495271d0f",
+    "gas": "0x76c0",
+    "gasPrice": "0x9184e72a000",
+    "value": "0x9184e72a",
+    "data": "0xa9059cbb0000000000000000000000008ba1f109551bd432803012645haca66c9834d7c60000000000000000000000000000000000000000000000000de0b6b3a7640000"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_createAccessList", "params": [{"from": "0x8ba1f109551bd432803012645haca66c9834d7c6", "to": "0x6b175474e89094c44da98b954eedeac495271d0f", "gas": "0x76c0", "gasPrice": "0x9184e72a000", "value": "0x9184e72a", "data": "0xa9059cbb0000000000000000000000008ba1f109551bd432803012645haca66c9834d7c60000000000000000000000000000000000000000000000000de0b6b3a7640000"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "accessList": [
+        {
+          "address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+          "storageKeys": [
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+          ]
+        }
+      ],
+      "gasUsed": "0x7671"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_estimateGas
+
+> Generates and returns an estimate of how much gas is necessary to allow the transaction to complete.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9",
+    "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601",
+    "value": "0x186a0"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_estimateGas", "params": [{"from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9", "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601", "value": "0x186a0"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x5208"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_gasPrice
+
+> Returns the current price per gas in wei.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x09184e72a000"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBalance
+
+> Returns the balance of the account of given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to check for balance
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBalance", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0234c8a3397aab58"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockByHash
+
+> Returns information about a block by hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="fullTransactionObjects" type="boolean" required>
+  If true it returns the full transaction objects, if false only the hashes of the transactions
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c",
+  false
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c", false], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": "0x3319bb0",
+      "blobGasUsed": "0x120000",
+      "difficulty": "0x0",
+      "excessBlobGas": "0xa576243",
+      "extraData": "0xe29ca82051756173617220287175617361722e77696e2920e29ca8",
+      "gasLimit": "0x3938700",
+      "gasUsed": "0x2965eaa",
+      "hash": "0xc319ec0da50d354ce425b63fb6914a42aafdb9ee9807518edd595809e25fbe38",
+      "logsBloom": "0x7feeeb37793b4fdfff7ab7aefde2d7fdfff9575bfef5bdff3fb97bfef7bcddbbdf9d55e77fdf7ead7b98ffd9bb6fefff7e77b163bf9eeebdddd1ffbf376cfbeb7efffef83ffbe9eb7ff7776ab3dcf8bfee7ebaddfffdf7fe3fffdf6ed3f7dff77cf2fd7efffff7a19ef7ffbbe3e8befdb7fff76b6ed6e7ffceeb99ff7eeb5efebfff3fff7da1fb39f9fff3fd7f3f77b6dd0bed39f5fff3bfa7fbbce7f9f6ec6e0fff50bfe7f9f79efff35ff6d93fecfefbffdaf7b7eff35ec6ff42fe7e6f77f7deff7eff57f6aafa597feebdffff7bbd677e27ffbfadfdf57f7e7d2aeeffffff6676ffa7f3f375eb95eecf9ffa235cbfcdefafbf8feed9dc7b56ff2fdfedfefe",
+      "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+      "mixHash": "0x07444bb5750f746e200e1dcd8d83221b26576d3357b833cc1e434e7966d0e774",
+      "nonce": "0x0000000000000000",
+      "number": "0x1736791",
+      "parentBeaconBlockRoot": "0x2759f248e2d1cb1a2f5c2657c4efcc623dd8ea7f23e8700162e7fccdacedfd5d",
+      "parentHash": "0xdf0e4dee910167d7b1687a6cb677983ce7ed351ae78ab7e2c5ba39d793c80391",
+      "receiptsRoot": "0x5f1c58e498161509245daad0f60319d9abab7f04d2ca60e99a3674cfdc9b8327",
+      "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x1ef1e",
+      "stateRoot": "0x728c7e38107037b573d719e67b6872ee3ca4e01b47818598316cd696bfe24f2c",
+      "timestamp": "0x697b4bcb",
+      "transactions": [
+        "0xbf7bd0cf98c3b65525f1f7267b1d02e7ccd7cd133b137f46723a91cf187616d5",
+        "0x06ac9281da76d530aa19600e2c34aae7564a78702d3eb52b1fb363985473e296"
+      ],
+      "transactionsRoot": "0xa8c680f6ad8ccc7a49db5ab76cbd9194c88e16dbcfa440104f7787e5ba815c4f",
+      "uncles": [],
+      "withdrawals": [
+        {
+          "index": "0x6f78bfb",
+          "validatorIndex": "0x955f5",
+          "address": "0x5d3ca1842d0988816434ea51ca420182f3f1e31a",
+          "amount": "0x102d2f1"
+        }
+      ],
+      "withdrawalsRoot": "0x9b7ecf1ba575fc02e4b4c14bd65d5ca95c0e066adaae3fc2ef16f5acd90214d8"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockByNumber
+
+> Returns information about a block by block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="fullTransactionObjects" type="boolean" required>
+  If true it returns the full transaction objects, if false only the hashes of the transactions
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1b4",
+  true
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockByNumber", "params": ["0x1b4", true], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": "0x3319bb0",
+      "blobGasUsed": "0x120000",
+      "difficulty": "0x0",
+      "excessBlobGas": "0xa576243",
+      "extraData": "0xe29ca82051756173617220287175617361722e77696e2920e29ca8",
+      "gasLimit": "0x3938700",
+      "gasUsed": "0x2965eaa",
+      "hash": "0xc319ec0da50d354ce425b63fb6914a42aafdb9ee9807518edd595809e25fbe38",
+      "logsBloom": "0x7feeeb37793b4fdfff7ab7aefde2d7fdfff9575bfef5bdff3fb97bfef7bcddbbdf9d55e77fdf7ead7b98ffd9bb6fefff7e77b163bf9eeebdddd1ffbf376cfbeb7efffef83ffbe9eb7ff7776ab3dcf8bfee7ebaddfffdf7fe3fffdf6ed3f7dff77cf2fd7efffff7a19ef7ffbbe3e8befdb7fff76b6ed6e7ffceeb99ff7eeb5efebfff3fff7da1fb39f9fff3fd7f3f77b6dd0bed39f5fff3bfa7fbbce7f9f6ec6e0fff50bfe7f9f79efff35ff6d93fecfefbffdaf7b7eff35ec6ff42fe7e6f77f7deff7eff57f6aafa597feebdffff7bbd677e27ffbfadfdf57f7e7d2aeeffffff6676ffa7f3f375eb95eecf9ffa235cbfcdefafbf8feed9dc7b56ff2fdfedfefe",
+      "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+      "mixHash": "0x07444bb5750f746e200e1dcd8d83221b26576d3357b833cc1e434e7966d0e774",
+      "nonce": "0x0000000000000000",
+      "number": "0x1736791",
+      "parentBeaconBlockRoot": "0x2759f248e2d1cb1a2f5c2657c4efcc623dd8ea7f23e8700162e7fccdacedfd5d",
+      "parentHash": "0xdf0e4dee910167d7b1687a6cb677983ce7ed351ae78ab7e2c5ba39d793c80391",
+      "receiptsRoot": "0x5f1c58e498161509245daad0f60319d9abab7f04d2ca60e99a3674cfdc9b8327",
+      "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x1ef1e",
+      "stateRoot": "0x728c7e38107037b573d719e67b6872ee3ca4e01b47818598316cd696bfe24f2c",
+      "timestamp": "0x697b4bcb",
+      "transactions": [
+        "0xbf7bd0cf98c3b65525f1f7267b1d02e7ccd7cd133b137f46723a91cf187616d5",
+        "0x06ac9281da76d530aa19600e2c34aae7564a78702d3eb52b1fb363985473e296"
+      ],
+      "transactionsRoot": "0xa8c680f6ad8ccc7a49db5ab76cbd9194c88e16dbcfa440104f7787e5ba815c4f",
+      "uncles": [],
+      "withdrawals": [
+        {
+          "index": "0x6f78bfb",
+          "validatorIndex": "0x955f5",
+          "address": "0x5d3ca1842d0988816434ea51ca420182f3f1e31a",
+          "amount": "0x102d2f1"
+        }
+      ],
+      "withdrawalsRoot": "0x9b7ecf1ba575fc02e4b4c14bd65d5ca95c0e066adaae3fc2ef16f5acd90214d8"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByHash
+
+> Returns the number of transactions in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByNumber
+
+> Returns the number of transactions in a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xe8"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByNumber", "params": ["0xe8"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockReceipts
+
+> Returns all transaction receipts for a given block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf21d9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockReceipts", "params": ["0xf21d9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "blockHash": "0x8243343df08b9751f5ca0c5f8c9c0460d8a9b6351066fae0acbd4d3e776de8bb",
+        "blockNumber": "0xf21d9c",
+        "contractAddress": null,
+        "cumulativeGasUsed": "0x5208",
+        "effectiveGasPrice": "0x1dcd6500",
+        "from": "0x8ba1f109551bd432803012645haca66c9834d7c6",
+        "gasUsed": "0x5208",
+        "logs": [],
+        "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "status": "0x1",
+        "to": "0x95cED938F7991cd0dFcb48F0a06a40FA1aF46EBC",
+        "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+        "transactionIndex": "0x0",
+        "type": "0x2"
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getCode
+
+> Returns code at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get the code from
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+  "0x2"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getCode", "params": ["0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x2"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x600160008035811a818181146012578301005b601b6001356025565b8060005260206000f25b600060078202905091905056"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getLogs
+
+> Returns an array of all logs matching a given filter object.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="fromBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="toBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Contract address or a list of addresses from which logs should originate
+</ResponseField>
+
+<ResponseField name="topics" type="array">
+  Array of 32 Bytes DATA topics. Topics are order-dependent
+</ResponseField>
+
+<ResponseField name="blockhash" type="string">
+  Using blockhash is equivalent to fromBlock = toBlock = the block number with hash blockhash
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "fromBlock": "0x1",
+    "toBlock": "0x2",
+    "address": "0x8888f1f195afa192cfee860698584c030f4c9db1",
+    "topics": [
+      "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+      null,
+      [
+        "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"
+      ]
+    ]
+  }
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getLogs", "params": [{"fromBlock": "0x1", "toBlock": "0x2", "address": "0x8888f1f195afa192cfee860698584c030f4c9db1", "topics": ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", null, ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"]]}], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "logIndex": "0x1",
+        "blockNumber": "0x1b4",
+        "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "transactionHash": "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
+        "transactionIndex": "0x0",
+        "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "topics": [
+          "0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"
+        ]
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getProof
+
+> Returns the account and storage values of the specified account including the Merkle-proof.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address of the account or contract
+</ResponseField>
+
+<ResponseField name="storageKeys" type="array" required>
+  Array of storage-keys which should be proofed and included
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842",
+  [
+    "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+  ],
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getProof", "params": ["0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842", ["0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"], "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "address": "0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842",
+      "accountProof": [
+        "0xf90211a090dcaf88c40c7bbc95a912cbdde67c175767b31173df9ee4b0d733bfdd511c43a0babe369f6b12092f49181ae04ca173fb68d1a5456f18d20fa32cba73954052bda0473ecf8a7e36a829e75039a3b055e51b8332cbf03324ab4af2066bbd6fbf0021fa0bbda34753d7aa6c38e603f360244e8f59611921d9e1f128372fec0d586d4f9e0a04e44caecff45c9891f74f6a2156735886eedf6f1a733628ebc802ec79d844648a0a5f3f2f7542148c973977c8a1e154c4300fec92f755f7846f1b734d3ab1d90e7a0e823850f50bf72baae9d1733a36a444ab65d0a6faaba404f0583ce0ca4dad92da0f7a00cbe7d4b30b11faea3ae61b7f1f2b315017e79a3de5ab2dc8bb46a59fdb37a09b3b8d0e0e4c1e3b2d3e8f7c6e5d4c3b2a1e0f9e8d7c6b5a4e3f2e1d0c9b8a7a0b1f8e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0a0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0a0d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a08080"
+      ],
+      "balance": "0x0",
+      "codeHash": "0x5e61b0f7919ab4e6fc7cfa6f3f5f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f",
+      "nonce": "0x0",
+      "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "storageProof": [
+        {
+          "key": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "value": "0x1",
+          "proof": [
+            "0xf90211a090dcaf88c40c7bbc95a912cbdde67c175767b31173df9ee4b0d733bfdd511c43a0babe369f6b12092f49181ae04ca173fb68d1a5456f18d20fa32cba73954052bda0473ecf8a7e36a829e75039a3b055e51b8332cbf03324ab4af2066bbd6fbf0021fa0bbda34753d7aa6c38e603f360244e8f59611921d9e1f128372fec0d586d4f9e0a04e44caecff45c9891f74f6a2156735886eedf6f1a733628ebc802ec79d844648a0a5f3f2f7542148c973977c8a1e154c4300fec92f755f7846f1b734d3ab1d90e7a0e823850f50bf72baae9d1733a36a444ab65d0a6faaba404f0583ce0ca4dad92da0f7a00cbe7d4b30b11faea3ae61b7f1f2b315017e79a3de5ab2dc8bb46a59fdb37a09b3b8d0e0e4c1e3b2d3e8f7c6e5d4c3b2a1e0f9e8d7c6b5a4e3f2e1d0c9b8a7a0b1f8e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0a0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0a0d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a08080"
+          ]
+        }
+      ]
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getStorageAt
+
+> Returns the value from a storage position at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address of the storage
+</ResponseField>
+
+<ResponseField name="position" type="string" required>
+  Integer of the position in the storage
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x295a70b2de5e3953354a6a8344e616ed314d7251",
+  "0x0",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getStorageAt", "params": ["0x295a70b2de5e3953354a6a8344e616ed314d7251", "0x0", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x00000000000000000000000000000000000000000000000000000000000004d2"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByHash
+
+> Returns the information about a transaction requested by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByHash", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x41",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockHashAndIndex
+
+> Returns information about a transaction by block hash and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  Integer of the transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockNumberAndIndex
+
+> Returns information about a transaction by block number and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockNumberAndIndex", "params": ["0x5BAE9E", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5BAE9E",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionCount
+
+> Returns the number of transactions sent from an address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get transaction count for
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionCount", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionReceipt
+
+> Returns the receipt of a transaction by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionReceipt", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "transactionIndex": "0x41",
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "cumulativeGasUsed": "0x33bc",
+      "gasUsed": "0x4dc",
+      "contractAddress": null,
+      "logs": [],
+      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "status": "0x1"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockHashAndIndex
+
+> Returns information about an uncle of a block by hash and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x1b4",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockHashAndIndex
+
+> Returns information about an uncle of a block by hash and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x1b4",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockHash
+
+> Returns the number of uncles in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockHash", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockNumber
+
+> Returns the number of uncles in a block from a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockNumber", "params": ["0x5BAE9E"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_maxPriorityFeePerGas
+
+> Returns a suggestion for the max priority fee per gas for dynamic fee transactions in wei.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_maxPriorityFeePerGas", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x59682f00"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_sendRawTransaction
+
+> Submits a pre-signed transaction for broadcast to the network.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="data" type="string" required>
+  The signed transaction data
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/bsc/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_sendRawTransaction", "params": ["0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Overview
+
+> Explore Avalanche JSON-RPC methods
+
+## Introduction
+
+Avalanche is an open-source platform for launching decentralized applications (dApps) and enterprise blockchain deployments in one interoperable, highly scalable ecosystem. Known for its high throughput, low latency, and security, Avalanche achieves near-instant finality and offers compatibility with the Ethereum Virtual Machine (EVM). It is widely used for decentralized finance (DeFi), NFTs, and gaming applications.
+
+## Supported Networks
+
+The Avalanche RPC API is available for the following network:
+
+1. **Avalanche Mainnet**
+
+## Network Details
+
+| **Network**           | **Chain ID**   | **Path Parameter** |
+| :-------------------- | :------------- | :----------------- |
+| **Avalanche Mainnet** | 0xa86a (43114) | `avalanche`        |
+
+## Supported RPC Methods
+
+* [eth\_blockNumber](/rpc-nodes/avalanche/eth-blockNumber)
+* [eth\_call](/rpc-nodes/avalanche/eth-call)
+* [eth\_chainId](/rpc-nodes/avalanche/eth-chain-id)
+* [eth\_createAccessList](/rpc-nodes/avalanche/eth-create-access-list)
+* [eth\_estimateGas](/rpc-nodes/avalanche/eth-estimate-gas)
+* [eth\_feeHistory](/rpc-nodes/avalanche/eth-fee-history)
+* [eth\_gasPrice](/rpc-nodes/avalanche/eth-gas-price)
+* [eth\_getBalance](/rpc-nodes/avalanche/eth-get-balance)
+* [eth\_getBlockByHash](/rpc-nodes/avalanche/eth-get-block-by-hash)
+* [eth\_getBlockByNumber](/rpc-nodes/avalanche/eth-get-block-by-number)
+* [eth\_getBlockTransactionCountByHash](/rpc-nodes/avalanche/eth-get-block-transaction-count-by-hash)
+* [eth\_getBlockTransactionCountByNumber](/rpc-nodes/avalanche/eth-get-block-transaction-count-by-number)
+* [eth\_getBlockReceipts](/rpc-nodes/avalanche/eth-get-block-receipts)
+* [eth\_getCode](/rpc-nodes/avalanche/eth-get-code)
+* [eth\_getLogs](/streams/api-reference/history/get-logs)
+* [eth\_getProof](/rpc-nodes/avalanche/eth-get-proof)
+* [eth\_getStorageAt](/rpc-nodes/avalanche/eth-get-storage-at)
+* [eth\_getTransactionByHash](/rpc-nodes/avalanche/eth-get-transaction-by-hash)
+* [eth\_getTransactionByBlockHashAndIndex](/rpc-nodes/avalanche/eth-get-transaction-by-block-hash-and-index)
+* [eth\_getTransactionByBlockNumberAndIndex](/rpc-nodes/avalanche/eth-get-transaction-by-block-number-and-index)
+* [eth\_getTransactionCount](/rpc-nodes/avalanche/eth-get-transaction-count)
+* [eth\_getTransactionReceipt](/rpc-nodes/avalanche/eth-get-transaction-receipt)
+* [eth\_getUncleByBlockHashAndIndex](/rpc-nodes/avalanche/eth-get-uncle-by-block-hash-and-index)
+* [eth\_getUncleByBlockNumberAndIndex](/rpc-nodes/avalanche/eth-get-uncle-by-block-number-and-index)
+* [eth\_getUncleCountByBlockHash](/rpc-nodes/avalanche/eth-get-uncle-count-by-block-hash)
+* [eth\_getUncleCountByBlockNumber](/rpc-nodes/avalanche/eth-get-uncle-count-by-block-number)
+* [eth\_maxPriorityFeePerGas](/rpc-nodes/avalanche/eth-max-priority-fee-per-gas)
+* [eth\_sendRawTransaction](/rpc-nodes/avalanche/eth-send-raw-transaction)
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_blockNumber
+
+> Returns the number of most recent block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x4b7"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_blockNumber
+
+> Returns the number of most recent block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x4b7"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_chainId
+
+> Returns the chain ID of the current connected node as described in EIP-695.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request body
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_createAccessList
+
+> Creates an access list that you can include in a transaction.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="maxPriorityFeePerGas" type="string">
+  Maximum fee per gas the sender is willing to pay to miners
+</ResponseField>
+
+<ResponseField name="maxFeePerGas" type="string">
+  Maximum total fee per gas the sender is willing to pay
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8ba1f109551bd432803012645haca66c9834d7c6",
+    "to": "0x6b175474e89094c44da98b954eedeac495271d0f",
+    "gas": "0x76c0",
+    "gasPrice": "0x9184e72a000",
+    "value": "0x9184e72a",
+    "data": "0xa9059cbb0000000000000000000000008ba1f109551bd432803012645haca66c9834d7c60000000000000000000000000000000000000000000000000de0b6b3a7640000"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_createAccessList", "params": [{"from": "0x8ba1f109551bd432803012645haca66c9834d7c6", "to": "0x6b175474e89094c44da98b954eedeac495271d0f", "gas": "0x76c0", "gasPrice": "0x9184e72a000", "value": "0x9184e72a", "data": "0xa9059cbb0000000000000000000000008ba1f109551bd432803012645haca66c9834d7c60000000000000000000000000000000000000000000000000de0b6b3a7640000"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "accessList": [
+        {
+          "address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+          "storageKeys": [
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+          ]
+        }
+      ],
+      "gasUsed": "0x7671"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_estimateGas
+
+> Generates and returns an estimate of how much gas is necessary to allow the transaction to complete.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="from" type="string">
+  The address the transaction is sent from
+</ResponseField>
+
+<ResponseField name="to" type="string">
+  The address the transaction is directed to
+</ResponseField>
+
+<ResponseField name="gas" type="string">
+  Integer of the gas provided for the transaction execution
+</ResponseField>
+
+<ResponseField name="gasPrice" type="string">
+  Integer of the gasPrice used for each paid gas
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Integer of the value sent with this transaction
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  Hash of the method signature and encoded parameters
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9",
+    "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601",
+    "value": "0x186a0"
+  },
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_estimateGas", "params": [{"from": "0x8D97689C9818892B700e27F316cc3E41e17fBeb9", "to": "0xd3CdA913deB6f67967B99D67aCDFa1712C293601", "value": "0x186a0"}, "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x5208"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_feeHistory
+
+> Returns historical gas information for a range of blocks.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockCount" type="string" required>
+  Number of blocks in the requested range
+</ResponseField>
+
+<ResponseField name="newestBlock" type="string" required>
+  Highest number block of the requested range
+</ResponseField>
+
+<ResponseField name="rewardPercentiles" type="array">
+  Array of percentile values to sample from each block's effective priority fees per gas
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x4",
+  "latest",
+  [25, 75]
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_feeHistory", "params": ["0x4", "latest", [25, 75]], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": [
+        "0x7",
+        "0x7",
+        "0x7",
+        "0x7",
+        "0x7"
+      ],
+      "gasUsedRatio": [
+        0.026089875,
+        0.406803,
+        0.010817,
+        0.5
+      ],
+  	"baseFeePerBlobGas": [
+  		"0x3319eb",
+  		"0x350c54",
+  		"0x364072",
+  		"0x364072",
+  		"0x32279d"
+  	],
+  	"blobGasUsedRatio": [
+  		0.47619047619047616,
+  		0.2857142857142857,
+  		0,
+  		0.3333333333333333
+  	],
+      "oldestBlock": "0x11b9231",
+      "reward": [
+        ["0x4a817c800", "0x4a817c800"],
+        ["0x773593c0", "0x773593c0"],
+        ["0x0", "0x0"],
+        ["0x0", "0x0"]
+      ]
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_gasPrice
+
+> Returns the current price per gas in wei.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+No parameters required.
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x09184e72a000"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBalance
+
+> Returns the balance of the account of given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to check for balance
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBalance", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0234c8a3397aab58"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockByHash
+
+> Returns information about a block by hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="fullTransactionObjects" type="boolean" required>
+  If true it returns the full transaction objects, if false only the hashes of the transactions
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c",
+  false
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c", false], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": "0x3319bb0",
+      "blobGasUsed": "0x120000",
+      "difficulty": "0x0",
+      "excessBlobGas": "0xa576243",
+      "extraData": "0xe29ca82051756173617220287175617361722e77696e2920e29ca8",
+      "gasLimit": "0x3938700",
+      "gasUsed": "0x2965eaa",
+      "hash": "0xc319ec0da50d354ce425b63fb6914a42aafdb9ee9807518edd595809e25fbe38",
+      "logsBloom": "0x7feeeb37793b4fdfff7ab7aefde2d7fdfff9575bfef5bdff3fb97bfef7bcddbbdf9d55e77fdf7ead7b98ffd9bb6fefff7e77b163bf9eeebdddd1ffbf376cfbeb7efffef83ffbe9eb7ff7776ab3dcf8bfee7ebaddfffdf7fe3fffdf6ed3f7dff77cf2fd7efffff7a19ef7ffbbe3e8befdb7fff76b6ed6e7ffceeb99ff7eeb5efebfff3fff7da1fb39f9fff3fd7f3f77b6dd0bed39f5fff3bfa7fbbce7f9f6ec6e0fff50bfe7f9f79efff35ff6d93fecfefbffdaf7b7eff35ec6ff42fe7e6f77f7deff7eff57f6aafa597feebdffff7bbd677e27ffbfadfdf57f7e7d2aeeffffff6676ffa7f3f375eb95eecf9ffa235cbfcdefafbf8feed9dc7b56ff2fdfedfefe",
+      "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+      "mixHash": "0x07444bb5750f746e200e1dcd8d83221b26576d3357b833cc1e434e7966d0e774",
+      "nonce": "0x0000000000000000",
+      "number": "0x1736791",
+      "parentBeaconBlockRoot": "0x2759f248e2d1cb1a2f5c2657c4efcc623dd8ea7f23e8700162e7fccdacedfd5d",
+      "parentHash": "0xdf0e4dee910167d7b1687a6cb677983ce7ed351ae78ab7e2c5ba39d793c80391",
+      "receiptsRoot": "0x5f1c58e498161509245daad0f60319d9abab7f04d2ca60e99a3674cfdc9b8327",
+      "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x1ef1e",
+      "stateRoot": "0x728c7e38107037b573d719e67b6872ee3ca4e01b47818598316cd696bfe24f2c",
+      "timestamp": "0x697b4bcb",
+      "transactions": [
+        "0xbf7bd0cf98c3b65525f1f7267b1d02e7ccd7cd133b137f46723a91cf187616d5",
+        "0x06ac9281da76d530aa19600e2c34aae7564a78702d3eb52b1fb363985473e296"
+      ],
+      "transactionsRoot": "0xa8c680f6ad8ccc7a49db5ab76cbd9194c88e16dbcfa440104f7787e5ba815c4f",
+      "uncles": [],
+      "withdrawals": [
+        {
+          "index": "0x6f78bfb",
+          "validatorIndex": "0x955f5",
+          "address": "0x5d3ca1842d0988816434ea51ca420182f3f1e31a",
+          "amount": "0x102d2f1"
+        }
+      ],
+      "withdrawalsRoot": "0x9b7ecf1ba575fc02e4b4c14bd65d5ca95c0e066adaae3fc2ef16f5acd90214d8"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockByNumber
+
+> Returns information about a block by block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="fullTransactionObjects" type="boolean" required>
+  If true it returns the full transaction objects, if false only the hashes of the transactions
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1b4",
+  true
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockByNumber", "params": ["0x1b4", true], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "baseFeePerGas": "0x3319bb0",
+      "blobGasUsed": "0x120000",
+      "difficulty": "0x0",
+      "excessBlobGas": "0xa576243",
+      "extraData": "0xe29ca82051756173617220287175617361722e77696e2920e29ca8",
+      "gasLimit": "0x3938700",
+      "gasUsed": "0x2965eaa",
+      "hash": "0xc319ec0da50d354ce425b63fb6914a42aafdb9ee9807518edd595809e25fbe38",
+      "logsBloom": "0x7feeeb37793b4fdfff7ab7aefde2d7fdfff9575bfef5bdff3fb97bfef7bcddbbdf9d55e77fdf7ead7b98ffd9bb6fefff7e77b163bf9eeebdddd1ffbf376cfbeb7efffef83ffbe9eb7ff7776ab3dcf8bfee7ebaddfffdf7fe3fffdf6ed3f7dff77cf2fd7efffff7a19ef7ffbbe3e8befdb7fff76b6ed6e7ffceeb99ff7eeb5efebfff3fff7da1fb39f9fff3fd7f3f77b6dd0bed39f5fff3bfa7fbbce7f9f6ec6e0fff50bfe7f9f79efff35ff6d93fecfefbffdaf7b7eff35ec6ff42fe7e6f77f7deff7eff57f6aafa597feebdffff7bbd677e27ffbfadfdf57f7e7d2aeeffffff6676ffa7f3f375eb95eecf9ffa235cbfcdefafbf8feed9dc7b56ff2fdfedfefe",
+      "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+      "mixHash": "0x07444bb5750f746e200e1dcd8d83221b26576d3357b833cc1e434e7966d0e774",
+      "nonce": "0x0000000000000000",
+      "number": "0x1736791",
+      "parentBeaconBlockRoot": "0x2759f248e2d1cb1a2f5c2657c4efcc623dd8ea7f23e8700162e7fccdacedfd5d",
+      "parentHash": "0xdf0e4dee910167d7b1687a6cb677983ce7ed351ae78ab7e2c5ba39d793c80391",
+      "receiptsRoot": "0x5f1c58e498161509245daad0f60319d9abab7f04d2ca60e99a3674cfdc9b8327",
+      "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x1ef1e",
+      "stateRoot": "0x728c7e38107037b573d719e67b6872ee3ca4e01b47818598316cd696bfe24f2c",
+      "timestamp": "0x697b4bcb",
+      "transactions": [
+        "0xbf7bd0cf98c3b65525f1f7267b1d02e7ccd7cd133b137f46723a91cf187616d5",
+        "0x06ac9281da76d530aa19600e2c34aae7564a78702d3eb52b1fb363985473e296"
+      ],
+      "transactionsRoot": "0xa8c680f6ad8ccc7a49db5ab76cbd9194c88e16dbcfa440104f7787e5ba815c4f",
+      "uncles": [],
+      "withdrawals": [
+        {
+          "index": "0x6f78bfb",
+          "validatorIndex": "0x955f5",
+          "address": "0x5d3ca1842d0988816434ea51ca420182f3f1e31a",
+          "amount": "0x102d2f1"
+        }
+      ],
+      "withdrawalsRoot": "0x9b7ecf1ba575fc02e4b4c14bd65d5ca95c0e066adaae3fc2ef16f5acd90214d8"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByHash
+
+> Returns the number of transactions in a block from a block matching the given block hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByHash", "params": ["0xd5f1812548be429cbdc6376b29611fc49e06f1359758c4ceaaa3b393e2239f9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockTransactionCountByNumber
+
+> Returns the number of transactions in a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xe8"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockTransactionCountByNumber", "params": ["0xe8"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getBlockReceipts
+
+> Returns all transaction receipts for a given block.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf21d9c"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getBlockReceipts", "params": ["0xf21d9c"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "blockHash": "0x8243343df08b9751f5ca0c5f8c9c0460d8a9b6351066fae0acbd4d3e776de8bb",
+        "blockNumber": "0xf21d9c",
+        "contractAddress": null,
+        "cumulativeGasUsed": "0x5208",
+        "effectiveGasPrice": "0x1dcd6500",
+        "from": "0x8ba1f109551bd432803012645haca66c9834d7c6",
+        "gasUsed": "0x5208",
+        "logs": [],
+        "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "status": "0x1",
+        "to": "0x95cED938F7991cd0dFcb48F0a06a40FA1aF46EBC",
+        "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+        "transactionIndex": "0x0",
+        "type": "0x2"
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getCode
+
+> Returns code at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get the code from
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+  "0x2"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getCode", "params": ["0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x2"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x600160008035811a818181146012578301005b601b6001356025565b8060005260206000f25b600060078202905091905056"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getLogs
+
+> Returns an array of all logs matching a given filter object.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="fromBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="toBlock" type="string">
+  Integer block number, or "latest" for the last mined block or "pending", "earliest" for not yet mined transactions
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Contract address or a list of addresses from which logs should originate
+</ResponseField>
+
+<ResponseField name="topics" type="array">
+  Array of 32 Bytes DATA topics. Topics are order-dependent
+</ResponseField>
+
+<ResponseField name="blockhash" type="string">
+  Using blockhash is equivalent to fromBlock = toBlock = the block number with hash blockhash
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  {
+    "fromBlock": "0x1",
+    "toBlock": "0x2",
+    "address": "0x8888f1f195afa192cfee860698584c030f4c9db1",
+    "topics": [
+      "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+      null,
+      [
+        "0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"
+      ]
+    ]
+  }
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getLogs", "params": [{"fromBlock": "0x1", "toBlock": "0x2", "address": "0x8888f1f195afa192cfee860698584c030f4c9db1", "topics": ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", null, ["0x000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b", "0x0000000000000000000000000aff3454fce5edbc8cca8697c15331677e6ebccc"]]}], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      {
+        "logIndex": "0x1",
+        "blockNumber": "0x1b4",
+        "blockHash": "0x8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "transactionHash": "0xdf829c5a142f1fccd7d8216c5785ac562ff41e2dcfdf5785ac562ff41e2dcf",
+        "transactionIndex": "0x0",
+        "address": "0x16c5785ac562ff41e2dcfdf829c5a142f1fccd7d",
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "topics": [
+          "0x59ebeb90bc63057b6515673c3ecf9438e5058bca0f92585014eced636878c9a5"
+        ]
+      }
+    ]
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getProof
+
+> Returns the account and storage values of the specified account including the Merkle-proof.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address of the account or contract
+</ResponseField>
+
+<ResponseField name="storageKeys" type="array" required>
+  Array of storage-keys which should be proofed and included
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842",
+  [
+    "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+  ],
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getProof", "params": ["0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842", ["0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"], "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "address": "0x7F0d15C7FAae65896648C8273B6d7E43f58Fa842",
+      "accountProof": [
+        "0xf90211a090dcaf88c40c7bbc95a912cbdde67c175767b31173df9ee4b0d733bfdd511c43a0babe369f6b12092f49181ae04ca173fb68d1a5456f18d20fa32cba73954052bda0473ecf8a7e36a829e75039a3b055e51b8332cbf03324ab4af2066bbd6fbf0021fa0bbda34753d7aa6c38e603f360244e8f59611921d9e1f128372fec0d586d4f9e0a04e44caecff45c9891f74f6a2156735886eedf6f1a733628ebc802ec79d844648a0a5f3f2f7542148c973977c8a1e154c4300fec92f755f7846f1b734d3ab1d90e7a0e823850f50bf72baae9d1733a36a444ab65d0a6faaba404f0583ce0ca4dad92da0f7a00cbe7d4b30b11faea3ae61b7f1f2b315017e79a3de5ab2dc8bb46a59fdb37a09b3b8d0e0e4c1e3b2d3e8f7c6e5d4c3b2a1e0f9e8d7c6b5a4e3f2e1d0c9b8a7a0b1f8e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0a0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0a0d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a08080"
+      ],
+      "balance": "0x0",
+      "codeHash": "0x5e61b0f7919ab4e6fc7cfa6f3f5f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f",
+      "nonce": "0x0",
+      "storageHash": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "storageProof": [
+        {
+          "key": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "value": "0x1",
+          "proof": [
+            "0xf90211a090dcaf88c40c7bbc95a912cbdde67c175767b31173df9ee4b0d733bfdd511c43a0babe369f6b12092f49181ae04ca173fb68d1a5456f18d20fa32cba73954052bda0473ecf8a7e36a829e75039a3b055e51b8332cbf03324ab4af2066bbd6fbf0021fa0bbda34753d7aa6c38e603f360244e8f59611921d9e1f128372fec0d586d4f9e0a04e44caecff45c9891f74f6a2156735886eedf6f1a733628ebc802ec79d844648a0a5f3f2f7542148c973977c8a1e154c4300fec92f755f7846f1b734d3ab1d90e7a0e823850f50bf72baae9d1733a36a444ab65d0a6faaba404f0583ce0ca4dad92da0f7a00cbe7d4b30b11faea3ae61b7f1f2b315017e79a3de5ab2dc8bb46a59fdb37a09b3b8d0e0e4c1e3b2d3e8f7c6e5d4c3b2a1e0f9e8d7c6b5a4e3f2e1d0c9b8a7a0b1f8e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0a0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0a0d7c6b5a4e3f2e1d0c9b8a7a6f5e4d3c2b1a0f9e8d7c6b5a4e3f2e1d0c9b8a7a08080"
+          ]
+        }
+      ]
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getStorageAt
+
+> Returns the value from a storage position at a given address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address of the storage
+</ResponseField>
+
+<ResponseField name="position" type="string" required>
+  Integer of the position in the storage
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x295a70b2de5e3953354a6a8344e616ed314d7251",
+  "0x0",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getStorageAt", "params": ["0x295a70b2de5e3953354a6a8344e616ed314d7251", "0x0", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x00000000000000000000000000000000000000000000000000000000000004d2"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByHash
+
+> Returns the information about a transaction requested by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByHash", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x41",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockHashAndIndex
+
+> Returns information about a transaction by block hash and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  Integer of the transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionByBlockNumberAndIndex
+
+> Returns information about a transaction by block number and transaction index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The transaction index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionByBlockNumberAndIndex", "params": ["0x5BAE9E", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5BAE9E",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "gas": "0xc350",
+      "gasPrice": "0x4a817c800",
+      "hash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "input": "0x68656c6c6f21",
+      "nonce": "0x15",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "transactionIndex": "0x0",
+      "value": "0xf3dbb76162000",
+      "v": "0x25",
+      "r": "0x1b5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5",
+      "s": "0x5e176d927f8b73e1c20c2e8d6f80c5c5e0f2e5c5e0f2e5c5e0f2e5c5e0f2e5c5"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionCount
+
+> Returns the number of transactions sent from an address.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="address" type="string" required>
+  Address to get transaction count for
+</ResponseField>
+
+<ResponseField name="tag" type="string">
+  Tag for the state ("latest", "earliest", "pending"). Defaults to "latest" if null
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x407d73d8a49eeb85d32cf465507dd71d507100c1",
+  "latest"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionCount", "params": ["0x407d73d8a49eeb85d32cf465507dd71d507100c1", "latest"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x1"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getTransactionReceipt
+
+> Returns the receipt of a transaction by transaction hash.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a transaction
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getTransactionReceipt", "params": ["0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "transactionHash": "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060",
+      "transactionIndex": "0x41",
+      "blockHash": "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+      "blockNumber": "0x5daf3b",
+      "from": "0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+      "to": "0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+      "cumulativeGasUsed": "0x33bc",
+      "gasUsed": "0x4dc",
+      "contractAddress": null,
+      "logs": [],
+      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "status": "0x1"
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockHashAndIndex
+
+> Returns information about an uncle of a block by hash and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="hash" type="string" required>
+  Hash of a block
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockHashAndIndex", "params": ["0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x1b4",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockNumberAndIndex
+
+> Returns information about an uncle of a block by number and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x29c",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockNumberAndIndex", "params": ["0x29c", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x29c",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleByBlockNumberAndIndex
+
+> Returns information about an uncle of a block by number and uncle index position.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  A block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+<ResponseField name="index" type="string" required>
+  The uncle's index position
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x29c",
+  "0x0"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleByBlockNumberAndIndex", "params": ["0x29c", "0x0"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "difficulty": "0x027f07",
+      "extraData": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "gasLimit": "0x9f759",
+      "gasUsed": "0x9f759",
+      "hash": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331",
+      "logsBloom": "0x1a060020000015554c000200000003050000200017041014032020801000056020000001000a00d0020204040020012150010010000000280005000c00000000000020c0000000024008104011000080020020000001006100900000024208002000020002100000000000000080000000120080000002003c0000200000000200002010008300300001001031100100040010420000800000000014000004002000000c040200060000000080000000100000000040a2000001000061000042021080400200000410000404080800014008201000c20100500020011000000030001100100024008c80190400402008000020000c0041104218100000000000000002000800000",
+      "miner": "0x4e65fda2159562a496f9f3522f89122a3088497a",
+      "mixHash": "0x99e9d85137db46ef1e85fff042bb15a7b6f46618b7f600b0b4e7fb52fceafc3a",
+      "nonce": "0xfcf4db6d9bce1b8b",
+      "number": "0x29c",
+      "parentHash": "0xa057c32b6ed8eb5e006cadfad55c7e635549c6e2135c4e6c3a9d5a6a80f72c3",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0x220",
+      "stateRoot": "0x1a7e46b37b26e0c3f67ed4de3b5d3b1ff84a2e0a5e2dcf4d4b0d34b5a22b6e3",
+      "timestamp": "0x55ba467c",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "uncles": []
+    }
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockNumber
+
+> Returns the number of uncles in a block from a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockNumber", "params": ["0x5BAE9E"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_getUncleCountByBlockNumber
+
+> Returns the number of uncles in a block from a block matching the given block number.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="blockNumber" type="string" required>
+  Integer of a block number, or the string "earliest", "latest" or "pending"
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0x5BAE9E"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_getUncleCountByBlockNumber", "params": ["0x5BAE9E"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.moralis.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# eth_sendRawTransaction
+
+> Submits a pre-signed transaction for broadcast to the network.
+
+#### Path parameters
+
+<ResponseField name="apiKey" type="string" required>
+  Your API key for authentication
+</ResponseField>
+
+#### Request
+
+<ResponseField name="data" type="string" required>
+  The signed transaction data
+</ResponseField>
+
+#### Example request `params`
+
+```javascript  theme={null}
+[
+  "0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"
+]
+```
+
+<RequestExample>
+  ```shellscript curl theme={null}
+  curl https://site1.moralis-nodes.com/avalanche/:apiKey \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "eth_sendRawTransaction", "params": ["0xf869808504e3b2928082520894f0109fc8df283027b6285cc889f5aa624eac1f55843b9aca008025a0c9cf86333bcb065d140032ecaab5d9281bde80f21b9687b3e94161de42d51895a0727a108a0b8d101465414033c3f705a9c7b826e596766046ee1183dbc8aeaa68"], "id": 1}'
+  ```
+</RequestExample>
+
+<ResponseExample>
+  ```json JSON theme={null}
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"
+  }
+  ```
+</ResponseExample>
+
+
+Built with [Mintlify](https://mintlify.com).

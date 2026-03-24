@@ -179,9 +179,15 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
     """
     Score 0-100 based on smart money wallet overlap with token holders.
 
+    Enhanced with Moralis Wallet Stats (onchain_skills.md Combo A):
+    - Cross-references known smart wallet list with top holders
+    - Profiles top holders by TX count to detect experienced traders
+    - High experience level boosts confidence in the signal
+
     Returns:
         100 — 3+ smart wallets confirmed holding
          70 — 1-2 smart wallets confirmed holding
+         50 — Experienced traders detected (high TX count holders)
          30 — No smart wallets detected (data available)
           0 — Could not check
     """
@@ -217,6 +223,28 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
         logger.info(f"Smart money: {overlap_count} known wallet(s) hold {token_address[:10]}... on {chain}")
     else:
         score = 30.0
-        logger.debug(f"Smart money: no overlap for {token_address[:10]}... on {chain} ({len(holders)} holders checked)")
+        logger.debug(f"Smart money: no overlap for {token_address[:10]}... on {chain} ({len(holders)} checked)")
+
+        # ── Moralis Wallet Stats profiling (Onchain Skills: Combo A) ──
+        # If no known smart wallets found, check if top holders are
+        # experienced traders via TX count. This is a secondary signal.
+        # Only check top 3 EVM holders to conserve API calls.
+        if chain != "solana" and holders[:3]:
+            try:
+                from data.providers.moralis_wallet import get_wallet_stats
+                experienced_holders = 0
+                for holder_addr in holders[:3]:
+                    stats = get_wallet_stats(holder_addr, chain)
+                    token_transfers = stats.get("token_transfers_total", 0)
+                    if token_transfers >= 500:
+                        experienced_holders += 1
+                if experienced_holders >= 2:
+                    score = 50.0
+                    logger.info(
+                        f"Smart money (profiled): {experienced_holders}/3 top holders are "
+                        f"experienced traders for {token_address[:10]}... on {chain}"
+                    )
+            except Exception as e:
+                logger.debug(f"Moralis wallet stats profiling failed: {e}")
 
     return _store(cache_key, score)
