@@ -60,6 +60,12 @@ from data.providers.moralis_money import (
     enrich_candidate as moralis_enrich,
     calculate_moralis_score_contribution as moralis_score_contribution,
 )
+from data.providers.moralis_solana import (
+    get_sniper_score,
+    get_token_snipers,
+    get_pumpfun_graduated,
+    get_token_top_holders,
+)
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 logger = logging.getLogger(__name__)
@@ -319,6 +325,49 @@ class GemScanner:
         except Exception as e:
             logger.warning(f"Watchlist re-evaluation error: {e}")
 
+        # ── Source 8: Pump.fun Graduated Tokens (Solana only) ──────────────────
+        # Tokens that just graduated from Pump.fun bonding curve to Raydium.
+        # This is THE highest-conviction moment for early Solana meme entry.
+        if "solana" in settings.ACTIVE_CHAINS:
+            try:
+                graduated = get_pumpfun_graduated(limit=20)
+                pumpfun_added = 0
+                for grad in graduated:
+                    token_addr = grad.get("token_address", "")
+                    if not token_addr or token_addr.lower() in seen_addresses:
+                        continue
+
+                    # Need minimum liquidity
+                    liq_usd = grad.get("liquidity_usd", 0)
+                    if liq_usd < settings.MIN_LIQUIDITY_USD:
+                        continue
+
+                    # Get DexScreener data for full scoring
+                    pairs = get_token_pairs(token_addr) or []
+                    for pair in pairs:
+                        signals = extract_gem_signals(pair)
+                        signals["is_boosted"] = True
+                        signals["boost_amount"] = 100  # Pump.fun graduation = strong signal
+                        token = self._signals_to_token(signals, "solana")
+                        if token:
+                            candidate = self._score_token(token, is_boosted=True)
+                            candidate.is_pumpfun_graduate = True
+                            candidate.strategy_tag = "pumpfun_graduate"
+                            # +5 bonus for Pump.fun graduation (capped at 100)
+                            candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                            if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                                candidates.append(candidate)
+                                seen_addresses.add(token_addr.lower())
+                                pumpfun_added += 1
+                            elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                                self.add_near_miss(token, candidate.gem_score, "pumpfun")
+                            break
+
+                if pumpfun_added:
+                    logger.info(f"🚀 Pump.fun graduates: {pumpfun_added} tokens passed scoring")
+            except Exception as e:
+                logger.warning(f"Pump.fun discovery error: {e}")
+
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
@@ -500,6 +549,44 @@ class GemScanner:
             + candidate.smart_money_score * 0.04
         )
 
+        # ── Solana on-chain intelligence (Phase 5) ─────────────────────────────
+        # Sniper detection + holder concentration from Moralis Solana API.
+        # Only for Solana tokens — these endpoints don't exist for EVM.
+        if token.chain == "solana" and base_score >= 40:
+            pair_addr = getattr(token, "pair_address", "")
+            if pair_addr:
+                try:
+                    sniper_data = get_token_snipers(pair_addr)
+                    candidate.sniper_score = get_sniper_score(pair_addr)
+                    candidate.sniper_count = sniper_data.get("sniper_count", 0)
+                    candidate.sniper_risk = sniper_data.get("risk_level", "unknown")
+                    if sniper_data["risk_level"] in ("high", "critical"):
+                        logger.warning(
+                            f"🎯 SNIPER ALERT {token.symbol}: "
+                            f"{sniper_data['sniper_count']} snipers "
+                            f"(${sniper_data['total_sniped_usd']:,.0f} sniped) "
+                            f"— risk={sniper_data['risk_level']}"
+                        )
+                except Exception as e:
+                    logger.debug(f"Sniper detection failed for {token.symbol}: {e}")
+                    candidate.sniper_score = 50.0
+
+            try:
+                holder_data = get_token_top_holders(token.address)
+                candidate.solana_holder_concentration = holder_data.get("top10_concentration", 0.0)
+                # Override EVM holder_concentration_score with Solana-native data
+                conc = candidate.solana_holder_concentration
+                if conc >= 0.80:
+                    candidate.holder_concentration_score = 10.0
+                elif conc >= 0.50:
+                    candidate.holder_concentration_score = 30.0
+                elif conc >= 0.30:
+                    candidate.holder_concentration_score = 60.0
+                else:
+                    candidate.holder_concentration_score = 90.0
+            except Exception as e:
+                logger.debug(f"Solana holder analysis failed for {token.symbol}: {e}")
+
         # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
         # Only query external APIs for candidates that pass initial screening
         # to conserve rate limits (especially LunarCrush: 100 req/day).
@@ -639,28 +726,30 @@ class GemScanner:
                 buy_pressure_score = 20.0
         candidate.buy_pressure_score = buy_pressure_score
 
-        # ── Final composite score (18 signals — Moralis Money as primary) ────────
-        # Weights sum to 1.00. Moralis enrichment gets 12% allocation as PRIMARY
-        # data source. Dev wallet (3%) and copycat (2%) rug-protection signals retained.
+        # ── Final composite score (19 signals — Moralis + Solana intelligence) ──────
+        # Weights sum to 1.00. Moralis enrichment gets 10% allocation as PRIMARY
+        # data source. Sniper detection at 4% (Solana-only, neutral default for EVM).
+        # Dev wallet (3%) and copycat (2%) rug-protection signals retained.
         candidate.gem_score = round(
             candidate.age_score              * 0.08
             + candidate.volume_score         * 0.10
             + candidate.liquidity_score      * 0.08
-            + candidate.buy_pressure_score   * 0.08
-            + candidate.moralis_enrichment_score * 0.12   # ← Moralis Money PRIMARY
+            + candidate.buy_pressure_score   * 0.07
+            + candidate.moralis_enrichment_score * 0.10   # ← Moralis Money PRIMARY
+            + candidate.sniper_score         * 0.04       # ← Solana sniper detection
             + candidate.contract_score       * 0.07
             + candidate.holder_score         * 0.07
-            + candidate.tax_score            * 0.07
+            + candidate.tax_score            * 0.06
             + candidate.social_score         * 0.05
             + candidate.boost_score          * 0.04
             + candidate.smart_money_score    * 0.03
-            + candidate.tvl_score            * 0.05
+            + candidate.tvl_score            * 0.04
             + candidate.social_sentiment_score * 0.04
             + candidate.holder_concentration_score * 0.03
             + candidate.unlock_risk_score    * 0.02
             + candidate.grok_sentiment_score * 0.02
             + candidate.dev_wallet_score     * 0.03
-            + candidate.copycat_score        * 0.02,
+            + candidate.copycat_score        * 0.03,
             2,
         )
 

@@ -1,0 +1,615 @@
+"""
+data/providers/moralis_solana.py — Moralis Solana Data API Provider.
+
+Solana-native intelligence endpoints:
+
+  1. get_sol_balance(address)                    → Native SOL balance (10 CU)
+  2. get_solana_portfolio(address)               → Full portfolio: SOL + SPL tokens (10 CU)
+  3. get_spl_token_balances(address)             → SPL token holdings with metadata (10 CU)
+  4. get_token_snipers(pair_address)             → Sniper wallets for a pair (50 CU)
+  5. get_token_top_holders(token_address)        → Top holders + concentration (50 CU)
+  6. get_pumpfun_graduated()                     → Newly graduated Pump.fun tokens (25 CU)
+  7. get_token_pairs(token_address)              → Trading pairs with liquidity (25 CU)
+  8. get_token_price(token_address)              → Current price in USD (10 CU)
+  9. get_wallet_swaps(address)                   → DEX swap history (50 CU)
+
+Base URL: https://solana-gateway.moralis.io
+Auth: X-Api-Key header (same key as EVM Moralis API)
+
+Usage:
+  from data.providers.moralis_solana import get_token_snipers, get_pumpfun_graduated
+"""
+
+import logging
+import time
+from typing import Optional
+
+import requests
+
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config
+# ─────────────────────────────────────────────────────────────────────────────
+MORALIS_API_KEY: str = getattr(settings, "MORALIS_API_KEY", "")
+BASE_URL = "https://solana-gateway.moralis.io"
+NETWORK = "mainnet"
+
+# Cache: Solana data is fast-moving — shorter TTL
+CACHE_TTL = 120  # 2 minutes
+_cache: dict[str, dict] = {}
+
+# Rate limiting (shared budget with EVM calls — be conservative)
+_rate_window_start: float = time.time()
+_rate_calls_in_window: int = 0
+RATE_LIMIT_PER_MIN = 20  # Conservative to share with EVM
+
+
+def _headers() -> dict:
+    return {"accept": "application/json", "X-API-Key": MORALIS_API_KEY}
+
+
+def _available() -> bool:
+    return bool(MORALIS_API_KEY)
+
+
+def _rate_check() -> None:
+    global _rate_window_start, _rate_calls_in_window
+    now = time.time()
+    if now - _rate_window_start >= 60:
+        _rate_window_start = now
+        _rate_calls_in_window = 0
+    _rate_calls_in_window += 1
+    if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
+        sleep_for = 60 - (now - _rate_window_start) + 1
+        if sleep_for > 0:
+            logger.debug(f"Moralis Solana rate limit: sleeping {sleep_for:.1f}s")
+            time.sleep(sleep_for)
+        _rate_window_start = time.time()
+        _rate_calls_in_window = 1
+
+
+def _is_cached(key: str) -> bool:
+    entry = _cache.get(key)
+    return bool(entry and (time.time() - entry.get("ts", 0)) < CACHE_TTL)
+
+
+def _get_cache(key: str):
+    return _cache.get(key, {}).get("data")
+
+
+def _set_cache(key: str, data) -> None:
+    _cache[key] = {"data": data, "ts": time.time()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Native SOL Balance  (GET /account/{network}/{address}/balance) — 10 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_sol_balance(address: str) -> dict:
+    """
+    Get native SOL balance for a Solana wallet.
+
+    Returns:
+        {"solana": "1.5", "lamports": "1500000000"}
+    """
+    if not _available() or not address:
+        return {"solana": "0", "lamports": "0"}
+
+    cache_key = f"sol_bal_{address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/account/{NETWORK}/{address}/balance",
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _set_cache(cache_key, data)
+        return data
+    except Exception as e:
+        logger.warning(f"Moralis SOL balance failed for {address}: {e}")
+        return {"solana": "0", "lamports": "0"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Solana Portfolio  (GET /account/{network}/{address}/portfolio) — 10 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_solana_portfolio(address: str) -> dict:
+    """
+    Get complete Solana portfolio: native SOL + all SPL tokens + NFTs.
+
+    Returns:
+        {"nativeBalance": {...}, "tokens": [...], "nfts": [...]}
+    """
+    if not _available() or not address:
+        return {"nativeBalance": {}, "tokens": [], "nfts": []}
+
+    cache_key = f"sol_portfolio_{address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/account/{NETWORK}/{address}/portfolio",
+            params={"excludeSpam": "true"},
+            headers=_headers(),
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _set_cache(cache_key, data)
+        return data
+    except Exception as e:
+        logger.warning(f"Moralis Solana portfolio failed for {address}: {e}")
+        return {"nativeBalance": {}, "tokens": [], "nfts": []}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. SPL Token Balances  (GET /account/{network}/{address}/tokens) — 10 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_spl_token_balances(address: str) -> list:
+    """
+    Get all SPL token balances for a Solana wallet.
+
+    Returns list of:
+        {"mint": "...", "name": "...", "symbol": "...", "amount": "...", "decimals": 9, ...}
+    """
+    if not _available() or not address:
+        return []
+
+    cache_key = f"spl_balances_{address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/account/{NETWORK}/{address}/tokens",
+            params={"excludeSpam": "true"},
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _set_cache(cache_key, data)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.warning(f"Moralis SPL balances failed for {address}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Token Snipers  (GET /token/{network}/pairs/{pairAddress}/snipers) — 50 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_snipers(pair_address: str, blocks_after_creation: int = 10) -> dict:
+    """
+    Get snipers for a Solana token pair.
+
+    Args:
+        pair_address: The Raydium/Orca pair address
+        blocks_after_creation: How many blocks after pool creation to scan (default: 10)
+
+    Returns:
+        {
+            "sniper_count": int,
+            "total_sniped_usd": float,
+            "snipers": [{
+                "wallet": str,
+                "tokens_sniped": float,
+                "usd_sniped": float,
+                "realized_profit_pct": float,
+                "current_balance": float,
+                "sold": bool,
+            }],
+            "risk_level": "low" | "medium" | "high" | "critical",
+        }
+    """
+    if not _available() or not pair_address:
+        return {"sniper_count": 0, "total_sniped_usd": 0, "snipers": [], "risk_level": "unknown"}
+
+    cache_key = f"snipers_{pair_address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        params = {}
+        if blocks_after_creation:
+            params["blocksAfterCreation"] = blocks_after_creation
+
+        resp = requests.get(
+            f"{BASE_URL}/token/{NETWORK}/pairs/{pair_address}/snipers",
+            params=params,
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        # Parse the response
+        raw_snipers = raw.get("result", [])
+        total_sniped_usd = sum(s.get("totalSnipedUsd", 0) for s in raw_snipers)
+
+        snipers = []
+        for s in raw_snipers:
+            snipers.append({
+                "wallet": s.get("walletAddress", ""),
+                "tokens_sniped": s.get("totalTokensSniped", 0),
+                "usd_sniped": s.get("totalSnipedUsd", 0),
+                "realized_profit_pct": s.get("realizedProfitPercentage", 0),
+                "current_balance": s.get("currentBalance", 0),
+                "sold": s.get("totalTokensSold", 0) > 0,
+                "sell_txns": s.get("totalSellTransactions", 0),
+            })
+
+        # Risk classification based on sniper behavior
+        sniper_count = len(snipers)
+        dumped_count = sum(1 for s in snipers if s["sold"])
+
+        if sniper_count >= 10 or total_sniped_usd >= 50_000:
+            risk_level = "critical"
+        elif sniper_count >= 5 or dumped_count >= 3:
+            risk_level = "high"
+        elif sniper_count >= 2:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        result = {
+            "sniper_count": sniper_count,
+            "total_sniped_usd": total_sniped_usd,
+            "snipers": snipers,
+            "risk_level": risk_level,
+            "dumped_count": dumped_count,
+        }
+
+        _set_cache(cache_key, result)
+        logger.info(
+            f"🎯 Snipers for {pair_address[:8]}...: "
+            f"{sniper_count} snipers (${total_sniped_usd:,.0f} sniped) — risk={risk_level}"
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"Moralis snipers fetch failed for {pair_address}: {e}")
+        return {"sniper_count": 0, "total_sniped_usd": 0, "snipers": [], "risk_level": "unknown"}
+
+
+def get_sniper_score(pair_address: str) -> float:
+    """
+    Convert sniper data into a 0-100 safety score.
+
+    100 = no snipers (clean launch)
+    0   = heavily sniped (insider dump likely)
+    """
+    data = get_token_snipers(pair_address)
+    risk = data["risk_level"]
+
+    if risk == "critical":
+        return 10.0
+    elif risk == "high":
+        return 30.0
+    elif risk == "medium":
+        return 60.0
+    elif risk == "low":
+        return 85.0
+    else:
+        return 50.0  # Unknown — neutral
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Token Top Holders  (GET /token/{network}/{address}/top-holders) — 50 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
+    """
+    Get top holder data for a Solana token.
+
+    Returns:
+        {
+            "holders": [{address, balance, percentage, usdValue}],
+            "top10_concentration": float,  # 0.0-1.0
+            "concentration_risk": "low" | "medium" | "high" | "critical",
+        }
+    """
+    if not _available() or not token_address:
+        return {"holders": [], "top10_concentration": 0.0, "concentration_risk": "unknown"}
+
+    cache_key = f"holders_{token_address}_{limit}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/token/{NETWORK}/{token_address}/top-holders",
+            params={"limit": limit},
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        holders = raw.get("result", [])
+        total_pct = sum(float(h.get("percentageRelativeToTotalSupply", 0)) for h in holders[:10])
+
+        if total_pct >= 80:
+            risk = "critical"
+        elif total_pct >= 50:
+            risk = "high"
+        elif total_pct >= 30:
+            risk = "medium"
+        else:
+            risk = "low"
+
+        result = {
+            "holders": [
+                {
+                    "address": h.get("ownerAddress", ""),
+                    "balance": float(h.get("balance", 0)),
+                    "percentage": float(h.get("percentageRelativeToTotalSupply", 0)),
+                    "usd_value": float(h.get("usdValue", 0)),
+                }
+                for h in holders
+            ],
+            "top10_concentration": total_pct / 100.0,
+            "concentration_risk": risk,
+        }
+
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.warning(f"Moralis Solana top holders failed for {token_address}: {e}")
+        return {"holders": [], "top10_concentration": 0.0, "concentration_risk": "unknown"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Pump.fun Graduated  (GET /token/{network}/exchange/pumpfun/graduated) — 25 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_pumpfun_graduated(limit: int = 20) -> list[dict]:
+    """
+    Get recently graduated Pump.fun tokens (moved from bonding curve to Raydium).
+
+    This is THE moment for early entry on Solana meme tokens.
+
+    Returns list of:
+        {
+            "token_address": str (mint),
+            "name": str,
+            "symbol": str,
+            "pair_address": str,
+            "price_usd": float,
+            "liquidity_usd": float,
+            "volume_24h": float,
+            "graduated_at": str (ISO timestamp),
+        }
+    """
+    if not _available():
+        return []
+
+    cache_key = f"pumpfun_graduated_{limit}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/token/{NETWORK}/exchange/pumpfun/graduated",
+            params={"limit": limit},
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        tokens = []
+        for t in raw.get("result", raw if isinstance(raw, list) else []):
+            tokens.append({
+                "token_address": t.get("tokenAddress", t.get("mint", "")),
+                "name": t.get("name", ""),
+                "symbol": t.get("symbol", ""),
+                "pair_address": t.get("pairAddress", ""),
+                "price_usd": float(t.get("priceUsd", t.get("usdPrice", 0))),
+                "liquidity_usd": float(t.get("liquidityUsd", 0)),
+                "volume_24h": float(t.get("volume24h", 0)),
+                "graduated_at": t.get("graduatedAt", t.get("blockTimestamp", "")),
+                "market_cap": float(t.get("marketCap", 0)),
+            })
+
+        _set_cache(cache_key, tokens)
+        if tokens:
+            logger.info(f"🚀 Pump.fun graduated: {len(tokens)} new tokens found")
+        return tokens
+    except Exception as e:
+        logger.warning(f"Moralis Pump.fun graduated fetch failed: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Token Pairs  (GET /token/{network}/{address}/pairs) — 25 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_solana_token_pairs(token_address: str) -> list[dict]:
+    """
+    Get all DEX trading pairs for a Solana token.
+
+    Returns list of:
+        {"pair_address": str, "exchange": str, "liquidity_usd": float, ...}
+    """
+    if not _available() or not token_address:
+        return []
+
+    cache_key = f"sol_pairs_{token_address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/token/{NETWORK}/{token_address}/pairs",
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        pairs = []
+        for p in raw.get("result", raw if isinstance(raw, list) else []):
+            pairs.append({
+                "pair_address": p.get("pairAddress", ""),
+                "pair_label": p.get("pairLabel", ""),
+                "exchange_name": p.get("exchangeName", ""),
+                "exchange_address": p.get("exchangeAddress", ""),
+                "liquidity_usd": float(p.get("liquidityUsd", 0)),
+                "price_usd": float(p.get("usdPrice", 0)),
+                "volume_24h": float(p.get("volume24h", 0)),
+            })
+
+        _set_cache(cache_key, pairs)
+        return pairs
+    except Exception as e:
+        logger.warning(f"Moralis Solana pairs failed for {token_address}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Token Price  (GET /token/{network}/{address}/price) — 10 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_solana_token_price(token_address: str) -> dict:
+    """
+    Get current price for a Solana token.
+
+    Returns:
+        {"usdPrice": float, "nativePrice": {...}, "exchangeName": str, ...}
+    """
+    if not _available() or not token_address:
+        return {"usdPrice": 0}
+
+    cache_key = f"sol_price_{token_address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/token/{NETWORK}/{token_address}/price",
+            headers=_headers(),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _set_cache(cache_key, data)
+        return data
+    except Exception as e:
+        logger.warning(f"Moralis Solana price failed for {token_address}: {e}")
+        return {"usdPrice": 0}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Wallet Swaps  (GET /account/{network}/{address}/swaps) — 50 CU
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_swaps(
+    address: str,
+    limit: int = 50,
+    token_address: Optional[str] = None,
+) -> list[dict]:
+    """
+    Get DEX swap history for a Solana wallet.
+
+    Returns list of:
+        {
+            "tx_hash": str,
+            "type": "buy" | "sell",
+            "timestamp": str,
+            "exchange": str,
+            "bought": {"address": str, "symbol": str, "amount": str, "usd": float},
+            "sold": {"address": str, "symbol": str, "amount": str, "usd": float},
+            "total_usd": float,
+        }
+    """
+    if not _available() or not address:
+        return []
+
+    cache_key = f"sol_swaps_{address}_{token_address or 'all'}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        params = {"limit": limit, "order": "DESC"}
+        if token_address:
+            params["tokenAddress"] = token_address
+
+        resp = requests.get(
+            f"{BASE_URL}/account/{NETWORK}/{address}/swaps",
+            params=params,
+            headers=_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
+
+        swaps = []
+        for s in raw.get("result", []):
+            bought = s.get("bought") or {}
+            sold = s.get("sold") or {}
+            swaps.append({
+                "tx_hash": s.get("transactionHash", ""),
+                "type": s.get("transactionType", ""),
+                "timestamp": s.get("blockTimestamp", ""),
+                "exchange": s.get("exchangeName", ""),
+                "bought": {
+                    "address": bought.get("address", ""),
+                    "symbol": bought.get("symbol", ""),
+                    "amount": bought.get("amount", "0"),
+                    "usd": float(bought.get("usdAmount", 0)),
+                },
+                "sold": {
+                    "address": sold.get("address", ""),
+                    "symbol": sold.get("symbol", ""),
+                    "amount": sold.get("amount", "0"),
+                    "usd": float(sold.get("usdAmount", 0)),
+                },
+                "total_usd": float(s.get("totalValueUsd", 0)),
+            })
+
+        _set_cache(cache_key, swaps)
+        return swaps
+    except Exception as e:
+        logger.warning(f"Moralis wallet swaps failed for {address}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Convenience / Composite functions
+# ─────────────────────────────────────────────────────────────────────────────
+def get_sol_balance_usd(address: str, sol_price: float = 0) -> float:
+    """Get SOL balance as USD value."""
+    bal = get_sol_balance(address)
+    sol_amount = float(bal.get("solana", 0))
+    if sol_price <= 0:
+        # Fallback: get from CoinGecko
+        try:
+            resp = requests.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "solana", "vs_currencies": "usd"},
+                timeout=8,
+            )
+            sol_price = float(resp.json().get("solana", {}).get("usd", 140))
+        except Exception:
+            sol_price = 140.0
+    return sol_amount * sol_price
+
+
+def get_usage_stats() -> dict:
+    """Return current rate limiter state for dashboard display."""
+    return {
+        "calls_this_minute": _rate_calls_in_window,
+        "limit_per_minute": RATE_LIMIT_PER_MIN,
+        "cache_entries": len(_cache),
+        "cache_ttl_seconds": CACHE_TTL,
+    }

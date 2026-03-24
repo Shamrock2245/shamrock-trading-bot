@@ -96,6 +96,13 @@ class GemCandidate:
     moralis_txns_1h: int = 0               # Transaction count last hour
     moralis_top10_pct: float = 0.0         # Top 10 holders % concentration
 
+    # Moralis Solana on-chain intelligence (Phase 5)
+    sniper_score: float = 50.0             # Sniper detection (100=clean, 0=heavily sniped)
+    sniper_count: int = 0                  # Number of snipers detected
+    sniper_risk: str = "unknown"           # "low"|"medium"|"high"|"critical"
+    solana_holder_concentration: float = 0.0  # Solana top-10 holder % (0.0-1.0)
+    is_pumpfun_graduate: bool = False      # True if token graduated from Pump.fun
+
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None
