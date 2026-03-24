@@ -98,7 +98,7 @@ class TradeExecutor:
                 w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
                 if w3.is_connected():
                     # PoA chains need extra middleware
-                    if chain.chain_id in (137, 56):  # Polygon, BSC
+                    if chain.chain_id in (137, 56, 43114):  # Polygon, BSC, Avalanche
                         w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
                     self._web3_cache[chain.name] = w3
                     return w3
