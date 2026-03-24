@@ -881,7 +881,7 @@ async def run_bot_loop():
                     position_size_native=allocation.position_size_native,
                     position_size_usd=allocation.position_size_usd,
                     wallet=wallet, 
-                    native_balance=native_balance, 
+                    wallet_balance_native=native_balance, 
                     token_address=token.address, 
                     chain=token.chain,
                     usdc_balance=usdc_balance,
@@ -1044,7 +1044,7 @@ async def run_bot_loop():
                                     position_size_native=allocation.position_size_native,
                                     position_size_usd=allocation.position_size_usd,
                                     wallet=wallet,
-                                    native_balance=allocation.native_balance,
+                                    wallet_balance_native=allocation.native_balance,
                                     token_address=fib_sig.token_address,
                                     chain=fib_sig.chain,
                                 )
