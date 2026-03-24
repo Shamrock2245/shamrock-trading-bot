@@ -74,6 +74,13 @@ class GemCandidate:
     unlock_risk_score: float = 0.0      # FDV/mcap dilution risk
     grok_sentiment_score: float = 0.0   # Grok AI real-time X/Twitter sentiment
 
+    # Rug protection (Phase 4 — ported from RugscoreBotTG)
+    dev_wallet_score: float = 0.0       # Creator wallet history (age, rug patterns, selling)
+    copycat_score: float = 0.0          # Name/symbol impersonation detection
+    buy_pressure_score: float = 0.0     # Buy vs sell pressure ratio
+    dev_wallet_flags: list = field(default_factory=list)   # Human-readable dev wallet findings
+    copycat_flags: list = field(default_factory=list)      # Human-readable copycat findings
+
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None

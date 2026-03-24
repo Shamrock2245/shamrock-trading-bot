@@ -53,6 +53,8 @@ from data.providers.social_scoring import get_social_score
 from data.providers.smart_money import get_smart_money_score
 from data.providers.holder_analysis import get_holder_score
 from data.providers.token_unlocks import get_unlock_risk_score
+from data.providers.dev_wallet_history import get_dev_wallet_score
+from data.providers.copycat_detector import get_copycat_score, is_token_copycat
 from data.providers.moralis_discovery import discover_tokens as moralis_discover
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
@@ -536,12 +538,52 @@ class GemScanner:
             except Exception as e:
                 logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
                 candidate.grok_sentiment_score = 50.0
+
+            # ── Dev Wallet History (rug pattern detection) ─────────────────
+            try:
+                dev_score, dev_flags = get_dev_wallet_score(
+                    token.address, token.chain
+                )
+                candidate.dev_wallet_score = dev_score
+                candidate.dev_wallet_flags = dev_flags
+                if dev_score < 25:
+                    logger.warning(
+                        f"🚩 Dev wallet RED FLAG for {token.symbol}: "
+                        f"score={dev_score:.0f} — {', '.join(f for f in dev_flags if '🚩' in f)}"
+                    )
+            except Exception as e:
+                logger.debug(f"Dev wallet analysis failed for {token.symbol}: {e}")
+                candidate.dev_wallet_score = 50.0
+
+            # ── Copycat / Impersonator Detection ──────────────────────────
+            try:
+                has_website = bool(getattr(token, 'websites', []))
+                has_socials = bool(getattr(token, 'socials', []))
+                copy_score, copy_flags = get_copycat_score(
+                    name=token.name,
+                    symbol=token.symbol,
+                    has_image=True,  # DexScreener tokens usually have images
+                    has_description=has_socials,  # proxy
+                    has_website=has_website,
+                )
+                candidate.copycat_score = copy_score
+                candidate.copycat_flags = copy_flags
+                if copy_score < 30:
+                    logger.warning(
+                        f"🚩 COPYCAT ALERT for {token.symbol} ({token.name}): "
+                        f"score={copy_score:.0f} — likely impersonator!"
+                    )
+            except Exception as e:
+                logger.debug(f"Copycat detection failed for {token.symbol}: {e}")
+                candidate.copycat_score = 70.0  # Neutral — not penalizing
         else:
             candidate.tvl_score = 30.0
             candidate.social_sentiment_score = 30.0
             candidate.holder_concentration_score = 40.0
             candidate.unlock_risk_score = 50.0
             candidate.grok_sentiment_score = 50.0
+            candidate.dev_wallet_score = 50.0
+            candidate.copycat_score = 70.0
 
         # ── Buy Pressure Score ────────────────────────────────────────────────
         buy_pressure_score = 50.0
@@ -558,12 +600,21 @@ class GemScanner:
                 buy_pressure_score = 20.0
         candidate.buy_pressure_score = buy_pressure_score
 
-        # ── Final composite score (15 signals) ────────────────────────────────
+        # ── Final composite score (17 signals) ────────────────────────────────
+        # Weights rebalanced for Phase 4 rug protection:
+        #   - dev_wallet_score: 3% (new — creator history)
+        #   - copycat_score: 2% (new — impersonation detection)
+        #   - liquidity: 10% → 9% (-1%)
+        #   - buy_pressure: 10% → 9% (-1%)
+        #   - holder_conc: 4% → 3% (-1%)
+        #   - unlock_risk: 3% → 2% (-1%)
+        #   - grok_sentiment: 3% → 2% (-1%)
+        #   Total: 100%
         candidate.gem_score = round(
             candidate.age_score * 0.10
             + candidate.volume_score * 0.12
-            + candidate.liquidity_score * 0.10
-            + candidate.buy_pressure_score * 0.10
+            + candidate.liquidity_score * 0.09
+            + candidate.buy_pressure_score * 0.09
             + candidate.contract_score * 0.08
             + candidate.holder_score * 0.08
             + candidate.tax_score * 0.08
@@ -572,9 +623,11 @@ class GemScanner:
             + candidate.smart_money_score * 0.04
             + candidate.tvl_score * 0.05
             + candidate.social_sentiment_score * 0.05
-            + candidate.holder_concentration_score * 0.04
-            + candidate.unlock_risk_score * 0.03
-            + candidate.grok_sentiment_score * 0.03,
+            + candidate.holder_concentration_score * 0.03
+            + candidate.unlock_risk_score * 0.02
+            + candidate.grok_sentiment_score * 0.02
+            + candidate.dev_wallet_score * 0.03
+            + candidate.copycat_score * 0.02,
             2,
         )
 
@@ -610,6 +663,18 @@ class GemScanner:
         # Filter by minimum liquidity
         if signals.get("liquidity_usd", 0) < settings.MIN_LIQUIDITY_USD:
             return None
+
+        # ── Instant copycat reject ────────────────────────────────────────
+        # Block obvious impersonators before spending API calls on enrichment
+        token_name = signals.get("base_token_name", symbol)
+        try:
+            if is_token_copycat(token_name, symbol):
+                logger.info(
+                    f"🚫 Rejected copycat token: {symbol} ({token_name}) on {chain}"
+                )
+                return None
+        except Exception:
+            pass  # Don't block on detector errors
 
         token = Token(
             address=address,
