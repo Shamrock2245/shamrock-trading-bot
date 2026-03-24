@@ -32,7 +32,12 @@ class Token:
     is_boosted: bool = False
     boost_amount: int = 0
     is_cto: bool = False               # Community takeover flag
+    is_moralis_trending: bool = False   # Moralis trending discovery flag
+    buys_1h: int = 0                    # DexScreener buy count (1h)
+    sells_1h: int = 0                   # DexScreener sell count (1h)
     dex_url: str = ""
+    websites: list = field(default_factory=list)   # Token website URLs
+    socials: list = field(default_factory=list)     # Token social media links
     discovered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -80,6 +85,16 @@ class GemCandidate:
     buy_pressure_score: float = 0.0     # Buy vs sell pressure ratio
     dev_wallet_flags: list = field(default_factory=list)   # Human-readable dev wallet findings
     copycat_flags: list = field(default_factory=list)      # Human-readable copycat findings
+
+    # Moralis Money enrichment (Phase 4 — Pro subscription)
+    moralis_enrichment_score: float = 0.0  # Composite Moralis contribution (0–100)
+    moralis_score: int = 0                 # Moralis proprietary token score
+    moralis_buy_pressure: float = 0.5      # Buy pressure ratio from analytics
+    moralis_net_buyers_1h: int = 0         # Net buyers in last hour
+    moralis_buyers_1h: int = 0             # Total buyers in last hour
+    moralis_sellers_1h: int = 0            # Total sellers in last hour
+    moralis_txns_1h: int = 0               # Transaction count last hour
+    moralis_top10_pct: float = 0.0         # Top 10 holders % concentration
 
     # Signals
     signal_score: Optional["SignalScore"] = None

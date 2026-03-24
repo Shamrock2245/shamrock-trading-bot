@@ -725,15 +725,13 @@ class GemScanner:
             age_hours=signals.get("age_hours"),
             is_boosted=signals.get("is_boosted", False),
             boost_amount=signals.get("boost_amount", 0),
+            is_cto=signals.get("is_cto", False),
+            buys_1h=signals.get("buys_1h", 0),
+            sells_1h=signals.get("sells_1h", 0),
             dex_url=signals.get("url", ""),
+            websites=signals.get("websites", []),
+            socials=signals.get("socials", []),
         )
-
-        # Attach social metadata for scoring
-        token.websites = signals.get("websites", [])
-        token.socials = signals.get("socials", [])
-        token.buys_1h = signals.get("buys_1h", 0)
-        token.sells_1h = signals.get("sells_1h", 0)
-        token.is_cto = signals.get("is_cto", False)
 
         return token
 
