@@ -68,6 +68,7 @@ _DEXSCREENER_CHAIN_MAP = {
     "arbitrum": "arbitrum",
     "polygon": "polygon",
     "bsc": "bsc",
+    "avalanche": "avalanche",
     "solana": "solana",
 }
 

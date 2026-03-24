@@ -405,6 +405,8 @@ async def run_bot_loop():
     state_writer = BotStateWriter()
     cycle = 0
     trades_this_session = 0
+    # Failed-trade cooldown: {token_addr_lower: cycle_num} — skip for 5 cycles after failure
+    failed_trade_cooldown: dict[str, int] = {}
 
     # ── Offensive guardrails state (persistent, survives restarts) ─────────────
     offensive_state = get_offensive_state()
@@ -695,6 +697,14 @@ async def run_bot_loop():
                 is_express = getattr(candidate, "express_lane", False)
                 token_addr_lower = token.address.lower()
 
+                # ── GUARD 0: Failed-trade cooldown — skip recently failed tokens ─
+                if token_addr_lower in failed_trade_cooldown:
+                    fail_cycle = failed_trade_cooldown[token_addr_lower]
+                    if cycle - fail_cycle < 5:  # 5-cycle cooldown (~5 min)
+                        continue  # Silent skip — already logged at failure time
+                    else:
+                        del failed_trade_cooldown[token_addr_lower]  # Cooldown expired
+
                 # ── GUARD 1: Dedup — skip tokens with open positions ──────────
                 if settings.DEDUP_GUARD_ENABLED and token_addr_lower in open_token_keys:
                     logger.info(
@@ -974,6 +984,7 @@ async def run_bot_loop():
                     )
                 else:
                     logger.warning(f"❌ Trade failed: {token.symbol} | {error}")
+                    failed_trade_cooldown[token_addr_lower] = cycle  # 5-cycle cooldown
                     notify_trade(
                         action="BUY",
                         token_symbol=token.symbol,
