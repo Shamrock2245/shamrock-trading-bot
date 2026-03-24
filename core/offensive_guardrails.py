@@ -855,6 +855,26 @@ def get_daily_summary(state: OffensiveState) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 11. MEV Protection — Gas Bribe for God Signals (Offensive Playbook §4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_gas_bribe_multiplier(gem_score: float) -> float:
+    """
+    For God Signal tokens (score ≥85), return a gas price multiplier to ensure
+    next-block inclusion and avoid front-running by MEV bots.
+
+    Returns:
+        1.0 for normal trades (no premium)
+        1.0 + GAS_BRIBE_PREMIUM_PCT/100 for God Signal trades (e.g., 1.15 = 15% premium)
+    """
+    if gem_score >= 85:
+        multiplier = 1.0 + settings.GAS_BRIBE_PREMIUM_PCT / 100
+        logger.info(f"⚡ MEV protection: gas bribe {multiplier:.2f}x for God Signal (score={gem_score:.0f})")
+        return multiplier
+    return 1.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Global singleton (loaded once, shared across the bot)
 # ─────────────────────────────────────────────────────────────────────────────
 _offensive_state: Optional[OffensiveState] = None

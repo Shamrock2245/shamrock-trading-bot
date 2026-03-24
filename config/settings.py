@@ -64,11 +64,34 @@ SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g
 # Risk Management
 # ─────────────────────────────────────────────────────────────────────────────
 MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0"))
+HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "10.0"))
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
 HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "25.0"))
-TAKE_PROFIT_1X = float(os.getenv("TAKE_PROFIT_1X", "2.0"))
-TAKE_PROFIT_2X = float(os.getenv("TAKE_PROFIT_2X", "5.0"))
+
+# ── Take-Profit Tiers (Offensive Playbook "House Money" Strategy) ──────────
+# TP1 at 2x: sell 50% → lock in capital + profit ("house money")
+# TP2 at 3x: sell 25% of original position
+# Remaining 25%: 15% trailing stop — let the runner run
+TAKE_PROFIT_TP1_MULT = float(os.getenv("TAKE_PROFIT_TP1_MULT", "2.0"))    # 100% gain
+TAKE_PROFIT_TP1_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP1_SELL_PCT", "0.50"))  # Sell 50%
+TAKE_PROFIT_TP2_MULT = float(os.getenv("TAKE_PROFIT_TP2_MULT", "3.0"))    # 200% gain
+TAKE_PROFIT_TP2_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP2_SELL_PCT", "0.50"))  # Sell 50% of remaining (= 25% of original)
+
+# ── Time-Based & Liquidity Exits (Offensive Playbook §5) ──────────────────
+TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "12.0"))              # Cut if stale after 12h
+TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # Must be up >10% to stay
+LIQUIDITY_DRAIN_EXIT_ENABLED = os.getenv("LIQUIDITY_DRAIN_EXIT_ENABLED", "true").lower() == "true"
+LIQUIDITY_DRAIN_DROP_PCT = float(os.getenv("LIQUIDITY_DRAIN_DROP_PCT", "30.0"))  # >30% pool drain = emergency sell
+
+# ── Continuous Rebalancing (Offensive Playbook §6) ─────────────────────────
+DUST_THRESHOLD_USD = float(os.getenv("DUST_THRESHOLD_USD", "5.0"))         # Ignore positions <$5
+UNDERPERFORMER_LIQ_DOWN_PCT = float(os.getenv("UNDERPERFORMER_LIQ_DOWN_PCT", "30.0"))  # >30% down
+UNDERPERFORMER_LIQ_MIN_USD = float(os.getenv("UNDERPERFORMER_LIQ_MIN_USD", "20000.0"))  # <$20k liquidity
+
+# ── MEV Protection (Offensive Playbook §4) ─────────────────────────────────
+GAS_BRIBE_PREMIUM_PCT = float(os.getenv("GAS_BRIBE_PREMIUM_PCT", "15.0"))  # 15% gas premium for God Signals
+
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))
 MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "50"))
