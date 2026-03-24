@@ -2,11 +2,10 @@
 data/providers/ohlcv_provider.py — OHLCV candle data provider.
 
 Fetches historical Open/High/Low/Close/Volume data from multiple sources
-in priority order. GeckoTerminal is the primary source because it provides
-real pool-level candles (not reconstructed from snapshots), which gives
-RSI, MACD, and Bollinger Bands real data to work with.
+in priority order:
 
 Source priority:
+  0. Moralis Pro OHLCV (NEW — highest priority, 150 CU per call, real pair candles)
   1. GeckoTerminal (primary — real pool candles, free, no key, Solana supported)
   2. CoinGecko (secondary — hourly market data for established tokens)
   3. DexScreener snapshot reconstruction (last resort — only 4-5 data points)
@@ -427,7 +426,27 @@ def fetch_ohlcv(
 
     logger.debug(f"Fetching OHLCV for {token_address[:10]}... on {chain} ({days}d)")
 
-    # Source 1: GeckoTerminal (primary — real candles, works for new tokens)
+    # Source 0: Moralis Pro OHLCV (highest priority — real pair candles, 150 CU)
+    if pair_address:
+        try:
+            from data.providers.moralis_price import get_ohlcv as moralis_ohlcv
+            df = moralis_ohlcv(
+                pair_address=pair_address,
+                chain=chain,
+                timeframe="1h",
+                limit=max(200, days * 24),
+            )
+            if df is not None and len(df) >= min_candles:
+                logger.info(
+                    f"Moralis OHLCV: {len(df)} candles for "
+                    f"{token_address[:10]}... on {chain}"
+                )
+                _set_cached_ohlcv(token_address, chain, days, df)
+                return df
+        except Exception as e:
+            logger.debug(f"Moralis OHLCV failed: {e}")
+
+    # Source 1: GeckoTerminal (primary free source — real candles)
     try:
         df = _fetch_geckoterminal_for_token(
             token_address, chain,
@@ -471,7 +490,17 @@ def fetch_ohlcv(
 
 
 def get_current_price(token_address: str, chain: str) -> Optional[float]:
-    """Quick price lookup from DexScreener (single API call)."""
+    """Quick price lookup — tries Moralis first, then DexScreener."""
+    # Try Moralis first (1 CU, cached)
+    try:
+        from data.providers.moralis_price import get_price_usd
+        price = get_price_usd(token_address, chain)
+        if price and price > 0:
+            return price
+    except Exception:
+        pass
+
+    # Fallback to DexScreener
     try:
         pairs = _fetch_dexscreener_pairs(token_address)
         if not pairs:

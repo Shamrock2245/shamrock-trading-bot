@@ -153,43 +153,14 @@ def fetch_token_market_data(token_address: str, chain: str) -> dict:
 
 
 def fetch_wallet_tokens_moralis(wallet_address: str, chain: str) -> list[dict]:
-    """Fetch all token balances for a wallet via Moralis Pro API."""
-    moralis_key = os.getenv("MORALIS_API_KEY", "")
-    if not moralis_key:
-        logger.warning("MORALIS_API_KEY not set — cannot fetch token balances")
-        return []
+    """Fetch all token balances for a wallet via Moralis Pro API.
 
-    chain_map = {
-        "ethereum": "0x1", "base": "0x2105", "bsc": "0x38",
-        "polygon": "0x89", "arbitrum": "0xa4b1", "avalanche": "0xa86a",
-    }
-    moralis_chain = chain_map.get(chain)
-    if not moralis_chain:
-        return []  # Solana handled separately
-
+    Delegates to the centralized moralis_wallet provider for consistency,
+    caching, and rate limiting.
+    """
     try:
-        r = requests.get(
-            f"https://deep-index.moralis.io/api/v2.2/{wallet_address}/erc20",
-            params={"chain": moralis_chain},
-            headers={"X-API-Key": moralis_key, "accept": "application/json"},
-            timeout=15,
-        )
-        if r.status_code == 200:
-            tokens = r.json()
-            results = []
-            for t in tokens:
-                decimals = int(t.get("decimals", 18))
-                raw_balance = int(t.get("balance", "0"))
-                balance = raw_balance / (10 ** decimals)
-                if balance > 0:
-                    results.append({
-                        "address": t.get("token_address", "").lower(),
-                        "symbol": t.get("symbol", "???"),
-                        "name": t.get("name", ""),
-                        "balance": balance,
-                        "decimals": decimals,
-                    })
-            return results
+        from data.providers.moralis_wallet import get_wallet_token_balances
+        return get_wallet_token_balances(wallet_address, chain)
     except Exception as e:
         logger.error(f"Moralis token balance fetch failed for {wallet_address} on {chain}: {e}")
     return []

@@ -229,6 +229,25 @@ unrealized_pnl = sum(
 total_pnl = realized_pnl + unrealized_pnl
 total_trades = len(trades_data)
 
+# ── Moralis Wallet Intelligence ──────────────────────────────────────────
+# Fetch real-time portfolio value and on-chain P&L from Moralis Pro API
+moralis_net_worth = 0.0
+moralis_pnl_data = {}
+try:
+    from data.providers.moralis_wallet import get_wallet_net_worth, get_aggregate_pnl
+    import os as _os
+    _wallets = {
+        "evm": _os.getenv("EVM_WALLET_ADDRESS", ""),
+    }
+    for _wkey, _waddr in _wallets.items():
+        if _waddr:
+            nw = get_wallet_net_worth(_waddr)
+            moralis_net_worth += nw.get("total_networth_usd", 0)
+    if moralis_net_worth > 0:
+        moralis_pnl_data = get_aggregate_pnl(days=30)
+except Exception:
+    pass  # Graceful degradation — dashboard still works without Moralis
+
 # ── P&L Hero Display ────────────────────────────────────────────────────────
 pnl_class = "positive" if total_pnl > 0 else ("negative" if total_pnl < 0 else "zero")
 pnl_sign = "+" if total_pnl > 0 else ""
@@ -254,6 +273,35 @@ with hero_col2:
         f'</div>',
         unsafe_allow_html=True,
     )
+
+# ── Moralis Net Worth Row ────────────────────────────────────────────────
+if moralis_net_worth > 0:
+    nw_col1, nw_col2, nw_col3 = st.columns([1, 2, 1])
+    with nw_col2:
+        moralis_pnl_total = moralis_pnl_data.get("total_profit_usd", 0)
+        mpnl_class = "positive" if moralis_pnl_total > 0 else ("negative" if moralis_pnl_total < 0 else "zero")
+        mpnl_sign = "+" if moralis_pnl_total > 0 else ""
+        st.markdown(
+            f'<div style="text-align:center;padding:12px 0;margin:-10px 0 6px 0;">'
+            f'<div style="display:flex;justify-content:center;gap:32px;">'
+            f'<div>'
+            f'<div style="color:#484F58;font-size:0.65rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.1em;">On-Chain Net Worth</div>'
+            f'<div style="color:#E6EDF3;font-size:1.3rem;font-weight:700;'
+            f'font-family:\'JetBrains Mono\',monospace;">${moralis_net_worth:,.2f}</div>'
+            f'</div>'
+            f'<div>'
+            f'<div style="color:#484F58;font-size:0.65rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.1em;">30d Realized P&L</div>'
+            f'<div class="pnl-value {mpnl_class}" style="font-size:1.3rem;">'
+            f'{mpnl_sign}${abs(moralis_pnl_total):,.2f}</div>'
+            f'</div>'
+            f'</div>'
+            f'<div style="color:#30363D;font-size:0.6rem;margin-top:4px;">'
+            f'Powered by Moralis Pro API</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
 

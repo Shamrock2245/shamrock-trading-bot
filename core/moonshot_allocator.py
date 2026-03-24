@@ -479,37 +479,19 @@ def get_current_moonshot_exposure() -> tuple[int, float]:
 
 
 def estimate_portfolio_value() -> float:
-    """Estimate total portfolio value across all wallets."""
+    """Estimate total portfolio value across all wallets via Moralis Net Worth API."""
+    # Primary: Moralis wallet net worth (single API call per wallet, 50 CU)
+    try:
+        from data.providers.moralis_wallet import get_total_portfolio_value
+        total = get_total_portfolio_value()
+        if total > 0:
+            logger.debug(f"Portfolio value from Moralis: ${total:,.2f}")
+            return total
+    except Exception as e:
+        logger.debug(f"Moralis net worth failed, falling back: {e}")
+
+    # Fallback: estimate from open position tracker
     total = 0.0
-    moralis_key = os.getenv("MORALIS_API_KEY", "")
-    if not moralis_key:
-        return 0.0
-
-    chain_map = {
-        "ethereum": "0x1", "base": "0x2105", "bsc": "0x38",
-        "polygon": "0x89", "arbitrum": "0xa4b1", "avalanche": "0xa86a",
-    }
-
-    for wallet_key, wallet in WALLETS.items():
-        for chain in settings.ACTIVE_CHAINS:
-            moralis_chain = chain_map.get(chain)
-            if not moralis_chain:
-                continue
-            try:
-                r = requests.get(
-                    f"https://deep-index.moralis.io/api/v2.2/{wallet.address}/erc20",
-                    params={"chain": moralis_chain},
-                    headers={"X-API-Key": moralis_key},
-                    timeout=10,
-                )
-                if r.status_code == 200:
-                    for t in r.json():
-                        # Moralis doesn't always return USD value, estimate from balance
-                        pass
-            except Exception:
-                pass
-
-    # Fallback: estimate from native balances via position tracker
     try:
         from core.position_monitor import load_positions
         positions = load_positions()
