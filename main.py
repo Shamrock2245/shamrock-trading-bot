@@ -814,7 +814,8 @@ async def run_bot_loop():
                     continue
 
                 wallet = allocation.wallet
-                native_balance = allocation.native_balan                # ── OFFENSIVE: Apply all offensive multipliers to position sizing ──────
+                native_balance = allocation.native_balance
+                # ── OFFENSIVE: Apply all offensive multipliers to position sizing ──────
                 is_momentum_reentry = any(
                     r["address"] == token_addr_lower for r in reentry_candidates
                 )
