@@ -558,14 +558,19 @@ def execute_liquidations(plan: RebalancePlan, wallet) -> int:
                 if tx:
                     success_count += 1
             else:
-                from core.executor import build_gem_snipe_params
-                params = build_gem_snipe_params(
+                from core.executor import build_take_profit_params
+                # Full liquidation: convert token balance to wei
+                decimals = token.get("decimals", 18)
+                token_amount_wei = int(token.get("balance", 0) * (10 ** decimals))
+                if token_amount_wei <= 0:
+                    logger.warning(f"Skip liquidation of {symbol}: zero balance")
+                    continue
+                params = build_take_profit_params(
                     wallet=wallet,
                     chain=plan.chain,
                     token_address=address,
-                    eth_amount=0,
-                    is_sell=True,
-                    sell_percentage=100,
+                    token_amount_wei=token_amount_wei,
+                    slippage_bps=300,  # 3% slippage for liquidations
                 )
                 result = executor.execute_trade(params)
                 if result.success:
