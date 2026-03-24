@@ -634,10 +634,21 @@ class PositionMonitor:
                     remaining_qty = float(pos.get("remaining_quantity", 0))
                     pos_value_usd = remaining_qty * current_price if current_price else 0
                     if 0 < pos_value_usd < settings.DUST_THRESHOLD_USD:
-                        logger.info(
-                            f"🧹 Dust position: {pos.get('token_symbol')} worth ${pos_value_usd:.2f} — skipping (below ${settings.DUST_THRESHOLD_USD})"
-                        )
-                        # Don't actively sell dust — just flag it and skip monitoring
+                        if pos_value_usd >= settings.DUST_MIN_SELL_USD:
+                            # Worth more than gas cost — sell to reclaim capital
+                            logger.info(
+                                f"🧹 Dust sweep: {pos.get('token_symbol')} worth ${pos_value_usd:.2f} — liquidating to reclaim capital"
+                            )
+                            sell_action = {
+                                "reason": f"dust_sweep (${pos_value_usd:.2f} < ${settings.DUST_THRESHOLD_USD} threshold)",
+                                "sell_pct": 1.0,
+                                "urgency": "normal",
+                            }
+                        else:
+                            # Not worth the gas — skip it
+                            logger.debug(
+                                f"🧹 Dust too small to sell: {pos.get('token_symbol')} worth ${pos_value_usd:.2f} — below gas cost ${settings.DUST_MIN_SELL_USD}"
+                            )
                         pos["is_dust"] = True
 
                 # ── Rebalancing: underperformer + low liquidity liquidation (Playbook §6) ────

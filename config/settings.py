@@ -85,7 +85,8 @@ LIQUIDITY_DRAIN_EXIT_ENABLED = os.getenv("LIQUIDITY_DRAIN_EXIT_ENABLED", "true")
 LIQUIDITY_DRAIN_DROP_PCT = float(os.getenv("LIQUIDITY_DRAIN_DROP_PCT", "30.0"))  # >30% pool drain = emergency sell
 
 # ── Continuous Rebalancing (Offensive Playbook §6) ─────────────────────────
-DUST_THRESHOLD_USD = float(os.getenv("DUST_THRESHOLD_USD", "5.0"))         # Ignore positions <$5
+DUST_THRESHOLD_USD = float(os.getenv("DUST_THRESHOLD_USD", "5.0"))         # Liquidate positions <$5
+DUST_MIN_SELL_USD = float(os.getenv("DUST_MIN_SELL_USD", "1.00"))           # Only sell dust if value > est. gas cost
 UNDERPERFORMER_LIQ_DOWN_PCT = float(os.getenv("UNDERPERFORMER_LIQ_DOWN_PCT", "30.0"))  # >30% down
 UNDERPERFORMER_LIQ_MIN_USD = float(os.getenv("UNDERPERFORMER_LIQ_MIN_USD", "20000.0"))  # <$20k liquidity
 
