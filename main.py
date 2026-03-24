@@ -80,6 +80,7 @@ from core.offensive_guardrails import (
     evaluate_fast_fail,
     should_skip_tp1,
     get_daily_summary,
+    get_gas_bribe_multiplier,
 )
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
@@ -404,6 +405,8 @@ async def run_bot_loop():
     state_writer = BotStateWriter()
     cycle = 0
     trades_this_session = 0
+    # Failed-trade cooldown: {token_addr_lower: cycle_num} — skip for 5 cycles after failure
+    failed_trade_cooldown: dict[str, int] = {}
 
     # ── Offensive guardrails state (persistent, survives restarts) ─────────────
     offensive_state = get_offensive_state()
@@ -694,6 +697,14 @@ async def run_bot_loop():
                 is_express = getattr(candidate, "express_lane", False)
                 token_addr_lower = token.address.lower()
 
+                # ── GUARD 0: Failed-trade cooldown — skip recently failed tokens ─
+                if token_addr_lower in failed_trade_cooldown:
+                    fail_cycle = failed_trade_cooldown[token_addr_lower]
+                    if cycle - fail_cycle < 5:  # 5-cycle cooldown (~5 min)
+                        continue  # Silent skip — already logged at failure time
+                    else:
+                        del failed_trade_cooldown[token_addr_lower]  # Cooldown expired
+
                 # ── GUARD 1: Dedup — skip tokens with open positions ──────────
                 if settings.DEDUP_GUARD_ENABLED and token_addr_lower in open_token_keys:
                     logger.info(
@@ -869,7 +880,10 @@ async def run_bot_loop():
                 risk = risk_manager.check_trade(
                     position_size_native=allocation.position_size_native,
                     position_size_usd=allocation.position_size_usd,
-                    wallet, native_balance, token.address, token.chain,
+                    wallet=wallet, 
+                    native_balance=native_balance, 
+                    token_address=token.address, 
+                    chain=token.chain,
                     usdc_balance=usdc_balance,
                 )
                 if not risk.approved:
@@ -906,6 +920,10 @@ async def run_bot_loop():
                         use_usdc=risk.use_usdc,
                         usdc_amount=risk.position_size_usdc,
                     )
+                    # MEV Protection: apply gas bribe for God Signal tokens
+                    gas_multiplier = get_gas_bribe_multiplier(candidate.gem_score)
+                    if gas_multiplier > 1.0:
+                        params.gas_price_multiplier = gas_multiplier
                     result = executor.execute_trade(params)
                     success = result.success
                     tx_hash = result.tx_hash
@@ -971,6 +989,7 @@ async def run_bot_loop():
                     )
                 else:
                     logger.warning(f"❌ Trade failed: {token.symbol} | {error}")
+                    failed_trade_cooldown[token_addr_lower] = cycle  # 5-cycle cooldown
                     notify_trade(
                         action="BUY",
                         token_symbol=token.symbol,
