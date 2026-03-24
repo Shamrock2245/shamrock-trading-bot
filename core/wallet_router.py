@@ -457,9 +457,18 @@ def route_trade(
         native_balance = get_native_balance(balance_address, chain)
         usdc_balance = get_usdc_balance(balance_address, chain)
         
-        if chain == "avalanche" and usdc_balance > 25.0:
+        # USDC-as-capital: if wallet has USDC > $25 on ANY EVM chain, use it
+        # Native balance only needs to cover gas (0.005 ETH/MATIC/BNB)
+        min_gas_balance = 0.005  # Just enough for gas fees
+        if not chain_config.is_solana and usdc_balance > 25.0:
             wallet_balance_usd = usdc_balance
-            logger.debug(f"  {wallet.alias} using USDC balance={usdc_balance:.2f} on {chain}")
+            logger.info(f"  {wallet.alias} using USDC capital=${usdc_balance:.2f} on {chain} (native={native_balance:.4f} for gas)")
+            if native_balance < min_gas_balance:
+                logger.warning(
+                    f"Wallet {wallet.alias} needs gas on {chain}: "
+                    f"{native_balance:.4f} < {min_gas_balance} {chain_config.native_token} — skipping"
+                )
+                continue
         else:
             logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
             if native_balance <= min_balance_required:

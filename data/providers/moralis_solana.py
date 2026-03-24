@@ -415,11 +415,11 @@ def get_pumpfun_graduated(limit: int = 20) -> list[dict]:
                 "name": t.get("name", ""),
                 "symbol": t.get("symbol", ""),
                 "pair_address": t.get("pairAddress", ""),
-                "price_usd": float(t.get("priceUsd", t.get("usdPrice", 0))),
-                "liquidity_usd": float(t.get("liquidityUsd", 0)),
-                "volume_24h": float(t.get("volume24h", 0)),
+                "price_usd": float(t.get("priceUsd") or t.get("usdPrice") or 0),
+                "liquidity_usd": float(t.get("liquidityUsd") or 0),
+                "volume_24h": float(t.get("volume24h") or 0),
                 "graduated_at": t.get("graduatedAt", t.get("blockTimestamp", "")),
-                "market_cap": float(t.get("marketCap", 0)),
+                "market_cap": float(t.get("marketCap") or 0),
             })
 
         _set_cache(cache_key, tokens)
