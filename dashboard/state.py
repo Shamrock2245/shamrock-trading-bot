@@ -246,6 +246,9 @@ class BotStateWriter:
                     "social_sentiment": getattr(c, "social_sentiment_score", 0),
                     "holder_concentration": getattr(c, "holder_concentration_score", 0),
                     "unlock_risk": getattr(c, "unlock_risk_score", 0),
+                    "moralis": getattr(c, "moralis_score", 0),
+                    "dev_wallet": getattr(c, "dev_wallet_score", 0),
+                    "copycat": getattr(c, "copycat_score", 0),
                 },
             }
 

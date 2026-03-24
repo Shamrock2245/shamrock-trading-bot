@@ -13,7 +13,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 
-from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS
+from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI
 from state import get_latest_gems, get_gem_history
 
 st.set_page_config(page_title="Gem Scanner | Shamrock", page_icon="🔍", layout="wide")
@@ -36,7 +36,7 @@ st.markdown(
 filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([1, 1, 1, 1])
 
 with filter_col1:
-    chain_filter = st.selectbox("Chain", ["All", "Ethereum", "Base", "Arbitrum", "Polygon", "BSC"])
+    chain_filter = st.selectbox("Chain", ["All", "Ethereum", "Base", "Arbitrum", "Polygon", "BSC", "Solana", "Avalanche"])
 
 with filter_col2:
     min_score = st.slider("Min Score", 0, 100, 50)
@@ -100,7 +100,7 @@ if filtered:
             detail_col1, detail_col2, detail_col3 = st.columns([1, 1, 1])
 
             with detail_col1:
-                st.markdown("### Market Data")
+                st.markdown("##### Market Data")
                 st.markdown(f"**Price:** ${gem.get('price_usd', 0):.8f}")
                 st.markdown(f"**Market Cap:** ${gem.get('market_cap', 0):,.0f}")
                 st.markdown(f"**Liquidity:** ${gem.get('liquidity_usd', 0):,.0f}")
@@ -108,9 +108,10 @@ if filtered:
                 st.markdown(f"**Volume 1h:** ${gem.get('volume_1h', 0):,.0f}")
 
             with detail_col2:
-                st.markdown("### Token Info")
+                st.markdown("##### Token Info")
+                emoji = CHAIN_EMOJI.get(chain, "⬡")
                 st.markdown(f"**Name:** {gem.get('name', 'N/A')}")
-                st.markdown(f"**Chain:** {chain.capitalize()}")
+                st.markdown(f"**Chain:** {emoji} {chain.capitalize()}")
                 age = gem.get("age_hours")
                 st.markdown(f"**Age:** {f'{age:.1f} hours' if age else 'Unknown'}")
                 st.markdown(f"**Δ 1h:** {gem.get('price_change_1h', 0):+.1f}%")

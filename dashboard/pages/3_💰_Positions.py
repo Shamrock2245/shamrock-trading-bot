@@ -73,7 +73,7 @@ with tab_pos:
             pnl = p.get("unrealized_pnl_pct", 0)
             pnl_emoji = "🟢" if pnl > 0 else ("🔴" if pnl < 0 else "⚪")
             chain = p.get("chain", "")
-            chain_emoji = {"ethereum": "⟠", "base": "🔵", "arbitrum": "🔷", "polygon": "🟣", "bsc": "🟡", "solana": "◎"}.get(chain, "⬡")
+            chain_emoji = {"ethereum": "⟠", "base": "🔵", "arbitrum": "🔷", "polygon": "🟣", "bsc": "🟡", "solana": "◎", "avalanche": "🔺"}.get(chain, "⬡")
 
             pos_rows.append({
                 "": pnl_emoji,

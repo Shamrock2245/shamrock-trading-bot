@@ -1,25 +1,30 @@
 """
 dashboard/styles.py — Premium dark-mode CSS for Shamrock Trading Dashboard.
 
-Injects Fortune 50-grade glassmorphism, glow effects, and custom components.
+Fortune 50-grade glassmorphism, animated gradients, glow effects,
+and custom component styling. Every pixel is intentional.
 """
 
 PREMIUM_CSS = """
 <style>
 /* ── Import Google Font ──────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 /* ── Root Variables ──────────────────────────────────────────────────────── */
 :root {
-    --bg-primary: #0A0E14;
-    --bg-secondary: #131920;
-    --bg-card: rgba(19, 25, 32, 0.85);
-    --bg-card-hover: rgba(19, 25, 32, 0.95);
-    --border-subtle: rgba(0, 208, 156, 0.12);
-    --border-glow: rgba(0, 208, 156, 0.3);
+    --bg-primary: #06090F;
+    --bg-secondary: #0D1117;
+    --bg-card: rgba(13, 17, 23, 0.75);
+    --bg-card-hover: rgba(13, 17, 23, 0.92);
+    --bg-elevated: rgba(22, 27, 34, 0.9);
+    --border-subtle: rgba(0, 208, 156, 0.08);
+    --border-glow: rgba(0, 208, 156, 0.25);
+    --border-default: rgba(48, 54, 61, 0.6);
     --accent: #00D09C;
-    --accent-dim: rgba(0, 208, 156, 0.15);
-    --accent-glow: rgba(0, 208, 156, 0.4);
+    --accent-bright: #00FFB8;
+    --accent-dim: rgba(0, 208, 156, 0.12);
+    --accent-glow: rgba(0, 208, 156, 0.35);
     --text-primary: #E6EDF3;
     --text-secondary: #8B949E;
     --text-muted: #484F58;
@@ -27,8 +32,10 @@ PREMIUM_CSS = """
     --danger: #FF4757;
     --warning: #FFB84D;
     --info: #58A6FF;
+    --purple: #A371F7;
     --radius: 16px;
     --radius-sm: 10px;
+    --radius-xs: 6px;
 }
 
 /* ── Global ──────────────────────────────────────────────────────────────── */
@@ -37,9 +44,9 @@ PREMIUM_CSS = """
 }
 
 .main .block-container {
-    padding-top: 1.5rem !important;
+    padding-top: 1rem !important;
     padding-bottom: 2rem !important;
-    max-width: 1400px !important;
+    max-width: 1440px !important;
 }
 
 /* Hide Streamlit branding */
@@ -51,76 +58,229 @@ PREMIUM_CSS = """
     background-color: transparent !important;
 }
 
+/* App background with subtle gradient */
+.stApp {
+    background: linear-gradient(180deg, #06090F 0%, #0A0E14 30%, #080C12 100%) !important;
+}
+
+/* ── Glass Card (THE core component) ─────────────────────────────────────── */
+.glass-card {
+    background: var(--bg-card) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius) !important;
+    padding: 1.25rem 1.5rem !important;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow:
+        0 4px 24px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+
+.glass-card:hover {
+    border-color: var(--border-glow) !important;
+    box-shadow:
+        0 8px 40px rgba(0, 208, 156, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ── Hero P&L Display ────────────────────────────────────────────────────── */
+.pnl-hero {
+    text-align: center;
+    padding: 2rem 1.5rem;
+    background: linear-gradient(135deg, rgba(13,17,23,0.95), rgba(6,9,15,0.98));
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.pnl-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.pnl-hero .pnl-label {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.5rem;
+}
+
+.pnl-hero .pnl-value {
+    font-family: 'JetBrains Mono', 'Inter', monospace !important;
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 0.25rem;
+}
+
+.pnl-hero .pnl-value.positive {
+    background: linear-gradient(135deg, #00D09C, #00FFB8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 40px rgba(0, 208, 156, 0.3);
+}
+
+.pnl-hero .pnl-value.negative {
+    background: linear-gradient(135deg, #FF4757, #FF6B7A);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.pnl-hero .pnl-value.zero {
+    color: var(--text-secondary);
+}
+
+.pnl-hero .pnl-subtitle {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+/* ── Stat Card ───────────────────────────────────────────────────────────── */
+.stat-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.3rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border-glow), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.stat-card:hover {
+    border-color: var(--border-glow);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 208, 156, 0.1);
+}
+
+.stat-card:hover::after {
+    opacity: 1;
+}
+
+.stat-card .stat-icon {
+    font-size: 1.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.stat-card .stat-label {
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.stat-card .stat-value {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', 'Inter', monospace !important;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0.15rem 0;
+}
+
+.stat-card .stat-delta {
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.stat-card .stat-delta.positive { color: var(--success); }
+.stat-card .stat-delta.negative { color: var(--danger); }
+.stat-card .stat-delta.neutral { color: var(--text-secondary); }
+
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0D1117 0%, #0A0E14 100%) !important;
-    border-right: 1px solid var(--border-subtle) !important;
+    background: linear-gradient(180deg, #0A0E14 0%, #06090F 100%) !important;
+    border-right: 1px solid rgba(0, 208, 156, 0.06) !important;
 }
 
 [data-testid="stSidebar"] .stMarkdown h1 {
     background: linear-gradient(135deg, #00D09C, #00E6AC, #00FFB8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    font-weight: 800 !important;
-    font-size: 1.6rem !important;
-    letter-spacing: -0.02em;
+    font-weight: 900 !important;
+    font-size: 1.5rem !important;
+    letter-spacing: 0.05em;
 }
 
-/* ── Metric Cards (Hero Stats) ───────────────────────────────────────────── */
+/* ── Metric Cards Override ───────────────────────────────────────────────── */
 [data-testid="stMetric"] {
     background: var(--bg-card) !important;
     backdrop-filter: blur(20px) !important;
     -webkit-backdrop-filter: blur(20px) !important;
     border: 1px solid var(--border-subtle) !important;
     border-radius: var(--radius) !important;
-    padding: 1.2rem 1.4rem !important;
+    padding: 1.1rem 1.3rem !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
 }
 
 [data-testid="stMetric"]:hover {
     border-color: var(--border-glow) !important;
-    box-shadow: 0 8px 32px rgba(0, 208, 156, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 0 8px 32px rgba(0, 208, 156, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
     transform: translateY(-2px) !important;
 }
 
 [data-testid="stMetricLabel"] {
     color: var(--text-secondary) !important;
-    font-size: 0.72rem !important;
-    font-weight: 600 !important;
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.08em !important;
+    letter-spacing: 0.1em !important;
 }
 
 [data-testid="stMetricValue"] {
     color: var(--text-primary) !important;
-    font-size: 1.8rem !important;
+    font-family: 'JetBrains Mono', 'Inter', monospace !important;
+    font-size: 1.65rem !important;
     font-weight: 700 !important;
     letter-spacing: -0.02em !important;
 }
 
 [data-testid="stMetricDelta"] {
-    font-size: 0.8rem !important;
+    font-size: 0.78rem !important;
     font-weight: 600 !important;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .stButton > button {
     background: linear-gradient(135deg, #00D09C, #00B884) !important;
-    color: #0A0E14 !important;
+    color: #06090F !important;
     border: none !important;
     border-radius: var(--radius-sm) !important;
     font-weight: 700 !important;
     font-size: 0.85rem !important;
     letter-spacing: 0.02em !important;
-    padding: 0.5rem 1.2rem !important;
-    transition: all 0.2s ease !important;
+    padding: 0.55rem 1.3rem !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
     box-shadow: 0 4px 15px rgba(0, 208, 156, 0.3) !important;
 }
 
 .stButton > button:hover {
     transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(0, 208, 156, 0.45) !important;
+    box-shadow: 0 6px 24px rgba(0, 208, 156, 0.45) !important;
 }
 
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
@@ -137,7 +297,7 @@ PREMIUM_CSS = """
     color: var(--text-secondary) !important;
     border-radius: 8px !important;
     font-weight: 500 !important;
-    font-size: 0.85rem !important;
+    font-size: 0.82rem !important;
     padding: 0.4rem 1rem !important;
     transition: all 0.2s ease !important;
 }
@@ -164,22 +324,113 @@ PREMIUM_CSS = """
     font-weight: 600 !important;
 }
 
+/* ── Select boxes & Sliders ──────────────────────────────────────────────── */
+[data-baseweb="select"] {
+    border-radius: var(--radius-sm) !important;
+}
+
 /* ── Dividers ────────────────────────────────────────────────────────────── */
 hr {
-    border-color: var(--border-subtle) !important;
+    border-color: rgba(48, 54, 61, 0.3) !important;
     margin: 1.5rem 0 !important;
 }
+
+/* ── Live Dot (Pulsing) ──────────────────────────────────────────────────── */
+.live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00D09C;
+    box-shadow: 0 0 8px rgba(0, 208, 156, 0.6);
+    animation: live-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(0, 208, 156, 0.6); }
+    50% { opacity: 0.5; box-shadow: 0 0 16px rgba(0, 208, 156, 0.3); }
+}
+
+/* ── Page Header ─────────────────────────────────────────────────────────── */
+.page-header {
+    position: relative;
+    padding: 1.2rem 0 1rem 0;
+    margin-bottom: 1.5rem;
+}
+
+.page-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent 70%);
+    opacity: 0.4;
+}
+
+.page-header h1 {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 1.5rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, #00D09C, #00E6AC, #00FFB8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+}
+
+.page-header .subtitle {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 2px;
+}
+
+/* ── Chain Pills ─────────────────────────────────────────────────────────── */
+.chain-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.chain-eth  { background: rgba(98,126,234,0.12); color: #627EEA; border: 1px solid rgba(98,126,234,0.25); }
+.chain-base { background: rgba(0,82,255,0.12);   color: #0052FF; border: 1px solid rgba(0,82,255,0.25); }
+.chain-arb  { background: rgba(40,160,240,0.12); color: #28A0F0; border: 1px solid rgba(40,160,240,0.25); }
+.chain-poly { background: rgba(130,71,229,0.12); color: #8247E5; border: 1px solid rgba(130,71,229,0.25); }
+.chain-bsc  { background: rgba(240,185,11,0.12); color: #F0B90B; border: 1px solid rgba(240,185,11,0.25); }
+.chain-sol  { background: rgba(153,69,255,0.12); color: #9945FF; border: 1px solid rgba(153,69,255,0.25); }
+.chain-avax { background: rgba(232,65,66,0.12);  color: #E84142; border: 1px solid rgba(232,65,66,0.25); }
+
+/* ── Score Badges ────────────────────────────────────────────────────────── */
+.score-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 700;
+    font-size: 0.82rem;
+    padding: 3px 10px;
+    border-radius: 8px;
+    letter-spacing: -0.01em;
+}
+
+.score-high  { background: rgba(0,208,156,0.12); color: #00D09C; border: 1px solid rgba(0,208,156,0.25); }
+.score-mid   { background: rgba(255,184,77,0.12); color: #FFB84D; border: 1px solid rgba(255,184,77,0.25); }
+.score-low   { background: rgba(255,71,87,0.12); color: #FF4757; border: 1px solid rgba(255,71,87,0.25); }
 
 /* ── Status Badges ───────────────────────────────────────────────────────── */
 .status-live {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(0, 208, 156, 0.12);
-    border: 1px solid rgba(0, 208, 156, 0.3);
+    background: rgba(0, 208, 156, 0.1);
+    border: 1px solid rgba(0, 208, 156, 0.25);
     border-radius: 20px;
-    padding: 4px 12px;
-    font-size: 0.75rem;
+    padding: 4px 14px;
+    font-size: 0.72rem;
     font-weight: 700;
     color: #00D09C;
     text-transform: uppercase;
@@ -190,75 +441,60 @@ hr {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(255, 184, 77, 0.12);
-    border: 1px solid rgba(255, 184, 77, 0.3);
+    background: rgba(255, 184, 77, 0.1);
+    border: 1px solid rgba(255, 184, 77, 0.25);
     border-radius: 20px;
-    padding: 4px 12px;
-    font-size: 0.75rem;
+    padding: 4px 14px;
+    font-size: 0.72rem;
     font-weight: 700;
     color: #FFB84D;
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
 
-.pulse {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #00D09C;
-    animation: pulse 2s infinite;
+/* ── Gem Row Card ────────────────────────────────────────────────────────── */
+.gem-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    transition: all 0.2s ease;
 }
 
-@keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.85); }
+.gem-row:hover {
+    border-color: var(--border-glow);
+    background: var(--bg-card-hover);
 }
 
-/* ── Score Badges ────────────────────────────────────────────────────────── */
-.score-high {
-    background: rgba(0, 208, 156, 0.15);
-    color: #00D09C;
-    border: 1px solid rgba(0, 208, 156, 0.3);
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-weight: 700;
-    font-size: 0.85rem;
+/* ── API Health Card ─────────────────────────────────────────────────────── */
+.api-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
 }
 
-.score-mid {
-    background: rgba(255, 184, 77, 0.15);
-    color: #FFB84D;
-    border: 1px solid rgba(255, 184, 77, 0.3);
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-weight: 700;
-    font-size: 0.85rem;
+.api-card:hover {
+    border-color: var(--border-default);
 }
-
-.score-low {
-    background: rgba(255, 71, 87, 0.15);
-    color: #FF4757;
-    border: 1px solid rgba(255, 71, 87, 0.3);
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-weight: 700;
-    font-size: 0.85rem;
-}
-
-/* ── Chain Pills ─────────────────────────────────────────────────────────── */
-.chain-eth  { background: rgba(98,126,234,0.15); color: #627EEA; border: 1px solid rgba(98,126,234,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
-.chain-base { background: rgba(0,82,255,0.15);   color: #0052FF; border: 1px solid rgba(0,82,255,0.3);   border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
-.chain-arb  { background: rgba(40,160,240,0.15); color: #28A0F0; border: 1px solid rgba(40,160,240,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
-.chain-poly { background: rgba(130,71,229,0.15); color: #8247E5; border: 1px solid rgba(130,71,229,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
-.chain-bsc  { background: rgba(240,185,11,0.15); color: #F0B90B; border: 1px solid rgba(240,185,11,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
-.chain-sol  { background: rgba(153,69,255,0.15); color: #9945FF; border: 1px solid rgba(153,69,255,0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: rgba(0, 208, 156, 0.3); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(0, 208, 156, 0.5); }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 208, 156, 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 208, 156, 0.4); }
+
+/* ── Code blocks ─────────────────────────────────────────────────────────── */
+.stCode {
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius-sm) !important;
+}
 
 </style>
 """
@@ -275,13 +511,13 @@ PLOTLY_LAYOUT = dict(
     font=dict(family="Inter, sans-serif", color="#E6EDF3", size=12),
     margin=dict(l=40, r=20, t=40, b=40),
     xaxis=dict(
-        gridcolor="rgba(255,255,255,0.04)",
-        zerolinecolor="rgba(255,255,255,0.06)",
+        gridcolor="rgba(255,255,255,0.03)",
+        zerolinecolor="rgba(255,255,255,0.05)",
         tickfont=dict(size=11, color="#8B949E"),
     ),
     yaxis=dict(
-        gridcolor="rgba(255,255,255,0.04)",
-        zerolinecolor="rgba(255,255,255,0.06)",
+        gridcolor="rgba(255,255,255,0.03)",
+        zerolinecolor="rgba(255,255,255,0.05)",
         tickfont=dict(size=11, color="#8B949E"),
     ),
     showlegend=True,
@@ -291,13 +527,13 @@ PLOTLY_LAYOUT = dict(
         font=dict(size=11, color="#8B949E"),
     ),
     hoverlabel=dict(
-        bgcolor="#1C2333",
+        bgcolor="#161B22",
         bordercolor="#00D09C",
         font=dict(family="Inter, sans-serif", size=12, color="#E6EDF3"),
     ),
 )
 
-# Horizontal legend variant — use for charts that need legend below the plot
+# Horizontal legend variant
 PLOTLY_LAYOUT_HLEGEND = {
     **{k: v for k, v in PLOTLY_LAYOUT.items() if k != "legend"},
     "legend": dict(
@@ -313,10 +549,11 @@ PLOTLY_LAYOUT_HLEGEND = {
 }
 
 ACCENT = "#00D09C"
-ACCENT_DIM = "rgba(0, 208, 156, 0.15)"
+ACCENT_DIM = "rgba(0, 208, 156, 0.12)"
 DANGER = "#FF4757"
 WARNING = "#FFB84D"
 INFO = "#58A6FF"
+PURPLE = "#A371F7"
 
 CHAIN_COLORS = {
     "ethereum": "#627EEA",
@@ -324,5 +561,16 @@ CHAIN_COLORS = {
     "arbitrum": "#28A0F0",
     "polygon": "#8247E5",
     "bsc": "#F0B90B",
-    "solana": "#9945FF",   # Solana purple
+    "solana": "#9945FF",
+    "avalanche": "#E84142",
+}
+
+CHAIN_EMOJI = {
+    "ethereum": "⟠",
+    "base": "🔵",
+    "arbitrum": "🔷",
+    "polygon": "🟣",
+    "bsc": "🟡",
+    "solana": "◎",
+    "avalanche": "🔺",
 }

@@ -105,13 +105,22 @@ for e in recent_errors:
         error_sources["1inch"] = error_sources.get("1inch", 0) + 1
     elif "tokensniffer" in msg.lower():
         error_sources["TokenSniffer"] = error_sources.get("TokenSniffer", 0) + 1
+    elif "moralis" in msg.lower():
+        error_sources["Moralis"] = error_sources.get("Moralis", 0) + 1
+    elif "jupiter" in msg.lower():
+        error_sources["Jupiter"] = error_sources.get("Jupiter", 0) + 1
+    elif "grok" in msg.lower() or "x.com" in msg.lower():
+        error_sources["Grok/X"] = error_sources.get("Grok/X", 0) + 1
 
 apis = [
     ("DexScreener", "Token profiles, boosts, pair data", "dexscreener.com"),
+    ("Moralis Money", "Pro discovery + enrichment (10 endpoints)", "moralis.io"),
     ("CoinGecko", "OHLCV data, market data", "coingecko.com"),
     ("GoPlus", "Contract safety analysis", "gopluslabs.io"),
     ("Honeypot.is", "Honeypot detection", "honeypot.is"),
-    ("1inch", "DEX aggregation & routing", "1inch.dev"),
+    ("1inch", "DEX aggregation & routing (EVM)", "1inch.dev"),
+    ("Jupiter", "Solana DEX aggregation & swap", "jup.ag"),
+    ("Grok/X", "Sentiment analysis via X API", "x.com"),
     ("TokenSniffer", "Token audits & scores", "tokensniffer.com"),
 ]
 

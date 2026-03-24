@@ -33,16 +33,21 @@
 
 ## ✨ Features
 
-### 🔍 Gem Discovery Engine (14-Signal Pipeline)
+### 🔍 Gem Discovery Engine (18-Signal Pipeline)
 - Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC, **Solana**, **Avalanche**)
 - Real-time new pair detection via [DexScreener API](https://docs.dexscreener.com/api/reference)
-- **[Moralis Discovery](https://moralis.io/)** — trending + buying-pressure token feeds across all chains
-- 14-signal composite scoring (0–100) — volume spikes, liquidity, holder distribution, social signals, smart money, unlock risk
+- **[Moralis Money Pro](https://moralis.io/)** — 10 endpoints: filtered tokens, trending, top gainers/losers, buying pressure, token score, analytics, batch analytics, stats, holders
+- 18-signal composite scoring (0–100) — volume, liquidity, holders, social, smart money, unlock risk, **Moralis enrichment (12%)**, **rug protection (5%)**
 - Boosted token tracking — community hype detection
 - **Smart money wallet tracking** — follow known alpha wallets
 - **Grok/X sentiment analysis** — real-time social buzz scoring via X API
 - **Holder concentration analysis** — buy/sell ratio, LP concentration, transaction patterns
 - **Token unlock risk scoring** — circulating supply %, FDV ratio, vesting detection
+
+### 🛡️ Rug Pull Protection
+- **Dev wallet history analysis** — creator wallet age, token deployment frequency, sell pattern detection (3% weight)
+- **Copycat detection** — fuzzy-match against 50+ high-profile tokens, Unicode homoglyph detection, instant-reject filter (2% weight)
+- **Offensive guardrails** — win/loss streak tracking, house money mode, god mode, loss cooling (+10 MIN_GEM_SCORE per 2L streak)
 
 ### 🛡️ Safety First
 - **Honeypot detection** — [GoPlus Security](https://gopluslabs.io/) + [Honeypot.is](https://honeypot.is/) + [TokenSniffer](https://tokensniffer.com/) pre-trade checks
@@ -180,8 +185,8 @@ streamlit run dashboard/app.py
 │   GEM SCANNER       │     │   SIGNAL ENGINE    │     │  GEM SNIPE      │
 │                     │     │                    │     │  STRATEGY       │
 │ • DexScreener       │────→│ ≥24 candles:       │────→│                 │
-│ • Moralis Discovery │     │   Full TA pipeline │     │ • Fib alignment │
-│ • LunarCrush        │     │   (RSI/MACD/BB)    │     │ • Signal gate   │
+│ • Moralis Money Pro │     │   Full TA pipeline │     │ • Fib alignment │
+│ • Rug Protection    │     │   (RSI/MACD/BB)    │     │ • Signal gate   │
 │ • Grok Sentiment    │     │                    │     │ • TP/SL levels  │
 │ • HolderAnalysis    │     │ <24 candles:       │     └────────┬────────┘
 │ • SmartMoney        │     │   🔬 Micro-cap     │              │
@@ -262,8 +267,8 @@ shamrock-trading-bot/
 ├── core/             # Balance fetcher, safety pipeline, executor, risk manager
 ├── data/
 │   ├── models.py     # Token, GemCandidate, Trade, Position, SignalScore
-│   └── providers/    # DexScreener, Moralis, GoPlus, Grok, LunarCrush, HolderAnalysis, etc.
-├── scanner/          # Gem discovery engine (14-signal scoring, 0–100)
+│   └── providers/    # DexScreener, Moralis Money Pro, GoPlus, Grok, HolderAnalysis, DevWallet, Copycat
+├── scanner/          # Gem discovery engine (18-signal scoring, 0–100)
 ├── strategies/       # Trading strategies (GemSnipeStrategy + Fibonacci analysis)
 ├── ml/               # Machine learning models & feature engineering
 ├── notifications/    # Slack & Telegram alert modules
@@ -311,7 +316,7 @@ The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS. It is always sca
 | **Status** | 🟢 **ON** |
 
 ### Operational Model
-- The bot **never sleeps** — it scans every 15 seconds across 6 chains
+- The bot **never sleeps** — it scans every 60 seconds across 4 active chains (Solana, Base, BSC, Avalanche)
 - Heartbeat emitted every 5 minutes to confirm liveness
 - Circuit breaker auto-triggers on 15% portfolio drawdown
 - Kill switch available via `MODE=paper` in `.env` or process termination
