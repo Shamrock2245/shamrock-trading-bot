@@ -53,7 +53,7 @@ assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-6, f"Weights must sum to 1.0, got {
 def _fib_to_score(fib: FibResult) -> float:
     """Convert Fibonacci analysis result to a 0–100 score."""
     if fib.error:
-        return 50.0  # Neutral on error — don't penalize for missing data
+        return 55.0  # Mildly bullish on error — don't penalize new tokens for missing data
 
     if not fib.aligned:
         return 15.0  # Misaligned = strong negative signal
@@ -69,7 +69,7 @@ def _fib_to_score(fib: FibResult) -> float:
         "fib_786": 15,
         "fib_382": 10,
         "fib_236": 5,
-        "insufficient_data": 0,  # Permissive but no bonus
+        "insufficient_data": 5,  # Slight boost — new tokens shouldn't be penalized
     }
     bonus = zone_bonuses.get(fib.current_zone, 0)
 

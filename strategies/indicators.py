@@ -33,6 +33,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Insufficient data fallback score — mildly bullish bias for new tokens
+# that lack price history. 50 = dead neutral (blocks all micro-cap gems),
+# 55 = slight tailwind (still requires strong on-chain signals to qualify).
+INSUFFICIENT_DATA_SCORE = 55.0
+
 # Try to import pandas-ta (requires git install)
 # Catches both ImportError and RuntimeError (numba caching fails in Docker)
 try:
@@ -54,7 +59,7 @@ except Exception:
 class IndicatorResult:
     """Result from a single indicator calculation."""
     name: str
-    score: float = 50.0        # 0–100 normalized score
+    score: float = 50.0        # 0–100 normalized score (50=neutral, 55=insufficient data bias)
     signal: str = "neutral"    # "bullish", "bearish", "neutral"
     value: Optional[float] = None
     detail: str = ""           # Human-readable detail
@@ -148,7 +153,7 @@ def calculate_ema_crossover(df: pd.DataFrame) -> IndicatorResult:
     close = df["close"]
 
     if len(close) < 21:
-        return IndicatorResult(name="EMA", detail="Insufficient data")
+        return IndicatorResult(name="EMA", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     ema_9 = _manual_ema(close, 9)
     ema_21 = _manual_ema(close, 21)
@@ -213,7 +218,7 @@ def calculate_macd(df: pd.DataFrame) -> IndicatorResult:
     close = df["close"]
 
     if len(close) < 26:
-        return IndicatorResult(name="MACD", detail="Insufficient data")
+        return IndicatorResult(name="MACD", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     if HAS_PANDAS_TA:
         macd_df = ta.macd(close, fast=12, slow=26, signal=9)
@@ -278,7 +283,7 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> IndicatorResult:
     >25 = trending market, >40 = strong trend, <20 = ranging/choppy
     """
     if len(df) < period + 5:
-        return IndicatorResult(name="ADX", detail="Insufficient data")
+        return IndicatorResult(name="ADX", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     if HAS_PANDAS_TA:
         adx_df = ta.adx(df["high"], df["low"], df["close"], length=period)
@@ -353,7 +358,7 @@ def calculate_rsi(df: pd.DataFrame, period: int = 14) -> IndicatorResult:
     close = df["close"]
 
     if len(close) < period + 1:
-        return IndicatorResult(name="RSI", detail="Insufficient data")
+        return IndicatorResult(name="RSI", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     if HAS_PANDAS_TA:
         rsi_series = ta.rsi(close, length=period)
@@ -416,7 +421,7 @@ def calculate_stoch_rsi(df: pd.DataFrame) -> IndicatorResult:
     close = df["close"]
 
     if len(close) < 20:
-        return IndicatorResult(name="StochRSI", detail="Insufficient data")
+        return IndicatorResult(name="StochRSI", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     if HAS_PANDAS_TA:
         stoch = ta.stochrsi(close, length=14, rsi_length=14, k=3, d=3)
@@ -484,7 +489,7 @@ def calculate_bollinger_bands(df: pd.DataFrame) -> IndicatorResult:
     close = df["close"]
 
     if len(close) < 20:
-        return IndicatorResult(name="BB", detail="Insufficient data")
+        return IndicatorResult(name="BB", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     upper, middle, lower, bandwidth = _manual_bollinger(close)
 
@@ -554,7 +559,7 @@ def calculate_vwap(df: pd.DataFrame) -> IndicatorResult:
     Price above VWAP = overvalued relative to volume
     """
     if len(df) < 5 or "volume" not in df.columns:
-        return IndicatorResult(name="VWAP", detail="Insufficient data")
+        return IndicatorResult(name="VWAP", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     typical_price = (df["high"] + df["low"] + df["close"]) / 3
     vol = df["volume"].replace(0, np.nan)
@@ -617,7 +622,7 @@ def calculate_obv(df: pd.DataFrame) -> IndicatorResult:
     Falling OBV + rising price = distribution (bearish divergence)
     """
     if len(df) < 10 or "volume" not in df.columns:
-        return IndicatorResult(name="OBV", detail="Insufficient data")
+        return IndicatorResult(name="OBV", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     close = df["close"]
     volume = df["volume"]
@@ -677,7 +682,7 @@ def calculate_volume_spike(df: pd.DataFrame, threshold: float = 3.0) -> Indicato
     On a red candle = bearish institutional selling.
     """
     if len(df) < 20 or "volume" not in df.columns:
-        return IndicatorResult(name="VolSpike", detail="Insufficient data")
+        return IndicatorResult(name="VolSpike", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     volume = df["volume"]
     close = df["close"]
@@ -734,7 +739,7 @@ def calculate_ad_line(df: pd.DataFrame) -> IndicatorResult:
     Falling A/D = distribution (smart money selling)
     """
     if len(df) < 10 or "volume" not in df.columns:
-        return IndicatorResult(name="A/D", detail="Insufficient data")
+        return IndicatorResult(name="A/D", score=INSUFFICIENT_DATA_SCORE, detail="Insufficient data")
 
     high = df["high"]
     low = df["low"]
