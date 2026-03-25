@@ -135,6 +135,8 @@ class GemScanner:
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=False)
+                    if candidate is None:
+                        break
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
@@ -164,6 +166,8 @@ class GemScanner:
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        break
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
@@ -193,6 +197,8 @@ class GemScanner:
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        break
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
@@ -231,6 +237,8 @@ class GemScanner:
                         logger.debug(f"CTO signal expired for {token.symbol} (age={age_h:.0f}h > 48h)")
                         break
                     candidate = self._score_token(token, is_boosted=True, is_cto=True)
+                    if candidate is None:
+                        break
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                     elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
@@ -259,6 +267,8 @@ class GemScanner:
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        break
                     if candidate.gem_score >= settings.MIN_GEM_SCORE:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
@@ -289,6 +299,8 @@ class GemScanner:
                     token = self._signals_to_token(signals, chain)
                     if token:
                         candidate = self._score_token(token, is_boosted=True)
+                        if candidate is None:
+                            break
                         if candidate.gem_score >= settings.MIN_GEM_SCORE:
                             candidate.strategy_tag = "moralis_trending"
                             candidates.append(candidate)
@@ -318,6 +330,8 @@ class GemScanner:
                 token = self._signals_to_token(signals, chain)
                 if token:
                     candidate = self._score_token(token, is_boosted=False)
+                    if candidate is None:
+                        continue
                     candidate.gem_score = promo["score"]  # Use watchlist score
                     candidate.strategy_tag = "watchlist_promotion"
                     candidates.append(candidate)
@@ -356,6 +370,8 @@ class GemScanner:
                         token = self._signals_to_token(signals, "solana")
                         if token:
                             candidate = self._score_token(token, is_boosted=True)
+                            if candidate is None:
+                                break
                             candidate.is_pumpfun_graduate = True
                             candidate.strategy_tag = "pumpfun_graduate"
                             # +5 bonus for Pump.fun graduation (capped at 100)
@@ -398,6 +414,8 @@ class GemScanner:
                             token_obj = self._signals_to_token(signals, bp_chain)
                             if token_obj:
                                 candidate = self._score_token(token_obj, is_boosted=True)
+                                if candidate is None:
+                                    break
                                 candidate.strategy_tag = "binance_trending"
                                 if candidate.gem_score >= settings.MIN_GEM_SCORE:
                                     candidates.append(candidate)
@@ -428,7 +446,7 @@ class GemScanner:
         if not token:
             return 0.0
         candidate = self._score_token(token, is_boosted=False)
-        return candidate.gem_score
+        return candidate.gem_score if candidate else 0.0
 
     def add_near_miss(self, token: Token, score: float, source: str = ""):
         """Add a near-miss token to the watchlist for future re-evaluation."""
