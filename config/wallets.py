@@ -48,15 +48,15 @@ class StrategyProfile:
     trailing_stop_pct: float        # Post-TP1 trailing stop %
     trailing_tighten: dict = field(default_factory=dict)  # {mult: trail%} dynamic tightening
     # ── Position sizing ───────────────────────────────────────────────────
-    max_position_pct: float         # Base max position % of wallet
-    kelly_clamp_max: float          # Kelly upper bound (fraction, e.g. 0.70 = 70%)
-    max_position_usd: float         # Absolute dollar cap (0 = no cap)
-    max_concurrent: int             # Max open positions
+    max_position_pct: float = 5.0       # Base max position % of wallet
+    kelly_clamp_max: float = 0.25       # Kelly upper bound (fraction, e.g. 0.25 = 25%)
+    max_position_usd: float = 0.0       # Absolute dollar cap (0 = no cap)
+    max_concurrent: int = 10            # Max open positions
     # ── Fast fail ─────────────────────────────────────────────────────────
-    fast_fail_down_pct: float       # Down % to trigger fast-fail
-    fast_fail_hours: float          # Hours window for fast-fail check
+    fast_fail_down_pct: float = 15.0    # Down % to trigger fast-fail
+    fast_fail_hours: float = 2.0        # Hours window for fast-fail check
     # ── Slippage ──────────────────────────────────────────────────────────
-    max_slippage_pct: float = 5.0   # Max slippage tolerance %
+    max_slippage_pct: float = 5.0       # Max slippage tolerance %
 
 
 # ── Pre-configured profiles ──────────────────────────────────────────────────
