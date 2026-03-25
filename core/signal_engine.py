@@ -363,6 +363,45 @@ class SignalEngine:
         closes = [c["close"] for c in candles]
         volumes = [c["volume"] for c in candles]
 
+        # ── 29-Indicator TA Arsenal (strategies/indicators.py) ──────────────────
+        # Run the full 29-indicator weighted engine and blend its scores into
+        # the signal score. This adds Ichimoku, MFI, KDJ, SAR, DEMA, MESA,
+        # CCI, AROON, divergence detection, and regime awareness on top of
+        # the existing RSI/MACD/BB/EMA/OBV calculations.
+        # Scores are blended at 40% TA-29 + 60% existing for backward compat.
+        _ta29_trend = None
+        _ta29_momentum = None
+        _ta29_volume = None
+        try:
+            import pandas as pd
+            from strategies.indicators import run_all_indicators
+            highs  = [c.get("high",  c["close"]) for c in candles]
+            lows   = [c.get("low",   c["close"]) for c in candles]
+            opens  = [c.get("open",  c["close"]) for c in candles]
+            df29 = pd.DataFrame({
+                "open":   opens,
+                "high":   highs,
+                "low":    lows,
+                "close":  closes,
+                "volume": volumes,
+            })
+            ta29 = run_all_indicators(df29)
+            _ta29_trend    = ta29.trend_score
+            _ta29_momentum = ta29.momentum_score
+            _ta29_volume   = ta29.volume_score
+            if ta29.rsi is not None:
+                score.rsi = ta29.rsi
+            score.macd_signal = ta29.macd_signal
+            score.ema_signal  = ta29.ema_signal
+            score.bb_signal   = ta29.bb_signal
+            logger.debug(
+                f"TA-29 blend for {token_symbol}: "
+                f"trend={_ta29_trend:.0f} momentum={_ta29_momentum:.0f} "
+                f"volume={_ta29_volume:.0f}"
+            )
+        except Exception as _ta29_err:
+            logger.debug(f"TA-29 blend skipped for {token_symbol}: {_ta29_err}")
+
         # ── RSI ───────────────────────────────────────────────────────────────
         rsi = _rsi(closes)
         score.rsi = rsi
@@ -465,6 +504,18 @@ class SignalEngine:
                 score.trend_score = min(score.trend_score + 10, 100)  # Breakout
             else:
                 score.momentum_score = max(score.momentum_score - 10, 0)  # Overextended
+
+        # ── Blend TA-29 scores (40% weight) with existing scores (60%) ────────
+        # If the 29-indicator engine ran successfully, blend its scores in.
+        if _ta29_trend is not None:
+            score.trend_score    = round(score.trend_score    * 0.60 + _ta29_trend    * 0.40, 1)
+            score.momentum_score = round(score.momentum_score * 0.60 + _ta29_momentum * 0.40, 1)
+            score.volume_score   = round(score.volume_score   * 0.60 + _ta29_volume   * 0.40, 1)
+            logger.info(
+                f"TA-29 blended for {token_symbol}: "
+                f"trend={score.trend_score:.0f} momentum={score.momentum_score:.0f} "
+                f"volume={score.volume_score:.0f}"
+            )
 
         return score
 

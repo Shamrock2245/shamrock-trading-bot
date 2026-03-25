@@ -166,6 +166,22 @@ MIN_POSITION_GAS_RATIO = float(os.getenv("MIN_POSITION_GAS_RATIO", "5.0"))
 MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "50"))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Capital Recovery Mode
+# When a wallet's USDC balance falls below CAPITAL_RECOVERY_THRESHOLD_USD,
+# the bot switches to conservative recovery sizing:
+#   - Position size capped at CAPITAL_RECOVERY_MAX_POSITION_PCT (default 3%)
+#   - MIN_GEM_SCORE raised to CAPITAL_RECOVERY_MIN_SCORE (default 72)
+#   - Nuclear profile disabled for that wallet until balance recovers
+#   - Max 2 concurrent positions while in recovery
+# This prevents a depleted wallet from making desperate low-quality trades.
+# ─────────────────────────────────────────────────────────────────────────────
+CAPITAL_RECOVERY_ENABLED = os.getenv("CAPITAL_RECOVERY_ENABLED", "true").lower() == "true"
+CAPITAL_RECOVERY_THRESHOLD_USD = float(os.getenv("CAPITAL_RECOVERY_THRESHOLD_USD", "200.0"))
+CAPITAL_RECOVERY_MAX_POSITION_PCT = float(os.getenv("CAPITAL_RECOVERY_MAX_POSITION_PCT", "3.0"))
+CAPITAL_RECOVERY_MIN_SCORE = float(os.getenv("CAPITAL_RECOVERY_MIN_SCORE", "72.0"))
+CAPITAL_RECOVERY_MAX_POSITIONS = int(os.getenv("CAPITAL_RECOVERY_MAX_POSITIONS", "2"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Offensive Guardrails (Work In Our Favor)
 # ─────────────────────────────────────────────────────────────────────────────
 # Winner scaling: add to positions that are pumping (>30% gain, volume rising)

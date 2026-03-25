@@ -558,10 +558,46 @@ def route_trade(
             )
             continue
 
+        # ── Capital Recovery Mode ─────────────────────────────────────────────
+        # If the wallet is below the recovery threshold, apply conservative
+        # constraints: lower max position %, higher min gem score, fewer
+        # concurrent positions. This protects depleted wallets from making
+        # desperate low-quality trades while trying to rebuild capital.
+        in_recovery_mode = (
+            settings.CAPITAL_RECOVERY_ENABLED
+            and wallet_balance_usd < settings.CAPITAL_RECOVERY_THRESHOLD_USD
+        )
+        if in_recovery_mode:
+            logger.warning(
+                f"⚠️  CAPITAL RECOVERY MODE: {wallet.alias} balance=${wallet_balance_usd:.0f} "
+                f"< threshold=${settings.CAPITAL_RECOVERY_THRESHOLD_USD:.0f} — "
+                f"applying conservative sizing (max {settings.CAPITAL_RECOVERY_MAX_POSITION_PCT}%, "
+                f"min score {settings.CAPITAL_RECOVERY_MIN_SCORE})"
+            )
+            # Enforce higher gem score gate in recovery mode
+            if gem_score < settings.CAPITAL_RECOVERY_MIN_SCORE:
+                logger.info(
+                    f"  Recovery mode: {wallet.alias} rejecting gem_score={gem_score:.1f} "
+                    f"< recovery threshold {settings.CAPITAL_RECOVERY_MIN_SCORE}"
+                )
+                continue
+            # Enforce max concurrent positions in recovery mode
+            if open_count >= settings.CAPITAL_RECOVERY_MAX_POSITIONS:
+                logger.info(
+                    f"  Recovery mode: {wallet.alias} at max recovery positions "
+                    f"({open_count}/{settings.CAPITAL_RECOVERY_MAX_POSITIONS})"
+                )
+                continue
+
         # ── Profile-aware sizing ───────────────────────────────────────────────
         # Use the wallet's strategy profile for Kelly clamp and max position %
         profile_max_pct = profile.max_position_pct / 100  # e.g. 0.60 for nuclear
-        effective_max_pct = min(phase_max_pct, profile_max_pct)
+        # In recovery mode, cap at CAPITAL_RECOVERY_MAX_POSITION_PCT
+        if in_recovery_mode:
+            recovery_cap_pct = settings.CAPITAL_RECOVERY_MAX_POSITION_PCT / 100
+            effective_max_pct = min(phase_max_pct, profile_max_pct, recovery_cap_pct)
+        else:
+            effective_max_pct = min(phase_max_pct, profile_max_pct)
 
         # ── Regime filter — global multiplier ─────────────────────────────────
         try:
