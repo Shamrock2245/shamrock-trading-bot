@@ -602,51 +602,79 @@ class GemScanner:
         # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
         # Only query external APIs for candidates that pass initial screening
         # to conserve rate limits (especially LunarCrush: 100 req/day).
+        #
+        # ⚡ PARALLEL ENRICHMENT: 7 fast API calls run concurrently via
+        # ThreadPoolExecutor. Grok sentiment (6-8s LLM call, 2% weight)
+        # is deferred to a second pass — only called if token still
+        # scores ≥48 after fast enrichment. Saves ~80% of Grok calls.
         if base_score >= 45:
-            try:
-                candidate.tvl_score = get_tvl_score(token.address, token.chain)
-            except Exception as e:
-                logger.debug(f"TVL scoring failed for {token.symbol}: {e}")
-                candidate.tvl_score = 30.0
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            try:
-                # social_sentiment_score uses LunarCrush galaxy score
+            # Define enrichment tasks as (name, callable) pairs
+            def _get_tvl():
+                return get_tvl_score(token.address, token.chain)
+
+            def _get_lc():
                 from data.providers.coingecko_social import get_social_score as get_lc_score
-                candidate.social_sentiment_score = get_lc_score(token.symbol)
-            except Exception as e:
-                logger.debug(f"LunarCrush scoring failed for {token.symbol}: {e}")
-                candidate.social_sentiment_score = 30.0
+                return get_lc_score(token.symbol)
 
-            try:
-                candidate.holder_concentration_score = get_holder_score(
-                    token.address, token.chain
-                )
-            except Exception as e:
-                logger.debug(f"Holder analysis failed for {token.symbol}: {e}")
-                candidate.holder_concentration_score = 40.0
+            def _get_holder():
+                return get_holder_score(token.address, token.chain)
 
-            try:
-                candidate.unlock_risk_score = get_unlock_risk_score(
-                    token.address, token.chain
-                )
-            except Exception as e:
-                logger.debug(f"Unlock risk scoring failed for {token.symbol}: {e}")
-                candidate.unlock_risk_score = 50.0
+            def _get_unlock():
+                return get_unlock_risk_score(token.address, token.chain)
 
-            try:
-                from data.providers.grok_sentiment import get_grok_sentiment_score
-                candidate.grok_sentiment_score = get_grok_sentiment_score(
-                    token.symbol, token.chain
-                )
-            except Exception as e:
-                logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
-                candidate.grok_sentiment_score = 50.0
 
-            # ── Dev Wallet History (rug pattern detection) ─────────────────
-            try:
-                dev_score, dev_flags = get_dev_wallet_score(
-                    token.address, token.chain
+            def _get_dev():
+                return get_dev_wallet_score(token.address, token.chain)
+
+            def _get_copycat():
+                has_website = bool(getattr(token, 'websites', []))
+                has_socials = bool(getattr(token, 'socials', []))
+                return get_copycat_score(
+                    name=token.name,
+                    symbol=token.symbol,
+                    has_image=True,
+                    has_description=has_socials,
+                    has_website=has_website,
+                    token_address=token.address,
                 )
+
+            def _get_moralis_meta():
+                from data.providers.moralis_wallet import get_enhanced_token_metadata
+                return get_enhanced_token_metadata([token.address], chain=token.chain)
+
+            # Submit all fast enrichment calls concurrently (no Grok — deferred)
+            enrichment_results = {}
+            with ThreadPoolExecutor(max_workers=7, thread_name_prefix="enrich") as pool:
+                futures = {
+                    pool.submit(_get_tvl): "tvl",
+                    pool.submit(_get_lc): "lc",
+                    pool.submit(_get_holder): "holder",
+                    pool.submit(_get_unlock): "unlock",
+                    pool.submit(_get_dev): "dev",
+                    pool.submit(_get_copycat): "copycat",
+                    pool.submit(_get_moralis_meta): "moralis_meta",
+                }
+                for future in as_completed(futures, timeout=15):
+                    name = futures[future]
+                    try:
+                        enrichment_results[name] = future.result()
+                    except Exception as e:
+                        logger.debug(f"Enrichment '{name}' failed for {token.symbol}: {e}")
+                        enrichment_results[name] = None
+
+            # Apply results to candidate
+            candidate.tvl_score = enrichment_results.get("tvl") or 30.0
+            candidate.social_sentiment_score = enrichment_results.get("lc") or 30.0
+            candidate.holder_concentration_score = enrichment_results.get("holder") or 40.0
+            candidate.unlock_risk_score = enrichment_results.get("unlock") or 50.0
+            candidate.grok_sentiment_score = 50.0  # default — deferred to second pass
+
+            # Dev wallet
+            dev_result = enrichment_results.get("dev")
+            if dev_result and isinstance(dev_result, tuple):
+                dev_score, dev_flags = dev_result
                 candidate.dev_wallet_score = dev_score
                 candidate.dev_wallet_flags = dev_flags
                 if dev_score < 25:
@@ -654,22 +682,13 @@ class GemScanner:
                         f"🚩 Dev wallet RED FLAG for {token.symbol}: "
                         f"score={dev_score:.0f} — {', '.join(f for f in dev_flags if '🚩' in f)}"
                     )
-            except Exception as e:
-                logger.debug(f"Dev wallet analysis failed for {token.symbol}: {e}")
+            else:
                 candidate.dev_wallet_score = 50.0
 
-            # ── Copycat / Impersonator Detection ──────────────────────────
-            try:
-                has_website = bool(getattr(token, 'websites', []))
-                has_socials = bool(getattr(token, 'socials', []))
-                copy_score, copy_flags = get_copycat_score(
-                    name=token.name,
-                    symbol=token.symbol,
-                    has_image=True,  # DexScreener tokens usually have images
-                    has_description=has_socials,  # proxy
-                    has_website=has_website,
-                    token_address=token.address,
-                )
+            # Copycat
+            copycat_result = enrichment_results.get("copycat")
+            if copycat_result and isinstance(copycat_result, tuple):
+                copy_score, copy_flags = copycat_result
                 candidate.copycat_score = copy_score
                 candidate.copycat_flags = copy_flags
                 if copy_score < 30:
@@ -677,65 +696,47 @@ class GemScanner:
                         f"🚩 COPYCAT ALERT for {token.symbol} ({token.name}): "
                         f"score={copy_score:.0f} — likely impersonator!"
                     )
-            except Exception as e:
-                logger.debug(f"Copycat detection failed for {token.symbol}: {e}")
-                candidate.copycat_score = 70.0  # Neutral — not penalizing
+            else:
+                candidate.copycat_score = 70.0
 
-            # ── Moralis Token Metadata Enrichment (Onchain Skills: FDV/Spam/Social) ──
-            # Uses get_enhanced_token_metadata() — only 10 CU for up to 10 tokens.
-            # Provides: FDV, market cap, spam detection, social links, verified contract.
-            # Applied as score modifiers rather than a separate weight.
-            try:
-                from data.providers.moralis_wallet import get_enhanced_token_metadata
-                metadata_list = get_enhanced_token_metadata(
-                    [token.address], chain=token.chain
-                )
-                if metadata_list:
-                    meta = metadata_list[0]
-                    candidate.moralis_fdv = meta.get("fdv", 0.0)
-                    candidate.moralis_market_cap = meta.get("market_cap", 0.0)
-                    candidate.moralis_verified = meta.get("verified_contract", False)
-                    candidate.moralis_spam = meta.get("possible_spam", False)
-                    candidate.moralis_has_website = bool(meta.get("website", ""))
-                    candidate.moralis_has_twitter = bool(meta.get("twitter", ""))
-                    candidate.moralis_categories = meta.get("categories", [])
+            # Moralis metadata
+            metadata_list = enrichment_results.get("moralis_meta")
+            if metadata_list and isinstance(metadata_list, list) and len(metadata_list) > 0:
+                meta = metadata_list[0]
+                candidate.moralis_fdv = meta.get("fdv", 0.0)
+                candidate.moralis_market_cap = meta.get("market_cap", 0.0)
+                candidate.moralis_verified = meta.get("verified_contract", False)
+                candidate.moralis_spam = meta.get("possible_spam", False)
+                candidate.moralis_has_website = bool(meta.get("website", ""))
+                candidate.moralis_has_twitter = bool(meta.get("twitter", ""))
+                candidate.moralis_categories = meta.get("categories", [])
 
-                    # Spam token → instant reject
-                    if meta.get("possible_spam", False):
-                        logger.info(
-                            f"🚫 Moralis spam flag: {token.symbol} — skipping"
-                        )
-                        return None
+                # Spam token → instant reject
+                if meta.get("possible_spam", False):
+                    logger.info(f"🚫 Moralis spam flag: {token.symbol} — skipping")
+                    return None
 
-                    # Verified contract → score boost (+5 to contract_score)
-                    if meta.get("verified_contract", False):
-                        candidate.contract_score = min(
-                            100.0, candidate.contract_score + 5.0
-                        )
+                # Verified contract → score boost
+                if meta.get("verified_contract", False):
+                    candidate.contract_score = min(100.0, candidate.contract_score + 5.0)
 
-                    # Social presence (website + twitter) → social score boost
-                    social_links = sum([
-                        bool(meta.get("website", "")),
-                        bool(meta.get("twitter", "")),
-                        bool(meta.get("telegram", "")),
-                        bool(meta.get("discord", "")),
-                    ])
-                    if social_links >= 2:
-                        candidate.social_score = min(
-                            100.0, candidate.social_score + 3.0
-                        )
+                # Social presence boost
+                social_links = sum([
+                    bool(meta.get("website", "")),
+                    bool(meta.get("twitter", "")),
+                    bool(meta.get("telegram", "")),
+                    bool(meta.get("discord", "")),
+                ])
+                if social_links >= 2:
+                    candidate.social_score = min(100.0, candidate.social_score + 3.0)
 
-                    # FDV sanity check — if FDV > $1B but liquidity < $100K, likely fake
-                    if meta.get("fdv", 0) > 1_000_000_000 and token.liquidity_usd < 100_000:
-                        logger.info(
-                            f"⚠️ FDV anomaly: {token.symbol} FDV=${meta['fdv']:,.0f} "
-                            f"but liquidity=${token.liquidity_usd:,.0f}"
-                        )
-                        candidate.contract_score = max(
-                            0.0, candidate.contract_score - 15.0
-                        )
-            except Exception as e:
-                logger.debug(f"Moralis metadata enrichment failed for {token.symbol}: {e}")
+                # FDV sanity check
+                if meta.get("fdv", 0) > 1_000_000_000 and token.liquidity_usd < 100_000:
+                    logger.info(
+                        f"⚠️ FDV anomaly: {token.symbol} FDV=${meta['fdv']:,.0f} "
+                        f"but liquidity=${token.liquidity_usd:,.0f}"
+                    )
+                    candidate.contract_score = max(0.0, candidate.contract_score - 15.0)
         else:
             candidate.tvl_score = 30.0
             candidate.social_sentiment_score = 30.0
@@ -744,6 +745,40 @@ class GemScanner:
             candidate.grok_sentiment_score = 50.0
             candidate.dev_wallet_score = 50.0
             candidate.copycat_score = 70.0
+
+        # ── GROK SENTIMENT (conditional second pass — 2% weight) ──────────────
+        # Only call the slow Grok LLM (~6-8s) if the token still looks
+        # promising after all the fast enrichment signals. This saves API
+        # credits and shaves ~6s off ~80% of tokens that won't pass anyway.
+        if base_score >= 45 and candidate.grok_sentiment_score == 50.0:
+            # Quick preliminary score to decide if Grok is worth calling
+            prelim_score = (
+                candidate.age_score * 0.08
+                + candidate.volume_score * 0.10
+                + candidate.liquidity_score * 0.08
+                + candidate.buy_pressure_score * 0.07
+                + candidate.contract_score * 0.07
+                + candidate.holder_score * 0.07
+                + candidate.tax_score * 0.06
+                + candidate.social_score * 0.05
+                + candidate.boost_score * 0.04
+                + candidate.smart_money_score * 0.03
+                + candidate.tvl_score * 0.04
+                + candidate.social_sentiment_score * 0.04
+                + candidate.holder_concentration_score * 0.03
+                + candidate.unlock_risk_score * 0.02
+                + candidate.dev_wallet_score * 0.03
+                + candidate.copycat_score * 0.03
+            )
+            if prelim_score >= 48:
+                try:
+                    from data.providers.grok_sentiment import get_grok_sentiment_score
+                    candidate.grok_sentiment_score = get_grok_sentiment_score(
+                        token.symbol, token.chain
+                    )
+                except Exception as e:
+                    logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
+                    candidate.grok_sentiment_score = 50.0
 
         # ── Moralis Money Enrichment (PRIMARY source — 12% weight) ─────────────
         # Enrich every candidate that passes base_score >= 45 with Moralis
