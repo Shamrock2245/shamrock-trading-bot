@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 # File paths
 # ─────────────────────────────────────────────────────────────────────────────
 POSITIONS_FILE = Path(settings.POSITIONS_FILE)
+POSITIONS_BACKUP = POSITIONS_FILE.with_name("positions.backup.json")
 TRADES_FILE = Path(settings.TRADES_FILE)
+_save_counter = 0
 POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -59,41 +61,54 @@ POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_positions() -> list[dict]:
-    """Load open positions from disk. Returns empty list if file missing."""
-    try:
-        if POSITIONS_FILE.exists():
-            with open(POSITIONS_FILE) as f:
-                data = json.load(f)
-                positions = data if isinstance(data, list) else []
+    """Load open positions from disk. Falls back to .tmp or .backup if main file is corrupt."""
+    for filepath in [POSITIONS_FILE, POSITIONS_FILE.with_suffix(".tmp"), POSITIONS_BACKUP]:
+        try:
+            if filepath.exists():
+                with open(filepath) as f:
+                    data = json.load(f)
+                    positions = data if isinstance(data, list) else []
 
-                # ── Backfill migration for older positions ─────────────────
-                migrated = False
-                for p in positions:
-                    if "entry_value_usd" not in p or float(p.get("entry_value_usd", 0)) <= 0:
-                        entry_px = float(p.get("entry_price", 0))
-                        qty = float(p.get("quantity", 0))
-                        p["entry_value_usd"] = entry_px * qty if entry_px > 0 and qty > 0 else 10.0
-                        migrated = True
-                    if "scale_in_count" not in p:
-                        p["scale_in_count"] = 0
-                        migrated = True
-                if migrated:
-                    save_positions(positions)
-                    logger.info("Migrated positions: backfilled entry_value_usd / scale_in_count")
+                    if filepath != POSITIONS_FILE:
+                        logger.warning(f"Loaded positions from fallback: {filepath}")
+                        # Restore to main file
+                        save_positions(positions)
 
-                return positions
-    except Exception as e:
-        logger.error(f"Failed to load positions: {e}")
+                    # ── Backfill migration for older positions ─────────────────
+                    migrated = False
+                    for p in positions:
+                        if "entry_value_usd" not in p or float(p.get("entry_value_usd", 0)) <= 0:
+                            entry_px = float(p.get("entry_price", 0))
+                            qty = float(p.get("quantity", 0))
+                            p["entry_value_usd"] = entry_px * qty if entry_px > 0 and qty > 0 else 10.0
+                            migrated = True
+                        if "scale_in_count" not in p:
+                            p["scale_in_count"] = 0
+                            migrated = True
+                    if migrated:
+                        save_positions(positions)
+                        logger.info("Migrated positions: backfilled entry_value_usd / scale_in_count")
+
+                    return positions
+        except Exception as e:
+            logger.error(f"Failed to load positions from {filepath}: {e}")
     return []
 
 
 def save_positions(positions: list[dict]) -> None:
-    """Persist open positions to disk (atomic write)."""
+    """Persist open positions to disk (atomic write + periodic backup)."""
+    global _save_counter
     try:
         tmp = POSITIONS_FILE.with_suffix(".tmp")
         with open(tmp, "w") as f:
             json.dump(positions, f, indent=2, default=str)
         tmp.replace(POSITIONS_FILE)
+        # Periodic backup every 100 saves
+        _save_counter += 1
+        if _save_counter % 100 == 0:
+            import shutil
+            shutil.copy2(POSITIONS_FILE, POSITIONS_BACKUP)
+            logger.debug(f"Positions backup saved ({_save_counter} saves)")
     except Exception as e:
         logger.error(f"Failed to save positions: {e}")
 
@@ -181,6 +196,75 @@ def get_price_and_volume(token_address: str, chain: str, pair_address: str = "")
         logger.debug(f"Price+volume fetch failed for {token_address}: {e}")
 
     return result
+
+
+def batch_get_prices_and_volumes(positions: list[dict]) -> dict[str, dict]:
+    """
+    Batch-fetch prices from DexScreener for multiple positions.
+    Uses comma-separated address endpoint (up to 30 per call).
+    Returns: {token_address_lower: {price, volume_1h, volume_24h, liquidity_usd}}
+    """
+    results: dict[str, dict] = {}
+    if not positions:
+        return results
+
+    # Separate positions with pair_address (use pair endpoint) from those without
+    pair_positions = [p for p in positions if p.get("pair_address")]
+    token_positions = [p for p in positions if not p.get("pair_address")]
+
+    # Fetch pair-based positions individually (pair endpoint doesn't support batching)
+    for pos in pair_positions:
+        addr = pos.get("token_address", "").lower()
+        pv = get_price_and_volume(
+            token_address=pos.get("token_address", ""),
+            chain=pos.get("chain", ""),
+            pair_address=pos.get("pair_address", ""),
+        )
+        results[addr] = pv
+
+    # Batch token-based positions (30 per call max via DexScreener API)
+    addresses = [p.get("token_address", "") for p in token_positions if p.get("token_address")]
+    BATCH_SIZE = 30
+    for i in range(0, len(addresses), BATCH_SIZE):
+        batch = addresses[i:i + BATCH_SIZE]
+        batch_str = ",".join(batch)
+        try:
+            url = f"https://api.dexscreener.com/latest/dex/tokens/{batch_str}"
+            resp = requests.get(url, timeout=15)
+            data = resp.json()
+            all_pairs = data.get("pairs", [])
+
+            # Group pairs by baseToken address
+            by_token: dict[str, list] = {}
+            for pair in all_pairs:
+                base_addr = pair.get("baseToken", {}).get("address", "").lower()
+                if base_addr:
+                    by_token.setdefault(base_addr, []).append(pair)
+
+            # Pick the most liquid pair for each token
+            for addr_lower, pairs in by_token.items():
+                pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+                top = pairs[0]
+                price_str = top.get("priceUsd")
+                vol = top.get("volume", {})
+                liq = top.get("liquidity", {})
+                results[addr_lower] = {
+                    "price": float(price_str) if price_str else None,
+                    "volume_1h": float(vol.get("h1", 0) or 0),
+                    "volume_24h": float(vol.get("h24", 0) or 0),
+                    "liquidity_usd": float(liq.get("usd", 0) or 0),
+                }
+
+            logger.debug(f"Batch DexScreener: fetched {len(by_token)} tokens in 1 call")
+
+        except Exception as e:
+            logger.warning(f"Batch DexScreener fetch failed: {e}")
+            # Fall back to individual fetches for this batch
+            for addr in batch:
+                pv = get_price_and_volume(addr, "", "")
+                results[addr.lower()] = pv
+
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -588,15 +672,21 @@ class PositionMonitor:
         dca_signals = 0
         errors = 0
 
+        # ── Batch-fetch all prices at once (10x fewer API calls) ─────────
+        price_cache = batch_get_prices_and_volumes(open_positions)
+
         for pos in open_positions:
             try:
-                # Fetch price + volume (enriched data for offensive guardrails)
-                pv = get_price_and_volume(
-                    token_address=pos.get("token_address", ""),
-                    chain=pos.get("chain", ""),
-                    pair_address=pos.get("pair_address", ""),
-                )
-                current_price = pv["price"]
+                addr_lower = pos.get("token_address", "").lower()
+                pv = price_cache.get(addr_lower, {})
+                if not pv or pv.get("price") is None:
+                    # Fallback to individual fetch
+                    pv = get_price_and_volume(
+                        token_address=pos.get("token_address", ""),
+                        chain=pos.get("chain", ""),
+                        pair_address=pos.get("pair_address", ""),
+                    )
+                current_price = pv.get("price")
 
                 if current_price is None:
                     logger.debug(f"No price for {pos.get('token_symbol')} — skipping")

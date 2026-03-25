@@ -39,17 +39,25 @@ LOG_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_DIR / "bot.log", encoding="utf-8"),
+        RotatingFileHandler(
+            LOG_DIR / "bot.log", encoding="utf-8",
+            maxBytes=50 * 1024 * 1024, backupCount=5,  # 50MB × 5 = 250MB cap
+        ),
     ],
 )
 
 # Safety-specific logger (separate file for audit trail)
-safety_handler = logging.FileHandler(LOG_DIR / "safety.log", encoding="utf-8")
+safety_handler = RotatingFileHandler(
+    LOG_DIR / "safety.log", encoding="utf-8",
+    maxBytes=50 * 1024 * 1024, backupCount=3,  # 50MB × 3 = 150MB cap
+)
 safety_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 logging.getLogger("safety").addHandler(safety_handler)
 
@@ -372,6 +380,9 @@ async def run_bot_loop():
     print(f"Chains:        {', '.join(settings.ACTIVE_CHAINS)}")
     print()
 
+    # ── Persistent BalanceFetcher (reuses Web3 connections across cycles) ──────
+    balance_fetcher = BalanceFetcher()
+
     # ── Start position monitor in background thread ───────────────────────────
     monitor = PositionMonitor(is_paper=is_paper)
     monitor_thread = threading.Thread(
@@ -615,7 +626,7 @@ async def run_bot_loop():
                     f"Full Kelly sizing | TP1 {'skipped' if settings.GOD_MODE_SKIP_TP1 else 'active'}"
                 )
             # 1. Fetch balances
-            fetcher = BalanceFetcher()
+            fetcher = balance_fetcher  # Reuse persistent instance
 
             # 1.5 Process any pending scaling signals from the PositionMonitor
             try:

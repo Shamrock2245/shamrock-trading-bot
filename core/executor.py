@@ -16,6 +16,7 @@ All trades are gated by:
 """
 
 import logging
+import threading
 import os
 from dataclasses import dataclass
 from decimal import Decimal
@@ -83,8 +84,34 @@ class TradeExecutor:
     Always runs safety checks before any execution.
     """
 
-    def __init__(self):
+    def __init__(self, is_paper: bool = False):
         self._web3_cache: dict[str, Web3] = {}
+        # Per-wallet nonce tracker: prevents concurrent nonce collisions
+        # during rapid-fire trades (e.g., Base USDC deployment plan).
+        self._nonce_cache: dict[str, int] = {}  # address_lower → last_used_nonce
+        self._nonce_lock = threading.Lock()
+
+    def _get_nonce(self, w3: Web3, address: str) -> int:
+        """
+        Get the next nonce for a wallet address.
+        Uses local tracking to avoid nonce collisions during rapid trades.
+        Falls back to on-chain count if local cache is stale.
+        """
+        addr_lower = address.lower()
+        with self._nonce_lock:
+            on_chain_nonce = w3.eth.get_transaction_count(address, "pending")
+            cached = self._nonce_cache.get(addr_lower, -1)
+            # Use whichever is higher: on-chain (ground truth) or local (inflight)
+            nonce = max(on_chain_nonce, cached + 1) if cached >= 0 else on_chain_nonce
+            self._nonce_cache[addr_lower] = nonce
+            return nonce
+
+    def _release_nonce(self, address: str) -> None:
+        """Release a nonce on failure so it can be reused."""
+        addr_lower = address.lower()
+        with self._nonce_lock:
+            if addr_lower in self._nonce_cache:
+                self._nonce_cache[addr_lower] = max(0, self._nonce_cache[addr_lower] - 1)
 
     def _get_web3(self, chain: ChainConfig) -> Optional[Web3]:
         """Get Web3 connection, with PoA middleware for Polygon/BSC."""
@@ -336,32 +363,79 @@ class TradeExecutor:
 
             # Build and sign transaction
             account = Account.from_key(private_key)
-            nonce = w3.eth.get_transaction_count(account.address)
-            transaction = {
-                "from": account.address,
-                "to": Web3.to_checksum_address(tx["to"]),
-                "data": tx["data"],
-                "value": int(tx.get("value", 0)),
-                "gas": int(tx.get("gas", 300000)),
-                "gasPrice": w3.eth.gas_price,
-                "nonce": nonce,
-                "chainId": chain_config.chain_id,
-            }
+            nonce = self._get_nonce(w3, account.address)
+            base_gas_price = w3.eth.gas_price
 
-            signed = account.sign_transaction(transaction)
-            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            # Retry loop: attempt once, and if reverted, escalate gas + slippage
+            max_attempts = 2
+            for attempt in range(max_attempts):
+                gas_multiplier = 1.0 + (0.2 * attempt)  # +20% gas on retry
+                slippage_bump = 50 * attempt  # +50bps slippage on retry
 
-            return TradeResult(
-                success=receipt.status == 1,
-                tx_hash=tx_hash.hex(),
-                amount_in=params.amount_in_wei / 1e18,
-                amount_out=dst_amount / 1e18,
-                gas_used=receipt.gasUsed,
-                gas_price_gwei=gas_gwei,
-                execution_path="1inch_live",
-                error=None if receipt.status == 1 else "Transaction reverted",
-            )
+                if attempt > 0:
+                    logger.info(
+                        f"🔄 Retry #{attempt}: escalating gas ×{gas_multiplier:.1f}, "
+                        f"slippage +{slippage_bump}bps"
+                    )
+                    # Re-fetch swap data with higher slippage
+                    retry_params = dict(swap_params)
+                    retry_params["slippage"] = (params.slippage_bps + slippage_bump) / 100
+                    try:
+                        resp = requests.get(url, headers=headers, params=retry_params, timeout=20)
+                        if resp.status_code == 200:
+                            swap_data = resp.json()
+                            tx = swap_data.get("tx", tx)
+                    except Exception:
+                        pass  # Use previous tx data
+                    nonce = self._get_nonce(w3, account.address)
+
+                transaction = {
+                    "from": account.address,
+                    "to": Web3.to_checksum_address(tx["to"]),
+                    "data": tx["data"],
+                    "value": int(tx.get("value", 0)),
+                    "gas": int(int(tx.get("gas", 300000)) * gas_multiplier),
+                    "gasPrice": int(base_gas_price * gas_multiplier),
+                    "nonce": nonce,
+                    "chainId": chain_config.chain_id,
+                }
+
+                try:
+                    signed = account.sign_transaction(transaction)
+                    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+                    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+
+                    if receipt.status == 1:
+                        return TradeResult(
+                            success=True,
+                            tx_hash=tx_hash.hex(),
+                            amount_in=params.amount_in_wei / 1e18,
+                            amount_out=dst_amount / 1e18,
+                            gas_used=receipt.gasUsed,
+                            gas_price_gwei=gas_gwei * gas_multiplier,
+                            execution_path=f"1inch_live{'_retry' if attempt > 0 else ''}",
+                        )
+                    else:
+                        logger.warning(
+                            f"1inch tx reverted (attempt {attempt + 1}/{max_attempts}): "
+                            f"{tx_hash.hex()}"
+                        )
+                        self._release_nonce(account.address)
+                        if attempt == max_attempts - 1:
+                            return TradeResult(
+                                success=False,
+                                tx_hash=tx_hash.hex(),
+                                amount_in=params.amount_in_wei / 1e18,
+                                gas_used=receipt.gasUsed,
+                                gas_price_gwei=gas_gwei * gas_multiplier,
+                                execution_path="1inch_live",
+                                error="Transaction reverted after retry",
+                            )
+                except Exception as send_err:
+                    logger.error(f"1inch send error (attempt {attempt + 1}): {send_err}")
+                    self._release_nonce(account.address)
+                    if attempt == max_attempts - 1:
+                        raise
 
         except Exception as e:
             logger.error(f"1inch execution error: {e}")

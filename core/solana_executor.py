@@ -196,6 +196,42 @@ def get_jupiter_swap_transaction(
     return None
 
 
+def _poll_tx_confirmation(
+    signature: str,
+    rpc_url: str,
+    timeout: int = 30,
+    poll_interval: float = 2.0,
+) -> bool:
+    """
+    Poll Solana RPC for transaction confirmation.
+    Returns True if the transaction reaches 'confirmed' commitment within timeout.
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getSignatureStatuses",
+                "params": [[signature], {"searchTransactionHistory": False}],
+            }
+            resp = requests.post(rpc_url, json=payload, timeout=10)
+            result = resp.json()
+            statuses = result.get("result", {}).get("value", [])
+            if statuses and statuses[0] is not None:
+                status = statuses[0]
+                confirmation_status = status.get("confirmationStatus", "")
+                if confirmation_status in ("confirmed", "finalized"):
+                    return True
+                if status.get("err") is not None:
+                    logger.warning(f"Solana tx failed on-chain: {status['err']}")
+                    return False
+        except Exception as e:
+            logger.debug(f"Confirmation poll error: {e}")
+        time.sleep(poll_interval)
+    return False
+
+
 def sign_and_send_transaction(
     serialized_tx_b64: str,
     private_key_b58: str,
@@ -310,7 +346,15 @@ def sign_and_send_transaction(
                 signature = result.get("result")
                 if signature:
                     logger.info(f"✅ Solana tx broadcast: {signature}")
-                    return signature
+                    # Poll for confirmation (up to 30s)
+                    confirmed = _poll_tx_confirmation(signature, active_rpc, timeout=30)
+                    if confirmed:
+                        logger.info(f"✅ Solana tx confirmed: {signature}")
+                        return signature
+                    else:
+                        logger.warning(f"⚠️ Solana tx broadcast but NOT confirmed after 30s: {signature}")
+                        # Still return signature — position monitor will reconcile
+                        return signature
 
                 logger.error(f"Unexpected RPC response: {result}")
 
