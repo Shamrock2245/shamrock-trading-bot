@@ -701,7 +701,6 @@ def _execute_moonshot_buy(candidate: MoonshotCandidate):
             chain=candidate.chain,
             token_address=candidate.token_address,
             eth_amount=allocation.position_size_native,
-            is_sell=False,
         )
         executor.execute_trade(params)
 
