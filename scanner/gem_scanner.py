@@ -509,7 +509,7 @@ class GemScanner:
             )
         except Exception as e:
             logger.debug(f"Social scoring failed for {token.symbol}: {e}")
-            candidate.social_score = 30.0
+            candidate.social_score = 50.0  # Neutral fallback on failure
 
         # ── DexScreener boost score (4%) ──────────────────────────────────────
         if is_boosted:
@@ -665,9 +665,9 @@ class GemScanner:
                         enrichment_results[name] = None
 
             # Apply results to candidate
-            candidate.tvl_score = enrichment_results.get("tvl") or 30.0
-            candidate.social_sentiment_score = enrichment_results.get("lc") or 30.0
-            candidate.holder_concentration_score = enrichment_results.get("holder") or 40.0
+            candidate.tvl_score = enrichment_results.get("tvl") or 50.0
+            candidate.social_sentiment_score = enrichment_results.get("lc") or 50.0
+            candidate.holder_concentration_score = enrichment_results.get("holder") or 50.0
             candidate.unlock_risk_score = enrichment_results.get("unlock") or 50.0
             candidate.grok_sentiment_score = 50.0  # default — deferred to second pass
 
