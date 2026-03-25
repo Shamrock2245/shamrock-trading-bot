@@ -113,6 +113,102 @@ class TradeExecutor:
             if addr_lower in self._nonce_cache:
                 self._nonce_cache[addr_lower] = max(0, self._nonce_cache[addr_lower] - 1)
 
+    # ── ERC-20 Token Approval ────────────────────────────────────────────────
+    NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+    ERC20_APPROVE_ABI = [
+        {
+            "constant": False,
+            "inputs": [
+                {"name": "spender", "type": "address"},
+                {"name": "amount", "type": "uint256"},
+            ],
+            "name": "approve",
+            "outputs": [{"name": "", "type": "bool"}],
+            "type": "function",
+        }
+    ]
+    MAX_UINT256 = 2**256 - 1
+
+    def _ensure_token_approval(
+        self, w3: Web3, chain_id: int, token_address: str,
+        wallet_address: str, private_key: str, amount: int,
+    ) -> bool:
+        """
+        Ensure the 1inch router has sufficient allowance to spend `token_address`.
+        If not, sends an approve(MAX_UINT256) transaction.
+        Skips for native ETH trades.
+        Returns True if approval is OK, False if approval tx failed.
+        """
+        if token_address.lower() == self.NATIVE_TOKEN.lower():
+            return True  # Native token, no approval needed
+
+        try:
+            # Check current allowance via 1inch API
+            url = f"{settings.ONEINCH_API_URL}/{chain_id}/approve/allowance"
+            headers = {"Authorization": f"Bearer {settings.ONEINCH_API_KEY}"}
+            resp = requests.get(
+                url, headers=headers,
+                params={"tokenAddress": token_address, "walletAddress": wallet_address},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                allowance = int(resp.json().get("allowance", "0"))
+                if allowance >= amount:
+                    logger.debug(f"Token {token_address[:10]}... already approved (allowance={allowance})")
+                    return True
+            else:
+                logger.warning(f"1inch allowance check failed ({resp.status_code}), proceeding with approval")
+
+            # Send approve(MAX_UINT256) transaction
+            logger.info(f"Approving {token_address[:10]}... for 1inch router on chain {chain_id}")
+            token_contract = w3.eth.contract(
+                address=w3.to_checksum_address(token_address),
+                abi=self.ERC20_APPROVE_ABI,
+            )
+
+            # Get 1inch router address from approve/spender endpoint
+            spender_resp = requests.get(
+                f"{settings.ONEINCH_API_URL}/{chain_id}/approve/spender",
+                headers=headers, timeout=10,
+            )
+            if spender_resp.status_code != 200:
+                logger.error(f"Failed to get 1inch spender address: {spender_resp.text}")
+                return False
+            spender = spender_resp.json().get("address")
+            if not spender:
+                logger.error("1inch spender address is empty")
+                return False
+
+            account = Account.from_key(private_key)
+            nonce = self._get_nonce(w3, account.address)
+            approve_tx = token_contract.functions.approve(
+                w3.to_checksum_address(spender), self.MAX_UINT256
+            ).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                "gas": 100_000,
+                "gasPrice": w3.eth.gas_price,
+                "chainId": chain_id,
+            })
+            signed = account.sign_transaction(approve_tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+
+            if receipt.status == 1:
+                logger.info(
+                    f"✅ Token approved: {token_address[:10]}... → "
+                    f"spender {spender[:10]}... | tx={tx_hash.hex()[:12]}..."
+                )
+                return True
+            else:
+                logger.error(f"❌ Approval tx reverted: {tx_hash.hex()}")
+                self._release_nonce(account.address)
+                return False
+
+        except Exception as e:
+            logger.error(f"Token approval error: {e}")
+            return False
+
     def _get_web3(self, chain: ChainConfig) -> Optional[Web3]:
         """Get Web3 connection, with PoA middleware for Polygon/BSC."""
         if chain.name in self._web3_cache:
@@ -342,6 +438,19 @@ class TradeExecutor:
                 "slippage": params.slippage_bps / 100,
                 "disableEstimate": "false",
             }
+
+            # Ensure ERC-20 approval before swap
+            if not self._ensure_token_approval(
+                w3, chain_config.chain_id, params.token_in,
+                params.wallet.address, params.wallet.private_key,
+                params.amount_in_wei,
+            ):
+                return TradeResult(
+                    success=False,
+                    error="Token approval failed — cannot swap without allowance",
+                    execution_path="1inch",
+                )
+
             resp = requests.get(url, headers=headers, params=swap_params, timeout=20)
             if resp.status_code != 200:
                 return TradeResult(

@@ -158,7 +158,10 @@ def get_filtered_tokens(
     if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain, "0x1")
+    chain_hex = CHAIN_HEX.get(moralis_chain)
+    if not chain_hex:
+        # discovery/tokens POST requires hex chain ID — EVM only
+        return []
     cache_key = f"filtered_{chain}_{min_experienced_buyers_1h}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)

@@ -300,8 +300,8 @@ BLITZ_MODE_MULTIPLIER = float(os.getenv("BLITZ_MODE_MULTIPLIER", "1.25"))
 # ── 12. Loss Streak Cooling ───────────────────────────────────────────────────
 # Increase MIN_GEM_SCORE threshold on losing streaks to force the bot to be pickier.
 LOSS_STREAK_COOLING_ENABLED = os.getenv("LOSS_STREAK_COOLING_ENABLED", "true").lower() == "true"
-LOSS_STREAK_SCORE_PENALTY = float(os.getenv("LOSS_STREAK_SCORE_PENALTY", "5.0"))  # +5 pts per loss
-LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "15.0"))     # Max +15 pts
+LOSS_STREAK_SCORE_PENALTY = float(os.getenv("LOSS_STREAK_SCORE_PENALTY", "2.0"))  # +2 pts per loss (was 5 — too aggressive)
+LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "10.0"))     # Max +10 pts
 
 
 # ─────────────────────────────────────────────────────────────────────────────
