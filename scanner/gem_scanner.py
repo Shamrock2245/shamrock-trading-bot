@@ -866,18 +866,18 @@ class GemScanner:
         candidate.buy_pressure_score = buy_pressure_score
 
         # ── Final composite score (19 signals — Moralis + Solana intelligence) ──────
-        # Weights sum to 1.00. Moralis enrichment gets 10% allocation as PRIMARY
-        # data source. Sniper detection at 4% (Solana-only, neutral default for EVM).
+        # Weights sum to 1.00. Moralis enrichment gets 20% allocation as PRIMARY
+        # data source — the strongest single alpha signal. Rebalanced from v1.
         # Dev wallet (3%) and copycat (2%) rug-protection signals retained.
         candidate.gem_score = round(
-            candidate.age_score              * 0.08
-            + candidate.volume_score         * 0.10
-            + candidate.liquidity_score      * 0.08
+            candidate.age_score              * 0.07    # was 0.08
+            + candidate.volume_score         * 0.07    # was 0.10
+            + candidate.liquidity_score      * 0.06    # was 0.08
             + candidate.buy_pressure_score   * 0.07
-            + candidate.moralis_enrichment_score * 0.10   # ← Moralis Money PRIMARY
-            + candidate.sniper_score         * 0.04       # ← Solana sniper detection
-            + candidate.contract_score       * 0.07
-            + candidate.holder_score         * 0.07
+            + candidate.moralis_enrichment_score * 0.20 # ← DOUBLED: Moralis PRIMARY
+            + candidate.sniper_score         * 0.04    # Solana sniper detection
+            + candidate.contract_score       * 0.05    # was 0.07
+            + candidate.holder_score         * 0.05    # was 0.07
             + candidate.tax_score            * 0.06
             + candidate.social_score         * 0.05
             + candidate.boost_score          * 0.04
@@ -891,6 +891,32 @@ class GemScanner:
             + candidate.copycat_score        * 0.03,
             2,
         )
+
+        # ── NUCLEAR BONUS: Moralis buying pressure >70% → +18 ──────────────
+        # When Moralis confirms >70% buy pressure, this is a high-conviction
+        # accumulation signal. +18 bonus rockets high-base-score tokens into
+        # express lane territory. Capped at 100.
+        moralis_bp = getattr(candidate, 'moralis_buy_pressure', 0.5)
+        if moralis_bp > 0.70:
+            candidate.gem_score = min(100.0, round(candidate.gem_score + 18.0, 2))
+            logger.info(
+                f"🚀 MORALIS BUYING PRESSURE BONUS: {token.symbol} "
+                f"buy_pressure={moralis_bp:.0%} → +18 (new score={candidate.gem_score})"
+            )
+
+        # ── DEV REJECT: fresh dev wallet + serial deployer → -30 ───────────
+        # If the dev wallet is <48h old AND has launched >3 tokens, this is
+        # a serial rug deployer pattern. Heavy penalty to keep these out of
+        # the nuclear pipeline. Floored at 0.
+        dev_flags = getattr(candidate, 'dev_wallet_flags', [])
+        dev_is_fresh = any('new_wallet' in f.lower() or '<48h' in f.lower() for f in dev_flags)
+        dev_serial = any('serial' in f.lower() or 'multi' in f.lower() or '>3' in f for f in dev_flags)
+        if dev_is_fresh and dev_serial:
+            candidate.gem_score = max(0.0, round(candidate.gem_score - 30.0, 2))
+            logger.warning(
+                f"🚫 DEV REJECT: {token.symbol} — fresh wallet + serial deployer → -30 "
+                f"(new score={candidate.gem_score})"
+            )
 
         # ── CTO Revival bonus ─────────────────────────────────────────────────
         # CTO tokens get a +8 point bonus on top of composite score.

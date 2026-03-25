@@ -140,6 +140,7 @@ class KellyParams:
 def calculate_kelly_position_pct(
     gem_score: float,
     params: Optional[KellyParams] = None,
+    clamp_max: float = 0.10,
 ) -> float:
     """
     Calculate Kelly Criterion position size as a percentage of portfolio.
@@ -156,6 +157,7 @@ def calculate_kelly_position_pct(
     Args:
         gem_score: Gem score 0-100 (higher = more conviction)
         params: Kelly parameters (uses defaults if None)
+        clamp_max: Upper bound for Kelly fraction (profile-specific: 0.10 conservative, 0.70 nuclear)
 
     Returns:
         Position size as a fraction (e.g., 0.03 = 3% of portfolio)
@@ -178,13 +180,13 @@ def calculate_kelly_position_pct(
     # Half-Kelly for safety
     kelly_half = kelly_full * params.kelly_fraction
 
-    # Clamp to reasonable range (0.5% to 10%)
-    kelly_clamped = max(0.005, min(kelly_half, 0.10))
+    # Clamp to profile-specific range (0.5% to clamp_max)
+    kelly_clamped = max(0.005, min(kelly_half, clamp_max))
 
     logger.debug(
         f"Kelly sizing: score={gem_score:.0f} | win_rate={adjusted_win_rate:.1%} | "
         f"b={b:.2f} | full_kelly={kelly_full:.1%} | half_kelly={kelly_half:.1%} | "
-        f"clamped={kelly_clamped:.1%}"
+        f"clamped={kelly_clamped:.1%} (max={clamp_max:.0%})"
     )
 
     return kelly_clamped
@@ -374,6 +376,7 @@ def route_trade(
     token_age_hours: float = 24.0,
     is_express: bool = False,
     use_kelly: bool = True,
+    specific_wallet: str = "",
 ) -> Optional[TradeAllocation]:
     """
     Determine the best wallet and position size for a trade.
@@ -388,6 +391,7 @@ def route_trade(
         token_age_hours: Token age in hours (affects slippage recommendation)
         is_express: Whether this is an express lane trade
         use_kelly: Whether to use Kelly Criterion sizing (default True)
+        specific_wallet: If set, only consider this wallet alias (e.g. "primary", "wallet_b")
 
     Returns:
         TradeAllocation if a suitable wallet is found, None otherwise.
@@ -396,6 +400,15 @@ def route_trade(
     if not eligible_wallets:
         logger.warning(f"No wallets configured for chain: {chain}")
         return None
+
+    # If specific_wallet is set, filter to only that wallet
+    if specific_wallet:
+        eligible_wallets = [
+            w for w in eligible_wallets
+            if w.alias.lower().replace(" ", "_") == specific_wallet.lower().replace(" ", "_")
+        ]
+        if not eligible_wallets:
+            return None
 
     strategy_wallets = [w for w in eligible_wallets if strategy in w.strategies]
     if not strategy_wallets:
@@ -483,20 +496,39 @@ def route_trade(
         phase = get_capital_phase(wallet_balance_usd)
         phase_max_pct = phase.max_position_pct / 100
 
-        # Override max concurrent positions from phase if phase is more restrictive
-        effective_max_concurrent = min(wallet.max_concurrent_positions, phase.max_concurrent)
+        # Override max concurrent from phase OR wallet profile (most restrictive wins)
+        profile = wallet.strategy_profile
+        profile_max_concurrent = profile.max_concurrent
+        effective_max_concurrent = min(wallet.max_concurrent_positions, phase.max_concurrent, profile_max_concurrent)
         if open_count >= effective_max_concurrent:
             logger.debug(
-                f"Wallet {wallet.alias} at phase max positions "
-                f"({open_count}/{effective_max_concurrent}) — phase: {phase.name}"
+                f"Wallet {wallet.alias} at max positions "
+                f"({open_count}/{effective_max_concurrent}) — phase: {phase.name}, profile: {profile.name}"
             )
             continue
 
+        # ── Profile-aware sizing ───────────────────────────────────────────────
+        # Use the wallet's strategy profile for Kelly clamp and max position %
+        profile_max_pct = profile.max_position_pct / 100  # e.g. 0.60 for nuclear
+        effective_max_pct = min(phase_max_pct, profile_max_pct)
+
+        # ── Regime filter — global multiplier ─────────────────────────────────
+        try:
+            from core.regime_filter import get_regime, get_sizing_multiplier
+            regime_state = get_regime()
+            regime_mult = get_sizing_multiplier(regime_state.regime, profile.name)
+        except Exception:
+            regime_mult = 1.0
+            regime_state = None
+
         # ── Kelly Criterion sizing ────────────────────────────────────────────
         if use_kelly:
-            kelly_pct = calculate_kelly_position_pct(gem_score)
-            # Kelly is bounded by phase max position size
-            effective_pct = min(kelly_pct, phase_max_pct)
+            kelly_pct = calculate_kelly_position_pct(
+                gem_score,
+                clamp_max=profile.kelly_clamp_max,  # 0.10 conservative, 0.70 nuclear
+            )
+            # Kelly bounded by effective max, then scaled by regime
+            effective_pct = min(kelly_pct, effective_max_pct) * regime_mult
             position_size_usd = wallet_balance_usd * effective_pct
         else:
             # Fallback: conviction-multiplier sizing
@@ -507,9 +539,13 @@ def route_trade(
             else:
                 multiplier = settings.CONVICTION_LOW_MULTIPLIER
 
-            max_position_usd = wallet_balance_usd * phase_max_pct
-            position_size_usd = max_position_usd * multiplier
-            kelly_pct = phase_max_pct * multiplier
+            max_position_usd = wallet_balance_usd * effective_max_pct
+            position_size_usd = max_position_usd * multiplier * regime_mult
+            kelly_pct = effective_max_pct * multiplier
+
+        # ── Apply absolute USD cap from profile ───────────────────────────────
+        if profile.max_position_usd > 0 and position_size_usd > profile.max_position_usd:
+            position_size_usd = profile.max_position_usd
 
         # Conviction multiplier for display/logging
         if gem_score >= settings.CONVICTION_HIGH_THRESHOLD:
@@ -520,17 +556,21 @@ def route_trade(
             conviction_multiplier = 0.50
 
         # ── Chain-specific minimum trade sizes ────────────────────────────────
-        # Ethereum: min $100 (gas is expensive), others: min $25
-        # Paper mode: min $1 (allow proof-of-concept with small balances)
         if settings.MODE == "paper":
             min_trade_usd = 1.0
         elif chain == "ethereum":
             min_trade_usd = 100.0
         elif chain == "solana":
-            min_trade_usd = 1.0   # Allow micro-cap sniping with small wallets
+            min_trade_usd = 1.0
         else:
             min_trade_usd = 25.0
-        logger.debug(f"  {wallet.alias} phase={phase.name} max_pct={phase_max_pct:.1%} balance_usd={wallet_balance_usd:.2f} pos_size={position_size_usd:.2f} min_trade={min_trade_usd}")
+
+        regime_label = regime_state.regime.value if regime_state else "unknown"
+        logger.debug(
+            f"  {wallet.alias} [{profile.name}] phase={phase.name} max_pct={effective_max_pct:.1%} "
+            f"regime={regime_label}(x{regime_mult:.1f}) balance=${wallet_balance_usd:.2f} "
+            f"pos_size=${position_size_usd:.2f} min_trade=${min_trade_usd}"
+        )
         if position_size_usd < min_trade_usd:
             logger.debug(
                 f"Position size too small for {wallet.alias} on {chain}: "
@@ -540,11 +580,17 @@ def route_trade(
 
         position_size_native = position_size_usd / native_price
 
+        # Nuclear entry labeling
+        entry_label = "🚀 NUCLEAR ENTRY" if profile.name == "nuclear" else "📊 CONSERVATIVE ENTRY"
+        pct_of_wallet = (position_size_usd / wallet_balance_usd * 100) if wallet_balance_usd > 0 else 0
+
         reason = (
-            f"{wallet.alias} | phase={phase.name} | score={gem_score:.0f} | "
-            f"kelly={kelly_pct:.1%} | conviction={conviction_multiplier:.2f} | "
+            f"{entry_label} — {wallet.alias} | phase={phase.name} | "
+            f"score={gem_score:.0f} | kelly={kelly_pct:.1%} | "
+            f"regime={regime_label} | conviction={conviction_multiplier:.2f} | "
             f"balance={native_balance:.4f} {chain_config.native_token} | "
-            f"size=${position_size_usd:.2f} | slippage={slippage_bps}bps"
+            f"size=${position_size_usd:.2f} ({pct_of_wallet:.0f}% of wallet) | "
+            f"slippage={slippage_bps}bps"
         )
 
         logger.info(f"Trade routed: {reason}")
@@ -565,6 +611,62 @@ def route_trade(
 
     logger.warning(f"No eligible wallet found for {chain} trade (score={gem_score:.0f})")
     return None
+
+
+def route_trade_all(
+    chain: str,
+    gem_score: float,
+    strategy: str = "gem_snipe",
+    token_age_hours: float = 24.0,
+    is_express: bool = False,
+    use_kelly: bool = True,
+) -> list:
+    """
+    Route a trade to ALL eligible wallets (not just the first one).
+
+    For each active wallet, checks if the gem_score meets the wallet's
+    strategy_profile.min_gem_score threshold. Returns a list of
+    TradeAllocations — one per eligible wallet.
+
+    This enables both Primary (conservative) and Wallet B (nuclear) to
+    enter the same token simultaneously with different position sizes.
+    """
+    allocations = []
+    eligible_wallets = get_wallets_for_chain(chain)
+    if not eligible_wallets:
+        return allocations
+
+    for wallet in eligible_wallets:
+        profile = wallet.strategy_profile
+        # Skip if gem score doesn't meet this wallet's profile threshold
+        if gem_score < profile.min_gem_score:
+            logger.debug(
+                f"  {wallet.alias} [{profile.name}] skipped: "
+                f"score {gem_score:.0f} < min {profile.min_gem_score:.0f}"
+            )
+            continue
+
+        # Determine express for this wallet's profile
+        wallet_is_express = is_express or gem_score >= profile.express_lane_score
+        wallet_alias = wallet.alias.lower().replace(" ", "_")
+
+        # Route to this specific wallet only
+        alloc = route_trade(
+            chain=chain,
+            gem_score=gem_score,
+            strategy=strategy,
+            token_age_hours=token_age_hours,
+            is_express=wallet_is_express,
+            use_kelly=use_kelly,
+            specific_wallet=wallet_alias,
+        )
+        if alloc:
+            allocations.append(alloc)
+
+    if not allocations:
+        logger.debug(f"No wallets qualify for {chain} trade (score={gem_score:.0f})")
+
+    return allocations
 
 def get_usdc_balance(wallet_address: str, chain: str) -> float:
     """

@@ -21,6 +21,99 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy Profiles — per-wallet risk/reward configurations
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class StrategyProfile:
+    """Per-wallet trading strategy profile.
+
+    Bundles TP tiers, stops, sizing, and score thresholds so each wallet
+    can run a completely different risk profile on the same scan pipeline.
+    """
+    name: str                       # "conservative" or "nuclear"
+    # ── Score thresholds ──────────────────────────────────────────────────
+    min_gem_score: float            # Minimum gem score to enter
+    express_lane_score: float       # Score for instant market buy
+    # ── Take-profit tiers ─────────────────────────────────────────────────
+    tp1_mult: float                 # TP1 multiplier (e.g. 2.0 = 2x)
+    tp1_sell_pct: float             # Fraction to sell at TP1 (0.0-1.0)
+    tp2_mult: float                 # TP2 multiplier
+    tp2_sell_pct: float             # Fraction of REMAINING to sell at TP2
+    tp3_mult: float                 # TP3 multiplier (0 = disabled)
+    tp3_sell_pct: float             # Fraction of REMAINING to sell at TP3
+    # ── Stop losses ───────────────────────────────────────────────────────
+    hard_stop_pct: float            # Hard stop loss %
+    trailing_stop_pct: float        # Post-TP1 trailing stop %
+    trailing_tighten: dict = field(default_factory=dict)  # {mult: trail%} dynamic tightening
+    # ── Position sizing ───────────────────────────────────────────────────
+    max_position_pct: float         # Base max position % of wallet
+    kelly_clamp_max: float          # Kelly upper bound (fraction, e.g. 0.70 = 70%)
+    max_position_usd: float         # Absolute dollar cap (0 = no cap)
+    max_concurrent: int             # Max open positions
+    # ── Fast fail ─────────────────────────────────────────────────────────
+    fast_fail_down_pct: float       # Down % to trigger fast-fail
+    fast_fail_hours: float          # Hours window for fast-fail check
+    # ── Slippage ──────────────────────────────────────────────────────────
+    max_slippage_pct: float = 5.0   # Max slippage tolerance %
+
+
+# ── Pre-configured profiles ──────────────────────────────────────────────────
+
+CONSERVATIVE_PROFILE = StrategyProfile(
+    name="conservative",
+    min_gem_score=50.0,
+    express_lane_score=82.0,
+    # TP: 2x sell 40%, 3x sell 40%, no TP3
+    tp1_mult=2.0,
+    tp1_sell_pct=0.40,
+    tp2_mult=3.0,
+    tp2_sell_pct=0.40,
+    tp3_mult=0.0,       # Disabled
+    tp3_sell_pct=0.0,
+    # Stops
+    hard_stop_pct=20.0,
+    trailing_stop_pct=15.0,
+    trailing_tighten={},  # Fixed 15%
+    # Sizing
+    max_position_pct=5.0,
+    kelly_clamp_max=0.10,
+    max_position_usd=5_000.0,
+    max_concurrent=5,
+    # Fast fail
+    fast_fail_down_pct=10.0,
+    fast_fail_hours=2.0,
+    max_slippage_pct=5.0,
+)
+
+NUCLEAR_PROFILE = StrategyProfile(
+    name="nuclear",
+    min_gem_score=82.0,
+    express_lane_score=90.0,
+    # TP: 5x sell 15%, 12x sell 25%, 30x sell 20% (ride 40% with trail)
+    tp1_mult=5.0,
+    tp1_sell_pct=0.15,
+    tp2_mult=12.0,
+    tp2_sell_pct=0.25,
+    tp3_mult=30.0,
+    tp3_sell_pct=0.20,
+    # Stops — tighten aggressively as it runs
+    hard_stop_pct=10.0,
+    trailing_stop_pct=30.0,
+    trailing_tighten={10: 18.0, 20: 8.0},  # At 10x → 18% trail, at 20x → 8%
+    # Sizing — the missile
+    max_position_pct=60.0,
+    kelly_clamp_max=0.70,
+    max_position_usd=0.0,  # No hard cap
+    max_concurrent=3,
+    # Fast fail — tighter
+    fast_fail_down_pct=15.0,
+    fast_fail_hours=1.5,
+    max_slippage_pct=8.0,  # Wider for nuclear entries on memes
+)
+
+
 @dataclass
 class WalletConfig:
     """Configuration for a single managed wallet."""
@@ -38,6 +131,8 @@ class WalletConfig:
     # Solana-specific
     solana_address: str = ""            # Solana public key (base58)
     solana_private_key_env: str = ""    # Env var for Solana keypair (base58)
+    # Strategy profile — per-wallet risk/reward config
+    strategy_profile: StrategyProfile = field(default_factory=lambda: CONSERVATIVE_PROFILE)
 
     @property
     def private_key(self) -> Optional[str]:
@@ -100,13 +195,14 @@ WALLETS: dict[str, WalletConfig] = {
         private_key_env="WALLET_PRIVATE_KEY_PRIMARY",
         solana_private_key_env="SOLANA_PRIVATE_KEY_PRIMARY",
         solana_address=os.getenv("SOLANA_ADDRESS_PRIMARY", ""),
-        role="Main trading wallet — gem sniping & active positions",
+        role="Safety net — conservative gem sniping",
         strategies=["gem_snipe", "momentum", "breakout"],
         chains=["ethereum", "base", "bsc", "avalanche", "solana"],
-        max_position_size_pct=float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0")),
-        max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "10")),
+        max_position_size_pct=5.0,
+        max_concurrent_positions=5,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
         min_eth_balance_alert=float(os.getenv("MIN_ETH_BALANCE_ALERT", "0.05")),
+        strategy_profile=CONSERVATIVE_PROFILE,
     ),
 
     "wallet_b": WalletConfig(
@@ -115,13 +211,14 @@ WALLETS: dict[str, WalletConfig] = {
         private_key_env="WALLET_PRIVATE_KEY_B",
         solana_private_key_env="SOLANA_PRIVATE_KEY_B",
         solana_address=os.getenv("SOLANA_ADDRESS_B", ""),
-        role="Secondary wallet — DCA, mean-reversion & multi-chain gem sniping",
-        strategies=["dca", "mean_reversion", "gem_snipe", "moonshot_spray"],
-        chains=["base", "ethereum", "arbitrum", "polygon", "bsc", "avalanche", "solana"],
-        max_position_size_pct=float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0")),
-        max_concurrent_positions=int(os.getenv("MAX_CONCURRENT_POSITIONS", "10")),
-        daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "1.0")),
+        role="Nuclear predator — aggressive momentum + explosive compounding",
+        strategies=["gem_snipe", "momentum", "breakout", "nuclear"],
+        chains=["base", "bsc", "avalanche", "solana"],
+        max_position_size_pct=60.0,
+        max_concurrent_positions=3,
+        daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "2.0")),
         min_eth_balance_alert=float(os.getenv("MIN_ETH_BALANCE_ALERT", "0.05")),
+        strategy_profile=NUCLEAR_PROFILE,
     ),
 
     "wallet_c": WalletConfig(

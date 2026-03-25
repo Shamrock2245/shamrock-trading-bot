@@ -73,7 +73,7 @@ from core.safety import check_token_safety
 from core.executor import TradeExecutor, build_gem_snipe_params
 from core.risk import risk_manager
 from core.position_monitor import PositionMonitor, register_position, load_positions
-from core.wallet_router import route_trade
+from core.wallet_router import route_trade, route_trade_all
 from core.signal_engine import SignalEngine
 from core.offensive_guardrails import (
     get_offensive_state,
@@ -896,193 +896,199 @@ async def run_bot_loop():
                         f"— executing immediately"
                     )
 
-                # ── Wallet routing (multi-wallet, conviction-based sizing) ──────
-                allocation = route_trade(
+                # ── Wallet routing (DUAL-WALLET: both Primary + Wallet B can fire) ──
+                allocations = route_trade_all(
                     chain=token.chain,
                     gem_score=candidate.gem_score,
                     strategy="gem_snipe",
+                    is_express=is_express,
                 )
 
-                if not allocation:
+                if not allocations:
                     logger.info(f"No wallet available for {token.symbol} on {token.chain}")
                     continue
 
-                wallet = allocation.wallet
-                native_balance = allocation.native_balance
-                # ── OFFENSIVE: Apply all offensive multipliers to position sizing ──────
-                is_momentum_reentry = any(
-                    r["address"] == token_addr_lower for r in reentry_candidates
-                )
-                base_position_usd = allocation.position_size_usd
-                final_position_usd, sizing_reason = calculate_offensive_position_size(
-                    base_position_usd=base_position_usd,
-                    gem_score=candidate.gem_score,
-                    is_express=is_express,
-                    state=offensive_state,
-                    is_momentum_reentry=is_momentum_reentry,
-                )
-                save_offensive_state(offensive_state)  # Save after boost consumption
-                profit_boost_remaining = offensive_state.profit_boost_remaining
+                # Execute on each eligible wallet (Primary + Wallet B in parallel)
+                for allocation in allocations:
 
-                if final_position_usd != base_position_usd:
-                    scale_factor = final_position_usd / base_position_usd if base_position_usd > 0 else 1.0
-                    allocation.position_size_usd = final_position_usd
-                    allocation.position_size_native *= scale_factor
-
-                # Express Lane Overdrive: wider slippage to guarantee entry
-                if is_express and settings.EXPRESS_OVERDRIVE_ENABLED:
-                    from core.wallet_router import get_chain_slippage_bps
-                    base_slippage = get_chain_slippage_bps(token.chain, is_express=True)
-                    allocation.slippage_bps = get_express_overdrive_slippage_bps(
-                        is_express=True, base_slippage_bps=base_slippage
+                    wallet = allocation.wallet
+                    native_balance = allocation.native_balance
+                    # ── OFFENSIVE: Apply all offensive multipliers to position sizing ──────
+                    is_momentum_reentry = any(
+                        r["address"] == token_addr_lower for r in reentry_candidates
                     )
-
-                # ── USDC balance check ────────────────────────────────────────────────────────────────────────────────
-                usdc_balance = 0.0
-                try:
-                    from config.chains import CHAINS
-                    chain_cfg = CHAINS.get(token.chain)
-                    if chain_cfg and chain_cfg.usdc_address and not chain_cfg.is_solana:
-                        from web3 import Web3
-                        w3 = Web3(Web3.HTTPProvider(chain_cfg.rpc_url))
-                        erc20_abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                        usdc_contract = w3.eth.contract(
-                            address=Web3.to_checksum_address(chain_cfg.usdc_address),
-                            abi=erc20_abi,
-                        )
-                        raw_balance = usdc_contract.functions.balanceOf(
-                            Web3.to_checksum_address(wallet.address)
-                        ).call()
-                        usdc_balance = raw_balance / 1e6
-                        if usdc_balance > 1.0:
-                            logger.info(f"USDC balance on {token.chain}: ${usdc_balance:.2f}")
-                except Exception as e:
-                    logger.debug(f"USDC balance check failed: {e}")
-
-                # ── Risk check ────────────────────────────────────────────────
-                risk = risk_manager.check_trade(
-                    position_size_native=allocation.position_size_native,
-                    position_size_usd=allocation.position_size_usd,
-                    wallet=wallet, 
-                    wallet_balance_native=native_balance, 
-                    token_address=token.address, 
-                    chain=token.chain,
-                    usdc_balance=usdc_balance,
-                )
-                if not risk.approved:
-                    logger.info(f"Risk blocked {token.symbol}: {risk.reason}")
-                    continue
-
-                # ── Solana execution path ─────────────────────────────────────
-                if token.chain == "solana":
-                    from core.solana_executor import execute_solana_buy
-                    sol_amount = allocation.position_size_native
-                    # Use Solana-specific address and key env for Solana chain
-                    sol_public_key = wallet.solana_address or wallet.address
-                    sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
-                    tx_hash = execute_solana_buy(
-                        token_mint=token.address,
-                        sol_amount=sol_amount,
-                        wallet_public_key=sol_public_key,
-                        wallet_private_key_env=sol_key_env,
-                        slippage_bps=150,
-                        is_paper=is_paper,
-                    )
-                    success = tx_hash is not None
-                    execution_path = "jupiter"
-                    amount_display = f"{sol_amount:.4f} SOL"
-                    amount_out = 0.0
-                    error = None if success else "Solana execution failed"
-                else:
-                    # ── EVM execution path ────────────────────────────────────
-                    params = build_gem_snipe_params(
-                        wallet=wallet,
-                        chain=token.chain,
-                        token_address=token.address,
-                        eth_amount=risk.position_size_eth,
-                        use_usdc=risk.use_usdc,
-                        usdc_amount=risk.position_size_usdc,
-                    )
-                    # MEV Protection: apply gas bribe for God Signal tokens
-                    gas_multiplier = get_gas_bribe_multiplier(candidate.gem_score)
-                    if gas_multiplier > 1.0:
-                        params.gas_price_multiplier = gas_multiplier
-                    result = executor.execute_trade(params)
-                    success = result.success
-                    tx_hash = result.tx_hash
-                    execution_path = result.execution_path
-                    amount_out = result.amount_out
-                    error = result.error
-                    amount_display = (
-                        f"${risk.position_size_usdc:.2f} USDC"
-                        if risk.use_usdc
-                        else f"{risk.position_size_eth:.4f} ETH"
-                    )
-
-                if success:
-                    trades_this_cycle += 1
-                    trades_this_session += 1
-
-                    # Decrement profit boost counter
-                    if profit_boost_remaining > 0:
-                        profit_boost_remaining -= 1
-                        logger.info(
-                            f"🔥 Profit boost trades remaining: {profit_boost_remaining}"
-                        )
-
-                    # Add to dedup set so we don't re-buy this cycle
-                    open_token_keys.add(token_addr_lower)
-
-                    logger.info(
-                        f"✅ Trade executed: {token.symbol} | {token.chain} | "
-                        f"{amount_display} | path={execution_path} | tx={tx_hash}"
-                    )
-                    risk_manager.record_trade_open(wallet.alias)
-
-                    # ── Register position for auto-sell monitoring ────────────
-                    register_position(
-                        token_address=token.address,
-                        token_symbol=token.symbol,
-                        chain=token.chain,
-                        wallet=wallet.alias.lower().replace(" ", "_"),
-                        entry_price=token.price_usd,
-                        quantity=amount_out if amount_out > 0 else (
-                            allocation.position_size_usd / token.price_usd
-                            if token.price_usd > 0 else 0
-                        ),
-                        pair_address=token.pair_address,
-                        tx_hash=tx_hash or "",
+                    base_position_usd = allocation.position_size_usd
+                    final_position_usd, sizing_reason = calculate_offensive_position_size(
+                        base_position_usd=base_position_usd,
                         gem_score=candidate.gem_score,
-                        is_paper=is_paper,
-                        entry_value_usd=allocation.position_size_usd,
+                        is_express=is_express,
+                        state=offensive_state,
+                        is_momentum_reentry=is_momentum_reentry,
                     )
+                    save_offensive_state(offensive_state)  # Save after boost consumption
+                    profit_boost_remaining = offensive_state.profit_boost_remaining
 
-                    notify_trade(
-                        action="BUY",
-                        token_symbol=token.symbol,
+                    if final_position_usd != base_position_usd:
+                        scale_factor = final_position_usd / base_position_usd if base_position_usd > 0 else 1.0
+                        allocation.position_size_usd = final_position_usd
+                        allocation.position_size_native *= scale_factor
+
+                    # Express Lane Overdrive: wider slippage to guarantee entry
+                    if is_express and settings.EXPRESS_OVERDRIVE_ENABLED:
+                        from core.wallet_router import get_chain_slippage_bps
+                        base_slippage = get_chain_slippage_bps(token.chain, is_express=True)
+                        allocation.slippage_bps = get_express_overdrive_slippage_bps(
+                            is_express=True, base_slippage_bps=base_slippage
+                        )
+
+                    # ── USDC balance check ────────────────────────────────────
+                    usdc_balance = 0.0
+                    try:
+                        from config.chains import CHAINS
+                        chain_cfg = CHAINS.get(token.chain)
+                        if chain_cfg and chain_cfg.usdc_address and not chain_cfg.is_solana:
+                            from web3 import Web3
+                            w3 = Web3(Web3.HTTPProvider(chain_cfg.rpc_url))
+                            erc20_abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                            usdc_contract = w3.eth.contract(
+                                address=Web3.to_checksum_address(chain_cfg.usdc_address),
+                                abi=erc20_abi,
+                            )
+                            raw_balance = usdc_contract.functions.balanceOf(
+                                Web3.to_checksum_address(wallet.address)
+                            ).call()
+                            usdc_balance = raw_balance / 1e6
+                            if usdc_balance > 1.0:
+                                logger.info(f"USDC balance on {token.chain}: ${usdc_balance:.2f}")
+                    except Exception as e:
+                        logger.debug(f"USDC balance check failed: {e}")
+
+                    # ── Risk check ────────────────────────────────────────────
+                    risk = risk_manager.check_trade(
+                        position_size_native=allocation.position_size_native,
+                        position_size_usd=allocation.position_size_usd,
+                        wallet=wallet, 
+                        wallet_balance_native=native_balance, 
+                        token_address=token.address, 
                         chain=token.chain,
-                        amount_eth=risk.position_size_eth,
-                        score=candidate.gem_score,
-                        mode=settings.MODE,
-                        extra="Capital: {} | Path: {} | Tx: {} | Express: {}".format(
-                            amount_display,
-                            execution_path,
-                            tx_hash or "N/A",
-                            "YES ⚡" if is_express else "no",
-                        ),
+                        usdc_balance=usdc_balance,
                     )
-                else:
-                    logger.warning(f"❌ Trade failed: {token.symbol} | {error}")
-                    failed_trade_cooldown[token_addr_lower] = cycle  # 5-cycle cooldown
-                    notify_trade(
-                        action="BUY",
-                        token_symbol=token.symbol,
-                        chain=token.chain,
-                        amount_eth=risk.position_size_eth,
-                        score=candidate.gem_score,
-                        mode=settings.MODE,
-                        extra=f"❌ FAILED: {error}",
-                    )
+                    if not risk.approved:
+                        logger.info(f"Risk blocked {token.symbol} on {wallet.alias}: {risk.reason}")
+                        continue
+
+                    # ── Solana execution path ──────────────────────────────────
+                    if token.chain == "solana":
+                        from core.solana_executor import execute_solana_buy
+                        sol_amount = allocation.position_size_native
+                        # Use Solana-specific address and key env for Solana chain
+                        sol_public_key = wallet.solana_address or wallet.address
+                        sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
+                        tx_hash = execute_solana_buy(
+                            token_mint=token.address,
+                            sol_amount=sol_amount,
+                            wallet_public_key=sol_public_key,
+                            wallet_private_key_env=sol_key_env,
+                            slippage_bps=150,
+                            is_paper=is_paper,
+                        )
+                        success = tx_hash is not None
+                        execution_path = "jupiter"
+                        amount_display = f"{sol_amount:.4f} SOL"
+                        amount_out = 0.0
+                        error = None if success else "Solana execution failed"
+                    else:
+                        # ── EVM execution path ─────────────────────────────────
+                        params = build_gem_snipe_params(
+                            wallet=wallet,
+                            chain=token.chain,
+                            token_address=token.address,
+                            eth_amount=risk.position_size_eth,
+                            use_usdc=risk.use_usdc,
+                            usdc_amount=risk.position_size_usdc,
+                        )
+                        # MEV Protection: apply gas bribe for God Signal tokens
+                        gas_multiplier = get_gas_bribe_multiplier(candidate.gem_score)
+                        if gas_multiplier > 1.0:
+                            params.gas_price_multiplier = gas_multiplier
+                        result = executor.execute_trade(params)
+                        success = result.success
+                        tx_hash = result.tx_hash
+                        execution_path = result.execution_path
+                        amount_out = result.amount_out
+                        error = result.error
+                        amount_display = (
+                            f"${risk.position_size_usdc:.2f} USDC"
+                            if risk.use_usdc
+                            else f"{risk.position_size_eth:.4f} ETH"
+                        )
+
+                    if success:
+                        trades_this_cycle += 1
+                        trades_this_session += 1
+
+                        # Decrement profit boost counter
+                        if profit_boost_remaining > 0:
+                            profit_boost_remaining -= 1
+                            logger.info(
+                                f"🔥 Profit boost trades remaining: {profit_boost_remaining}"
+                            )
+
+                        # Add to dedup set so we don't re-buy this cycle
+                        open_token_keys.add(token_addr_lower)
+
+                        logger.info(
+                            f"✅ Trade executed: {token.symbol} | {token.chain} | "
+                            f"{wallet.alias} | {amount_display} | path={execution_path} | tx={tx_hash}"
+                        )
+                        risk_manager.record_trade_open(wallet.alias)
+
+                        # ── Register position for auto-sell monitoring ─────────
+                        register_position(
+                            token_address=token.address,
+                            token_symbol=token.symbol,
+                            chain=token.chain,
+                            wallet=wallet.alias.lower().replace(" ", "_"),
+                            entry_price=token.price_usd,
+                            quantity=amount_out if amount_out > 0 else (
+                                allocation.position_size_usd / token.price_usd
+                                if token.price_usd > 0 else 0
+                            ),
+                            pair_address=token.pair_address,
+                            tx_hash=tx_hash or "",
+                            gem_score=candidate.gem_score,
+                            is_paper=is_paper,
+                            entry_value_usd=allocation.position_size_usd,
+                        )
+
+                        notify_trade(
+                            action="BUY",
+                            token_symbol=token.symbol,
+                            chain=token.chain,
+                            amount_eth=risk.position_size_eth,
+                            score=candidate.gem_score,
+                            mode=settings.MODE,
+                            extra="Capital: {} | Wallet: {} | Path: {} | Tx: {} | Express: {}".format(
+                                amount_display,
+                                wallet.alias,
+                                execution_path,
+                                tx_hash or "N/A",
+                                "YES ⚡" if is_express else "no",
+                            ),
+                        )
+                    else:
+                        logger.warning(f"❌ Trade failed: {token.symbol} on {wallet.alias} | {error}")
+                        failed_trade_cooldown[token_addr_lower] = cycle  # 5-cycle cooldown
+                        notify_trade(
+                            action="BUY",
+                            token_symbol=token.symbol,
+                            chain=token.chain,
+                            amount_eth=risk.position_size_eth,
+                            score=candidate.gem_score,
+                            mode=settings.MODE,
+                            extra=f"❌ FAILED on {wallet.alias}: {error}",
+                        )
+
 
             # ────────────────────────────────────────────────────────────────
             # 4. OFFENSIVE MODULES (Rebalance → Fib Hunt → Moonshot Spray)

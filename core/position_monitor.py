@@ -271,9 +271,12 @@ def batch_get_prices_and_volumes(positions: list[dict]) -> dict[str, dict]:
 # Take-Profit / Stop-Loss Evaluation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
+def evaluate_position(pos: dict, current_price: float,
+                      strategy_profile=None) -> Optional[dict]:
     """
     Evaluate a position against take-profit and stop-loss rules.
+
+    Uses per-wallet StrategyProfile if provided, else falls back to global settings.
 
     Returns a sell action dict if a sell should be triggered, else None.
     Action dict: {reason, sell_pct, urgency}
@@ -284,7 +287,33 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
     if entry_price <= 0:
         return None
 
+    # Resolve profile values (profile → global settings fallback)
+    if strategy_profile:
+        sp = strategy_profile
+        hard_stop_pct = sp.hard_stop_pct
+        trailing_pct = sp.trailing_stop_pct
+        tp1_mult = sp.tp1_mult
+        tp1_sell = sp.tp1_sell_pct
+        tp2_mult = sp.tp2_mult
+        tp2_sell = sp.tp2_sell_pct
+        tp3_mult = sp.tp3_mult
+        tp3_sell = sp.tp3_sell_pct
+        trailing_tighten = sp.trailing_tighten  # {mult: trail%}
+        profile_name = sp.name
+    else:
+        hard_stop_pct = settings.HARD_STOP_LOSS_PERCENT
+        trailing_pct = settings.STOP_LOSS_PERCENT
+        tp1_mult = settings.TAKE_PROFIT_TP1_MULT
+        tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+        tp2_mult = settings.TAKE_PROFIT_TP2_MULT
+        tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
+        tp3_mult = 0
+        tp3_sell = 0
+        trailing_tighten = {}
+        profile_name = "default"
+
     gain_pct = ((current_price - entry_price) / entry_price) * 100
+    gain_mult = current_price / entry_price  # 5.0 = 5x
     highest_price = float(pos.get("highest_price", entry_price))
     tp1_hit = pos.get("tp1_hit", False)
     tp2_hit = pos.get("tp2_hit", False)
@@ -292,46 +321,62 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
     entry_time = pos.get("entry_time")
 
     # ── Hard stop-loss ────────────────────────────────────────────────────────
-    hard_stop = -settings.HARD_STOP_LOSS_PERCENT
+    hard_stop = -hard_stop_pct
     if gain_pct <= hard_stop:
         return {
-            "reason": f"hard_stop_loss ({gain_pct:.1f}%)",
+            "reason": f"hard_stop_loss ({gain_pct:.1f}%) [{profile_name}]",
             "sell_pct": 1.0,
             "urgency": "immediate",
         }
 
-    # ── Trailing stop (only active after TP1) ─────────────────────────────────
+    # ── Dynamic trailing stop (only active after TP1) ─────────────────────────
     if tp1_hit and highest_price > entry_price:
-        trailing_stop_price = highest_price * (1 - settings.STOP_LOSS_PERCENT / 100)
+        # Determine effective trailing % based on dynamic tightening
+        effective_trail = trailing_pct
+        if trailing_tighten:
+            for mult_threshold, tight_pct in sorted(trailing_tighten.items()):
+                if gain_mult >= float(mult_threshold):
+                    effective_trail = tight_pct
+
+        trailing_stop_price = highest_price * (1 - effective_trail / 100)
         if current_price <= trailing_stop_price:
             drop_from_high = ((current_price - highest_price) / highest_price) * 100
             return {
-                "reason": f"trailing_stop ({drop_from_high:.1f}% from high)",
+                "reason": f"trailing_stop ({drop_from_high:.1f}% from high, trail={effective_trail:.0f}%) [{profile_name}]",
                 "sell_pct": 1.0,
                 "urgency": "immediate",
             }
 
-    # ── Take-profit tiers (Offensive Playbook "House Money" Strategy) ────────
-    # TP1 at 2x: sell 50% → lock in capital + profit
-    tp1_gain = (settings.TAKE_PROFIT_TP1_MULT - 1) * 100  # 100% for 2x
+    # ── Take-profit tiers ─────────────────────────────────────────────────────
+    # TP1
+    tp1_gain = (tp1_mult - 1) * 100
     if not tp1_hit and gain_pct >= tp1_gain:
         return {
-            "reason": f"tp1_{settings.TAKE_PROFIT_TP1_MULT:.0f}x",
-            "sell_pct": settings.TAKE_PROFIT_TP1_SELL_PCT,
+            "reason": f"tp1_{tp1_mult:.0f}x [{profile_name}]",
+            "sell_pct": tp1_sell,
             "urgency": "normal",
         }
 
-    # TP2 at 3x: sell 50% of remaining (= 25% of original)
-    tp2_gain = (settings.TAKE_PROFIT_TP2_MULT - 1) * 100  # 200% for 3x
+    # TP2
+    tp2_gain = (tp2_mult - 1) * 100
     if tp1_hit and not tp2_hit and gain_pct >= tp2_gain:
         return {
-            "reason": f"tp2_{settings.TAKE_PROFIT_TP2_MULT:.0f}x",
-            "sell_pct": settings.TAKE_PROFIT_TP2_SELL_PCT,
+            "reason": f"tp2_{tp2_mult:.0f}x [{profile_name}]",
+            "sell_pct": tp2_sell,
             "urgency": "normal",
         }
 
-    # After TP2, remaining 25% rides with the trailing stop (handled above)
-    # No TP3 — the trailing stop handles the "let the runner run" case
+    # TP3 (nuclear only — conservative has tp3_mult=0 which disables it)
+    if tp3_mult > 0:
+        tp3_gain = (tp3_mult - 1) * 100
+        if tp2_hit and not tp3_hit and gain_pct >= tp3_gain:
+            return {
+                "reason": f"tp3_{tp3_mult:.0f}x [{profile_name}]",
+                "sell_pct": tp3_sell,
+                "urgency": "normal",
+            }
+
+    # After final TP, remaining position rides with dynamic trailing stop
 
     # ── Time-based exit: dead capital is wasted capital ───────────────────────
     if entry_time and not tp1_hit:
@@ -340,7 +385,7 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
             age_hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
             if age_hours >= settings.TIME_EXIT_HOURS and gain_pct < settings.TIME_EXIT_MIN_GAIN_PCT:
                 return {
-                    "reason": f"time_exit_{settings.TIME_EXIT_HOURS:.0f}h (gain={gain_pct:.1f}%)",
+                    "reason": f"time_exit_{settings.TIME_EXIT_HOURS:.0f}h (gain={gain_pct:.1f}%) [{profile_name}]",
                     "sell_pct": 1.0,
                     "urgency": "normal",
                 }
@@ -355,7 +400,7 @@ def evaluate_position(pos: dict, current_price: float) -> Optional[dict]:
             liq_drop_pct = ((entry_liq - current_liq) / entry_liq) * 100
             if liq_drop_pct >= settings.LIQUIDITY_DRAIN_DROP_PCT:
                 return {
-                    "reason": f"liquidity_drain ({liq_drop_pct:.0f}% pool drop)",
+                    "reason": f"liquidity_drain ({liq_drop_pct:.0f}% pool drop) [{profile_name}]",
                     "sell_pct": 1.0,
                     "urgency": "immediate",
                 }
