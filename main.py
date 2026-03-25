@@ -1027,6 +1027,13 @@ async def run_bot_loop():
                         trades_this_cycle += 1
                         trades_this_session += 1
 
+                        # Increment daily trade counter (for MAX_TRADES_PER_DAY enforcement)
+                        from core.wallet_router import increment_daily_trade_count
+                        daily_count = increment_daily_trade_count()
+                        logger.debug(
+                            f"Daily trade count: {daily_count}/{settings.MAX_TRADES_PER_DAY}"
+                        )
+
                         # Decrement profit boost counter
                         if profit_boost_remaining > 0:
                             profit_boost_remaining -= 1

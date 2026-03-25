@@ -673,6 +673,19 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
     elif reason == "tp3_10x":
         pos["tp3_hit"] = True
 
+    # ── Auto-compound: Track Wallet B TP profits for rebalancing to Primary ──
+    # When nuclear wallet takes profit, flag 50% for rebalancing to safety net
+    wallet_alias = pos.get("wallet", "").lower()
+    is_tp_sell = "tp" in reason and pnl_usd > 0
+    auto_compound_pct = getattr(settings, "AUTO_COMPOUND_PCT", 50.0)
+    if is_tp_sell and "wallet_b" in wallet_alias and auto_compound_pct > 0:
+        compound_amount = pnl_usd * (auto_compound_pct / 100)
+        pos["compound_to_primary_usd"] = float(pos.get("compound_to_primary_usd", 0)) + compound_amount
+        logger.info(
+            f"💰 AUTO-COMPOUND: ${compound_amount:.2f} of ${pnl_usd:.2f} TP profit "
+            f"flagged for rebalance to Primary ({auto_compound_pct:.0f}%)"
+        )
+
     # Mark closed if fully sold
     if new_remaining <= 0 or sell_pct >= 1.0:
         pos["status"] = "closed"

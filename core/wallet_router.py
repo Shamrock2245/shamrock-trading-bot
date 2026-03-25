@@ -11,6 +11,9 @@ based on:
   6. Daily loss limit enforcement
   7. Max concurrent position limits
   8. Chain-aware slippage (new tokens on Base/Solana get wider slippage)
+  9. Gas-vs-position-size guard (reject trades where gas > 20% of position)
+  10. Daily trade count cap (prevent gas burn)
+  11. Auto-scaling absolute position cap (grows with wallet)
 
 Kelly Criterion (modified half-Kelly for safety):
   Kelly% = (win_rate × avg_win - loss_rate × avg_loss) / avg_win
@@ -37,6 +40,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Optional
 
 from config import settings
@@ -44,6 +48,42 @@ from config.wallets import WALLETS, WalletConfig, get_wallets_for_chain
 from config.chains import CHAINS, ChainConfig
 
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily Trade Counter
+# ─────────────────────────────────────────────────────────────────────────────
+_daily_trade_count: dict[str, int] = {}  # {date_str: count}
+
+
+def get_daily_trade_count() -> int:
+    """Get the number of trades executed today."""
+    today = date.today().isoformat()
+    return _daily_trade_count.get(today, 0)
+
+
+def increment_daily_trade_count() -> int:
+    """Increment and return today's trade count. Call after a successful trade."""
+    today = date.today().isoformat()
+    # Clean up old dates
+    for k in list(_daily_trade_count.keys()):
+        if k != today:
+            del _daily_trade_count[k]
+    _daily_trade_count[today] = _daily_trade_count.get(today, 0) + 1
+    return _daily_trade_count[today]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Estimated Gas Costs (USD) per chain — for gas-vs-size guard
+# ─────────────────────────────────────────────────────────────────────────────
+ESTIMATED_GAS_COST_USD = {
+    "ethereum": 15.0,   # ~$15 per swap on ETH mainnet
+    "base": 0.10,       # Base L2 is very cheap
+    "arbitrum": 0.25,   # Arbitrum L2
+    "polygon": 0.05,    # Polygon is very cheap
+    "bsc": 0.50,        # BSC is cheap
+    "avalanche": 0.50,  # AVAX moderate
+    "solana": 0.01,     # Solana is near-free
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -431,6 +471,17 @@ def route_trade(
     slippage_bps = get_chain_slippage_bps(chain, is_express=is_express, token_age_hours=token_age_hours)
 
     logger.info(f"Routing {chain} trade: {len(strategy_wallets)} wallets eligible, strategy={strategy}")
+
+    # ── Daily trade cap (global across all wallets) ────────────────────────
+    if settings.MAX_TRADES_PER_DAY > 0:
+        daily_count = get_daily_trade_count()
+        if daily_count >= settings.MAX_TRADES_PER_DAY:
+            logger.warning(
+                f"Daily trade cap reached: {daily_count}/{settings.MAX_TRADES_PER_DAY} — "
+                f"no more trades today"
+            )
+            return None
+
     for wallet in strategy_wallets:
         logger.debug(f"  Evaluating {wallet.alias} for {chain}...")
         # Check max concurrent positions (relaxed in moonshot mode)
@@ -544,8 +595,12 @@ def route_trade(
             kelly_pct = effective_max_pct * multiplier
 
         # ── Apply absolute USD cap from profile ───────────────────────────────
-        if profile.max_position_usd > 0 and position_size_usd > profile.max_position_usd:
-            position_size_usd = profile.max_position_usd
+        # Use the GREATER of fixed cap or auto-scaling % cap (so it grows with the wallet)
+        fixed_cap = profile.max_position_usd if profile.max_position_usd > 0 else settings.OFFENSIVE_MAX_POSITION_USD
+        wallet_pct_cap = wallet_balance_usd * (settings.OFFENSIVE_MAX_POSITION_WALLET_PCT / 100)
+        dynamic_cap = max(fixed_cap, wallet_pct_cap)
+        if position_size_usd > dynamic_cap:
+            position_size_usd = dynamic_cap
 
         # Conviction multiplier for display/logging
         if gem_score >= settings.CONVICTION_HIGH_THRESHOLD:
@@ -575,6 +630,19 @@ def route_trade(
             logger.debug(
                 f"Position size too small for {wallet.alias} on {chain}: "
                 f"${position_size_usd:.2f} (min ${min_trade_usd:.2f})"
+            )
+            continue
+
+        # ── Gas-vs-position-size guard ─────────────────────────────────────
+        estimated_gas = ESTIMATED_GAS_COST_USD.get(chain, 1.0)
+        # Round-trip gas: buy + sell
+        round_trip_gas = estimated_gas * 2
+        min_position_for_gas = round_trip_gas * settings.MIN_POSITION_GAS_RATIO
+        if position_size_usd < min_position_for_gas:
+            logger.warning(
+                f"Gas guard: ${position_size_usd:.2f} position < "
+                f"${min_position_for_gas:.2f} min ({settings.MIN_POSITION_GAS_RATIO}x "
+                f"round-trip gas ${round_trip_gas:.2f}) on {chain} — skipping"
             )
             continue
 

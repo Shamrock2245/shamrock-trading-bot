@@ -158,6 +158,11 @@ COOLDOWN_HOURS = float(os.getenv("COOLDOWN_HOURS", "2.0"))
 MAX_PORTFOLIO_EXPOSURE_PCT = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "80.0"))
 # Stale price guard: reject candidates with price data older than this (seconds)
 MAX_PRICE_AGE_SECONDS = int(os.getenv("MAX_PRICE_AGE_SECONDS", "120"))
+# Gas-vs-position-size guard: position must be >= this × estimated gas cost
+# A ratio of 5 means a $10 gas trade requires a $50+ position to be profitable
+MIN_POSITION_GAS_RATIO = float(os.getenv("MIN_POSITION_GAS_RATIO", "5.0"))
+# Daily trade count cap: prevents gas burn on volatile days (0 = unlimited)
+MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "50"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Offensive Guardrails (Work In Our Favor)
@@ -290,6 +295,12 @@ MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25
 # Hard cap on any single trade after all offensive multipliers are applied.
 # Prevents runaway sizing even on a 6-win streak in God Mode.
 OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "5000.0"))
+# Auto-scaling cap: max % of wallet balance per trade (overrides fixed USD cap when wallet grows)
+# e.g., 30% of a $20K wallet = $6K max position — grows with the wallet
+OFFENSIVE_MAX_POSITION_WALLET_PCT = float(os.getenv("OFFENSIVE_MAX_POSITION_WALLET_PCT", "30.0"))
+# Auto-compound: % of Wallet B TP profits flagged for rebalancing to Primary
+# 50% means half of nuclear TP profits build the safety net, other half keeps compounding
+AUTO_COMPOUND_PCT = float(os.getenv("AUTO_COMPOUND_PCT", "50.0"))
 
 # ── 11. Blitz Mode (Synergy Bonus) ────────────────────────────────────────────
 # When 3+ offensive conditions align (e.g. God Mode + Hot Streak + Express Lane),

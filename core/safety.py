@@ -173,6 +173,24 @@ def _call_tokensniffer(token_address: str, chain_id: int) -> dict:
     return resp.json()
 
 
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=8))
+def _call_rugcheck(token_address: str) -> dict:
+    """
+    Call RugCheck.xyz API — Solana-native rug detection.
+
+    Checks: mint authority, freeze authority, LP burn status,
+    top holder concentration, and overall risk level.
+
+    Free API, no key required.
+    """
+    url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
+    resp = requests.get(url, timeout=15)
+    if resp.status_code == 404:
+        return {}  # Token not indexed — new token
+    resp.raise_for_status()
+    return resp.json()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Safety Pipeline
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,17 +243,91 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
         cached.from_cache = True
         return cached
 
-    # ── Solana: GoPlus and Honeypot.is don't support Solana yet ──────────────
+    # ── Solana: Use RugCheck.xyz for Solana-native rug detection ──────────────
     if chain == "solana":
-        result.is_safe = True
-        result.goplus_passed = None   # Not supported
-        result.honeypot_passed = None  # Not supported
+        result.goplus_passed = None   # Not supported for Solana
+        result.honeypot_passed = None  # Not supported for Solana
         result.tokensniffer_passed = None
-        safety_logger.info(
-            f"SAFE (Solana — limited checks) | {token_address} | {chain}"
-        )
-        _set_cached(token_address, chain, result)
-        return result
+
+        try:
+            rc = _call_rugcheck(token_address)
+            if rc:
+                # RugCheck risk levels: "Good", "Warning", "Danger", "Critical"
+                risk_level = rc.get("riskLevel", "unknown").lower()
+                risks = rc.get("risks", [])
+
+                # Build risk flags from the response
+                risk_names = [r.get("name", "").lower() for r in risks if isinstance(r, dict)]
+
+                # BLOCKED: Critical risk level = definite rug
+                if risk_level == "critical":
+                    result.block_reason = f"RugCheck CRITICAL risk: {', '.join(list(risk_names)[:3])}"
+                    add_to_blocklist(token_address, result.block_reason)
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+
+                # BLOCKED: Mint authority not revoked (can mint infinite tokens)
+                has_mint_risk = any(
+                    "mint" in r and "revok" not in r for r in risk_names
+                )
+                if has_mint_risk:
+                    result.block_reason = "Solana: Mint authority not revoked (inflation risk)"
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+
+                # BLOCKED: Freeze authority active (can freeze your tokens)
+                has_freeze_risk = any("freeze" in r for r in risk_names)
+                if has_freeze_risk:
+                    result.block_reason = "Solana: Freeze authority active (can lock your tokens)"
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+
+                # BLOCKED: Top holder owns >50% of supply (rug pull risk)
+                top_holders = rc.get("topHolders", [])
+                if top_holders and isinstance(top_holders, list):
+                    top_holder_pct = float(top_holders[0].get("pct", 0)) if top_holders else 0
+                    if top_holder_pct > 50:
+                        result.block_reason = f"Solana: Top holder owns {top_holder_pct:.1f}% of supply"
+                        _log_blocked(result)
+                        _set_cached(token_address, chain, result)
+                        return result
+
+                # WARNING-level: pass but log for visibility
+                if risk_level == "danger":
+                    safety_logger.warning(
+                        f"CAUTION (Solana RugCheck: Danger) | {token_address} | "
+                        f"risks: {', '.join(list(risk_names)[:5])}"
+                    )
+
+                # PASSED RugCheck
+                result.is_safe = True
+                safety_logger.info(
+                    f"SAFE (Solana RugCheck: {risk_level}) | {token_address} | {chain}"
+                )
+                _set_cached(token_address, chain, result)
+                return result
+            else:
+                # RugCheck returned empty — token not indexed yet
+                # Allow but with warning (very new token)
+                result.is_safe = True
+                safety_logger.info(
+                    f"SAFE (Solana — RugCheck no data, new token) | {token_address} | {chain}"
+                )
+                _set_cached(token_address, chain, result)
+                return result
+
+        except Exception as e:
+            logger.warning(f"RugCheck.xyz check failed for {token_address}: {e}")
+            # Don't block on API failure — pass with warning
+            result.is_safe = True
+            safety_logger.info(
+                f"SAFE (Solana — RugCheck unavailable) | {token_address} | {chain}"
+            )
+            _set_cached(token_address, chain, result)
+            return result
 
     # ── Step 5: GoPlus Security check ────────────────────────────────────────
     goplus_chain_id = GOPLUS_CHAIN_MAP.get(chain, "1")
