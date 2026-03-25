@@ -523,14 +523,14 @@ class GemScanner:
             elif boost_amount > 0:
                 candidate.boost_score = 40
         else:
-            candidate.boost_score = 0
+            candidate.boost_score = 50  # Neutral when not boosted — 0 was unfairly penalizing
 
         # ── Smart money score (4%) — REAL wallet overlap ──────────────────────
         try:
             candidate.smart_money_score = get_smart_money_score(token.address, token.chain)
         except Exception as e:
             logger.debug(f"Smart money scoring failed for {token.symbol}: {e}")
-            candidate.smart_money_score = 0.0
+            candidate.smart_money_score = 50.0  # Neutral fallback — 0 was dragging scores down
 
         # ── Contract verified score (8%) ──────────────────────────────────────
         # Default 70 — updated by GoPlus safety check in executor
@@ -738,9 +738,9 @@ class GemScanner:
                     )
                     candidate.contract_score = max(0.0, candidate.contract_score - 15.0)
         else:
-            candidate.tvl_score = 30.0
-            candidate.social_sentiment_score = 30.0
-            candidate.holder_concentration_score = 40.0
+            candidate.tvl_score = 50.0
+            candidate.social_sentiment_score = 50.0
+            candidate.holder_concentration_score = 50.0
             candidate.unlock_risk_score = 50.0
             candidate.grok_sentiment_score = 50.0
             candidate.dev_wallet_score = 50.0
