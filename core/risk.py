@@ -59,6 +59,10 @@ class RiskManager:
     This class only enforces circuit breakers and hard stops.
     """
 
+    # Global portfolio drawdown sleep threshold and duration
+    GLOBAL_DRAWDOWN_SLEEP_PCT: float = 20.0   # -20% portfolio triggers 48h sleep
+    GLOBAL_DRAWDOWN_SLEEP_HOURS: float = 48.0  # Sleep duration in hours
+
     def __init__(self):
         # Daily loss tracking: wallet_key → {date: str, loss_usd: float}
         self._daily_loss: dict[str, dict] = {}
@@ -67,6 +71,10 @@ class RiskManager:
         # Circuit breaker state
         self._circuit_breaker_tripped = False
         self._circuit_breaker_reason = ""
+        # Global portfolio drawdown sleep state
+        # When portfolio drops ≥20%, all new entries sleep for 48h
+        self._global_sleep_until: Optional[float] = None  # Unix timestamp
+        self._global_sleep_reason: str = ""
 
     def check_trade(
         self,
@@ -260,6 +268,58 @@ class RiskManager:
     @property
     def is_circuit_breaker_tripped(self) -> bool:
         return self._circuit_breaker_tripped
+
+    # ── Global Portfolio Drawdown Sleep (−20% → 48h halt) ────────────────────
+
+    def check_global_drawdown_sleep(self, portfolio_change_pct: float) -> bool:
+        """
+        Check if the global portfolio has dropped ≥20% from session start.
+        If so, engage a 48-hour sleep: no new entries on ANY wallet.
+        portfolio_change_pct: negative = loss (e.g., -21.0 for 21% loss)
+        Returns True if sleep was newly engaged.
+        """
+        import time
+        # If already sleeping, nothing new to do
+        if self._global_sleep_until and time.time() < self._global_sleep_until:
+            return False
+        if portfolio_change_pct <= -self.GLOBAL_DRAWDOWN_SLEEP_PCT:
+            sleep_seconds = self.GLOBAL_DRAWDOWN_SLEEP_HOURS * 3600
+            self._global_sleep_until = time.time() + sleep_seconds
+            self._global_sleep_reason = (
+                f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                f"(threshold: {self.GLOBAL_DRAWDOWN_SLEEP_PCT}%) — "
+                f"all new entries halted for {self.GLOBAL_DRAWDOWN_SLEEP_HOURS:.0f}h"
+            )
+            logger.critical(
+                f"💤 GLOBAL DRAWDOWN SLEEP ENGAGED: {self._global_sleep_reason}"
+            )
+            return True
+        return False
+
+    @property
+    def is_global_sleep_active(self) -> bool:
+        """True if global 48h drawdown sleep is currently active."""
+        import time
+        if self._global_sleep_until is None:
+            return False
+        if time.time() < self._global_sleep_until:
+            return True
+        # Sleep expired — auto-clear
+        self._global_sleep_until = None
+        self._global_sleep_reason = ""
+        logger.info("🟢 Global drawdown sleep expired — trading resumed")
+        return False
+
+    @property
+    def global_sleep_reason(self) -> str:
+        """Human-readable reason for current global sleep, or empty string."""
+        return self._global_sleep_reason if self.is_global_sleep_active else ""
+
+    def reset_global_sleep(self) -> None:
+        """Manually clear the global drawdown sleep (operator action only)."""
+        self._global_sleep_until = None
+        self._global_sleep_reason = ""
+        logger.warning("🟢 Global drawdown sleep manually reset by operator")
 
     def _get_daily_loss_usd(self, wallet_alias: str) -> float:
         today = datetime.now(timezone.utc).date().isoformat()

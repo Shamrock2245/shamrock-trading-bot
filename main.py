@@ -504,6 +504,15 @@ async def run_bot_loop():
                 await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
                 continue
 
+            # ── Global drawdown sleep check (−20% portfolio → 48h halt) ─────────
+            if risk_manager.is_global_sleep_active:
+                logger.warning(
+                    f"💤 GLOBAL DRAWDOWN SLEEP ACTIVE — skipping cycle. "
+                    f"Reason: {risk_manager.global_sleep_reason}"
+                )
+                await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                continue
+
             # Check portfolio drawdown from open positions
             all_positions = load_positions()
             open_positions = [p for p in all_positions if p.get("status") == "open"]
@@ -524,6 +533,19 @@ async def run_bot_loop():
                             f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
                             f"(threshold: {settings.CIRCUIT_BREAKER_PERCENT}%). "
                             f"All trading halted. Manual reset required.",
+                            level="critical",
+                        )
+                        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                        continue
+                    # Global drawdown sleep: −20% → 48h halt on new entries
+                    if risk_manager.check_global_drawdown_sleep(portfolio_change_pct):
+                        notify_alert(
+                            "💤 GLOBAL DRAWDOWN SLEEP ENGAGED",
+                            f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                            f"(threshold: {risk_manager.GLOBAL_DRAWDOWN_SLEEP_PCT}%). "
+                            f"All new entries halted for "
+                            f"{risk_manager.GLOBAL_DRAWDOWN_SLEEP_HOURS:.0f}h. "
+                            f"Existing positions continue to be monitored.",
                             level="critical",
                         )
                         await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
@@ -762,6 +784,31 @@ async def run_bot_loop():
             except Exception as e:
                 logger.error(f"Error processing scaling signals: {e}", exc_info=True)
 
+            # 1.9 Global regime gate — check market regime before scanning
+            # CHOP (pseudo-ADX < 20, low volume): skip new entries this cycle
+            # EXPANSION: full nuclear sizing active on Wallet B
+            # NORMAL: standard sizing on both wallets
+            _regime_skip_new_entries = False
+            try:
+                from core.regime_filter import get_regime, Regime
+                _regime_state = get_regime()
+                logger.info(f"📊 Market Regime [cycle {cycle}]: {_regime_state.details}")
+                if _regime_state.regime == Regime.CHOP:
+                    logger.warning(
+                        "😴 CHOP REGIME — skipping new entries this cycle. "
+                        "Both wallets operating at 30% sizing. "
+                        f"Details: {_regime_state.details}"
+                    )
+                    _regime_skip_new_entries = True
+                elif _regime_state.regime == Regime.EXPANSION:
+                    logger.info(
+                        "🚀 EXPANSION REGIME — Wallet B nuclear sizing ACTIVE (+50% mult). "
+                        "Primary at standard sizing."
+                    )
+            except Exception as _regime_err:
+                logger.debug(f"Regime check failed (non-blocking): {_regime_err}")
+                _regime_skip_new_entries = False
+
             # 2. Scan for gems (all chains including Solana)
             candidates = scanner.scan()
             logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
@@ -779,6 +826,13 @@ async def run_bot_loop():
                 token = candidate.token
                 is_express = getattr(candidate, "express_lane", False)
                 token_addr_lower = token.address.lower()
+
+                # ── GUARD 0.5: Regime CHOP gate — skip new entries in choppy market ─
+                if _regime_skip_new_entries:
+                    logger.debug(
+                        f"😴 Regime CHOP: skipping {token.symbol} — no new entries in chop"
+                    )
+                    continue
 
                 # ── GUARD 0: Failed-trade cooldown — skip recently failed tokens ─
                 if token_addr_lower in failed_trade_cooldown:

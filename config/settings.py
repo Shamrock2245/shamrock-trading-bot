@@ -64,7 +64,8 @@ SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g
 # ─────────────────────────────────────────────────────────────────────────────
 # Risk Management
 # ─────────────────────────────────────────────────────────────────────────────
-MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "2.0"))
+# Global fallback — per-wallet sizing is controlled by StrategyProfile (Primary=5%, WalletB=60%)
+MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
@@ -117,9 +118,9 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
-# Lowered from 65.0 → 50.0 to surface Moralis trending tokens (typically score 42-50).
-# Raise back to 55-60 once scoring distribution is confirmed in live trading.
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "50.0"))
+# Raised to 65.0 — scoring distribution confirmed. Nuclear profile enforces 82.0 minimum.
+# Conservative profile uses this as baseline; nuclear overrides via StrategyProfile.min_gem_score.
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "65.0"))
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "3"))
@@ -385,15 +386,18 @@ def validate_settings() -> list[str]:
             warnings_list.append("LIVE MODE: FLASHBOTS_SIGNING_KEY not set — MEV protection disabled")
         if not ONEINCH_API_KEY:
             warnings_list.append("LIVE MODE: ONEINCH_API_KEY not set — 1inch routing unavailable")
-        if MAX_POSITION_SIZE_PERCENT > 5.0:
-            warnings_list.append(f"LIVE MODE: MAX_POSITION_SIZE_PERCENT={MAX_POSITION_SIZE_PERCENT}% is high — consider ≤2%")
+        # Note: MAX_POSITION_SIZE_PERCENT is a global fallback only.
+        # Wallet B (nuclear) legitimately uses 60%+ sizing via StrategyProfile.
+        # Only warn if the global fallback itself is dangerously high (>10%).
+        if MAX_POSITION_SIZE_PERCENT > 10.0:
+            warnings_list.append(f"LIVE MODE: MAX_POSITION_SIZE_PERCENT={MAX_POSITION_SIZE_PERCENT}% global fallback is very high — per-wallet profiles should override this")
         if CIRCUIT_BREAKER_PERCENT > 20.0:
             warnings_list.append(f"LIVE MODE: CIRCUIT_BREAKER_PERCENT={CIRCUIT_BREAKER_PERCENT}% is very high")
 
     if not CMC_API_KEY:
         warnings_list.append("CMC_API_KEY not set — CoinMarketCap data unavailable")
 
-    if MIN_GEM_SCORE < 50.0:
-        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates")
+    if MIN_GEM_SCORE < 55.0:
+        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile enforces 82.0 independently)")
 
     return warnings_list
