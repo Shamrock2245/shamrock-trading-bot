@@ -66,6 +66,11 @@ from data.providers.moralis_solana import (
     get_pumpfun_graduated,
     get_token_top_holders,
 )
+from data.providers.binance_pulse import (
+    enrich_candidate as binance_enrich,
+    get_trending_tokens as binance_trending,
+    get_supported_chains as binance_supported_chains,
+)
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 logger = logging.getLogger(__name__)
@@ -368,6 +373,44 @@ class GemScanner:
             except Exception as e:
                 logger.warning(f"Pump.fun discovery error: {e}")
 
+        # ── Source 9: Binance Pulse Trending (Multi-chain) ─────────────────────
+        # Free discovery from Binance's Web3 wallet platform.
+        # Fetch trending tokens for chains Binance supports, cross-reference
+        # with DexScreener for full scoring.
+        if settings.BINANCE_PULSE_ENABLED:
+            try:
+                bp_chains = [c for c in settings.ACTIVE_CHAINS if c in binance_supported_chains()]
+                binance_added = 0
+                for bp_chain in bp_chains:
+                    trending = binance_trending(chain=bp_chain, rank_type=10, limit=15)
+                    for bt in trending:
+                        token_addr = bt.get("token_address", "")
+                        if not token_addr or token_addr.lower() in seen_addresses:
+                            continue
+                        # Skip ultra-low mcap (< $10k) — likely noise
+                        if bt.get("market_cap", 0) < 10_000:
+                            continue
+                        pairs = get_token_pairs(token_addr) or []
+                        for pair in pairs:
+                            signals = extract_gem_signals(pair)
+                            signals["is_boosted"] = True
+                            signals["boost_amount"] = 80  # Binance trending = strong signal
+                            token_obj = self._signals_to_token(signals, bp_chain)
+                            if token_obj:
+                                candidate = self._score_token(token_obj, is_boosted=True)
+                                candidate.strategy_tag = "binance_trending"
+                                if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                                    candidates.append(candidate)
+                                    seen_addresses.add(token_addr.lower())
+                                    binance_added += 1
+                                elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                                    self.add_near_miss(token_obj, candidate.gem_score, "binance")
+                                break
+                if binance_added:
+                    logger.info(f"🟡 Binance Pulse: {binance_added} trending tokens passed scoring")
+            except Exception as e:
+                logger.warning(f"Binance Pulse discovery error: {e}")
+
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
@@ -615,10 +658,10 @@ class GemScanner:
         # Only query external APIs for candidates that pass initial screening
         # to conserve rate limits (especially LunarCrush: 100 req/day).
         #
-        # ⚡ PARALLEL ENRICHMENT: 7 fast API calls run concurrently via
-        # ThreadPoolExecutor. Grok sentiment (6-8s LLM call, 2% weight)
-        # is deferred to a second pass — only called if token still
-        # scores ≥48 after fast enrichment. Saves ~80% of Grok calls.
+        # ⚡ PARALLEL ENRICHMENT: 10 fast API calls run concurrently via
+        # ThreadPoolExecutor. Moralis + Binance Pulse now run IN the pool
+        # (previously Moralis was sequential — saved 6-8s per candidate).
+        # Grok sentiment (6-8s LLM call, 2% weight) deferred to 2nd pass.
         if base_score >= 45:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -635,7 +678,6 @@ class GemScanner:
 
             def _get_unlock():
                 return get_unlock_risk_score(token.address, token.chain)
-
 
             def _get_dev():
                 return get_dev_wallet_score(token.address, token.chain)
@@ -656,9 +698,19 @@ class GemScanner:
                 from data.providers.moralis_wallet import get_enhanced_token_metadata
                 return get_enhanced_token_metadata([token.address], chain=token.chain)
 
-            # Submit all fast enrichment calls concurrently (no Grok — deferred)
+            # ⚡ NEW: Moralis Money enrichment now runs IN the pool (was sequential)
+            def _get_moralis_money():
+                return moralis_enrich(token.address, token.chain)
+
+            # ⚡ NEW: Binance Pulse smart money + social hype (free, no key)
+            def _get_binance_pulse():
+                if not settings.BINANCE_PULSE_ENABLED:
+                    return {"binance_smart_money_confirmed": False, "binance_social_hype_score": 50.0}
+                return binance_enrich(token.address, chain=token.chain)
+
+            # Submit ALL enrichment calls concurrently — 10 workers (no Grok — deferred)
             enrichment_results = {}
-            with ThreadPoolExecutor(max_workers=7, thread_name_prefix="enrich") as pool:
+            with ThreadPoolExecutor(max_workers=10, thread_name_prefix="enrich") as pool:
                 futures = {
                     pool.submit(_get_tvl): "tvl",
                     pool.submit(_get_lc): "lc",
@@ -667,6 +719,8 @@ class GemScanner:
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
                     pool.submit(_get_moralis_meta): "moralis_meta",
+                    pool.submit(_get_moralis_money): "moralis_money",     # ← was sequential!
+                    pool.submit(_get_binance_pulse): "binance_pulse",     # ← NEW
                 }
                 for future in as_completed(futures, timeout=15):
                     name = futures[future]
@@ -792,67 +846,71 @@ class GemScanner:
                     logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
 
-        # ── Moralis Money Enrichment (PRIMARY source — 12% weight) ─────────────
-        # Enrich every candidate that passes base_score >= 45 with Moralis
-        # token score, buy/sell analytics, and net buyer counts.
-        # Moralis Money is one of our MAIN data sources — high-conviction signal.
+        # ── Moralis Money Enrichment (PRIMARY source — 20% weight) ─────────────
+        # ⚡ Now runs IN the parallel pool above (was sequential — saved 6-8s).
+        # Results are extracted from enrichment_results["moralis_money"].
         moralis_enrichment_score = 50.0  # default neutral
         if base_score >= 45:
-            try:
-                enrichment = moralis_enrich(token.address, token.chain)
-                moralis_enrichment_score = moralis_score_contribution(enrichment)
-                # Store enrichment fields on candidate for dashboard/logging
-                candidate.moralis_score = enrichment.get("moralis_score", 0)
-                candidate.moralis_buy_pressure = enrichment.get("moralis_buy_pressure", 0.5)
-                candidate.moralis_net_buyers_1h = enrichment.get("moralis_net_buyers_1h", 0)
-                candidate.moralis_buyers_1h = enrichment.get("moralis_buyers_1h", 0)
-                candidate.moralis_sellers_1h = enrichment.get("moralis_sellers_1h", 0)
-                candidate.moralis_txns_1h = enrichment.get("moralis_txns_1h", 0)
-                candidate.moralis_top10_pct = enrichment.get("moralis_top10_pct", 0.0)
-                # New whale accumulation + discovery signals
-                candidate.moralis_exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
-                candidate.moralis_exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
-                candidate.moralis_holders_change_1d = enrichment.get("moralis_holders_change_1d", 0)
-                candidate.moralis_holders_change_1w = enrichment.get("moralis_holders_change_1w", 0)
-                candidate.moralis_on_chain_strength = enrichment.get("moralis_on_chain_strength", 0.0)
-                candidate.moralis_liquidity_locked_pct = enrichment.get("moralis_liquidity_locked_pct", 0.0)
-                candidate.moralis_security_score = enrichment.get("moralis_security_score", 0)
-                candidate.moralis_token_age_days = enrichment.get("moralis_token_age_days", 0.0)
+            enrichment = enrichment_results.get("moralis_money", {})
+            if enrichment:
+                try:
+                    moralis_enrichment_score = moralis_score_contribution(enrichment)
+                    # Store enrichment fields on candidate for dashboard/logging
+                    candidate.moralis_score = enrichment.get("moralis_score", 0)
+                    candidate.moralis_buy_pressure = enrichment.get("moralis_buy_pressure", 0.5)
+                    candidate.moralis_net_buyers_1h = enrichment.get("moralis_net_buyers_1h", 0)
+                    candidate.moralis_buyers_1h = enrichment.get("moralis_buyers_1h", 0)
+                    candidate.moralis_sellers_1h = enrichment.get("moralis_sellers_1h", 0)
+                    candidate.moralis_txns_1h = enrichment.get("moralis_txns_1h", 0)
+                    candidate.moralis_top10_pct = enrichment.get("moralis_top10_pct", 0.0)
+                    # New whale accumulation + discovery signals
+                    candidate.moralis_exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
+                    candidate.moralis_exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+                    candidate.moralis_holders_change_1d = enrichment.get("moralis_holders_change_1d", 0)
+                    candidate.moralis_holders_change_1w = enrichment.get("moralis_holders_change_1w", 0)
+                    candidate.moralis_on_chain_strength = enrichment.get("moralis_on_chain_strength", 0.0)
+                    candidate.moralis_liquidity_locked_pct = enrichment.get("moralis_liquidity_locked_pct", 0.0)
+                    candidate.moralis_security_score = enrichment.get("moralis_security_score", 0)
+                    candidate.moralis_token_age_days = enrichment.get("moralis_token_age_days", 0.0)
 
-                # Whale accumulation bonus: log strong whale interest
-                exp_net_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
-                if exp_net_1w >= 10:
-                    logger.info(
-                        f"🐋 WHALE ACCUMULATION: {token.symbol} — "
-                        f"{exp_net_1w} experienced net buyers this week!"
-                    )
+                    # Whale accumulation bonus: log strong whale interest
+                    exp_net_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+                    if exp_net_1w >= 10:
+                        logger.info(
+                            f"🐋 WHALE ACCUMULATION: {token.symbol} — "
+                            f"{exp_net_1w} experienced net buyers this week!"
+                        )
 
-                # Security score from discovery: if score < 40 → deduct from contract_score
-                disc_security = enrichment.get("moralis_security_score", 0)
-                if disc_security > 0 and disc_security < 40:
-                    candidate.contract_score = max(
-                        0.0, candidate.contract_score - 10.0
-                    )
-                    logger.debug(
-                        f"⚠️ Low Moralis security score for {token.symbol}: "
-                        f"{disc_security}/100 → contract score penalized"
-                    )
-                elif disc_security >= 80:
-                    candidate.contract_score = min(
-                        100.0, candidate.contract_score + 5.0
-                    )
+                    # Security score from discovery: if score < 40 → deduct from contract_score
+                    disc_security = enrichment.get("moralis_security_score", 0)
+                    if disc_security > 0 and disc_security < 40:
+                        candidate.contract_score = max(
+                            0.0, candidate.contract_score - 10.0
+                        )
+                        logger.debug(
+                            f"⚠️ Low Moralis security score for {token.symbol}: "
+                            f"{disc_security}/100 → contract score penalized"
+                        )
+                    elif disc_security >= 80:
+                        candidate.contract_score = min(
+                            100.0, candidate.contract_score + 5.0
+                        )
 
-                if enrichment.get("moralis_score", 0) > 0:
-                    logger.debug(
-                        f"Moralis enrichment {token.symbol}: "
-                        f"score={enrichment['moralis_score']} "
-                        f"buy_pressure={enrichment['moralis_buy_pressure']:.2f} "
-                        f"net_buyers_1h={enrichment['moralis_net_buyers_1h']} "
-                        f"whale_1w={exp_net_1w} "
-                        f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)}"
-                    )
-            except Exception as e:
-                logger.debug(f"Moralis enrichment failed for {token.symbol}: {e}")
+                    if enrichment.get("moralis_score", 0) > 0:
+                        logger.debug(
+                            f"Moralis enrichment {token.symbol}: "
+                            f"score={enrichment['moralis_score']} "
+                            f"buy_pressure={enrichment['moralis_buy_pressure']:.2f} "
+                            f"net_buyers_1h={enrichment['moralis_net_buyers_1h']} "
+                            f"whale_1w={exp_net_1w} "
+                            f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)}"
+                        )
+                except Exception as e:
+                    logger.debug(f"Moralis enrichment processing failed for {token.symbol}: {e}")
+                    candidate.moralis_score = 0
+                    candidate.moralis_buy_pressure = 0.5
+                    candidate.moralis_net_buyers_1h = 0
+            else:
                 candidate.moralis_score = 0
                 candidate.moralis_buy_pressure = 0.5
                 candidate.moralis_net_buyers_1h = 0
@@ -861,6 +919,30 @@ class GemScanner:
             candidate.moralis_buy_pressure = 0.5
             candidate.moralis_net_buyers_1h = 0
         candidate.moralis_enrichment_score = moralis_enrichment_score
+
+        # ── Binance Pulse Enrichment (smart money + social hype) ──────────────
+        # ⚡ Runs IN the parallel pool above — zero extra latency.
+        if base_score >= 45:
+            bp_data = enrichment_results.get("binance_pulse", {})
+            if bp_data:
+                candidate.binance_smart_money_confirmed = bp_data.get(
+                    "binance_smart_money_confirmed", False
+                )
+                candidate.binance_smart_money_inflow_usd = bp_data.get(
+                    "binance_smart_money_inflow_usd", 0.0
+                )
+                candidate.binance_smart_money_rank = bp_data.get(
+                    "binance_smart_money_rank", 0
+                )
+                candidate.binance_social_hype_score = bp_data.get(
+                    "binance_social_hype_score", 50.0
+                )
+                if candidate.binance_smart_money_confirmed:
+                    logger.info(
+                        f"🐋 BINANCE SMART MONEY: {token.symbol} — "
+                        f"rank #{candidate.binance_smart_money_rank}, "
+                        f"${candidate.binance_smart_money_inflow_usd:,.0f} inflow"
+                    )
 
         # ── Buy Pressure Score ────────────────────────────────────────────────
         buy_pressure_score = 50.0
@@ -928,6 +1010,17 @@ class GemScanner:
             logger.warning(
                 f"🚫 DEV REJECT: {token.symbol} — fresh wallet + serial deployer → -30 "
                 f"(new score={candidate.gem_score})"
+            )
+
+        # ── BINANCE SMART MONEY BONUS: confirmed inflow → +5 ──────────────
+        # If Binance Pulse confirms smart money is actively buying this token,
+        # boost score by 5 points. High-conviction whale signal, capped at 100.
+        if candidate.binance_smart_money_confirmed:
+            candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+            logger.info(
+                f"🟡 BINANCE SM BONUS: {token.symbol} → +5 "
+                f"(rank #{candidate.binance_smart_money_rank}, "
+                f"new score={candidate.gem_score})"
             )
 
         # ── CTO Revival bonus ─────────────────────────────────────────────────

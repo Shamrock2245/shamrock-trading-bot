@@ -1,0 +1,16 @@
+{
+  "id": "ep-2026-03-24-001",
+  "timestamp": "2026-03-24T03:00:00Z",
+  "skill": "deployment",
+  "situation": "After a deployment to Hetzner, the bot failed to start. All environment variables were missing — the .env file had been wiped during a git operation.",
+  "root_cause": "A `git checkout` or `git reset` during the deployment process removed the .env file even though it was in .gitignore. The exact trigger was unclear but likely involved a force pull.",
+  "solution": "Re-provisioned the entire .env file from backup records. Added a pre-deployment step to always `cp .env .env.backup` before any git operations on the production server.",
+  "files_modified": [".env"],
+  "lesson": "ALWAYS backup .env before any git operation on production. Even with .gitignore, git operations can wipe untracked files in certain edge cases. Keep a master credential sheet offline.",
+  "related_pattern": "env_provisioning_backup",
+  "outcome": "success",
+  "user_feedback": {
+    "rating": 8,
+    "comments": "Took 2 hours to fully re-provision all keys. Never again."
+  }
+}

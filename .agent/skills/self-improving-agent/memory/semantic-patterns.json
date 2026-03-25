@@ -1,0 +1,235 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-03-25T16:00:00Z",
+  "patterns": {
+    "indicator_neutral_fallback": {
+      "id": "pat-2026-03-23-001",
+      "name": "Indicator Neutral Fallback Scoring",
+      "source": "implementation_review",
+      "confidence": 0.95,
+      "applications": 3,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-25",
+      "category": "scoring_engine",
+      "pattern": "When indicators return None/NaN, use neutral defaults (50) not zero",
+      "problem": "Zero-value fallbacks in signal_engine.py caused the weighted average composite score to collapse below MIN_GEM_SCORE, blocking ALL trades even for legitimate micro-cap gems",
+      "solution": {
+        "approach": "Replace all 0-value defaults with 50 (neutral midpoint) across RSI, MACD, Bollinger, and custom indicators",
+        "files": ["core/signal_engine.py", "scanner/gem_scanner.py"],
+        "key_insight": "50 represents 'no data available, assume average' — it doesn't boost or penalize the score"
+      },
+      "quality_rules": [
+        "Never use 0 as a fallback for any indicator that feeds into a weighted average",
+        "Always explicitly handle None/NaN returns from indicator functions",
+        "Test composite scoring with ALL indicators returning None to verify minimum viable score"
+      ],
+      "target_skills": ["scoring_engine", "data_pipeline"]
+    },
+    "manus_import_verification": {
+      "id": "pat-2026-03-23-002",
+      "name": "Manus Edit Import Verification",
+      "source": "user_feedback",
+      "confidence": 0.98,
+      "applications": 4,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-25",
+      "category": "manus_integration",
+      "pattern": "After merging any Manus AI changes, verify all imports are intact and no undefined variables were introduced",
+      "problem": "Manus sometimes introduces variable references without corresponding imports, or removes imports during refactoring. This causes NameError at runtime that only surfaces in Docker on Hetzner.",
+      "solution": {
+        "approach": "After every Manus merge: 1) grep for undefined names, 2) run `python -c 'import module'` for each changed file, 3) check top-level imports match all references",
+        "files": ["any file Manus edits"],
+        "key_insight": "Manus operates on partial context — it can't see the full import tree"
+      },
+      "quality_rules": [
+        "Always `python -c 'import <module>'` after Manus changes before committing",
+        "Check for NameError specifically — it's the most common Manus regression",
+        "Review the diff carefully for removed imports that are still referenced elsewhere"
+      ],
+      "target_skills": ["manus_integration", "deployment"]
+    },
+    "solana_wallet_routing": {
+      "id": "pat-2026-03-23-003",
+      "name": "Solana vs EVM Wallet Routing",
+      "source": "implementation_review",
+      "confidence": 0.95,
+      "applications": 3,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-24",
+      "category": "trade_execution",
+      "pattern": "Solana uses keypair file paths, EVM uses private key hex strings — wallet router must dispatch correctly",
+      "problem": "Passing a hex private key to the Solana executor causes a silent failure. Passing a keypair path to an EVM executor causes a ValueError.",
+      "solution": {
+        "approach": "wallet_router.py dispatches based on chain type: Solana → keypair JSON path from SOLANA_WALLET_PATH env var; EVM → private key hex from chain-specific env var (BASE_PRIVATE_KEY, BSC_PRIVATE_KEY, etc.)",
+        "files": ["core/wallet_router.py", "core/executor.py", "core/solana_executor.py"],
+        "key_insight": "The chain → wallet mapping must be explicit, never inferred"
+      },
+      "quality_rules": [
+        "Always check chain type before selecting wallet credentials",
+        "Solana keypair paths must point to actual JSON files on disk",
+        "EVM private keys must be 64-char hex (with or without 0x prefix)"
+      ],
+      "target_skills": ["trade_execution"]
+    },
+    "docker_rebuild_after_python_changes": {
+      "id": "pat-2026-03-22-001",
+      "name": "Docker Rebuild Required After Python Changes",
+      "source": "user_feedback",
+      "confidence": 1.0,
+      "applications": 8,
+      "created": "2026-03-22",
+      "last_applied": "2026-03-25",
+      "category": "deployment",
+      "pattern": "Any Python file change requires `docker compose build --no-cache` before `docker compose up -d` on Hetzner",
+      "problem": "Docker caches Python layers. A simple `docker compose restart` will run the OLD code. The --no-cache flag ensures the COPY step re-runs.",
+      "solution": {
+        "approach": "Always use the full rebuild cycle: `docker compose down && docker compose build --no-cache && docker compose up -d`",
+        "files": ["Dockerfile", "docker-compose.yml"],
+        "key_insight": "The Dockerfile COPY . . step is cached — without --no-cache, code changes are invisible"
+      },
+      "quality_rules": [
+        "Never use `docker compose restart` for code changes — only for config/env changes",
+        "Always verify with `docker compose logs -f --tail=20 bot` after rebuild",
+        "Check the build output to confirm the COPY step ran (not cached)"
+      ],
+      "target_skills": ["deployment"]
+    },
+    "env_provisioning_backup": {
+      "id": "pat-2026-03-24-001",
+      "name": "Always Backup .env Before Git Pull",
+      "source": "user_feedback",
+      "confidence": 0.98,
+      "applications": 2,
+      "created": "2026-03-24",
+      "last_applied": "2026-03-24",
+      "category": "deployment",
+      "pattern": "Always backup the Hetzner .env file before `git pull` — deployment regressions can wipe it",
+      "problem": "A `git pull` or `git checkout` can overwrite or delete the .env file on the server, wiping all API keys, wallet keys, and RPCs. This bricked the entire multi-chain trading setup.",
+      "solution": {
+        "approach": "Before any git operation on Hetzner: `cp .env .env.backup.$(date +%Y%m%d_%H%M%S)`",
+        "files": [".env"],
+        "key_insight": ".env is in .gitignore but git operations can still affect it during merges or resets"
+      },
+      "quality_rules": [
+        "ALWAYS `cp .env .env.backup` before git pull on production servers",
+        "Keep a master copy of all env vars in a secure location (not git)",
+        "Verify .env exists and has correct line count after any git operation"
+      ],
+      "target_skills": ["deployment"]
+    },
+    "min_gem_score_threshold_tuning": {
+      "id": "pat-2026-03-23-004",
+      "name": "MIN_GEM_SCORE Must Account for Data Scarcity",
+      "source": "retrospective",
+      "confidence": 0.90,
+      "applications": 3,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-25",
+      "category": "scoring_engine",
+      "pattern": "MIN_GEM_SCORE of 50 requires that micro-cap tokens with limited data can still reach 50 through fallback scoring alone",
+      "problem": "New micro-cap tokens have no price history, no social signals, and limited Moralis data. If the scoring formula defaults missing data to 0, even the best gems score 20-30 and never trade.",
+      "solution": {
+        "approach": "Ensure each scoring component has a fallback that produces a 'pass the bar' score when data is unavailable. The composite of all neutrals (50) should equal exactly MIN_GEM_SCORE.",
+        "files": ["core/signal_engine.py", "config/settings.py"],
+        "key_insight": "The threshold and the fallback defaults are a coupled system — change one, check the other"
+      },
+      "quality_rules": [
+        "After changing MIN_GEM_SCORE, simulate scoring with all-None indicators",
+        "After changing any indicator weight, verify the all-neutral composite still passes",
+        "Log the component breakdown when a token is rejected for score"
+      ],
+      "target_skills": ["scoring_engine", "guardrails"]
+    },
+    "evm_chain_poa_middleware": {
+      "id": "pat-2026-03-24-002",
+      "name": "BSC and Non-Mainnet EVM Chains Need PoA Middleware",
+      "source": "implementation_review",
+      "confidence": 0.95,
+      "applications": 2,
+      "created": "2026-03-24",
+      "last_applied": "2026-03-24",
+      "category": "trade_execution",
+      "pattern": "BSC, Avalanche, and other non-Ethereum-mainnet EVM chains require geth_poa_middleware injected into the Web3 instance",
+      "problem": "Without PoA middleware, Web3.py raises ExtraDataLengthError on BSC/AVAX blocks because the extraData field exceeds the mainnet spec.",
+      "solution": {
+        "approach": "Inject `geth_poa_middleware` at layer 0 for any non-Ethereum-mainnet chain in executor.py",
+        "files": ["core/executor.py"],
+        "key_insight": "This is a Web3.py-specific issue — ethers.js handles it automatically"
+      },
+      "quality_rules": [
+        "Always inject PoA middleware for BSC, AVAX, and any PoA-consensus chain",
+        "Test with a simple `w3.eth.get_block('latest')` call after provider setup"
+      ],
+      "target_skills": ["trade_execution"]
+    },
+    "position_monitor_function_signatures": {
+      "id": "pat-2026-03-23-005",
+      "name": "Position Monitor Function Call Signatures",
+      "source": "user_feedback",
+      "confidence": 0.95,
+      "applications": 2,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-23",
+      "category": "position_mgmt",
+      "pattern": "When calling functions from offensive_guardrails.py in position_monitor.py, always match the exact parameter signature — especially `get_dynamic_trailing_stop_pct(pos, base_pct, state)`",
+      "problem": "Calling `get_dynamic_trailing_stop_pct(pos, base_pct)` without the `state` parameter caused incorrect trailing stop calculations, leading to premature exits.",
+      "solution": {
+        "approach": "Pass the offensive state object to all offensive guardrail functions that need it",
+        "files": ["core/position_monitor.py", "core/offensive_guardrails.py"],
+        "key_insight": "The offensive state carries God Mode status which can tighten stops further"
+      },
+      "quality_rules": [
+        "Always check function signatures when calling across modules",
+        "Use IDE hints or grep for the function definition before calling",
+        "Test trailing stop values in paper mode before deploying"
+      ],
+      "target_skills": ["position_mgmt", "guardrails"]
+    },
+    "dedup_guard_trade_spam": {
+      "id": "pat-2026-03-23-006",
+      "name": "Deduplication Guard for Repeated Trade Attempts",
+      "source": "implementation_review",
+      "confidence": 0.95,
+      "applications": 2,
+      "created": "2026-03-23",
+      "last_applied": "2026-03-24",
+      "category": "guardrails",
+      "pattern": "Without a dedup guard, the bot will attempt to buy the same token on every scan cycle, wasting gas and hitting rate limits",
+      "problem": "Failed trades (slippage, insufficient liquidity) were retried every 60 seconds indefinitely, burning gas fees and flooding API endpoints.",
+      "solution": {
+        "approach": "Maintain a cooldown dict of recently attempted tokens with a configurable TTL (default 30 minutes). Skip any token in cooldown.",
+        "files": ["main.py", "core/risk.py"],
+        "key_insight": "The cooldown should apply to both successful and failed attempts"
+      },
+      "quality_rules": [
+        "Cooldown must persist across scan cycles but NOT across bot restarts",
+        "Log when a token is skipped due to cooldown (for debugging)",
+        "Different cooldown durations for success (longer) vs failure (shorter)"
+      ],
+      "target_skills": ["guardrails", "trade_execution"]
+    },
+    "moralis_timeframe_parameter": {
+      "id": "pat-2026-03-24-003",
+      "name": "Moralis API Timeframe Parameter Validation",
+      "source": "implementation_review",
+      "confidence": 0.90,
+      "applications": 2,
+      "created": "2026-03-24",
+      "last_applied": "2026-03-24",
+      "category": "data_pipeline",
+      "pattern": "Moralis getFilteredTokens timeframe parameter must be a valid enum value — invalid values return 200 OK with wrong data, not an error",
+      "problem": "Passing incorrect timeframe values (e.g., '24h' instead of '1d') silently returns data from an unexpected timeframe, producing misleading metrics.",
+      "solution": {
+        "approach": "Validate timeframe against the documented enum before making API calls. Valid values: '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w', '1M'",
+        "files": ["data/providers/moralis_provider.py"],
+        "key_insight": "Moralis does not return errors for invalid enum values — it silently defaults"
+      },
+      "quality_rules": [
+        "Always validate enum parameters against documented values before API calls",
+        "Log the actual timeframe used in each request for auditability",
+        "Test with known data to verify the response matches the expected timeframe"
+      ],
+      "target_skills": ["data_pipeline"]
+    }
+  }
+}

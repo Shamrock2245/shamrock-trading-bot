@@ -103,6 +103,12 @@ class GemCandidate:
     solana_holder_concentration: float = 0.0  # Solana top-10 holder % (0.0-1.0)
     is_pumpfun_graduate: bool = False      # True if token graduated from Pump.fun
 
+    # Binance Pulse enrichment (Phase 6)
+    binance_smart_money_confirmed: bool = False   # Token in Binance smart money inflow top 50
+    binance_social_hype_score: float = 0.0        # Binance social hype score (0-100)
+    binance_smart_money_inflow_usd: float = 0.0   # USD inflow from smart money
+    binance_smart_money_rank: int = 0              # Rank in smart money inflow list
+
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None

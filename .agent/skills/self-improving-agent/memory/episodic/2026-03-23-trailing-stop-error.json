@@ -1,0 +1,16 @@
+{
+  "id": "ep-2026-03-23-003",
+  "timestamp": "2026-03-23T21:15:00Z",
+  "skill": "position_mgmt",
+  "situation": "Trailing stop loss calculations were incorrect, causing positions to exit at wrong prices. PnL was being negatively impacted.",
+  "root_cause": "In position_monitor.py, `get_dynamic_trailing_stop_pct` was called with only 2 arguments (pos, base_pct) but the function signature requires 3 (pos, base_pct, state). The missing `state` argument meant God Mode trailing stop tightening was never applied.",
+  "solution": "Fixed the function call in position_monitor.py to pass all 3 required arguments including the offensive state object.",
+  "files_modified": ["core/position_monitor.py"],
+  "lesson": "Always verify function call signatures when calling across modules. The offensive_guardrails.py functions often need the OffensiveState object to check God Mode, streak status, etc.",
+  "related_pattern": "position_monitor_function_signatures",
+  "outcome": "success",
+  "user_feedback": {
+    "rating": 8,
+    "comments": "Quick fix, trailing stops now calculating correctly"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "ep-2026-03-24-002",
+  "timestamp": "2026-03-24T12:00:00Z",
+  "skill": "data_pipeline",
+  "situation": "Moralis getFilteredTokens was returning unexpected data. Whale accumulation signals were not matching expected timeframes.",
+  "root_cause": "The timeframe parameter was set to an invalid enum value. Moralis API returns 200 OK with default timeframe data instead of erroring on invalid values — a silent failure.",
+  "solution": "Added timeframe validation against the documented enum values before making API calls. Logged the actual timeframe used in each request.",
+  "files_modified": ["data/providers/moralis_provider.py"],
+  "lesson": "Moralis (and many REST APIs) silently accept invalid enum values and return default data instead of errors. Always validate parameters client-side before making API calls.",
+  "related_pattern": "moralis_timeframe_parameter",
+  "outcome": "success",
+  "user_feedback": {
+    "rating": 7,
+    "comments": "Tricky bug — silent API failures are the worst kind"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "ep-2026-03-23-001",
+  "timestamp": "2026-03-23T15:30:00Z",
+  "skill": "scoring_engine",
+  "situation": "Bot was running on Hetzner but executing ZERO trades. All micro-cap gems were being rejected with scores of 20-35, well below the MIN_GEM_SCORE threshold of 50.",
+  "root_cause": "Signal engine indicator fallbacks were set to 0 instead of 50 (neutral). When RSI, MACD, Bollinger, etc. returned None for new tokens with no price history, the weighted average collapsed to near-zero.",
+  "solution": "Changed all indicator fallback values from 0 to 50 in signal_engine.py. Also added explicit None-handling with neutral defaults in each indicator function.",
+  "files_modified": ["core/signal_engine.py", "scanner/gem_scanner.py"],
+  "lesson": "In a weighted average scoring system, missing data should contribute the neutral midpoint (50), not zero. Zero is not 'no data' — it's the worst possible score.",
+  "related_pattern": "indicator_neutral_fallback",
+  "outcome": "success",
+  "user_feedback": {
+    "rating": 9,
+    "comments": "Fixed the core issue — bot started trading immediately after deploy"
+  }
+}

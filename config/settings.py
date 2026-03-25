@@ -369,7 +369,13 @@ RATE_LIMITS = {
     "defillama": 500,     # generous, no key needed
     "jupiter": 600,       # Solana Jupiter API — very generous
     "grok": 30,           # Grok X sentiment — conservative to control costs
+    "binance_pulse": 60,  # Binance Web3 Pulse APIs — no key, conservative
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Binance Pulse (Free Web3 APIs — no key required)
+# ─────────────────────────────────────────────────────────────────────────────
+BINANCE_PULSE_ENABLED = os.getenv("BINANCE_PULSE_ENABLED", "true").lower() == "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Validation

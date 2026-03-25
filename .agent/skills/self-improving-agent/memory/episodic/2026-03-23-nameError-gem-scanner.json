@@ -1,0 +1,16 @@
+{
+  "id": "ep-2026-03-23-002",
+  "timestamp": "2026-03-23T12:00:00Z",
+  "skill": "manus_integration",
+  "situation": "After merging Manus changes to gem_scanner.py, the bot crashed on startup with a NameError for an undefined variable.",
+  "root_cause": "Manus refactored gem_scanner.py and referenced a variable that was defined in a different scope. The import was present but the variable assignment was removed during the refactor.",
+  "solution": "Added the missing variable assignment back to gem_scanner.py. Verified all imports and variable references matched.",
+  "files_modified": ["scanner/gem_scanner.py"],
+  "lesson": "After ANY Manus edit, always run `python -c 'import <module>'` for each changed file to catch NameError before committing. Manus operates on partial context and can break cross-file references.",
+  "related_pattern": "manus_import_verification",
+  "outcome": "success",
+  "user_feedback": {
+    "rating": 7,
+    "comments": "Caught the issue fast, but should prevent it next time"
+  }
+}
