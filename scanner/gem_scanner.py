@@ -560,25 +560,37 @@ class GemScanner:
                     candidate.sniper_score = get_sniper_score(pair_addr)
                     candidate.sniper_count = sniper_data.get("sniper_count", 0)
                     candidate.sniper_risk = sniper_data.get("risk_level", "unknown")
-                    if sniper_data.get("sniper_count", 0) >= 5 or sniper_data.get("risk_level", "unknown") in ("high", "critical"):
+                    sniper_count = sniper_data.get("sniper_count", 0)
+                    sniper_risk_level = sniper_data.get("risk_level", "unknown")
+                    sniped_usd = sniper_data.get("total_sniped_usd", 0)
+                    if sniper_count >= 5 or sniper_risk_level in ("high", "critical"):
                         logger.warning(
                             f"🎯 SNIPER ALERT {token.symbol}: "
-                            f"{sniper_data['sniper_count']} snipers "
-                            f"(${sniper_data['total_sniped_usd']:,.0f} sniped) "
-                            f"— risk={sniper_data['risk_level']}"
+                            f"{sniper_count} snipers "
+                            f"(${sniped_usd:,.0f} sniped) "
+                            f"— risk={sniper_risk_level}"
                         )
                         # Slack alert for high sniper activity
                         try:
                             from notifications.slack import notify_alert
                             notify_alert(
                                 "🎯 Sniper Warning",
-                                f"{token.symbol} has {sniper_data['sniper_count']} snipers "
-                                f"(${sniper_data['total_sniped_usd']:,.0f} sniped) — "
-                                f"risk: {sniper_data['risk_level']}",
+                                f"{token.symbol} has {sniper_count} snipers "
+                                f"(${sniped_usd:,.0f} sniped) — "
+                                f"risk: {sniper_risk_level}",
                                 level="warning",
                             )
                         except Exception:
                             pass
+                        # HARD BLOCK: critical sniper risk = we are the exit liquidity.
+                        # 10+ snipers or critical risk = coordinated dump setup — skip.
+                        if sniper_risk_level == "critical" or sniper_count >= 10:
+                            logger.warning(
+                                f"🚫 SNIPER BLOCK {token.symbol}: "
+                                f"critical sniper risk ({sniper_count} snipers, "
+                                f"${sniped_usd:,.0f} sniped) — dropping candidate"
+                            )
+                            return None  # Drop this candidate entirely
                 except Exception as e:
                     logger.debug(f"Sniper detection failed for {token.symbol}: {e}")
                     candidate.sniper_score = 50.0

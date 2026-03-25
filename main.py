@@ -893,6 +893,23 @@ async def run_bot_loop():
                     "honeypot_passed": safety.honeypot_passed,
                 }
 
+                # ── RugCheck no-data penalty (Solana only) ────────────────────
+                # If RugCheck has no data on this token, it's unindexed/brand new.
+                # Require a higher gem score to compensate for missing safety data.
+                # This directly addresses the Solana meme coin loss pattern.
+                RUGCHECK_NO_DATA_SCORE_FLOOR = 72.0  # Must score 72+ without RugCheck data
+                if (
+                    token.chain == "solana"
+                    and getattr(safety, "rugcheck_no_data", False)
+                    and candidate.gem_score < RUGCHECK_NO_DATA_SCORE_FLOOR
+                ):
+                    logger.warning(
+                        f"⚠️ {token.symbol}: RugCheck has no data (unindexed token) and "
+                        f"gem_score={candidate.gem_score:.1f} < {RUGCHECK_NO_DATA_SCORE_FLOOR} floor "
+                        f"— skipping until score improves or RugCheck indexes it"
+                    )
+                    continue
+
                 # Phase 2: Signal engine (TA + momentum)
                 # Express lane tokens skip full TA — they already scored ≥82
                 if settings.TA_ENABLED and not is_express:

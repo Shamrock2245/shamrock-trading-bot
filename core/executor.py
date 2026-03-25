@@ -568,7 +568,26 @@ class TradeExecutor:
             TradeResult with full execution details
         """
         # ── MANDATORY: Safety check ───────────────────────────────────────────
-        safety = check_token_safety(params.token_out, params.chain)
+        # For buys: check the token we are buying (token_out = gem).
+        # For sells: check the token we are selling (token_in = gem).
+        # USDC/native tokens used as sell destinations are always safe — never
+        # run the safety pipeline against them or sells will be permanently blocked.
+        SAFE_DESTINATIONS = {
+            "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",  # native ETH/BNB/MATIC
+            "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",   # some routers use shorter form
+        }
+        _usdc_addresses = {
+            getattr(c, "usdc_address", "").lower()
+            for c in CHAINS.values()
+            if getattr(c, "usdc_address", "")
+        }
+        _safe_out = (
+            params.token_out.lower() in SAFE_DESTINATIONS
+            or params.token_out.lower() in _usdc_addresses
+        )
+        # Determine which token is the gem (the one we need to safety-check)
+        token_to_check = params.token_in if _safe_out else params.token_out
+        safety = check_token_safety(token_to_check, params.chain)
         if not safety.is_safe:
             logger.warning(f"Trade BLOCKED by safety pipeline: {safety.block_reason}")
             return TradeResult(

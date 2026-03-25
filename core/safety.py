@@ -310,21 +310,28 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 _set_cached(token_address, chain, result)
                 return result
             else:
-                # RugCheck returned empty — token not indexed yet
-                # Allow but with warning (very new token)
+                # RugCheck returned empty — token not indexed yet.
+                # This is common for tokens < 30 min old.
+                # We allow it but flag it so the scanner can apply a score penalty
+                # (unverified = higher risk, require stronger on-chain signals).
                 result.is_safe = True
-                safety_logger.info(
-                    f"SAFE (Solana — RugCheck no data, new token) | {token_address} | {chain}"
+                result.block_reason = None
+                # Attach a flag so callers can apply extra scrutiny
+                result.rugcheck_no_data = True  # type: ignore[attr-defined]
+                safety_logger.warning(
+                    f"CAUTION (Solana — RugCheck no data, new/unindexed token) | "
+                    f"{token_address} | {chain} — applying score penalty in scanner"
                 )
                 _set_cached(token_address, chain, result)
                 return result
-
         except Exception as e:
             logger.warning(f"RugCheck.xyz check failed for {token_address}: {e}")
             # Don't block on API failure — pass with warning
             result.is_safe = True
-            safety_logger.info(
-                f"SAFE (Solana — RugCheck unavailable) | {token_address} | {chain}"
+            result.rugcheck_no_data = True  # type: ignore[attr-defined]
+            safety_logger.warning(
+                f"CAUTION (Solana — RugCheck unavailable) | {token_address} | {chain} "
+                f"— applying score penalty in scanner"
             )
             _set_cached(token_address, chain, result)
             return result

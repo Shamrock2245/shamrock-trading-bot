@@ -602,14 +602,31 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                 wallet = WALLETS.get(wallet_alias)
                 sol_pub = wallet.solana_address if wallet else ""
                 sol_key_env = wallet.solana_private_key_env if wallet else ""
-                # Convert quantity to token units (approximate — use 6 decimals default)
-                token_amount_units = int(sell_qty * 1_000_000)
+                # Convert quantity to token units using stored decimals.
+                # Solana SPL tokens are most commonly 6 decimals (USDC, most memes)
+                # but some are 9 (SOL-native) or other values.
+                # We store token_decimals at buy time; fall back to 6 if missing.
+                sol_decimals = int(pos.get("token_decimals", 6))
+                if sol_decimals not in (6, 9):  # Sanity check — only trust known-good values
+                    logger.warning(
+                        f"Unexpected Solana token decimals={sol_decimals} for "
+                        f"{pos.get('token_symbol')} — defaulting to 6"
+                    )
+                    sol_decimals = 6
+                token_amount_units = int(sell_qty * (10 ** sol_decimals))
+                logger.info(
+                    f"Solana sell: {sell_qty:.4f} tokens × 10^{sol_decimals} "
+                    f"= {token_amount_units:,} units"
+                )
+                # Use urgency-based slippage: immediate exits get wider slippage
+                sell_urgency = sell_action.get("urgency", "normal")
+                sol_slippage = 500 if sell_urgency == "immediate" else 250
                 tx_hash = execute_solana_sell(
                     token_mint=pos["token_address"],
                     token_amount=token_amount_units,
                     wallet_public_key=sol_pub,
                     wallet_private_key_env=sol_key_env,
-                    slippage_bps=200,
+                    slippage_bps=sol_slippage,
                     is_paper=False,
                 )
             else:
@@ -968,6 +985,8 @@ def register_position(
     gem_score: float = 0.0,
     is_paper: bool = True,
     entry_value_usd: float = 0.0,
+    token_decimals: int = 0,  # 0 = auto-detect: 6 for Solana, 18 for EVM
+    strategy_profile: str = "",  # e.g. "nuclear", "conservative"
 ) -> dict:
     """
     Register a new open position after a buy is executed.
@@ -999,6 +1018,10 @@ def register_position(
         "tx_hash_buy": tx_hash,
         "gem_score": gem_score,
         "is_paper": is_paper,
+        # Token decimals — critical for correct sell amount calculation
+        # Auto-detect: Solana SPL = 6, EVM ERC-20 = 18
+        "token_decimals": token_decimals if token_decimals > 0 else (6 if chain == "solana" else 18),
+        "strategy_profile": strategy_profile,
     }
 
     positions = load_positions()

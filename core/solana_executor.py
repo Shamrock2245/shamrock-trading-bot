@@ -515,6 +515,22 @@ def execute_solana_sell(
         f"price impact: {price_impact:.3f}%"
     )
 
+    # For sells, NEVER block on price impact — we must be able to exit even rugs.
+    # High impact just means low liquidity; log a warning and widen slippage instead.
+    if price_impact > 10.0:
+        logger.warning(
+            f"⚠️ High sell price impact {price_impact:.1f}% for {token_mint[:8]}... "
+            f"— widening slippage to 500bps to force exit"
+        )
+        slippage_bps = max(slippage_bps, 500)
+        # Re-fetch quote with wider slippage
+        quote = get_jupiter_quote(
+            input_mint=token_mint,
+            output_mint=output_mint,
+            amount_lamports=token_amount,
+            slippage_bps=slippage_bps,
+        ) or quote  # Fall back to original quote if re-fetch fails
+
     if is_paper:
         logger.info(f"📄 PAPER MODE: Simulated sell of {token_mint[:8]}...")
         return "PAPER_TX"
