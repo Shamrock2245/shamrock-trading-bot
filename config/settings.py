@@ -419,6 +419,29 @@ def validate_settings() -> list[str]:
     if not CMC_API_KEY:
         warnings_list.append("CMC_API_KEY not set — CoinMarketCap data unavailable")
 
+    if not MORALIS_API_KEY:
+        warnings_list.append(
+            "MORALIS_API_KEY not set — Moralis enrichment (~27% of gem score) unavailable. "
+            "Gem quality will be severely degraded. Set MORALIS_API_KEY in your .env or server environment."
+        )
+
+    if not GROK_API_KEY:
+        warnings_list.append("GROK_API_KEY not set — Grok sentiment scoring (2% weight) disabled. Minor impact.")
+
+    _sol_pk_primary = os.getenv("SOLANA_PRIVATE_KEY_PRIMARY", "")
+    _sol_pk_b = os.getenv("SOLANA_PRIVATE_KEY_B", "")
+    if not _sol_pk_primary and not _sol_pk_b:
+        warnings_list.append(
+            "SOLANA_PRIVATE_KEY_PRIMARY and SOLANA_PRIVATE_KEY_B both unset — "
+            "Solana trading fully disabled. Set these in your server environment to enable Solana."
+        )
+
+    if not ETHERSCAN_API_KEY:
+        warnings_list.append("ETHERSCAN_API_KEY not set — contract verification on Ethereum limited to 5 req/sec")
+
+    if not BASESCAN_API_KEY:
+        warnings_list.append("BASESCAN_API_KEY not set — contract verification on Base limited to 5 req/sec")
+
     if MIN_GEM_SCORE < 55.0:
         warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile enforces 82.0 independently)")
 

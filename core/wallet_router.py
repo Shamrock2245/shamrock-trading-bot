@@ -326,7 +326,7 @@ def get_native_price_usd(native_token: str) -> float:
     Falls back to hardcoded estimates on failure.
     """
     _FALLBACK_PRICES = {
-        "ETH": 3200.0,
+        "ETH": 1800.0,  # Updated — fetch live via CoinGecko, fallback only
         "MATIC": 0.85,
         "BNB": 580.0,
         "SOL": 175.0,
@@ -340,7 +340,11 @@ def get_native_price_usd(native_token: str) -> float:
             "BNB": "binancecoin",
             "SOL": "solana",
             "AVAX": "avalanche-2",
+            "ARB": "arbitrum",  # Arbitrum native gas token
         }
+        # Base chain uses ETH as native — normalize
+        if native_token.upper() == "BASE":
+            native_token = "ETH"
         coin_id = coin_ids.get(native_token.upper())
         if not coin_id:
             return _FALLBACK_PRICES.get(native_token.upper(), 1.0)

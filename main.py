@@ -1340,9 +1340,15 @@ async def run_bot_loop():
                                 logger.debug(f"Swing: already in position for {sc.symbol}")
                                 continue
 
-                            # Calculate position size
+                            # Calculate position size using live wallet balance
+                            try:
+                                from core.wallet_router import get_wallet_balance_usd
+                                _swing_wallet = routed[0] if routed else None
+                                _swing_bal = get_wallet_balance_usd(_swing_wallet) if _swing_wallet else 500.0
+                            except Exception:
+                                _swing_bal = 500.0
                             pos_size_usd = swing_strategy.calculate_position_size(
-                                wallet_balance_usd=500.0,  # Conservative starting balance reference
+                                wallet_balance_usd=_swing_bal,
                                 decision=decision,
                             )
                             if pos_size_usd < 10.0:

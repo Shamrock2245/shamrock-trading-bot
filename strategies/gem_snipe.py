@@ -195,18 +195,31 @@ class GemSnipeStrategy:
 
         # ── Decision: BUY ─────────────────────────────────────────────────
         # All gates passed — this is a high-confidence entry
-        confidence = (
+        # timing_score (0–100) from Moralis multi-timeframe entry intelligence:
+        #   accelerating BP trend → +5 confidence bonus (momentum building)
+        #   decelerating BP trend → -8 confidence penalty (late entry risk)
+        timing_bp_trend = getattr(candidate, 'timing_bp_trend', 'flat')
+        timing_adj = 0.0
+        if timing_bp_trend == 'accelerating':
+            timing_adj = +5.0
+            logger.info(f"⏱️ TIMING BONUS: {token.symbol} — accelerating BP trend → +5 confidence")
+        elif timing_bp_trend == 'decelerating':
+            timing_adj = -8.0
+            logger.info(f"⏱️ TIMING PENALTY: {token.symbol} — decelerating BP trend → -8 confidence (late entry risk)")
+
+        confidence = max(0.0, min(100.0, (
             composite * 0.5 +
             candidate.gem_score * 0.3 +
             fib_result.confidence * 0.2
-        )
+        ) + timing_adj))
 
+        timing_note = f" | timing={timing_bp_trend}({timing_adj:+.0f})" if timing_adj != 0 else ""
         report = format_analysis_report(signal_score, ta_result, fib_result, token.symbol)
-        logger.info(f"✅ BUY SIGNAL for {token.symbol} (confidence: {confidence:.0f}):\n{report}")
+        logger.info(f"✅ BUY SIGNAL for {token.symbol} (confidence: {confidence:.0f}{timing_note}):\n{report}")
 
         return StrategyDecision(
             action="buy",
-            reason=f"All gates passed — composite={composite:.1f}, gem={candidate.gem_score:.1f}, fib={fib_result.current_zone}",
+            reason=f"All gates passed — composite={composite:.1f}, gem={candidate.gem_score:.1f}, fib={fib_result.current_zone}{timing_note}",
             signal_score=signal_score,
             ta_result=ta_result,
             fib_result=fib_result,
