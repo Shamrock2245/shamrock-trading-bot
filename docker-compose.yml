@@ -89,31 +89,6 @@ services:
     networks:
       - shamrock-net
 
-  # ── Cosmos Autotrading Bot ──────────────────────────────────────────────
-  cosmos:
-    build: .
-    container_name: shamrock-cosmos
-    restart: unless-stopped
-    env_file:
-      - .env
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-      - 8.8.4.4
-    command: python3 -m cosmos.cosmos_main
-    volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data
-    depends_on:
-      - db
-    networks:
-      - shamrock-net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
-
   # ── Health Check Cron ─────────────────────────────────────────────────────
   health:
     build: .
