@@ -1,0 +1,86 @@
+{
+  "id": "ep-2026-03-25-001",
+  "date": "2026-03-25",
+  "session_type": "feature_wiring",
+  "category": "position_mgmt",
+  "title": "Nuclear Strategy Profile Exit Pipeline Wiring",
+  "skills_used": ["position_mgmt", "trade_execution", "deployment"],
+  "outcome": "success",
+  "files_modified": [
+    "main.py",
+    "core/position_monitor.py",
+    "core/signal_engine.py",
+    "core/reconciliation.py",
+    "tests/test_nuclear_strategy.py"
+  ],
+  "files_deleted": [
+    "cosmos/__init__.py",
+    "cosmos/arb_engine.py",
+    "cosmos/cosmos_config.py",
+    "cosmos/cosmos_main.py",
+    "cosmos/cosmos_wallet.py",
+    "cosmos/ibc_transfer.py",
+    "cosmos/lp_manager.py",
+    "cosmos/osmosis_executor.py",
+    "cosmos/price_monitor.py",
+    "cosmos/yield_manager.py"
+  ],
+  "what_happened": {
+    "context": "Nuclear strategy infrastructure was 80% built but exits were ignoring per-wallet StrategyProfile. All positions used global settings defaults — Wallet B's 5x/12x/30x TP ladder and 10% hard stop were never used.",
+    "gaps_found": [
+      {
+        "gap": "main.py register_position() did not pass strategy_profile",
+        "severity": "critical",
+        "fix": "Resolve strategy_profile from wallet config and include in position registration data"
+      },
+      {
+        "gap": "position_monitor run_once() did not look up StrategyProfile for each position",
+        "severity": "critical",
+        "fix": "Added _PROFILE_MAP lookup and pass profile to evaluate_position()"
+      },
+      {
+        "gap": "TP tier marking used hardcoded 'tp1_2x' string comparison",
+        "severity": "high",
+        "fix": "Changed to substring match 'tp1_' in reason for any profile's multipliers"
+      },
+      {
+        "gap": "Hard stop floating-point boundary miss — Python (0.90-1.0)/1.0*100 = -9.999... not <= -10.0",
+        "severity": "critical",
+        "fix": "Added +0.001% tolerance on hard stop boundary check"
+      },
+      {
+        "gap": "Signal engine had no OHLCV fallback when pair_address was missing",
+        "severity": "high",
+        "fix": "Before falling to microcap scoring, try ohlcv_provider (Moralis/DexScreener OHLCV)"
+      },
+      {
+        "gap": "EVM reconciliation was a TODO — only Solana was implemented",
+        "severity": "medium",
+        "fix": "Implemented reconcile_evm_positions() and wired into main loop every 10 cycles"
+      }
+    ],
+    "tests_written": 13,
+    "tests_passing": 13,
+    "cleanup": "Deleted cosmos/ directory (10 files, 2731 lines — capital already extracted)"
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Full audit identified all 6 gaps systematically",
+      "StrategyProfile dataclass was well-designed as single source of truth",
+      "Dynamic TP tier marking with substring match is future-proof",
+      "Unit tests caught the float precision bug before production"
+    ],
+    "what_went_wrong": [
+      "Float precision on boundary checks is a classic Python trap",
+      "Infrastructure code (strategy profiles, profiles map) can sit unconnected for weeks without anyone noticing",
+      "EVM reconciliation was marked TODO but never tracked as a blocker"
+    ],
+    "root_cause": "Strategy profile infrastructure was built in isolation — the registration and monitoring loops were never updated to consume it. Without integration tests spanning the full pipeline, this disconnect persisted silently."
+  },
+  "user_feedback": {
+    "rating": 9,
+    "comments": "Full wiring audit confirmed all modules are live and connected. Clean codebase."
+  },
+  "commits": ["fe5948d", "0823880"],
+  "deployment_verified": true
+}

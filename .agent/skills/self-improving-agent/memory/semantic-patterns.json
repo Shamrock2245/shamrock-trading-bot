@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "last_updated": "2026-03-25T16:00:00Z",
+  "version": "1.1.0",
+  "last_updated": "2026-03-26T00:50:00Z",
   "patterns": {
     "indicator_neutral_fallback": {
       "id": "pat-2026-03-23-001",
@@ -230,6 +230,75 @@
         "Test with known data to verify the response matches the expected timeframe"
       ],
       "target_skills": ["data_pipeline"]
+    },
+    "float_boundary_tolerance": {
+      "id": "pat-2026-03-25-001",
+      "name": "Float Comparison Boundary Tolerance",
+      "source": "unit_test_failure",
+      "confidence": 0.98,
+      "applications": 1,
+      "created": "2026-03-25",
+      "last_applied": "2026-03-25",
+      "category": "position_mgmt",
+      "pattern": "Never compare float percentages with exact equality or boundary checks — always add epsilon tolerance",
+      "problem": "Python float arithmetic: (0.90 - 1.0) / 1.0 * 100 = -9.9999999999998, which is NOT <= -10.0. Hard stop at exactly -10% never fired.",
+      "solution": {
+        "approach": "Add +0.001% tolerance on all percentage boundary comparisons: `if pnl_pct <= -(hard_stop_pct - 0.001)`",
+        "files": ["core/position_monitor.py"],
+        "key_insight": "This is a classic IEEE 754 trap — unit tests caught it before production lost money"
+      },
+      "quality_rules": [
+        "Never use `<=` or `>=` on computed floats without epsilon tolerance",
+        "Always unit test boundary conditions with exact threshold values",
+        "For percentage comparisons, 0.001% tolerance is sufficient"
+      ],
+      "target_skills": ["position_mgmt", "guardrails"]
+    },
+    "strategy_profile_pipeline_wiring": {
+      "id": "pat-2026-03-25-002",
+      "name": "Strategy Profile Must Flow Through Entire Pipeline",
+      "source": "wiring_audit",
+      "confidence": 0.95,
+      "applications": 1,
+      "created": "2026-03-25",
+      "last_applied": "2026-03-25",
+      "category": "position_mgmt",
+      "pattern": "Per-wallet strategy profiles must be stored at registration and resolved at every evaluation point — or they silently fall back to global defaults",
+      "problem": "StrategyProfile was defined in wallets.py but never passed through register_position() or consumed by evaluate_position(). Nuclear Wallet B's 5x/12x/30x TP ladder was completely ignored.",
+      "solution": {
+        "approach": "Store strategy_profile.name in position data at registration, use _PROFILE_MAP in monitor to resolve the full object, pass to evaluate_position()",
+        "files": ["main.py", "core/position_monitor.py", "config/wallets.py"],
+        "key_insight": "Infrastructure code built in isolation can sit unconnected for weeks without anyone noticing — always trace the data flow end-to-end"
+      },
+      "quality_rules": [
+        "When adding new per-position metadata, verify it flows: creation → storage → monitoring → exit",
+        "Use substring matching for dynamic reason strings (e.g., 'tp1_' not 'tp1_2x')",
+        "Always test with at least 2 profile variants to catch hardcoded assumptions"
+      ],
+      "target_skills": ["position_mgmt", "trade_execution"]
+    },
+    "todo_comments_are_blockers": {
+      "id": "pat-2026-03-25-003",
+      "name": "TODO Comments Are Silent Blockers",
+      "source": "wiring_audit",
+      "confidence": 0.90,
+      "applications": 1,
+      "created": "2026-03-25",
+      "last_applied": "2026-03-25",
+      "category": "deployment",
+      "pattern": "TODO/FIXME comments in production code represent untracked work items — they must be surfaced as blockers or tracked in task.md",
+      "problem": "reconciliation.py had a docstring saying 'EVM reconciliation can follow the same pattern' but it was never implemented. The gap went unnoticed for weeks.",
+      "solution": {
+        "approach": "Grep for TODO/FIXME/HACK in the codebase periodically. Convert any critical ones into tracked tasks. Implement or delete — never leave in limbo.",
+        "files": ["any"],
+        "key_insight": "Docstring promises are technical debt that compounds silently"
+      },
+      "quality_rules": [
+        "After major feature work, grep `TODO|FIXME|HACK` and resolve or track each one",
+        "Never commit a TODO for production-critical functionality — implement it or create an issue",
+        "During wiring audits, check that every module's docstring promises match reality"
+      ],
+      "target_skills": ["deployment", "manus_integration"]
     }
   }
 }
