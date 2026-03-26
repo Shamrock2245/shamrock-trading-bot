@@ -14,16 +14,16 @@ With $5K you CAN'T over-diversify — tiny positions on many chains = death by g
 ### Per-Chain Limits (Phase 1)
 | Chain | Max Positions | Max Exposure | Capital Allocated |
 |-------|-------------|-------------|-----------------|
-| **Solana** | 2 | 10% ($500) | $2,000 (40%) |
-| **Base** | 2 | 10% ($500) | $1,500 (30%) |
-| **Arbitrum** | 1 | 5% ($250) | $1,000 (20%) |
-| **BSC** | 1 | 5% ($250) | $500 (10%) |
+| **Solana** | 2 | 10% ($500) | $1,750 (35%) |
+| **Base** | 2 | 10% ($500) | $1,250 (25%) |
+| **Avalanche** | 1 | 5% ($250) | $1,000 (20%) |
+| **BSC** | 1 | 5% ($250) | $1,000 (20%) |
 | **Ethereum** | 0 | 0% | $0 (Phase 1 skip) |
 
 ### Why This Allocation
 - **Solana gets most capital** — cheapest gas, fastest execution, most memecoin gems
 - **Base is #2** — growing fast, low fees, lots of new listings
-- **Arbitrum backup** — for DeFi plays and quality tokens
+- **Avalanche is #3** — fast C-Chain, low fees, growing DeFi
 - **BSC selective** — only high-conviction plays, too many scams otherwise
 
 ## Phase 2 Exposure Rules ($15K–$50K)

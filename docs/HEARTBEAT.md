@@ -26,7 +26,7 @@ Last Scan:
   Trades Executed: 1
 
 Health:
-  RPCs: ✅ 6/6 chains responding
+  RPCs: ✅ 7/7 chains responding
   APIs: ✅ All data providers online
   Disk: ✅ 2.3GB free
   Memory: ✅ 412MB used
@@ -50,6 +50,6 @@ Alerts: None
 ## What a Sick Heartbeat Looks Like
 - Irregular intervals (> 7 minutes between beats)
 - Error count climbing
-- RPCs dropping (< 6/6)
+- RPCs dropping (<7/7)
 - Memory usage climbing continuously (memory leak)
 - Disk space shrinking fast (log flood)

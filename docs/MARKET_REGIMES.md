@@ -3,52 +3,54 @@
 ## Why Regime Detection Matters for $5K→$100K
 The bot MUST adapt to market conditions. Running the same parameters in a bear market as a bull market is how accounts get blown up.
 
-## Regime Types & Bot Behavior
+## Implemented Regime Filter (`core/regime_filter.py`)
 
-### 🟢 BULL / Risk-On (This Is Where We Get Rich)
-**Indicators:** BTC trending up, DexScreener new listings exploding, overall crypto market cap rising
-- **Scanner:** AGGRESSIVE — lower `MIN_GEM_SCORE` to 48
-- **Position size:** Full allocation (1.0x multiplier on all tiers)
-- **Take profits:** WIDER — let winners run to 10x+ before trailing
-- **Trailing stop:** 15% from peak (give runners room)
-- **Stop-loss:** Standard -8%
-- **Scan frequency:** Every 10 seconds (maximum aggression)
-- **Max positions:** +2 above phase default (7 in Phase 1)
-- **Priority:** Get as many bets on the table as possible — rising tide lifts all boats
-- **Expected daily return:** 1-3%
+The bot runs a **pseudo-ADX regime filter** before every scan cycle using ETH + SOL price data:
 
-### 🟡 NEUTRAL / Choppy (Bread and Butter)
-**Indicators:** BTC ranging, moderate DexScreener activity
-- **Scanner:** Standard — keep `MIN_GEM_SCORE` at phase default
-- **Position size:** Standard allocation
-- **Take profits:** Standard tiered exits
-- **Stop-loss:** Standard -8%
-- **Scan frequency:** Every 15 seconds
-- **Max positions:** Phase default
-- **Priority:** Selective picks, rely on TA confirmation
-- **Expected daily return:** 0.3-1%
+```
+ETH price change (4h) → pseudo_adx = |change| * amplifier
+SOL price change (4h) → volume_ratio = change_magnitude / mean_price
+Combined → Regime classification
+```
 
-### 🔴 BEAR / Risk-Off (Survival Mode)
-**Indicators:** BTC falling, low DexScreener volumes, high fear index
-- **Scanner:** CONSERVATIVE — raise `MIN_GEM_SCORE` to 70
-- **Position size:** 50% of phase allocation
-- **Take profits:** TIGHT — take quick 30-50% gains, don't hold
-- **Trailing stop:** 5% from peak (lock profits fast)
-- **Stop-loss:** Tighter -5%
-- **Scan frequency:** Every 30 seconds (less noise)
-- **Max positions:** Half of phase default (2-3 in Phase 1)
-- **Priority:** Capital preservation. SURVIVE to trade the next bull.
-- **Expected daily return:** -0.5% to +0.3%
+### Active Regimes (Production)
+| Regime | Pseudo-ADX | Vol Ratio | Sizing Effect | Discovery Effect |
+|--------|-----------|-----------|---------------|-----------------|
+| **EXPANSION** 🟢 | ≥ 35 | ≥ 0.04 | Nuclear × 1.5 | Lower MIN_GEM_SCORE, increase scan frequency |
+| **NORMAL** 🟡 | 20–35 | 0.03–0.04 | Standard × 1.0 | Standard thresholds |
+| **CHOP** 🔴 | < 20 | < 0.03 | Skip new entries, × 0.3 if forced | Raise MIN_GEM_SCORE, reduce frequency |
 
-### ⚫ CRASH / Emergency (Duck and Cover)
-**Indicators:** BTC drops > 10% in 24h, exchange outages, regulatory news
-- **Scanner:** DISABLED — no new trades
-- **Existing positions:** Circuit breaker triggers → close ALL
-- **Action:** Wait for recovery signal (48h minimum)
-- **Priority:** SURVIVE. Your $5K is better than $0.
-- **Expected daily return:** N/A (not trading)
+### How Regime Affects Each Subsystem
 
-## Regime Detection Signals (Phase 4 Implementation)
+#### Scanner (`scanner/gem_scanner.py`)
+| Regime | MIN_GEM_SCORE | Scan Interval | Max Trades/Cycle |
+|--------|--------------|---------------|-----------------|
+| EXPANSION | Lowered (cascade boost accelerates) | 60s | 3 |
+| NORMAL | Phase default | 60s | 3 |
+| CHOP | Raised (loss cooling accelerates) | 120s | 1 |
+
+#### Position Sizing (`core/wallet_router.py`)
+| Regime | Conservative Profile | Nuclear Profile |
+|--------|---------------------|----------------|
+| EXPANSION | Standard 5% | 60% × 1.5 = 90% (capped at 60%) |
+| NORMAL | Standard 5% | 60% |
+| CHOP | 50% reduction → 2.5% | **No new entries** |
+
+#### Position Monitor (`core/position_monitor.py`)
+| Regime | Trailing Stops | TP Targets | Pyramid |
+|--------|---------------|------------|---------|
+| EXPANSION | Wider (let it run) | Standard TP ladder | Aggressive — all 3 tiers |
+| NORMAL | Standard | Standard | Standard — T1 + T2 |
+| CHOP | Tighter (lock gains fast) | Quick flip (1.3x) | Disabled |
+
+### CRASH Mode (Manual Override)
+| Trigger | Action |
+|---------|--------|
+| BTC drops > 10% in 24h | Circuit breaker triggers → close ALL positions |
+| Exchange outage detected | Halt all new trades |
+| **Recovery:** | Wait 48h minimum, restart at 50% sizes |
+
+## Regime Detection Signals (Future Enhancement)
 | Signal | Bull | Neutral | Bear | Crash |
 |--------|------|---------|------|-------|
 | BTC vs 20-day MA | Above | At | Below | Far below |
@@ -57,10 +59,10 @@ The bot MUST adapt to market conditions. Running the same parameters in a bear m
 | Daily trade win rate (7d avg) | > 60% | 45-60% | < 45% | N/A |
 
 ## Money-Making Insight
-Most of your annual returns will come from **2-3 bull months**. The rest of the year is about:
-1. Not losing money in bear/neutral periods
-2. Being positioned to GO HARD when the bull returns
-3. Compounding small gains in neutral periods
+Most of your annual returns will come from **2-3 EXPANSION months**. The rest of the year is about:
+1. Not losing money in CHOP/bear periods
+2. Being positioned to GO HARD when EXPANSION returns
+3. Compounding small gains in NORMAL periods
 4. Surviving crashes with capital intact
 
-**The traders who make millions are the ones who are ALIVE and LIQUID when the bull starts.**
+**The traders who make millions are the ones who are ALIVE and LIQUID when EXPANSION starts.**

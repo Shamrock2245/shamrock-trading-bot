@@ -45,7 +45,7 @@ if dev_is_fresh and dev_serial:
 
 ---
 
-## 2. Scoring System (19 Signals, Weights Sum to 1.00)
+## 2. Scoring System (14 Signals, Weights Sum to 1.00)
 
 | Signal | Weight | Notes |
 |--------|--------|-------|

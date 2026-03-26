@@ -38,11 +38,14 @@ Result:
   Hold Time: 4h 32m
   Exit Reason: Take-profit-1 hit
 
-Scoring Breakdown:
-  Age: 95 | Volume: 85 | Liquidity: 70 | Contract: 80 | 
-  Holder: 60 | Tax: 100 | Social: 75 | Boost: 80 |
-  Smart Money: 65 | TVL: 40 | Sentiment: 55 | 
-  Holder Conc: 50 | Unlock Risk: 70
+Scoring Breakdown (14 scanner signals):
+  Age: 95 | Volume: 85 | Buy Pressure: 78 | Liquidity: 70 |
+  Contract: 80 | Tax: 100 | Holder: 60 | Social: 75 |
+  Social Sentiment: 55 | Boost: 80 | Smart Money: 65 |
+  Holder Conc: 50 | Dev Wallet: 85 | Copycat: 100 |
+  TVL: 40 | Unlock Risk: 70 | Sniper: 90 |
+  Moralis Enrichment Bonus: +18 (buy pressure >70%)
+  TA Score: 72.5 (29-indicator blend)
 ```
 
 ## Journal Storage

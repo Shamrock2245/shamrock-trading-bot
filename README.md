@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/status-🟢%20LIVE%2024%2F7-00C853?style=flat-square" alt="Status" />
-  <img src="https://img.shields.io/badge/chains-ETH%20%7C%20Base%20%7C%20ARB%20%7C%20POLY%20%7C%20BSC%20%7C%20SOL-blue?style=flat-square" alt="Chains" />
+  <img src="https://img.shields.io/badge/chains-ETH%20%7C%20Base%20%7C%20ARB%20%7C%20POLY%20%7C%20BSC%20%7C%20SOL%20%7C%20AVAX-blue?style=flat-square" alt="Chains" />
   <img src="https://img.shields.io/badge/infra-Hetzner%20CPX21-red?style=flat-square" alt="Infra" />
   <img src="https://img.shields.io/github/stars/Shamrock2245/shamrock-trading-bot?style=flat-square" alt="Stars" />
 </p>
@@ -33,13 +33,13 @@
 
 ## ✨ Features
 
-### 🔍 Gem Discovery Engine (18-Signal Pipeline)
+### 🔍 Gem Discovery Engine (14-Signal Scanner + 29-Indicator TA)
 - Multi-chain token scanner (Ethereum, Base, Arbitrum, Polygon, BSC, **Solana**, **Avalanche**)
-- Real-time new pair detection via [DexScreener API](https://docs.dexscreener.com/api/reference)
-- **[Moralis Money Pro](https://moralis.io/)** — 10 endpoints: filtered tokens, trending, top gainers/losers, buying pressure, token score, analytics, batch analytics, stats, holders
-- 18-signal composite scoring (0–100) — volume, liquidity, holders, social, smart money, unlock risk, **Moralis enrichment (12%)**, **rug protection (5%)**
-- Boosted token tracking — community hype detection
-- **Smart money wallet tracking** — follow known alpha wallets
+- **9 discovery sources**: DexScreener (5 feeds), Moralis trending, Moralis filtered, Whale accumulation, Pump.fun graduates, Binance Pulse
+- **[Moralis Money Pro](https://moralis.io/)** — primary enrichment: buying pressure, on-chain strength, security scores, holder analytics
+- **14-signal composite scoring** (0–100) — volume, liquidity, holders, social, smart money, unlock risk, Moralis enrichment, rug protection
+- **29-indicator TA engine** — RSI, MACD, Bollinger Bands, ADX, VWAP, Ichimoku, Williams %R, Stochastic, OBV, CMF, and 19 more
+- **Smart money wallet tracking** — follow known alpha wallets via Moralis + Binance Pulse
 - **Grok/X sentiment analysis** — real-time social buzz scoring via X API
 - **Holder concentration analysis** — buy/sell ratio, LP concentration, transaction patterns
 - **Token unlock risk scoring** — circulating supply %, FDV ratio, vesting detection
@@ -47,7 +47,7 @@
 ### 🛡️ Rug Pull Protection
 - **Dev wallet history analysis** — creator wallet age, token deployment frequency, sell pattern detection (3% weight)
 - **Copycat detection** — fuzzy-match against 50+ high-profile tokens, Unicode homoglyph detection, instant-reject filter (2% weight)
-- **Offensive guardrails** — win/loss streak tracking, house money mode, god mode, loss cooling (+10 MIN_GEM_SCORE per 2L streak)
+- **12 offensive guardrails** — hot streak tracker, god mode, house money protocol, 3-tier pyramid scaling, fast fail, blitz mode, MEV gas bribe, cascade boost, loss cooling, express overdrive, momentum reentry, profit boost
 
 ### 🛡️ Safety First
 - **Honeypot detection** — [GoPlus Security](https://gopluslabs.io/) + [Honeypot.is](https://honeypot.is/) + [TokenSniffer](https://tokensniffer.com/) pre-trade checks
@@ -56,18 +56,18 @@
 - **Circuit breakers** — auto-halt trading on 15% portfolio drawdown
 - **Exact token approvals** — never unlimited spending
 
-### 📊 Technical Analysis + Micro-Cap Scoring
-- **Full TA path** (24+ candles): RSI, MACD, Bollinger Bands, EMA crossovers, VWAP, ADX via manual indicators
-- **Micro-cap path** (<24 candles): Enrichment-aware scoring using gem_score + holder/smart money/unlock risk/Grok sentiment
-- Composite signal scoring — weighted trend, momentum, volume, on-chain, and sentiment signals
+### 📊 Technical Analysis (29-Indicator Engine)
+- **Full TA path** (24+ candles): 29 indicators across trend, momentum, volume, volatility, and hybrid categories
+- **Micro-cap path** (<24 candles): Enrichment-aware scoring using gem_score + Moralis on-chain data
+- Composite signal scoring — weighted blend with neutral fallbacks for missing data
 - Fibonacci retracement zones for entry timing
-- On-chain analytics — holder growth, whale accumulation, DEX volume ratios
+- On-chain analytics — holder growth, whale accumulation, Moralis buying pressure
 
 ### ⚡ Trade Execution
-- Multi-wallet support (3 wallets, distinct strategies per wallet)
-- [1inch](https://portal.1inch.dev/) DEX aggregation for best swap prices
-- EIP-1559 gas optimization with configurable gas ceiling
-- Staged take-profit exits (50% at 2x, 25% at 5x, ride the rest)
+- **Dual-wallet architecture** — Conservative (Primary) + Nuclear (Wallet B) profiles
+- [1inch](https://portal.1inch.dev/) + [Jupiter](https://jup.ag/) + [Trader Joe](https://traderjoexyz.com/) DEX aggregation
+- EIP-1559 gas optimization + MEV gas bribe on God Signals (≥85)
+- **Dual TP ladders** — Conservative (2x/3x/ride) + Nuclear (5x/12x/30x/40% ride)
 - Trailing + hard stop-loss enforcement
 
 ### 📈 Portfolio Dashboard
@@ -209,7 +209,7 @@ streamlit run dashboard/app.py
 
 ### Trade Pipeline Flow
 ```
-Scanner → 14-Signal Scoring → Safety Check → Signal Engine → Strategy Gate → Wallet Router → Executor
+Scanner (9 sources) → 14-Signal Scoring → Safety Check → 29-Indicator TA → Strategy Gate → Wallet Router → Executor
                                                     │                                │
                                         ≥24 candles: Full TA          Kelly Criterion sizing
                                         <24 candles: Micro-cap        Phase-based scaling
@@ -217,11 +217,11 @@ Scanner → 14-Signal Scoring → Safety Check → Signal Engine → Strategy Ga
 ```
 
 ### Wallet Strategy Assignment
-| Wallet | Strategies | Chains | Role |
-|--------|-----------|--------|------|
-| **Primary** | Gem sniping, Momentum | ETH, Base | Active trading |
-| **Wallet B** | DCA, Mean reversion | ARB, Polygon | Steady accumulation |
-| **Wallet C** | Long-term holds | ETH | Profit vault + cold storage |
+| Wallet | Profile | Min Score | Max Position | Role |
+|--------|---------|-----------|-------------|------|
+| **Primary** | Conservative | 65.0 | 5% of wallet | Steady gem sniping across all chains |
+| **Wallet B** | Nuclear | 82.0 | 60% of wallet | One massive bet on S-tier setups |
+| **Wallet C** | Cold storage | — | — | Profit vault + cold storage |
 
 ---
 
@@ -268,7 +268,7 @@ shamrock-trading-bot/
 ├── data/
 │   ├── models.py     # Token, GemCandidate, Trade, Position, SignalScore
 │   └── providers/    # DexScreener, Moralis Money Pro, GoPlus, Grok, HolderAnalysis, DevWallet, Copycat
-├── scanner/          # Gem discovery engine (18-signal scoring, 0–100)
+├── scanner/          # Gem discovery engine (14-signal scoring + 29-indicator TA, 0–100)
 ├── strategies/       # Trading strategies (GemSnipeStrategy + Fibonacci analysis)
 ├── ml/               # Machine learning models & feature engineering
 ├── notifications/    # Slack & Telegram alert modules
@@ -326,9 +326,9 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for SSH access, update procedures, and moni
 
 ---
 
-## 📖 Behavioral Documentation (31 Docs)
+## 📖 Behavioral Documentation (36 Docs)
 
-The `docs/` directory contains **31 detailed behavioral documents** that define exactly how the bot thinks, trades, and protects capital:
+The `docs/` directory contains **36 detailed behavioral documents** that define exactly how the bot thinks, trades, and protects capital:
 
 | Category | Documents |
 |----------|-----------|

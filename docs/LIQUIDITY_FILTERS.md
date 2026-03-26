@@ -7,7 +7,7 @@
 
 | Phase | Min Liquidity | Env Var | Why |
 |-------|-------------|---------|-----|
-| **Phase 1** ($5K) | **$15,000** | `MIN_LIQUIDITY_USD=15000` | Smaller positions can handle lower liquidity |
+| **Phase 1** ($5K) | **$20,000** | `MIN_LIQUIDITY_USD=20000` | Balanced floor for safe exit on micro-caps |
 | **Phase 2** ($15K) | **$25,000** | `MIN_LIQUIDITY_USD=25000` | Standard protection |
 | **Phase 3** ($50K) | **$50,000** | `MIN_LIQUIDITY_USD=50000` | Larger positions need deeper pools |
 | **Phase 4** ($250K) | **$100,000** | `MIN_LIQUIDITY_USD=100000` | Whale-grade liquidity needed |
@@ -50,7 +50,7 @@ liquidity is MORE than adequate.
 | Liquidity growing over time | +5 | Healthy ecosystem |
 | Cross-DEX liquidity | +4 | Multiple exit routes |
 
-## Liquidity Scoring (13% of Gem Score)
+## Liquidity Scoring (6% of Gem Score — `liquidity_score` signal)
 | Liquidity | Score | Phase 1 Action |
 |-----------|-------|----------------|
 | ≥ $500K | 100 | 🟢 Large cap — safe to trade |
@@ -73,6 +73,8 @@ Once you're IN a position, keep watching liquidity:
 |-------|---------------------------|-----------------|
 | Solana | $5K–$500K | $20K–$200K |
 | Base | $10K–$1M | $30K–$500K |
+| Avalanche | $10K–$500K | $25K–$200K |
 | BSC | $5K–$200K | $15K–$100K |
 | Arbitrum | $20K–$2M | $50K–$500K |
+| Polygon | $10K–$1M | $25K–$300K |
 | Ethereum | $50K–$10M | $100K–$2M |

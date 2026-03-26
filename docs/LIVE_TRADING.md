@@ -7,7 +7,7 @@
 ### Wallet Setup
 - [ ] Solana wallet funded with SOL for gas + trading capital
 - [ ] Base wallet funded with ETH for gas + trading capital
-- [ ] Arbitrum wallet funded (if using)
+- [ ] Avalanche wallet funded with AVAX for gas + trading capital
 - [ ] BSC wallet funded with BNB for gas (if using)
 - [ ] **DO NOT fund Ethereum wallet** in Phase 1 — gas too expensive
 - [ ] Private keys in `.env` ONLY — verified gitignored
@@ -15,15 +15,15 @@
 ### Capital Allocation (Recommended for $5K)
 | Chain | Allocation | Why |
 |-------|-----------|-----|
-| **Solana** | $2,000 (40%) | Cheapest gas, most memecoin flow |
-| **Base** | $1,500 (30%) | Low fees, growing ecosystem |
-| **Arbitrum** | $1,000 (20%) | Solid DeFi, good targets |
-| **BSC** | $500 (10%) | Selective plays only |
+| **Solana** | $1,750 (35%) | Cheapest gas, most memecoin flow |
+| **Base** | $1,250 (25%) | Low fees, growing ecosystem |
+| **Avalanche** | $1,000 (20%) | Fast C-Chain, low fees |
+| **BSC** | $1,000 (20%) | Selective plays only |
 | Ethereum | $0 (0%) | Too expensive for Phase 1 |
 
 ### Environment Configuration
 - [ ] `MODE=live` set in `.env`
-- [ ] `ACTIVE_CHAINS=solana,base,arbitrum,bsc` (no ethereum)
+- [ ] `ACTIVE_CHAINS=solana,base,bsc,avalanche` (no ethereum)
 - [ ] `MAX_POSITION_SIZE_PERCENT=5.0`
 - [ ] `MAX_CONCURRENT_POSITIONS=5`
 - [ ] `STOP_LOSS_PERCENT=8.0`
@@ -31,18 +31,20 @@
 - [ ] `CIRCUIT_BREAKER_PERCENT=15.0`
 - [ ] `DAILY_LOSS_LIMIT_ETH=0.3`
 - [ ] `MAX_GAS_GWEI=30`
-- [ ] `SCAN_INTERVAL_SECONDS=15`
-- [ ] `MIN_GEM_SCORE=50.0`
-- [ ] `MIN_LIQUIDITY_USD=15000`
-- [ ] `EXPRESS_LANE_SCORE=80.0`
+- [ ] `SCAN_INTERVAL_SECONDS=60`
+- [ ] `MIN_GEM_SCORE=55.0`
+- [ ] `MIN_LIQUIDITY_USD=20000`
+- [ ] `EXPRESS_LANE_SCORE=82.0`
 
 ### API Keys
 - [ ] `ONEINCH_API_KEY` — confirmed working
 - [ ] `CMC_API_KEY` — confirmed working (or optional)
 - [ ] `ETHERSCAN_API_KEY` — confirmed working
 - [ ] `TOKENSNIFFER_API_KEY` — confirmed working
-- [ ] `MORALIS_API_KEY` — confirmed working (or optional)
-- [ ] `LUNARCRUSH_API_KEY` — confirmed working (or optional)
+- [ ] `MORALIS_API_KEY` — confirmed working (Pro tier required)
+- [ ] `LUNARCRUSH_API_KEY` — confirmed working
+- [ ] `GROK_API_KEY` — confirmed working (Grok X sentiment)
+- [ ] `BINANCE_PULSE_ENABLED=true` — free, no key needed
 - [ ] `SLACK_WEBHOOK_URL` — notifications flowing
 
 ### Safety Verification

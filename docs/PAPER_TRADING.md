@@ -18,8 +18,8 @@ MODE=paper
 ## What Paper Mode Does
 | Step | Paper Behavior | Live Behavior |
 |------|---------------|--------------|
-| Scanning | ✅ Real DexScreener data | ✅ Same |
-| Scoring | ✅ Real scoring pipeline | ✅ Same |
+| Scanning | ✅ Real multi-source data (DexScreener + Moralis + Binance Pulse) | ✅ Same |
+| Scoring | ✅ Real 14-signal scoring + 29-indicator TA | ✅ Same |
 | Safety checks | ✅ Real API calls | ✅ Same |
 | Size calculation | ✅ Real portfolio math | ✅ Same |
 | Trade execution | 📝 Logged only, no tx | 🔗 Real blockchain tx |

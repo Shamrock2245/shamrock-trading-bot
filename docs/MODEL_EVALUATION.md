@@ -70,10 +70,15 @@ Track EVERY signal source and its contribution to winning trades:
 | Signal Source | Trades | Wins | Win% | Avg P/L | Grade | Action |
 |--------------|--------|------|------|---------|-------|--------|
 | DexScreener profiles | — | — | — | — | TBD | — |
-| Latest boosts | — | — | — | — | TBD | — |
-| Top boosts | — | — | — | — | TBD | — |
-| Community takeovers | — | — | — | — | TBD | — |
+| DexScreener latest boosts | — | — | — | — | TBD | — |
+| DexScreener top boosts | — | — | — | — | TBD | — |
+| DexScreener CTOs | — | — | — | — | TBD | — |
 | DexScreener ads | — | — | — | — | TBD | — |
+| Moralis trending | — | — | — | — | TBD | — |
+| Moralis filtered | — | — | — | — | TBD | — |
+| Whale accumulation | — | — | — | — | TBD | — |
+| Binance Pulse smart money | — | — | — | — | TBD | — |
+| Pump.fun graduates | — | — | — | — | TBD | — |
 
 **Kill any signal source with < 40% win rate after 50+ trades.**
 **Double down on signal sources with > 60% win rate.**
@@ -81,8 +86,9 @@ Track EVERY signal source and its contribution to winning trades:
 ### Express Lane vs Standard Performance
 | Path | Trades | Wins | Win% | Avg Return | Avg Hold | Grade |
 |------|--------|------|------|------------|----------|-------|
-| Express (≥80) | — | — | — | — | — | TBD |
-| Standard (55-79) | — | — | — | — | — | TBD |
+| Express (≥82) | — | — | — | — | — | TBD |
+| Standard (55-81) | — | — | — | — | — | TBD |
+| Nuclear Express (≥90) | — | — | — | — | — | TBD |
 
 **If express lane win% < standard: Raise EXPRESS_LANE_SCORE threshold**
 **If express lane avg return > 3x standard: Consider lowering threshold**
@@ -92,8 +98,9 @@ Track EVERY signal source and its contribution to winning trades:
 |-------|--------|------|------------|-----------|------------|-------|
 | Solana | — | — | — | — | — | TBD |
 | Base | — | — | — | — | — | TBD |
-| Arbitrum | — | — | — | — | — | TBD |
+| Avalanche | — | — | — | — | — | TBD |
 | BSC | — | — | — | — | — | TBD |
+| Arbitrum | — | — | — | — | — | TBD |
 | Polygon | — | — | — | — | — | TBD |
 | Ethereum | — | — | — | — | — | TBD |
 
@@ -125,7 +132,7 @@ Trade → Journal → Weekly Review → Identify Pattern → Adjust Parameter �
 
 ## Future: ML Model (Phase 5)
 When trade count exceeds 500:
-1. Train classifier: features (13 signals) → outcome (profitable or not)
+1. Train classifier: features (14 scanner signals + 29 TA indicators) → outcome (profitable or not)
 2. Use model confidence to adjust position sizing
 3. A/B test: ML weights vs static weights over 2 weeks
 4. Adopt winner, retrain monthly

@@ -10,49 +10,68 @@ Risk management isn't about being conservative. It's about **surviving long enou
 ### Phase 1 ($5K–$15K)
 | Check | Threshold | Action on Fail |
 |-------|-----------|---------------|
-| Portfolio allocation | > 5% of portfolio ($250) | **REDUCE size** |
-| Concurrent positions | > 5 open | **WAIT** for exit |
+| Portfolio allocation | > 5% of portfolio (Conservative) / 60% (Nuclear) | **REDUCE size** |
+| Concurrent positions | > 5 (Conservative) / > 3 (Nuclear) | **WAIT** for exit |
 | Daily loss limit | > 0.3 ETH lost today | **STOP trading today** |
 | Gas price | > 30 gwei (Ethereum) | **SKIP Ethereum** |
 | Circuit breaker | Portfolio down > 15% ($750) | **CLOSE ALL** |
 | Gas reserves | < 0.03 ETH for gas | **ALERT** and pause |
 | Chain exposure | > 3 positions on same chain | **SKIP chain** |
+| Market regime | CHOP detected | **SKIP new entries** |
+| Global drawdown | Portfolio down > 20% from ATH | **48h trading halt** |
 
-### Phase 2+ (Loosened as Portfolio Grows)
-| Check | Phase 2 | Phase 3 | Phase 4 |
-|-------|---------|---------|---------|
-| Max position % | 3% | 2% | 1% |
-| Max positions | 8 | 10 | 15 |
-| Daily loss limit | 0.75 ETH | 1.5 ETH | 3.0 ETH |
-| Max gas gwei | 40 | 50 | 50 |
-| Circuit breaker | 15% | 15% | 12% |
+## Position-Level Risk (Profile-Aware)
 
-## Position-Level Risk
+### Stop-Loss — Dual Profile System
+| Type | Conservative | Nuclear | Purpose |
+|------|-------------|---------|---------|
+| Hard stop | **-20%** | **-10%** | Emergency backstop |
+| Trailing stop (initial) | **-15%** | **-30%** | Lock profits on runners |
+| Trailing at 10x | -15% | **-18%** | Tighten as gains grow |
+| Trailing at 20x | -15% | **-8%** | Maximum protection at peak |
 
-### Stop-Loss (Tighter in Phase 1)
-| Type | Phase 1 | Phase 2+ | Purpose |
-|------|---------|----------|---------|
-| Standard stop | **-8%** | -10% | Cut losers fast |
-| Hard stop | **-20%** | -25% | Emergency backstop |
-| Trailing stop | Peak **-12%** | Peak -10% | Lock in profits on runners |
+### Take-Profit — Dual Profile Ladders
+**Conservative (Primary Wallet):**
+| Level | Trigger | Action |
+|-------|---------|--------|
+| TP1 | **2x** (+100%) | Sell **40%** |
+| TP2 | **3x** (+200%) | Sell **40%** of remaining |
+| Ride | Remainder | Trail with 15% trailing stop |
 
-### Take-Profit (Tiered — Maximize Winners)
-| Level | Trigger | Action | Why |
-|-------|---------|--------|-----|
-| TP1 | +100% (2x) | Sell 50% | **Recover initial investment** — house money from here |
-| TP2 | +400% (5x) | Sell 25% | **Bank life-changing profit** |
-| Moon bag | Remaining 25% | Trail with 12% trailing stop | **Let it ride** — this is where 20x–100x happens |
+**Nuclear (Wallet B):**
+| Level | Trigger | Action |
+|-------|---------|--------|
+| TP1 | **5x** (+400%) | Sell **15%** |
+| TP2 | **12x** (+1,100%) | Sell **25%** of remaining |
+| TP3 | **30x** (+2,900%) | Sell **20%** of remaining |
+| Ride | **40% rides** | Dynamic trailing: 30% → 18% → 8% |
 
-### The "Moon Bag" Philosophy
-After TP1 and TP2, the remaining 25% is FREE MONEY (you already recovered your investment + profit). Let it ride with a wide trailing stop. These moon bags are what turn $5K into $100K:
-```
-Position: $250 entry
-At 2x ($500): Sell $250 → Break even on the trade
-At 5x ($1,250): Sell $312 → $312 pure profit banked
-Remaining: $312 worth of tokens trailing at 12%
-If token hits 50x: That $312 moon bag = $6,250
-If token hits 100x: $312 → $12,500 from one trade
-```
+**God Mode override**: Skip TP1 entirely — hold for TP2 (5x minimum).
+
+## Offensive Risk Controls
+
+### Fast Fail (Capital Recycling)
+Dead money is the enemy. These guardrails cut underperformers FAST:
+
+| Trigger | Condition | Action |
+|---------|-----------|--------|
+| **Momentum Death** | Down > 10% after 2h + volume declining | Sell 100% |
+| **Stale Momentum** | Up < 15% after 4h | Sell 100% |
+| **Volume Collapse** | Volume dropped > 80% from entry | Sell 100% immediately |
+
+### Loss Streak Protection
+| Consecutive Losses | Kelly Multiplier | MIN_GEM_SCORE Effect |
+|-------------------|-----------------|---------------------|
+| 1 | 0.85x | +2 pts |
+| 2 | 0.70x | +4 pts |
+| 3+ | **0.50x** (Quarter-Kelly) | +6 pts (capped at +10) |
+
+### Win Streak Acceleration
+| Consecutive Wins | Kelly Multiplier | Cascade Effect |
+|-----------------|-----------------|---------------|
+| 2-3 | 1.25x | -1 pt from MIN_GEM_SCORE |
+| 4-5 | 1.5x | -2 pts |
+| 6+ | **2.0x** (Full Kelly) | -3 pts (capped at -10) |
 
 ## Portfolio-Level Risk
 
@@ -61,7 +80,11 @@ If token hits 100x: $312 → $12,500 from one trade
 - **Action:** Immediately market-sell ALL positions
 - **Cooldown:** 24 hours minimum
 - **Recovery:** Restart at 50% position sizes for 48h
-- **Don't override this.** The circuit breaker exists because humans make bad decisions when stressed.
+
+### Global Drawdown Sleep
+- **Trigger:** Portfolio down > 20% from ATH
+- **Action:** 48-hour complete trading halt
+- **Recovery:** Auto-resumes after 48h at reduced sizing
 
 ### Correlation Protection
 | Rule | Limit | Why |
@@ -69,31 +92,26 @@ If token hits 100x: $312 → $12,500 from one trade
 | Max on same chain | 3 positions | Chain outage = all stuck |
 | Max same category | 2 memecoins | Sector rotation = all dump |
 | Max same DEX | 3 positions | DEX exploit = all at risk |
+| Dedup cooldown | 5 min per token | Prevent duplicate buys |
 
-## The Risk Math: Why -8% Stop-Loss is Optimal
-
-```
-Win rate: 55%   Avg win: +40%   Avg loss: -8%
-
-Expected value per $250 trade:
-  0.55 × $100 (win) - 0.45 × $20 (loss) = $55 - $9 = +$46
-
-Per 10 trades: +$460 net profit
-Per 100 trades: +$4,600 net profit (92% return on starting capital)
-
-With 8% stops: Need 5 consecutive losses to drop 2.8% portfolio
-With 10% stops: Need 5 consecutive losses to drop 3.5% portfolio  
-With 15% stops: Need 5 consecutive losses to drop 5.3% portfolio → TOO MUCH
-```
+## Regime-Based Risk Adjustments
+| Regime | New Entries | Sizing | Trailing Stop | TP Targets |
+|--------|------------|--------|---------------|------------|
+| **EXPANSION** | Aggressive | × 1.5 | Wider | Full TP ladder |
+| **NORMAL** | Standard | × 1.0 | Standard | Standard |
+| **CHOP** | **Blocked** | × 0.3 | Tight | Quick flip 1.3x |
 
 ## What Risk Management Protects Against
 | Threat | Protection | Max Damage |
 |--------|-----------|-----------|
-| Rug pull | Safety checks + stop-loss | ≤5% of portfolio |
-| Flash crash | Hard stop at -20% | ≤5% of portfolio |
-| Slow bleed | Standard stop at -8% | ≤5% of portfolio |
+| Rug pull | Safety checks + hard stop | ≤5% of portfolio (Conservative) |
+| Flash crash | Hard stop at -10% (Nuclear) / -20% (Conservative) | ≤5% / ≤60% |
+| Slow bleed | Fast fail at 2h | ≤10% of position |
+| Momentum death | Volume collapse detection | Immediate exit |
 | Chain failure | Max 3 per chain | ≤15% of portfolio |
 | Full meltdown | Circuit breaker at -15% | 15% then STOP |
+| Drawdown spiral | Global drawdown sleep at -20% | 48h halt |
 | Gas drain | Max gas gwei limit | Skip expensive txns |
-| Overtrading | Daily loss limit | Stop for the day |
+| Overtrading | Daily loss limit + loss streak cooling | Auto-restricts |
+| Snipers | Moralis sniper detection (Solana) | Hard block at ≥10 |
 | Bot crash | Heartbeat monitoring | Alert and restart |

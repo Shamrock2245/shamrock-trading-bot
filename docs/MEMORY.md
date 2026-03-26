@@ -17,8 +17,10 @@
 ### Pattern Memory
 - Volume spike patterns that led to profitable trades
 - DexScreener boost amounts correlated with outcomes
+- Moralis enrichment bonuses correlated with outcomes
 - CTO tokens: win rate vs normal tokens
 - Time-of-day patterns (UTC hours with best results)
+- Whale accumulation signals vs. outcome
 
 ## How Memory Influences Decisions
 
@@ -34,7 +36,15 @@
 ## Memory Storage
 - **Short-term:** In-memory Python dicts (current session)
 - **Long-term:** SQLite database + `output/trades.json`
+- **Offensive state:** `output/offensive_state.json` — persists win/loss streaks, god mode, house money pool, cascade reduction
 - **Permanent:** Blocklists in `config/tokens.py`
+
+## Self-Improving Agent Memory
+The `.agent/skills/self-improving-agent/` system provides multi-memory architecture:
+- **Semantic memory:** Patterns, architecture knowledge, debugging solutions
+- **Episodic memory:** Specific past interactions, decisions, corrections
+- **Working memory:** Current session context and active hypotheses
+- **Evolution markers:** Traceable skill updates with timestamps
 
 ## Future: ML-Based Learning
 Phase 5 (planned): Feed trade journal into a classifier that adjusts signal weights based on actual outcomes. The model learns which signals predict profit and which are noise.

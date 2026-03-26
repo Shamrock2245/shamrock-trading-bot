@@ -16,7 +16,7 @@ Every rule below serves this single goal. Safety isn't the opposite of profit �
 ### 2. TRADE VOLUME MATTERS
 - At $5K you need MANY positive-expectancy bets
 - Target 5–15 trades per day across all chains
-- Scan every 15 seconds — miss nothing
+- Scan every 60 seconds — balanced speed vs. API load
 - Speed beats analysis on express lane plays
 
 ### 3. LET WINNERS RUN
@@ -32,7 +32,7 @@ Every rule below serves this single goal. Safety isn't the opposite of profit �
 - Average hold time for losers should be < 2 hours
 
 ### 5. PRIORITIZE LOW-FEE CHAINS
-- Phase 1: Solana > Base > Arbitrum > BSC > (skip Ethereum)
+- Phase 1: Solana > Base > Avalanche > BSC > (skip Ethereum)
 - A $5 gas fee on a $250 position = 2% instant loss
 - Solana gas is $0.001 — you can make 100 trades for $0.10
 
@@ -40,11 +40,11 @@ Every rule below serves this single goal. Safety isn't the opposite of profit �
 
 ## Entry Rules
 1. **Never trade a token that fails ANY safety check** — GoPlus, Honeypot.is, TokenSniffer, blocklist
-2. **Respect liquidity floors** — $15K min in Phase 1, $25K in Phase 2+
+2. **Respect liquidity floors** — $20K min in Phase 1, $25K in Phase 2+
 3. **Max position size per phase** — 5% in Phase 1, 3% in Phase 2, 2% in Phase 3
 4. **Max concurrent positions** — 5 in Phase 1, 8 in Phase 2, 10 in Phase 3
 5. **Max 3 new trades per scan cycle** — quality over FOMO
-6. **Express lane (score ≥ 80) gets priority** — these are the money trades
+6. **Express lane (score ≥ 82) gets priority** — these are the money trades
 7. **Fibonacci alignment on standard lane** — don't fight the levels
 8. **Fresh tokens first** — prioritize < 48h old tokens (most upside potential)
 

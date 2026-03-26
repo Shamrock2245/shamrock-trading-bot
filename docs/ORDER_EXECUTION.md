@@ -7,9 +7,9 @@ In crypto gem sniping, **the first buyer wins**. A token that's 5 minutes old is
 ```
 Signal confirmed (≤1s)
   → Risk check (≤50ms — in-memory)
-  → Safety gate (≤2s — parallel API calls)
-  → Size calculation (≤10ms — arithmetic)
-  → Route selection (≤100ms — chain lookup)
+  → Safety gate (≤2s — parallel API calls, cached 5min)
+  → Offensive sizing (≤10ms — multiplier stack)
+  → Route selection (≤100ms — chain + wallet profile lookup)
   → Submit tx (≤3s — depends on chain)
   → Confirm (chain dependent)
   → Log + notify (async, non-blocking)
@@ -17,11 +17,16 @@ Signal confirmed (≤1s)
 Total target: < 5 seconds from signal to submitted tx
 ```
 
-## Express Lane Execution (Score ≥ 80)
+## Express Lane Execution (Score ≥ 82 Conservative / ≥ 90 Nuclear)
 - **Skip TA pipeline** — saves 3-5 seconds
 - **Parallel safety checks** — GoPlus + Honeypot + TokenSniffer simultaneously
-- **Pre-built tx templates** — reduce serialization time
 - Goal: **Signal to tx in under 3 seconds**
+
+### God Signal Execution (Score ≥ 85)
+- Everything Express Lane does PLUS:
+- **1.5x gas bribe** for next-block inclusion (MEV protection)
+- **Express Overdrive sizing** — 1.5x–2.0x position
+- **Wider slippage** — +100bps tolerance to guarantee entry
 
 ## Chain-Specific Execution
 
@@ -44,7 +49,17 @@ Total target: < 5 seconds from signal to submitted tx
 | Min position | $25 |
 | Executor | `core/executor.py` |
 
-### Arbitrum / BSC / Polygon
+### Avalanche (🥉 C-Chain — Fast & Growing)
+| Setting | Value |
+|---------|-------|
+| DEX | Trader Joe V2 / 1inch fallback |
+| Confirmation | ~2 seconds |
+| Gas | ~$0.03 |
+| Min position | $25 |
+| PoA middleware | Enabled for C-Chain |
+| Executor | `core/executor.py` |
+
+### BSC / Arbitrum / Polygon
 | Setting | Value |
 |---------|-------|
 | DEX | 1inch Aggregator |
@@ -63,20 +78,29 @@ Total target: < 5 seconds from signal to submitted tx
 | Min position | $500 |
 | Executor | `core/executor.py` |
 
+## Dual-Wallet Execution Routing
+
+Both wallets can fire on the same token in the same cycle:
+
+| Score Range | Primary (Conservative) | Wallet B (Nuclear) |
+|-------------|----------------------|-------------------|
+| ≥ 90 | ✅ 5% position | ✅ 60% position (Express Overdrive) |
+| 85–89 | ✅ 5% position | ✅ 60% position (God Signal) |
+| 82–84 | ✅ 5% position | ✅ 60% position |
+| 65–81 | ✅ Standard | ❌ Below nuclear minimum |
+| 45–64 | ✅ TA-confirmed | ❌ Below nuclear minimum |
+
 ## Token Approval (EVM Only)
 - Approve **exact trade amount** only — NEVER `uint256.max`
 - Check existing allowance first — skip if sufficient
 - Approval TX adds ~$0.50-2.00 gas on L2s, $3-15 on Ethereum
 
-## Slippage Settings (Phase 1 — Optimized for Small Caps)
-| Liquidity Range | Buy Slippage | Sell Slippage (normal) | Sell Slippage (stop-loss) |
-|----------------|-------------|----------------------|--------------------------|
-| > $500K | 1.0% | 1.0% | 2.0% |
-| $200K–$500K | 1.5% | 1.5% | 2.5% |
-| $100K–$200K | 2.0% | 2.0% | 3.0% |
-| $50K–$100K | 2.5% | 2.5% | 3.5% |
-| $15K–$50K | 3.0% | 3.0% | 5.0% |
-| < $15K | **DO NOT TRADE** | — | — |
+## Slippage Settings
+| Profile | Buy Slippage | Sell Slippage | Stop-Loss Slippage |
+|---------|-------------|--------------|-------------------|
+| Conservative | 5% | 5% | 8% |
+| Nuclear | **8%** | **8%** | **12%** |
+| Express Overdrive | +100bps on top | — | — |
 
 ## Failure Handling (Don't Lose Opportunities)
 | Failure | Action | Resume |
@@ -87,9 +111,10 @@ Total target: < 5 seconds from signal to submitted tx
 | Insufficient balance | Alert, pause that chain | After deposit |
 | RPC error | Retry with backup RPC (max 3) | Immediately |
 | Rate limited | Back off 5s, continue other chains | After backoff |
+| Deduplication hit | Skip (same token within cooldown) | Next cycle |
 
 ## Gas Optimization
-- **Solana/Base:** Gas is negligible — execute without delay
+- **Solana/Base/AVAX:** Gas is negligible — execute without delay
 - **Ethereum:** Best gas windows: 2-6 AM UTC (weekdays), all day Sunday
-- **Bundle multiple exits together** when possible (save gas on Ethereum)
+- **God Signal (≥85):** Pay gas premium — next-block inclusion is worth it
 - **Never pay > 2% of position size in gas** — kills the edge
