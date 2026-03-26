@@ -168,27 +168,25 @@ class GemSnipeStrategy:
             signal_score.fib_zone = "insufficient_data"
             signal_score.fib_aligned = True
 
-        # ── Gate 3: Fibonacci Alignment (HARD GATE) ───────────────────────
+        # ── Gate 3: Fibonacci Alignment (SOFT PENALTY) ───────────────────
+        # Instead of hard-blocking, apply a score penalty for misaligned fib
+        fib_penalty = 0.0
         if self.require_fib_alignment and not fib_result.aligned:
-            report = format_analysis_report(signal_score, ta_result, fib_result, token.symbol)
-            logger.info(f"Fibonacci gate blocked {token.symbol}:\n{report}")
-            return StrategyDecision(
-                action="skip",
-                reason=f"Fibonacci NOT aligned — price in '{fib_result.current_zone}' zone",
-                signal_score=signal_score,
-                ta_result=ta_result,
-                fib_result=fib_result,
-                gem_score=candidate.gem_score,
+            fib_penalty = 15.0
+            logger.info(
+                f"Fibonacci penalty applied to {token.symbol}: "
+                f"-{fib_penalty} pts (price in '{fib_result.current_zone}' zone)"
             )
 
-        # ── Gate 4: Minimum Signal Score ──────────────────────────────────
-        composite = signal_score.composite
+        # ── Gate 4: Minimum Signal Score (with fib penalty) ───────────────
+        composite = signal_score.composite - fib_penalty
         if composite < self.min_signal_score:
             report = format_analysis_report(signal_score, ta_result, fib_result, token.symbol)
-            logger.info(f"Signal score too low for {token.symbol} ({composite:.1f}):\n{report}")
+            logger.info(f"Signal score too low for {token.symbol} ({composite:.1f} after fib penalty):\n{report}")
             return StrategyDecision(
                 action="skip",
-                reason=f"Signal score {composite:.1f} below threshold {self.min_signal_score}",
+                reason=f"Signal score {composite:.1f} below threshold {self.min_signal_score}" +
+                       (f" (includes -{fib_penalty:.0f} fib penalty)" if fib_penalty > 0 else ""),
                 signal_score=signal_score,
                 ta_result=ta_result,
                 fib_result=fib_result,

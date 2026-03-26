@@ -78,7 +78,7 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     trailing_tighten={},  # Fixed 15%
     # Sizing
     max_position_pct=5.0,
-    kelly_clamp_max=0.10,
+    kelly_clamp_max=0.20,
     max_position_usd=5_000.0,
     max_concurrent=5,
     # Fast fail
@@ -89,7 +89,7 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=60.0,
+    min_gem_score=52.0,
     express_lane_score=78.0,
     # TP: 5x sell 15%, 12x sell 25%, 30x sell 20% (ride 40% with trail)
     tp1_mult=5.0,
@@ -111,6 +111,33 @@ NUCLEAR_PROFILE = StrategyProfile(
     fast_fail_down_pct=15.0,
     fast_fail_hours=1.5,
     max_slippage_pct=8.0,  # Wider for nuclear entries on memes
+)
+
+# ── Swing Scalp Profile (capital recovery — tight TP/SL for blue chips) ──────
+SWING_SCALP_PROFILE = StrategyProfile(
+    name="swing",
+    min_gem_score=0.0,            # Not used — pure TA entries
+    express_lane_score=999.0,     # Not used
+    # TP: 1.03x sell 50%, 1.06x sell 100% (tight scalp targets)
+    tp1_mult=1.03,
+    tp1_sell_pct=0.50,
+    tp2_mult=1.06,
+    tp2_sell_pct=1.0,
+    tp3_mult=0.0,                 # Disabled — exit fully at TP2
+    tp3_sell_pct=0.0,
+    # Stop — tight for liquid tokens
+    hard_stop_pct=2.5,
+    trailing_stop_pct=1.5,        # Post-TP1 trailing
+    trailing_tighten={1.04: 1.0}, # At +4%, tighten trail to 1%
+    # Sizing — conservative for capital recovery
+    max_position_pct=5.0,
+    kelly_clamp_max=0.15,
+    max_position_usd=100.0,       # Hard cap $100 per swing trade
+    max_concurrent=5,
+    # Fast fail
+    fast_fail_down_pct=5.0,       # Tighter for blue chips
+    fast_fail_hours=1.0,
+    max_slippage_pct=1.0,         # Very tight — liquid tokens
 )
 
 

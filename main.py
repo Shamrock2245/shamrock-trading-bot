@@ -93,6 +93,8 @@ from core.offensive_guardrails import (
 from data.models import GemCandidate
 from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
+from scanner.swing_scanner import SwingScanner
+from strategies.swing_strategy import SwingStrategy
 from dashboard.state import BotStateWriter
 
 
@@ -897,7 +899,7 @@ async def run_bot_loop():
                 # If RugCheck has no data on this token, it's unindexed/brand new.
                 # Require a higher gem score to compensate for missing safety data.
                 # This directly addresses the Solana meme coin loss pattern.
-                RUGCHECK_NO_DATA_SCORE_FLOOR = 72.0  # Must score 72+ without RugCheck data
+                RUGCHECK_NO_DATA_SCORE_FLOOR = float(os.getenv("RUGCHECK_NO_DATA_SCORE_FLOOR", "55.0"))
                 if (
                     token.chain == "solana"
                     and getattr(safety, "rugcheck_no_data", False)
@@ -1290,6 +1292,99 @@ async def run_bot_loop():
                         )
                 except Exception as e:
                     logger.error(f"Moonshot Spray error: {e}", exc_info=True)
+
+                # 4d. Capital Recovery Swing Scanner (every 3rd cycle)
+                if cycle % 3 == 0:
+                    try:
+                        swing_scanner = SwingScanner(chains=settings.ACTIVE_CHAINS)
+                        swing_strategy = SwingStrategy()
+                        swing_candidates = swing_scanner.scan()
+                        swing_entries = [c for c in swing_candidates if c.entry_signal]
+
+                        for sc in swing_entries[:3]:  # Max 3 swing entries per cycle
+                            decision = swing_strategy.evaluate(sc)
+                            if decision.action != "buy":
+                                continue
+
+                            # Check if we already have a position in this token
+                            sc_key = sc.address.lower()
+                            if sc_key in open_token_keys:
+                                logger.debug(f"Swing: already in position for {sc.symbol}")
+                                continue
+
+                            # Calculate position size
+                            pos_size_usd = swing_strategy.calculate_position_size(
+                                wallet_balance_usd=500.0,  # Conservative starting balance reference
+                                decision=decision,
+                            )
+                            if pos_size_usd < 10.0:
+                                logger.debug(f"Swing: position too small for {sc.symbol} (${pos_size_usd:.2f})")
+                                continue
+
+                            # Route to best wallet
+                            routed = route_trade_all(
+                                token_address=sc.address,
+                                chain=sc.chain,
+                                gem_score=decision.ta_composite,
+                                is_express=False,
+                                candidate=None,
+                            )
+                            if not routed:
+                                logger.debug(f"Swing: no wallet route for {sc.symbol}/{sc.chain}")
+                                continue
+
+                            wallet_conf, pos_size_native = routed[0], routed[1]
+
+                            logger.info(
+                                f"🔄 SWING TRADE: {sc.symbol}/{sc.chain} — "
+                                f"composite={decision.ta_composite:.1f} | "
+                                f"TP1=${decision.tp1_price:.4f} | SL=${decision.stop_loss_price:.4f}"
+                            )
+
+                            # Build trade params
+                            params = build_gem_snipe_params(
+                                wallet=wallet_conf,
+                                chain=sc.chain,
+                                token_address=sc.address,
+                                eth_amount=pos_size_native,
+                                slippage_bps=100,  # Tight slippage for liquid tokens
+                            )
+                            result = executor.execute_trade(params)
+
+                            if result.success:
+                                register_position(
+                                    token_address=sc.address,
+                                    token_symbol=sc.symbol,
+                                    chain=sc.chain,
+                                    wallet=wallet_conf.alias,
+                                    pair_address=sc.pair_address,
+                                    entry_price=decision.entry_price,
+                                    quantity=result.amount_out if result.amount_out else 0,
+                                    tx_hash=result.tx_hash,
+                                    gem_score=decision.ta_composite,
+                                    is_paper=is_paper,
+                                    entry_value_usd=pos_size_usd,
+                                    strategy_profile="swing",
+                                )
+                                trades_this_cycle += 1
+                                trades_this_session += 1
+                                notify_trade(
+                                    action="SWING_BUY",
+                                    symbol=sc.symbol,
+                                    chain=sc.chain,
+                                    amount=pos_size_usd,
+                                    price=decision.entry_price,
+                                    tx_hash=result.tx_hash,
+                                    mode=settings.MODE,
+                                    extra=f"🔄 SWING: {decision.reason} | "
+                                          f"TP1=+3% SL=-2.5%",
+                                )
+                                logger.info(f"✅ Swing entry: {sc.symbol}/{sc.chain} | tx: {result.tx_hash}")
+                            else:
+                                logger.warning(f"❌ Swing entry failed: {sc.symbol} — {result.error}")
+
+                    except Exception as swing_err:
+                        logger.error(f"Swing scanner error: {swing_err}", exc_info=True)
 
             # Write dashboard state
             try:

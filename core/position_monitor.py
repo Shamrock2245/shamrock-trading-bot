@@ -34,7 +34,7 @@ from typing import Optional
 import requests
 
 from config import settings
-from config.wallets import CONSERVATIVE_PROFILE, NUCLEAR_PROFILE
+from config.wallets import CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE
 from data.models import Position, Trade
 from core.offensive_guardrails import (
     get_offensive_state,
@@ -49,6 +49,7 @@ from core.offensive_guardrails import (
 _PROFILE_MAP = {
     "conservative": CONSERVATIVE_PROFILE,
     "nuclear": NUCLEAR_PROFILE,
+    "swing": SWING_SCALP_PROFILE,
 }
 
 logger = logging.getLogger(__name__)
