@@ -89,8 +89,8 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=82.0,
-    express_lane_score=90.0,
+    min_gem_score=60.0,
+    express_lane_score=78.0,
     # TP: 5x sell 15%, 12x sell 25%, 30x sell 20% (ride 40% with trail)
     tp1_mult=5.0,
     tp1_sell_pct=0.15,
