@@ -1015,6 +1015,106 @@ def get_discovery_token_details(token_address: str, chain: str) -> Optional[dict
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 12. Token Bonding Status  (GET /tokens/{address}/bonding-status)
+#     Checks if token is still on a bonding curve (pump.fun, moonshot, etc.)
+#     If is_bonding=True → skip buying (pre-graduation = high rug risk)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_bonding_status(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Check if a token is still in a bonding curve (pump.fun, moonshot, etc.).
+    Returns {"is_bonding": bool, "exchange": str} or None on failure.
+    Pre-graduation tokens are extremely high risk — used as a reject gate.
+    """
+    if not _available(chain):
+        return None
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"bonding_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/tokens/{token_address}/bonding-status",
+            params={"chain": moralis_chain},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (402, 403, 404):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "is_bonding": data.get("is_bonding", False),
+            "exchange": data.get("exchange", ""),
+            "bonding_type": data.get("bonding_type", ""),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis bonding status error for {token_address} on {chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. Aggregated Token Pair Stats  (GET /pairs/{address}/stats)
+#     Buyer/seller velocity across ALL pairs for a token — aggregated view.
+#     Returns buy/sell counts, volume, avg trade size per timeframe.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Get aggregated trading stats across all DEX pairs for a token.
+    Returns buyer/seller counts, volume breakdowns, and avg trade sizes
+    for 5m, 1h, 6h, 24h timeframes — excellent for buy pressure confirmation.
+    """
+    if not _available(chain):
+        return None
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"pair_stats_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/erc20/{token_address}/pairs/stats",
+            params={"chain": moralis_chain},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (402, 403, 404):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        # Extract aggregated stats — may be wrapped in result array
+        stats = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
+        result = {
+            # 5-minute stats
+            "buyers_5m": _safe_int(stats.get("buyers_5min", 0)),
+            "sellers_5m": _safe_int(stats.get("sellers_5min", 0)),
+            "buy_volume_5m": _safe_float(stats.get("buy_volume_5min_usd", 0)),
+            "sell_volume_5m": _safe_float(stats.get("sell_volume_5min_usd", 0)),
+            # 1-hour stats
+            "buyers_1h": _safe_int(stats.get("buyers_1h", 0)),
+            "sellers_1h": _safe_int(stats.get("sellers_1h", 0)),
+            "buy_volume_1h": _safe_float(stats.get("buy_volume_1h_usd", 0)),
+            "sell_volume_1h": _safe_float(stats.get("sell_volume_1h_usd", 0)),
+            # 24-hour stats
+            "buyers_24h": _safe_int(stats.get("buyers_24h", 0)),
+            "sellers_24h": _safe_int(stats.get("sellers_24h", 0)),
+            "buy_volume_24h": _safe_float(stats.get("buy_volume_24h_usd", 0)),
+            "sell_volume_24h": _safe_float(stats.get("sell_volume_24h_usd", 0)),
+            # Total liquidity
+            "total_liquidity_usd": _safe_float(stats.get("total_liquidity_usd", 0)),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis aggregated pair stats error for {token_address} on {chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Unified Discovery  — called by gem_scanner.py
 # ─────────────────────────────────────────────────────────────────────────────
 def discover_tokens(chains: list[str] = None) -> list[dict]:
@@ -1098,14 +1198,22 @@ def _dedup_add(token: dict, chain: str, seen: set, result: list) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def enrich_candidate(token_address: str, chain: str) -> dict:
     """
-    Enrich a gem candidate with Moralis token score + analytics + discovery details.
-    Returns a dict with moralis_score, buy_pressure_ratio, net_buyers_1h,
-    whale accumulation signals, and comprehensive discovery data.
-    Called by the gem scorer for each candidate that passes initial filters.
+    Enrich a gem candidate with the FULL Moralis ecosystem:
+      - Token score (security + quality)
+      - Analytics (buy/sell pressure, net buyers, multi-TF data)
+      - Discovery token details (whale signals, holder growth, liquidity)
+      - Bonding status (pre-graduation reject gate)
+      - Aggregated pair stats (buyer/seller velocity across all pairs)
+      - Entry timing intelligence (multi-timeframe trend detection)
+
+    This is the PRIMARY enrichment function — replaces DefiLlama, LunarCrush,
+    holder_analysis, and token_unlocks with native Moralis signals.
     """
     score_data = get_token_score(token_address, chain)
     analytics_data = get_token_analytics(token_address, chain)
     discovery_data = get_discovery_token_details(token_address, chain)
+    bonding_data = get_bonding_status(token_address, chain)
+    pair_stats_data = get_aggregated_pair_stats(token_address, chain)
 
     enrichment = {
         "moralis_score":         0,
@@ -1127,6 +1235,17 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         "moralis_net_volume_1d":     0.0,
         "moralis_token_age_days":    0.0,
         "moralis_liquidity_locked_pct": 0.0,
+        # Bonding status — reject gate for pre-graduation tokens
+        "moralis_is_bonding":        False,
+        "moralis_bonding_exchange":   "",
+        # Aggregated pair stats — buyer/seller velocity
+        "moralis_pair_buyers_5m":    0,
+        "moralis_pair_sellers_5m":   0,
+        "moralis_pair_buy_vol_1h":   0.0,
+        "moralis_pair_sell_vol_1h":  0.0,
+        "moralis_pair_buyers_24h":   0,
+        "moralis_pair_sellers_24h":  0,
+        "moralis_total_liquidity":   0.0,
         # Entry timing signals (multi-timeframe)
         "timing_bp_trend":           "flat",
         "timing_bp_micro_ratio":     1.0,
@@ -1176,6 +1295,21 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
                 discovery_data["security_score"]
             )
 
+    # Bonding status — pre-graduation reject gate
+    if bonding_data:
+        enrichment["moralis_is_bonding"]      = bonding_data.get("is_bonding", False)
+        enrichment["moralis_bonding_exchange"] = bonding_data.get("exchange", "")
+
+    # Aggregated pair stats — buyer/seller velocity across all DEX pairs
+    if pair_stats_data:
+        enrichment["moralis_pair_buyers_5m"]   = pair_stats_data.get("buyers_5m", 0)
+        enrichment["moralis_pair_sellers_5m"]  = pair_stats_data.get("sellers_5m", 0)
+        enrichment["moralis_pair_buy_vol_1h"]  = pair_stats_data.get("buy_volume_1h", 0.0)
+        enrichment["moralis_pair_sell_vol_1h"] = pair_stats_data.get("sell_volume_1h", 0.0)
+        enrichment["moralis_pair_buyers_24h"]  = pair_stats_data.get("buyers_24h", 0)
+        enrichment["moralis_pair_sellers_24h"] = pair_stats_data.get("sellers_24h", 0)
+        enrichment["moralis_total_liquidity"]  = pair_stats_data.get("total_liquidity_usd", 0.0)
+
     return enrichment
 
 
@@ -1184,25 +1318,35 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def calculate_moralis_score_contribution(enrichment: dict) -> float:
     """
-    Convert Moralis enrichment data into a 0–100 score contribution.
-    This is added to the gem candidate's composite score with a 15% weight.
+    Convert FULL Moralis ecosystem enrichment into a 0–100 score contribution.
+    This is the PRIMARY scoring signal — weighted at 27% of the gem composite score.
+
+    Now incorporates ALL Moralis data (replaces DefiLlama, LunarCrush,
+    holder_analysis, and token_unlocks custom providers).
 
     Scoring logic:
-      Base signals (65% of contribution):
-        - Moralis token score (0–100):          30%
-        - Buy pressure ratio 1h (0–1 → 0–100): 15%
-        - Net buyers 1h (capped at 100):        12%
-        - Transaction count 1h (capped at 100):  8%
+      Base signals (50% of contribution):
+        - Moralis token score (0–100):          22%
+        - Buy pressure ratio 1h (0–1 → 0–100): 12%
+        - Net buyers 1h (capped at 100):        10%
+        - Transaction count 1h (capped at 100):  6%
 
       Entry timing (15% — multi-timeframe intelligence):
         - Timing composite score (0–100):       10%  (trend + micro + velocity)
         - Volume acceleration (0–100):           5%  (5m vs 1h normalized)
 
-      Whale accumulation (20% — discovery token details):
-        - Experienced net buyers 1d/1w:          8%  (whale accumulation)
+      Pair velocity (10% — aggregated DEX pair stats, replaces holder_analysis):
+        - 5m buyer velocity:                     5%  (5m buyers vs sellers)
+        - 24h buyer dominance:                   5%  (long-term accumulation)
+
+      Whale accumulation (20% — discovery token, replaces TVL + social):
+        - Experienced net buyers 1d/1w:          7%  (whale accumulation)
         - Holder growth 1d:                      4%  (organic adoption)
-        - On-chain strength index:               4%  (overall health)
-        - Liquidity locked %:                    4%  (rug protection)
+        - On-chain strength index:               5%  (replaces LunarCrush social)
+        - Liquidity locked %:                    4%  (rug protection, replaces TVL)
+
+      Bonding penalty (5% — reject gate):
+        - If is_bonding=True:                    -50 points (pre-graduation = danger)
     """
     moralis_score    = min(100.0, enrichment.get("moralis_score", 0))
     buy_pressure     = enrichment.get("moralis_buy_pressure", 0.5)
@@ -1210,12 +1354,12 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     net_buyers       = min(100.0, max(0.0, enrichment.get("moralis_net_buyers_1h", 0) * 2))
     txns             = min(100.0, enrichment.get("moralis_txns_1h", 0) / 10)  # 1000 txns = 100
 
-    # Base contribution (65%)
+    # Base contribution (50%)
     base = (
-        moralis_score      * 0.30
-        + buy_pressure_pct * 0.15
-        + net_buyers       * 0.12
-        + txns             * 0.08
+        moralis_score      * 0.22
+        + buy_pressure_pct * 0.12
+        + net_buyers       * 0.10
+        + txns             * 0.06
     )
 
     # Entry timing contribution (15%) — multi-timeframe intelligence
@@ -1228,7 +1372,29 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
         + vol_accel_score * 0.05
     )
 
+    # Pair velocity contribution (10%) — aggregated DEX stats
+    # Replaces holder_analysis custom provider
+    pair_buyers_5m = enrichment.get("moralis_pair_buyers_5m", 0)
+    pair_sellers_5m = enrichment.get("moralis_pair_sellers_5m", 0)
+    pair_total_5m = pair_buyers_5m + pair_sellers_5m
+    pair_velocity_5m = 50.0  # neutral default
+    if pair_total_5m > 0:
+        pair_velocity_5m = min(100.0, (pair_buyers_5m / pair_total_5m) * 100)
+
+    pair_buyers_24h = enrichment.get("moralis_pair_buyers_24h", 0)
+    pair_sellers_24h = enrichment.get("moralis_pair_sellers_24h", 0)
+    pair_total_24h = pair_buyers_24h + pair_sellers_24h
+    pair_dominance_24h = 50.0  # neutral default
+    if pair_total_24h > 0:
+        pair_dominance_24h = min(100.0, (pair_buyers_24h / pair_total_24h) * 100)
+
+    pair_contribution = (
+        pair_velocity_5m   * 0.05
+        + pair_dominance_24h * 0.05
+    )
+
     # Whale accumulation bonus (20%) — from discovery token details
+    # Replaces DefiLlama TVL + LunarCrush social
     exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
     exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
     # Scale whale signal: 50+ experienced net buyers over 1 week = max score
@@ -1238,18 +1404,25 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     # Scale holder growth: 200+ new holders/day = max score
     holder_signal = min(100.0, max(0.0, holder_growth * 0.5))
 
+    # On-chain strength replaces LunarCrush social sentiment
     on_chain_strength = min(100.0, enrichment.get("moralis_on_chain_strength", 0))
 
+    # Liquidity locked replaces DefiLlama TVL check
     liquidity_locked = min(100.0, enrichment.get("moralis_liquidity_locked_pct", 0))
 
     whale_bonus = (
-        whale_signal       * 0.08
+        whale_signal       * 0.07
         + holder_signal    * 0.04
-        + on_chain_strength * 0.04
+        + on_chain_strength * 0.05
         + liquidity_locked  * 0.04
     )
 
-    contribution = base + timing_contribution + whale_bonus
+    contribution = base + timing_contribution + pair_contribution + whale_bonus
+
+    # Bonding penalty — pre-graduation tokens are extremely high risk
+    if enrichment.get("moralis_is_bonding", False):
+        contribution = max(0.0, contribution - 50.0)
+
     return round(min(100.0, contribution), 2)
 
 

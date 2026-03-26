@@ -48,11 +48,8 @@ from data.providers.dexscreener import (
     extract_gem_signals,
     get_token_pairs,
 )
-from data.providers.defillama import get_tvl_score
 from data.providers.social_scoring import get_social_score
 from data.providers.smart_money import get_smart_money_score
-from data.providers.holder_analysis import get_holder_score
-from data.providers.token_unlocks import get_unlock_risk_score
 from data.providers.dev_wallet_history import get_dev_wallet_score
 from data.providers.copycat_detector import get_copycat_score, is_token_copycat
 from data.providers.moralis_money import (
@@ -673,29 +670,12 @@ class GemScanner:
                 logger.debug(f"Solana holder analysis failed for {token.symbol}: {e}")
 
         # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
-        # Only query external APIs for candidates that pass initial screening
-        # to conserve rate limits (especially LunarCrush: 100 req/day).
-        #
-        # ⚡ PARALLEL ENRICHMENT: 10 fast API calls run concurrently via
-        # ThreadPoolExecutor. Moralis + Binance Pulse now run IN the pool
-        # (previously Moralis was sequential — saved 6-8s per candidate).
-        # Grok sentiment (6-8s LLM call, 2% weight) deferred to 2nd pass.
+        # ⚡ MORALIS-FIRST ENRICHMENT: 5 lean parallel calls replace the old 9.
+        # Removed: DefiLlama TVL, LunarCrush social, holder_analysis, token_unlocks
+        # All replaced by Moralis ecosystem signals (discovery, analytics, pair stats).
+        # Grok sentiment (6-8s LLM call, 2% weight) still deferred to 2nd pass.
         if base_score >= 45:
             from concurrent.futures import ThreadPoolExecutor, as_completed
-
-            # Define enrichment tasks as (name, callable) pairs
-            def _get_tvl():
-                return get_tvl_score(token.address, token.chain)
-
-            def _get_lc():
-                from data.providers.coingecko_social import get_social_score as get_lc_score
-                return get_lc_score(token.symbol)
-
-            def _get_holder():
-                return get_holder_score(token.address, token.chain)
-
-            def _get_unlock():
-                return get_unlock_risk_score(token.address, token.chain)
 
             def _get_dev():
                 return get_dev_wallet_score(token.address, token.chain)
@@ -716,29 +696,23 @@ class GemScanner:
                 from data.providers.moralis_wallet import get_enhanced_token_metadata
                 return get_enhanced_token_metadata([token.address], chain=token.chain)
 
-            # ⚡ NEW: Moralis Money enrichment now runs IN the pool (was sequential)
             def _get_moralis_money():
                 return moralis_enrich(token.address, token.chain)
 
-            # ⚡ NEW: Binance Pulse smart money + social hype (free, no key)
             def _get_binance_pulse():
                 if not settings.BINANCE_PULSE_ENABLED:
                     return {"binance_smart_money_confirmed": False, "binance_social_hype_score": 50.0}
                 return binance_enrich(token.address, chain=token.chain)
 
-            # Submit ALL enrichment calls concurrently — 10 workers (no Grok — deferred)
+            # Submit 5 lean enrichment calls — down from 9 (removed custom providers)
             enrichment_results = {}
-            with ThreadPoolExecutor(max_workers=10, thread_name_prefix="enrich") as pool:
+            with ThreadPoolExecutor(max_workers=5, thread_name_prefix="enrich") as pool:
                 futures = {
-                    pool.submit(_get_tvl): "tvl",
-                    pool.submit(_get_lc): "lc",
-                    pool.submit(_get_holder): "holder",
-                    pool.submit(_get_unlock): "unlock",
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
                     pool.submit(_get_moralis_meta): "moralis_meta",
-                    pool.submit(_get_moralis_money): "moralis_money",     # ← was sequential!
-                    pool.submit(_get_binance_pulse): "binance_pulse",     # ← NEW
+                    pool.submit(_get_moralis_money): "moralis_money",
+                    pool.submit(_get_binance_pulse): "binance_pulse",
                 }
                 for future in as_completed(futures, timeout=15):
                     name = futures[future]
@@ -748,12 +722,12 @@ class GemScanner:
                         logger.debug(f"Enrichment '{name}' failed for {token.symbol}: {e}")
                         enrichment_results[name] = None
 
-            # Apply results to candidate
-            candidate.tvl_score = enrichment_results.get("tvl") or 50.0
-            candidate.social_sentiment_score = enrichment_results.get("lc") or 50.0
-            candidate.holder_concentration_score = enrichment_results.get("holder") or 50.0
-            candidate.unlock_risk_score = enrichment_results.get("unlock") or 50.0
-            candidate.grok_sentiment_score = 50.0  # default — deferred to second pass
+            # Moralis-derived scores replace removed custom providers
+            candidate.tvl_score = 50.0              # Now inside Moralis (liquidity_locked_pct)
+            candidate.social_sentiment_score = 50.0  # Now inside Moralis (on_chain_strength)
+            candidate.holder_concentration_score = 50.0  # Now inside Moralis (pair stats)
+            candidate.unlock_risk_score = 50.0       # Removed — negligible for micro-caps
+            candidate.grok_sentiment_score = 50.0    # Deferred to 2nd pass
 
             # Dev wallet
             dev_result = enrichment_results.get("dev")
@@ -829,6 +803,9 @@ class GemScanner:
             candidate.grok_sentiment_score = 50.0
             candidate.dev_wallet_score = 50.0
             candidate.copycat_score = 70.0
+            candidate.moralis_is_bonding = False
+            candidate.moralis_pair_buyers_5m = 0
+            candidate.moralis_pair_sellers_5m = 0
 
         # ── GROK SENTIMENT (conditional second pass — 2% weight) ──────────────
         # Only call the slow Grok LLM (~6-8s) if the token still looks
@@ -864,9 +841,9 @@ class GemScanner:
                     logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
 
-        # ── Moralis Money Enrichment (PRIMARY source — 20% weight) ─────────────
-        # ⚡ Now runs IN the parallel pool above (was sequential — saved 6-8s).
-        # Results are extracted from enrichment_results["moralis_money"].
+        # ── Moralis Money Enrichment (PRIMARY source — 27% weight) ─────────────
+        # ⚡ Now runs IN the parallel pool above. Results from enrichment_results.
+        # This is the DOMINANT scoring signal — replaces TVL, social, holders, unlocks.
         moralis_enrichment_score = 50.0  # default neutral
         if base_score >= 45:
             enrichment = enrichment_results.get("moralis_money", {})
@@ -881,7 +858,7 @@ class GemScanner:
                     candidate.moralis_sellers_1h = enrichment.get("moralis_sellers_1h", 0)
                     candidate.moralis_txns_1h = enrichment.get("moralis_txns_1h", 0)
                     candidate.moralis_top10_pct = enrichment.get("moralis_top10_pct", 0.0)
-                    # New whale accumulation + discovery signals
+                    # Whale accumulation + discovery signals
                     candidate.moralis_exp_net_buyers_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
                     candidate.moralis_exp_net_buyers_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
                     candidate.moralis_holders_change_1d = enrichment.get("moralis_holders_change_1d", 0)
@@ -890,6 +867,25 @@ class GemScanner:
                     candidate.moralis_liquidity_locked_pct = enrichment.get("moralis_liquidity_locked_pct", 0.0)
                     candidate.moralis_security_score = enrichment.get("moralis_security_score", 0)
                     candidate.moralis_token_age_days = enrichment.get("moralis_token_age_days", 0.0)
+
+                    # ── NEW: Bonding status reject gate ──────────────────────
+                    candidate.moralis_is_bonding = enrichment.get("moralis_is_bonding", False)
+                    if enrichment.get("moralis_is_bonding", False):
+                        bonding_exchange = enrichment.get("moralis_bonding_exchange", "unknown")
+                        logger.info(
+                            f"⛔ BONDING REJECT: {token.symbol} still on bonding curve "
+                            f"({bonding_exchange}) — pre-graduation = high rug risk. Skipping."
+                        )
+                        return None  # Hard reject — don't even score
+
+                    # ── NEW: Pair stats (buyer/seller velocity) ──────────────
+                    candidate.moralis_pair_buyers_5m = enrichment.get("moralis_pair_buyers_5m", 0)
+                    candidate.moralis_pair_sellers_5m = enrichment.get("moralis_pair_sellers_5m", 0)
+                    candidate.moralis_pair_buy_vol_1h = enrichment.get("moralis_pair_buy_vol_1h", 0.0)
+                    candidate.moralis_pair_sell_vol_1h = enrichment.get("moralis_pair_sell_vol_1h", 0.0)
+                    candidate.moralis_pair_buyers_24h = enrichment.get("moralis_pair_buyers_24h", 0)
+                    candidate.moralis_pair_sellers_24h = enrichment.get("moralis_pair_sellers_24h", 0)
+                    candidate.moralis_total_liquidity = enrichment.get("moralis_total_liquidity", 0.0)
 
                     # ── Entry timing intelligence (multi-timeframe) ──────────
                     candidate.timing_bp_trend = enrichment.get("timing_bp_trend", "flat")
@@ -941,6 +937,17 @@ class GemScanner:
                             f"(pressure fading, late entry risk)"
                         )
 
+                    # Pair stats velocity log
+                    pb5 = enrichment.get("moralis_pair_buyers_5m", 0)
+                    ps5 = enrichment.get("moralis_pair_sellers_5m", 0)
+                    if pb5 + ps5 > 0:
+                        pair_ratio = pb5 / (pb5 + ps5)
+                        if pair_ratio >= 0.70:
+                            logger.info(
+                                f"📊 PAIR VELOCITY: {token.symbol} — "
+                                f"{pb5} buyers vs {ps5} sellers in 5m ({pair_ratio:.0%} buy)"
+                            )
+
                     if enrichment.get("moralis_score", 0) > 0:
                         logger.debug(
                             f"Moralis enrichment {token.symbol}: "
@@ -949,7 +956,8 @@ class GemScanner:
                             f"net_buyers_1h={enrichment['moralis_net_buyers_1h']} "
                             f"whale_1w={exp_net_1w} "
                             f"timing={bp_trend} vol_accel={vol_accel:.1f}x "
-                            f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)}"
+                            f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)} "
+                            f"pair_5m={pb5}b/{ps5}s liq=${enrichment.get('moralis_total_liquidity', 0):,.0f}"
                         )
                 except Exception as e:
                     logger.debug(f"Moralis enrichment processing failed for {token.symbol}: {e}")
@@ -1005,30 +1013,27 @@ class GemScanner:
                 buy_pressure_score = 20.0
         candidate.buy_pressure_score = buy_pressure_score
 
-        # ── Final composite score (19 signals — Moralis + Solana intelligence) ──────
-        # Weights sum to 1.00. Moralis enrichment gets 20% allocation as PRIMARY
-        # data source — the strongest single alpha signal. Rebalanced from v1.
-        # Dev wallet (3%) and copycat (2%) rug-protection signals retained.
+        # ── Final composite score (15 signals — Moralis-first + rug protection) ───
+        # Weights sum to 1.00. Moralis enrichment now at 27% — DOMINANT signal.
+        # Removed: tvl(0.04), social_sentiment(0.04), holder_conc(0.03), unlock(0.02)
+        # All replaced by Moralis native signals inside moralis_enrichment_score.
+        # Dev wallet (4%) and copycat (5%) rug-protection retained.
         candidate.gem_score = round(
-            candidate.age_score              * 0.07    # was 0.08
-            + candidate.volume_score         * 0.07    # was 0.10
-            + candidate.liquidity_score      * 0.06    # was 0.08
-            + candidate.buy_pressure_score   * 0.07
-            + candidate.moralis_enrichment_score * 0.20 # ← DOUBLED: Moralis PRIMARY
+            candidate.age_score              * 0.07
+            + candidate.volume_score         * 0.07
+            + candidate.liquidity_score      * 0.07
+            + candidate.buy_pressure_score   * 0.08
+            + candidate.moralis_enrichment_score * 0.27 # ← DOMINANT: full Moralis ecosystem
             + candidate.sniper_score         * 0.04    # Solana sniper detection
-            + candidate.contract_score       * 0.05    # was 0.07
-            + candidate.holder_score         * 0.05    # was 0.07
+            + candidate.contract_score       * 0.06
+            + candidate.holder_score         * 0.05
             + candidate.tax_score            * 0.06
             + candidate.social_score         * 0.05
             + candidate.boost_score          * 0.04
             + candidate.smart_money_score    * 0.03
-            + candidate.tvl_score            * 0.04
-            + candidate.social_sentiment_score * 0.04
-            + candidate.holder_concentration_score * 0.03
-            + candidate.unlock_risk_score    * 0.02
             + candidate.grok_sentiment_score * 0.02
-            + candidate.dev_wallet_score     * 0.03
-            + candidate.copycat_score        * 0.03,
+            + candidate.dev_wallet_score     * 0.04
+            + candidate.copycat_score        * 0.05,
             2,
         )
 
