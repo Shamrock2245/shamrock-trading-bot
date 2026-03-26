@@ -95,6 +95,11 @@ from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
 from scanner.swing_scanner import SwingScanner
 from strategies.swing_strategy import SwingStrategy
+from core.adaptive_mode import (
+    load_mode_state, save_mode_state, update_capital,
+    evaluate_mode, apply_mode, should_run_gems, should_run_swing,
+    log_mode_banner, get_mode_status,
+)
 from dashboard.state import BotStateWriter
 
 
@@ -443,6 +448,10 @@ async def run_bot_loop():
     # Legacy profit boost counter (now managed inside offensive_state)
     profit_boost_remaining = offensive_state.profit_boost_remaining
 
+    # ── Adaptive Mode Controller ── load persistent state ──────────────────
+    adaptive_state = load_mode_state()
+    logger.info(f"Adaptive Mode: loaded state — mode={adaptive_state.mode}, HWM=${adaptive_state.high_water_mark_usd:.0f}")
+
     while True:
         cycle += 1
         trades_this_cycle = 0
@@ -519,6 +528,20 @@ async def run_bot_loop():
             all_positions = load_positions()
             open_positions = [p for p in all_positions if p.get("status") == "open"]
             closed_positions = [p for p in all_positions if p.get("status") == "closed"]
+
+            # ── Adaptive Mode: update capital and evaluate mode ──────────────
+            try:
+                _total_deployed = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
+                _total_unrealized = sum(float(p.get("current_value_usd", 0)) for p in open_positions)
+                _portfolio_estimate = max(_total_unrealized, _total_deployed) if open_positions else 0
+                update_capital(adaptive_state, _portfolio_estimate)
+                recommended_mode = evaluate_mode(adaptive_state)
+                mode_changed = apply_mode(adaptive_state, recommended_mode)
+                if mode_changed:
+                    save_mode_state(adaptive_state)
+                log_mode_banner(adaptive_state)
+            except Exception as _mode_err:
+                logger.debug(f"Adaptive mode check failed (non-blocking): {_mode_err}")
 
             if open_positions:
                 total_entry = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
@@ -811,9 +834,13 @@ async def run_bot_loop():
                 logger.debug(f"Regime check failed (non-blocking): {_regime_err}")
                 _regime_skip_new_entries = False
 
-            # 2. Scan for gems (all chains including Solana)
-            candidates = scanner.scan()
-            logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
+            # 2. Scan for gems (adaptive: every cycle in NORMAL, every 3rd in RECOVERY)
+            candidates = []
+            if should_run_gems(adaptive_state, cycle):
+                candidates = scanner.scan()
+                logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
+            else:
+                logger.info(f"Cycle {cycle}: ⏭️ Skipping gem scan (RECOVERY mode — gems every {adaptive_state.gem_frequency} cycles)")
 
             # 3. Process candidates (iterate all, but cap successful trades)
             for candidate in candidates:
@@ -1293,15 +1320,16 @@ async def run_bot_loop():
                 except Exception as e:
                     logger.error(f"Moonshot Spray error: {e}", exc_info=True)
 
-                # 4d. Capital Recovery Swing Scanner (every 3rd cycle)
-                if cycle % 3 == 0:
+                # 4d. Capital Recovery Swing Scanner (adaptive frequency)
+                if should_run_swing(adaptive_state, cycle):
                     try:
                         swing_scanner = SwingScanner(chains=settings.ACTIVE_CHAINS)
                         swing_strategy = SwingStrategy()
                         swing_candidates = swing_scanner.scan()
                         swing_entries = [c for c in swing_candidates if c.entry_signal]
+                        _max_swing = adaptive_state.max_swing_entries_per_cycle
 
-                        for sc in swing_entries[:3]:  # Max 3 swing entries per cycle
+                        for sc in swing_entries[:_max_swing]:  # Dynamic cap from adaptive mode
                             decision = swing_strategy.evaluate(sc)
                             if decision.action != "buy":
                                 continue

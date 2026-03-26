@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "last_updated": "2026-03-26T12:10:00Z",
+  "patterns": [
+    {
+      "id": "hetzner_ip_canonical_source",
+      "category": "deployment",
+      "pattern": "Always read Hetzner VPS IP from the sync-and-deploy workflow file, never rely on conversation memory",
+      "detail": "The Hetzner IP can change (e.g., server rebuild, IP reassignment). The canonical source is .agent/workflows/sync-and-deploy.md. If SSH times out, check Hetzner Console at https://console.hetzner.com/",
+      "confidence": 0.95,
+      "severity": "high",
+      "source_episodes": ["ep-2026-03-26-001"],
+      "applications": 1,
+      "created": "2026-03-26T12:10:00Z",
+      "evolution_marker": "Initial creation from deploy failure due to stale IP"
+    },
+    {
+      "id": "docker_service_vs_container_name",
+      "category": "deployment",
+      "pattern": "Docker Compose service names differ from container names. Use 'bot' (not 'shamrock-bot') in docker compose commands",
+      "detail": "docker compose commands use service names from docker-compose.yml (bot, dashboard, health, db). Container names (shamrock-bot, shamrock-dashboard, etc.) are used in docker logs/exec but NOT in compose up/down/build.",
+      "confidence": 0.95,
+      "severity": "medium",
+      "source_episodes": ["ep-2026-03-26-001"],
+      "applications": 1,
+      "created": "2026-03-26T12:10:00Z",
+      "evolution_marker": "Initial creation from 'no such service: shamrock-bot' error"
+    },
+    {
+      "id": "zero_trade_deadlock_cascade",
+      "category": "guardrails",
+      "pattern": "Multiple defensive filters in series create a deadlock where no trades pass. Audit the full filter chain before deployment",
+      "detail": "Fibonacci hard gate + Capital Recovery throttle + high min_gem_score + tight Kelly clamps + strict RugCheck floor combined to reject 100% of trades. Each filter alone was reasonable but the cascade blocked everything. Convert hard blocks to soft penalties where possible.",
+      "confidence": 0.90,
+      "severity": "critical",
+      "source_episodes": ["ep-2026-03-26-001"],
+      "applications": 1,
+      "created": "2026-03-26T12:10:00Z",
+      "evolution_marker": "Initial creation from zero-trade audit session"
+    },
+    {
+      "id": "fibonacci_soft_gate",
+      "category": "scoring_engine",
+      "pattern": "Market regime filters (Fibonacci, trend, volatility) should apply score penalties rather than hard blocks",
+      "detail": "A hard block in pullback market = zero trades for extended periods. A soft penalty (-15 points) still filters weak entries but allows strong gems to pass through pullback environments.",
+      "confidence": 0.85,
+      "severity": "high",
+      "source_episodes": ["ep-2026-03-26-001"],
+      "applications": 1,
+      "created": "2026-03-26T12:10:00Z",
+      "evolution_marker": "Initial creation from Fibonacci gate audit"
+    }
+  ]
+}

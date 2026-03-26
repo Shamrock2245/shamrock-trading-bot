@@ -1,0 +1,41 @@
+{
+  "id": "ep-2026-03-26-001",
+  "timestamp": "2026-03-26T12:07:00Z",
+  "category": "deployment",
+  "title": "SSH Deploy Failed — Stale Hetzner IP",
+  "task": "Deploy swing scanner + audit fixes to Hetzner VPS",
+  "outcome": "partial",
+  "what_happened": [
+    "Committed 10aee83 with 670 insertions (6 files) and pushed to GitHub successfully",
+    "SSH to 5.78.76.228 (old IP from previous sessions) timed out on port 22",
+    "User provided Hetzner Console screenshots showing correct IP: 5.161.126.32",
+    "Retried with correct IP — git pull + docker rebuild succeeded in ~12 seconds",
+    "Docker service name mismatch: used 'shamrock-bot' (container name) instead of 'bot' (compose service name)"
+  ],
+  "what_went_well": [
+    "Git commit and push worked flawlessly",
+    "Docker build used layer caching — rebuild was fast (~2s)",
+    "Code changes were syntactically valid (all AST parse checks passed)",
+    "Recovered quickly once correct IP was identified"
+  ],
+  "what_went_wrong": [
+    "Used hardcoded stale IP (5.78.76.228) from a previous session instead of checking",
+    "No sync-and-deploy workflow file existed — was listed in workflows but missing",
+    "Used container name 'shamrock-bot' as docker compose service name — should be 'bot'"
+  ],
+  "root_cause": "IP address was hardcoded from memory of previous conversations rather than stored in a canonical location (workflow file). The sync-and-deploy workflow was referenced but never actually created.",
+  "resolution": [
+    "Created /agent/workflows/sync-and-deploy.md with correct IP 5.161.126.32",
+    "Documented correct Docker service names: bot, dashboard, health, db",
+    "Added note to check Hetzner Console if IP changes"
+  ],
+  "files_modified": [
+    ".agent/workflows/sync-and-deploy.md"
+  ],
+  "patterns_extracted": [
+    "hetzner_ip_canonical_source",
+    "docker_service_vs_container_name"
+  ],
+  "confidence": 0.95,
+  "severity": "medium"
+}
