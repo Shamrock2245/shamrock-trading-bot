@@ -1122,6 +1122,10 @@ async def run_bot_loop():
                         risk_manager.record_trade_open(wallet.alias)
 
                         # ── Register position for auto-sell monitoring ─────────
+                        # Resolve strategy profile name from wallet config
+                        _reg_profile = ""
+                        if hasattr(wallet, "strategy_profile") and wallet.strategy_profile:
+                            _reg_profile = wallet.strategy_profile.name
                         register_position(
                             token_address=token.address,
                             token_symbol=token.symbol,
@@ -1137,6 +1141,7 @@ async def run_bot_loop():
                             gem_score=candidate.gem_score,
                             is_paper=is_paper,
                             entry_value_usd=allocation.position_size_usd,
+                            strategy_profile=_reg_profile,
                         )
 
                         notify_trade(

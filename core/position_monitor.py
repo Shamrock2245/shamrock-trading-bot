@@ -34,6 +34,7 @@ from typing import Optional
 import requests
 
 from config import settings
+from config.wallets import CONSERVATIVE_PROFILE, NUCLEAR_PROFILE
 from data.models import Position, Trade
 from core.offensive_guardrails import (
     get_offensive_state,
@@ -43,6 +44,12 @@ from core.offensive_guardrails import (
     evaluate_fast_fail,
     should_skip_tp1,
 )
+
+# ── Strategy Profile Lookup (for profile-aware exits) ─────────────────────────
+_PROFILE_MAP = {
+    "conservative": CONSERVATIVE_PROFILE,
+    "nuclear": NUCLEAR_PROFILE,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -682,12 +689,12 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
     pos["last_sell_price"] = current_price
     pos["realized_pnl_usd"] = float(pos.get("realized_pnl_usd", 0)) + pnl_usd
 
-    # Mark TP tiers
-    if reason == "tp1_2x":
+    # Mark TP tiers (dynamic: works with any profile's multipliers)
+    if "tp1_" in reason:
         pos["tp1_hit"] = True
-    elif reason == "tp2_5x":
+    elif "tp2_" in reason:
         pos["tp2_hit"] = True
-    elif reason == "tp3_10x":
+    elif "tp3_" in reason:
         pos["tp3_hit"] = True
 
     # ── Auto-compound: Track Wallet B TP profits for rebalancing to Primary ──
@@ -806,8 +813,10 @@ class PositionMonitor:
                 if dynamic_trailing_stop_pct != settings.STOP_LOSS_PERCENT:
                     pos["_dynamic_trailing_stop_pct"] = dynamic_trailing_stop_pct
 
-                # ── Defensive: standard TP/SL evaluation ─────────────────────────────────────
-                sell_action = evaluate_position(pos, current_price)
+                # ── Defensive: standard TP/SL evaluation (profile-aware) ─────────────────────
+                _sp_name = pos.get("strategy_profile", "")
+                _sp = _PROFILE_MAP.get(_sp_name)
+                sell_action = evaluate_position(pos, current_price, strategy_profile=_sp)
 
                 # ── God Mode: skip TP1 (hold for higher target) ────────────────────────
                 if sell_action and sell_action.get("reason", "").startswith("tp1_"):
