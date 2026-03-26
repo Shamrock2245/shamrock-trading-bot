@@ -722,16 +722,116 @@ def get_token_analytics(token_address: str, chain: str) -> Optional[dict]:
             result[f"sellers_{tf_label}"]       = _safe_int(data.get(f"totalSellers", {}).get(tf_key, 0))
             result[f"net_buyers_{tf_label}"]    = result[f"buyers_{tf_label}"] - result[f"sellers_{tf_label}"]
             result[f"unique_wallets_{tf_label}"]= _safe_int(data.get(f"uniqueWallets", {}).get(tf_key, 0))
-        # Derived signal: buy pressure ratio
-        bv_1h = result.get("buy_volume_1h", 0)
-        sv_1h = result.get("sell_volume_1h", 0)
-        total_1h = bv_1h + sv_1h
-        result["buy_pressure_ratio_1h"] = bv_1h / total_1h if total_1h > 0 else 0.5
+        # Derived signals: buy pressure ratio per timeframe
+        for tf in ["5m", "1h", "6h", "24h"]:
+            bv = result.get(f"buy_volume_{tf}", 0)
+            sv = result.get(f"sell_volume_{tf}", 0)
+            total = bv + sv
+            result[f"buy_pressure_ratio_{tf}"] = bv / total if total > 0 else 0.5
         _set_cache(cache_key, result)
         return result
     except Exception as e:
         logger.debug(f"Moralis analytics error for {token_address} on {chain}: {e}")
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7b. Entry Timing Intelligence  (derived from analytics — NO extra API calls)
+#     Turns raw multi-timeframe analytics into actionable entry signals.
+# ─────────────────────────────────────────────────────────────────────────────
+def compute_entry_timing_signals(analytics: dict) -> dict:
+    """
+    Derive entry timing intelligence from multi-timeframe analytics.
+    Uses data already fetched by get_token_analytics — NO extra API calls.
+
+    Returns:
+        bp_trend: "accelerating" | "decelerating" | "flat"
+        bp_micro_ratio: 5m pressure / 1h pressure (>1 = fresh burst)
+        volume_acceleration: 5m buy vol / (1h buy vol / 12) (>1 = speeding up)
+        buyer_velocity_ratio: 5m buyers / (1h buyers / 12) (>1 = new buyers faster)
+        net_buyer_momentum: 5m net buyers vs 1h normalized
+        timing_score: composite 0–100 score
+    """
+    if not analytics:
+        return {
+            "bp_trend": "flat",
+            "bp_micro_ratio": 1.0,
+            "volume_acceleration": 1.0,
+            "buyer_velocity_ratio": 1.0,
+            "net_buyer_momentum": 0.0,
+            "timing_score": 50.0,
+        }
+
+    bp_5m  = analytics.get("buy_pressure_ratio_5m", 0.5)
+    bp_1h  = analytics.get("buy_pressure_ratio_1h", 0.5)
+    bp_6h  = analytics.get("buy_pressure_ratio_6h", 0.5)
+    bp_24h = analytics.get("buy_pressure_ratio_24h", 0.5)
+
+    # ── Trend detection: is pressure building or fading? ─────────────────
+    if bp_5m > bp_1h > bp_6h:
+        bp_trend = "accelerating"
+    elif bp_5m > bp_1h and bp_1h > 0.5:
+        bp_trend = "accelerating"  # 5m hot + 1h positive = building
+    elif bp_5m < bp_1h < bp_6h:
+        bp_trend = "decelerating"
+    elif bp_5m < 0.45 and bp_1h < 0.45:
+        bp_trend = "decelerating"  # Both recent timeframes show sell pressure
+    else:
+        bp_trend = "flat"
+
+    # ── Micro ratio: are we catching a fresh burst? ──────────────────────
+    bp_micro_ratio = bp_5m / bp_1h if bp_1h > 0 else 1.0
+
+    # ── Volume acceleration: is buy volume speeding up? ──────────────────
+    bv_5m = analytics.get("buy_volume_5m", 0)
+    bv_1h = analytics.get("buy_volume_1h", 0)
+    bv_1h_rate = bv_1h / 12.0 if bv_1h > 0 else 0.001
+    volume_acceleration = bv_5m / bv_1h_rate if bv_1h_rate > 0 else 1.0
+    volume_acceleration = min(10.0, volume_acceleration)  # cap at 10x
+
+    # ── Buyer velocity: are new wallets arriving faster? ─────────────────
+    buyers_5m = analytics.get("buyers_5m", 0)
+    buyers_1h = analytics.get("buyers_1h", 0)
+    buyers_1h_rate = buyers_1h / 12.0 if buyers_1h > 0 else 0.1
+    buyer_velocity_ratio = buyers_5m / buyers_1h_rate if buyers_1h_rate > 0 else 1.0
+    buyer_velocity_ratio = min(10.0, buyer_velocity_ratio)
+
+    # ── Net buyer momentum ───────────────────────────────────────────────
+    nb_5m = analytics.get("net_buyers_5m", 0)
+    nb_1h = analytics.get("net_buyers_1h", 0)
+    nb_1h_rate = nb_1h / 12.0
+    net_buyer_momentum = nb_5m - nb_1h_rate  # positive = accelerating
+
+    # ── Composite timing score (0–100) ───────────────────────────────────
+    timing_score = 50.0  # neutral
+    if bp_trend == "accelerating":
+        timing_score += 15
+    elif bp_trend == "decelerating":
+        timing_score -= 15
+
+    if bp_micro_ratio > 1.5:
+        timing_score += min(15, (bp_micro_ratio - 1.0) * 10)
+    elif bp_micro_ratio < 0.7:
+        timing_score -= min(10, (1.0 - bp_micro_ratio) * 15)
+
+    if volume_acceleration > 2.0:
+        timing_score += min(10, (volume_acceleration - 1.0) * 3)
+    elif volume_acceleration < 0.3:
+        timing_score -= 10
+
+    if buyer_velocity_ratio > 2.0:
+        timing_score += min(10, (buyer_velocity_ratio - 1.0) * 3)
+
+    timing_score = max(0.0, min(100.0, timing_score))
+
+    return {
+        "bp_trend": bp_trend,
+        "bp_micro_ratio": round(bp_micro_ratio, 3),
+        "volume_acceleration": round(volume_acceleration, 3),
+        "buyer_velocity_ratio": round(buyer_velocity_ratio, 3),
+        "net_buyer_momentum": round(net_buyer_momentum, 2),
+        "timing_score": round(timing_score, 1),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1027,6 +1127,13 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         "moralis_net_volume_1d":     0.0,
         "moralis_token_age_days":    0.0,
         "moralis_liquidity_locked_pct": 0.0,
+        # Entry timing signals (multi-timeframe)
+        "timing_bp_trend":           "flat",
+        "timing_bp_micro_ratio":     1.0,
+        "timing_volume_acceleration": 1.0,
+        "timing_buyer_velocity":     1.0,
+        "timing_net_buyer_momentum": 0.0,
+        "timing_score":              50.0,
     }
 
     if score_data:
@@ -1040,6 +1147,15 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         enrichment["moralis_buy_pressure"]  = analytics_data.get("buy_pressure_ratio_1h", 0.5)
         enrichment["moralis_buyers_1h"]     = analytics_data.get("buyers_1h", 0)
         enrichment["moralis_sellers_1h"]    = analytics_data.get("sellers_1h", 0)
+
+        # ── Entry timing intelligence (from existing multi-TF data) ──────
+        timing = compute_entry_timing_signals(analytics_data)
+        enrichment["timing_bp_trend"]           = timing["bp_trend"]
+        enrichment["timing_bp_micro_ratio"]     = timing["bp_micro_ratio"]
+        enrichment["timing_volume_acceleration"] = timing["volume_acceleration"]
+        enrichment["timing_buyer_velocity"]     = timing["buyer_velocity_ratio"]
+        enrichment["timing_net_buyer_momentum"] = timing["net_buyer_momentum"]
+        enrichment["timing_score"]              = timing["timing_score"]
 
     # Discovery token deep intel — works for both EVM and Solana
     if discovery_data:
@@ -1071,17 +1187,22 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     Convert Moralis enrichment data into a 0–100 score contribution.
     This is added to the gem candidate's composite score with a 15% weight.
 
-    Scoring logic (base — 80% of contribution):
-      - Moralis token score (0–100):          35% of contribution
-      - Buy pressure ratio (0–1 → 0–100):     20% of contribution
-      - Net buyers 1h (capped at 100):         15% of contribution
-      - Transaction count 1h (capped at 100):  10% of contribution
+    Scoring logic:
+      Base signals (65% of contribution):
+        - Moralis token score (0–100):          30%
+        - Buy pressure ratio 1h (0–1 → 0–100): 15%
+        - Net buyers 1h (capped at 100):        12%
+        - Transaction count 1h (capped at 100):  8%
 
-    Whale accumulation bonus (20% of contribution — from discovery token details):
-      - Experienced net buyers 1d/1w:          8%  (whale accumulation signal)
-      - Holder growth 1d:                      4%  (organic adoption signal)
-      - On-chain strength index:               4%  (overall health signal)
-      - Liquidity locked %:                    4%  (rug-pull protection signal)
+      Entry timing (15% — multi-timeframe intelligence):
+        - Timing composite score (0–100):       10%  (trend + micro + velocity)
+        - Volume acceleration (0–100):           5%  (5m vs 1h normalized)
+
+      Whale accumulation (20% — discovery token details):
+        - Experienced net buyers 1d/1w:          8%  (whale accumulation)
+        - Holder growth 1d:                      4%  (organic adoption)
+        - On-chain strength index:               4%  (overall health)
+        - Liquidity locked %:                    4%  (rug protection)
     """
     moralis_score    = min(100.0, enrichment.get("moralis_score", 0))
     buy_pressure     = enrichment.get("moralis_buy_pressure", 0.5)
@@ -1089,12 +1210,22 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
     net_buyers       = min(100.0, max(0.0, enrichment.get("moralis_net_buyers_1h", 0) * 2))
     txns             = min(100.0, enrichment.get("moralis_txns_1h", 0) / 10)  # 1000 txns = 100
 
-    # Base contribution (80%)
+    # Base contribution (65%)
     base = (
-        moralis_score    * 0.35
-        + buy_pressure_pct * 0.20
-        + net_buyers       * 0.15
-        + txns             * 0.10
+        moralis_score      * 0.30
+        + buy_pressure_pct * 0.15
+        + net_buyers       * 0.12
+        + txns             * 0.08
+    )
+
+    # Entry timing contribution (15%) — multi-timeframe intelligence
+    timing_score = min(100.0, enrichment.get("timing_score", 50.0))
+    vol_accel = enrichment.get("timing_volume_acceleration", 1.0)
+    vol_accel_score = min(100.0, max(0.0, vol_accel * 25))  # 4x accel = 100
+
+    timing_contribution = (
+        timing_score   * 0.10
+        + vol_accel_score * 0.05
     )
 
     # Whale accumulation bonus (20%) — from discovery token details
@@ -1118,7 +1249,7 @@ def calculate_moralis_score_contribution(enrichment: dict) -> float:
         + liquidity_locked  * 0.04
     )
 
-    contribution = base + whale_bonus
+    contribution = base + timing_contribution + whale_bonus
     return round(min(100.0, contribution), 2)
 
 

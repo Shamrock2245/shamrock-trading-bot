@@ -49,6 +49,30 @@
       "applications": 1,
       "created": "2026-03-26T12:10:00Z",
       "evolution_marker": "Initial creation from Fibonacci gate audit"
+    },
+    {
+      "id": "moralis_first_strategy",
+      "category": "architecture",
+      "pattern": "Prefer Moralis endpoints over custom metrics for enrichment. Moralis returns security scores, holder counts, liquidity, on-chain strength, buy/sell analytics, whale signals — replacing 4-5 custom slow calls",
+      "detail": "The enrichment pipeline runs 9 parallel calls per candidate. 4-5 of these (DefiLlama TVL, LunarCrush social, custom holder_analysis, token_unlocks, dev_wallet_history) are slow and redundant now that Moralis getDiscoveryToken + getTokenScore + getTokenAnalytics return overlapping data faster. Replace custom metrics with Moralis endpoints: TVL → totalLiquidityUsd, holders → totalHolders/holders_change, security → securityScore, strength → on_chain_strength_index. This reduces enrichment latency from ~8s to ~3s per candidate and improves signal quality.",
+      "confidence": 0.90,
+      "severity": "high",
+      "source_episodes": ["ep-2026-03-26-002"],
+      "applications": 0,
+      "created": "2026-03-26T14:41:00Z",
+      "evolution_marker": "User directive: use Moralis ecosystem fully, strip slow custom metrics"
+    },
+    {
+      "id": "entry_timing_multi_timeframe",
+      "category": "scoring_engine",
+      "pattern": "Use multi-timeframe buy pressure (5m/1h/6h/24h) trend detection for entry timing. Accelerating pressure = early entry; decelerating = late entry risk",
+      "detail": "get_token_analytics already fetches 5m/1h/6h/24h data but only 1h was used. compute_entry_timing_signals() compares across timeframes to detect: bp_trend (accelerating/decelerating/flat), bp_micro_ratio (5m/1h), volume_acceleration (5m vs 1h rate), buyer_velocity_ratio. Timing score (0-100) feeds into Moralis score contribution at 15% weight. Zero extra API calls.",
+      "confidence": 0.85,
+      "severity": "medium",
+      "source_episodes": ["ep-2026-03-26-002"],
+      "applications": 0,
+      "created": "2026-03-26T14:41:00Z",
+      "evolution_marker": "Initial creation from entry timing research"
     }
   ]
 }

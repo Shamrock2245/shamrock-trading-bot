@@ -891,6 +891,13 @@ class GemScanner:
                     candidate.moralis_security_score = enrichment.get("moralis_security_score", 0)
                     candidate.moralis_token_age_days = enrichment.get("moralis_token_age_days", 0.0)
 
+                    # ── Entry timing intelligence (multi-timeframe) ──────────
+                    candidate.timing_bp_trend = enrichment.get("timing_bp_trend", "flat")
+                    candidate.timing_bp_micro_ratio = enrichment.get("timing_bp_micro_ratio", 1.0)
+                    candidate.timing_volume_acceleration = enrichment.get("timing_volume_acceleration", 1.0)
+                    candidate.timing_buyer_velocity = enrichment.get("timing_buyer_velocity", 1.0)
+                    candidate.timing_score = enrichment.get("timing_score", 50.0)
+
                     # Whale accumulation bonus: log strong whale interest
                     exp_net_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
                     if exp_net_1w >= 10:
@@ -914,6 +921,26 @@ class GemScanner:
                             100.0, candidate.contract_score + 5.0
                         )
 
+                    # Entry timing gate log
+                    bp_trend = enrichment.get("timing_bp_trend", "flat")
+                    vol_accel = enrichment.get("timing_volume_acceleration", 1.0)
+                    t_score = enrichment.get("timing_score", 50.0)
+
+                    if bp_trend == "accelerating":
+                        logger.info(
+                            f"🚀 ACCELERATING: {token.symbol} — "
+                            f"timing_score={t_score:.0f} "
+                            f"vol_accel={vol_accel:.1f}x "
+                            f"micro_ratio={enrichment.get('timing_bp_micro_ratio', 1.0):.2f}"
+                        )
+                    elif bp_trend == "decelerating":
+                        logger.info(
+                            f"⏭️ DECELERATING: {token.symbol} — "
+                            f"timing_score={t_score:.0f} "
+                            f"vol_accel={vol_accel:.1f}x "
+                            f"(pressure fading, late entry risk)"
+                        )
+
                     if enrichment.get("moralis_score", 0) > 0:
                         logger.debug(
                             f"Moralis enrichment {token.symbol}: "
@@ -921,6 +948,7 @@ class GemScanner:
                             f"buy_pressure={enrichment['moralis_buy_pressure']:.2f} "
                             f"net_buyers_1h={enrichment['moralis_net_buyers_1h']} "
                             f"whale_1w={exp_net_1w} "
+                            f"timing={bp_trend} vol_accel={vol_accel:.1f}x "
                             f"holders_1d={enrichment.get('moralis_holders_change_1d', 0)}"
                         )
                 except Exception as e:
