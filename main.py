@@ -1332,6 +1332,20 @@ async def run_bot_loop():
                 except Exception as recon_err:
                     logger.debug(f"Reconciliation error: {recon_err}")
 
+                # On-chain position reconciliation (EVM — every 10 cycles)
+                if cycle % 10 == 0:
+                    try:
+                        from core.reconciliation import reconcile_evm_positions
+                        for _wk, _wv in WALLETS.items():
+                            if _wv.is_cold_storage:
+                                continue
+                            evm_addr = getattr(_wv, 'address', '')
+                            if evm_addr:
+                                for _chain in ['eth', 'base']:
+                                    reconcile_evm_positions(evm_addr, chain=_chain)
+                    except Exception as evm_recon_err:
+                        logger.debug(f'EVM reconciliation error: {evm_recon_err}')
+
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
             monitor.stop()

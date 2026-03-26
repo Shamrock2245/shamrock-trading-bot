@@ -332,6 +332,19 @@ class SignalEngine:
         candles = []
         if pair_address and settings.TA_ENABLED:
             candles = get_ohlcv_geckoterminal(chain, pair_address, timeframe="hour", limit=100)
+        # Fallback: if no pair_address or GeckoTerminal returned nothing, try ohlcv_provider
+        # (covers tokens that have a token_address but no pool address yet indexed)
+        if (not candles or len(candles) < 24) and settings.TA_ENABLED:
+            try:
+                from data.providers.ohlcv_provider import fetch_ohlcv as _fetch_ohlcv
+                _raw = _fetch_ohlcv(token_symbol, chain, timeframe="1h", limit=100)
+                if _raw and len(_raw) >= 24:
+                    candles = _raw
+                    logger.debug(
+                        f"OHLCV fallback: {len(candles)} candles for {token_symbol} via ohlcv_provider"
+                    )
+            except Exception as _ohlcv_err:
+                logger.debug(f"OHLCV provider fallback failed for {token_symbol}: {_ohlcv_err}")
 
         if not candles or len(candles) < 24:
             # Micro-cap gem fallback: not enough candles for meaningful TA

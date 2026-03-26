@@ -329,7 +329,7 @@ def evaluate_position(pos: dict, current_price: float,
 
     # ── Hard stop-loss ────────────────────────────────────────────────────────
     hard_stop = -hard_stop_pct
-    if gain_pct <= hard_stop:
+    if gain_pct <= hard_stop + 0.001:  # +0.001% tolerance for float precision at exact boundary
         return {
             "reason": f"hard_stop_loss ({gain_pct:.1f}%) [{profile_name}]",
             "sell_pct": 1.0,

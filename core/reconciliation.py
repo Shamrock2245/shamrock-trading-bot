@@ -137,3 +137,81 @@ def reconcile_solana_positions(wallet_address: str) -> List[Dict[str, Any]]:
             logger.error(f"Reconciliation: Slack alert failed: {e}")
 
     return mismatches
+
+
+def reconcile_evm_positions(wallet_address: str, chain: str = "eth") -> List[Dict[str, Any]]:
+    """
+    Reconcile bot EVM positions against on-chain token balances via Moralis.
+    Complements reconcile_solana_positions() for EVM chains.
+
+    1. Fetch current token balances via moralis_wallet.get_wallet_token_balances()
+    2. Load open EVM positions from positions.json
+    3. Compare: for each position, check if on-chain balance > 0
+    4. Fire Slack alerts for mismatches
+
+    Returns list of mismatch dicts: [{token, address, chain, expected, onchain_status}]
+    """
+    mismatches: List[Dict[str, Any]] = []
+    if not wallet_address:
+        logger.debug("EVM reconciliation skipped: no wallet address")
+        return mismatches
+    try:
+        from data.providers.moralis_wallet import get_wallet_token_balances
+        from core.position_monitor import load_positions
+
+        on_chain = get_wallet_token_balances(wallet_address, chain=chain)
+        if not on_chain:
+            logger.warning(f"EVM reconciliation: no on-chain data for {wallet_address} on {chain}")
+            return mismatches
+
+        held_addresses = set()
+        for token in on_chain:
+            addr = (token.get("token_address") or "").lower()
+            balance = float(token.get("balance") or 0)
+            if addr and balance > 0:
+                held_addresses.add(addr)
+
+        positions = load_positions()
+        evm_positions = [
+            p for p in positions
+            if p.get("chain", "").lower() == chain.lower()
+            and p.get("wallet_address", "").lower() == wallet_address.lower()
+            and p.get("status") == "open"
+        ]
+
+        for pos in evm_positions:
+            token_addr = (pos.get("token_address") or "").lower()
+            token_sym = pos.get("token_symbol", token_addr[:8])
+            if token_addr and token_addr not in held_addresses:
+                mismatches.append({
+                    "token": token_sym,
+                    "address": token_addr,
+                    "chain": chain,
+                    "expected": "held",
+                    "onchain_status": "zero_balance",
+                })
+                logger.warning(
+                    f"EVM reconciliation mismatch: {token_sym} on {chain} "
+                    f"— bot has open position but on-chain balance is 0"
+                )
+
+    except Exception as e:
+        logger.error(f"EVM reconciliation error for {wallet_address} on {chain}: {e}")
+
+    if mismatches:
+        try:
+            from notifications.slack import notify_alert
+            lines = [
+                f"• **{m['token']}** ({m['chain']}): {m['expected']} → {m['onchain_status']}"
+                for m in mismatches
+            ]
+            notify_alert(
+                "⚠️ EVM Position Reconciliation Mismatch",
+                f"{len(mismatches)} EVM position(s) don't match on-chain data:\n"
+                + "\n".join(lines),
+                level="warning",
+            )
+        except Exception as e:
+            logger.error(f"EVM reconciliation: Slack alert failed: {e}")
+
+    return mismatches
