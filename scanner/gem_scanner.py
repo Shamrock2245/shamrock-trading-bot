@@ -903,12 +903,35 @@ class GemScanner:
                     candidate.timing_buyer_velocity = enrichment.get("timing_buyer_velocity", 1.0)
                     candidate.timing_score = enrichment.get("timing_score", 50.0)
 
-                    # Whale accumulation bonus: log strong whale interest
+                    # Whale accumulation bonus: log and SCORE strong whale interest
                     exp_net_1w = enrichment.get("moralis_exp_net_buyers_1w", 0)
+                    exp_net_1d = enrichment.get("moralis_exp_net_buyers_1d", 0)
                     if exp_net_1w >= 10:
+                        # Strong institutional accumulation: +15 to gem score
+                        pre_sc = candidate.gem_score
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 15.0, 2))
                         logger.info(
                             f"🐋 WHALE ACCUMULATION: {token.symbol} — "
-                            f"{exp_net_1w} experienced net buyers this week!"
+                            f"{exp_net_1w} experienced net buyers this week → "
+                            f"+15 (score {pre_sc} → {candidate.gem_score})"
+                        )
+                    elif exp_net_1w >= 5:
+                        # Moderate whale interest: +8 to gem score
+                        pre_sc = candidate.gem_score
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+                        logger.info(
+                            f"🐋 WHALE INTEREST: {token.symbol} — "
+                            f"{exp_net_1w} experienced net buyers this week → "
+                            f"+8 (score {pre_sc} → {candidate.gem_score})"
+                        )
+                    elif exp_net_1d >= 5:
+                        # Short-term whale activity: +5 to gem score
+                        pre_sc = candidate.gem_score
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                        logger.info(
+                            f"🐳 WHALE ACTIVITY: {token.symbol} — "
+                            f"{exp_net_1d} experienced net buyers today → "
+                            f"+5 (score {pre_sc} → {candidate.gem_score})"
                         )
 
                     # Security score from discovery: if score < 40 → deduct from contract_score
