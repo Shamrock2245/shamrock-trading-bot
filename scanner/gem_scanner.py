@@ -1094,6 +1094,60 @@ class GemScanner:
             or (is_cto and candidate.gem_score >= cto_express_threshold)
         )
 
+        # ── HISTORICAL PRICE CONTEXT: 7-day range position adjustment ─────────
+        # Penalizes overextended entries near 7d ATH (-10 pts)
+        # Rewards accumulation zone entries in bottom 30% of range (+8 pts)
+        # This is the last adjustment so it can cap or boost based on WHERE
+        # we are buying, regardless of all other signals.
+        try:
+            from data.providers.moralis_money import get_historical_price_context
+            price_ctx = get_historical_price_context(
+                token_address=token.address,
+                chain=token.chain,
+                current_price=token.price_usd,
+                pair_address=getattr(token, "pair_address", ""),
+            )
+            candidate.price_range_position = price_ctx.get("range_position", 0.5)
+            candidate.price_context_score = price_ctx.get("context_score", 50.0)
+            candidate.is_near_ath = price_ctx.get("is_near_ath", False)
+            candidate.is_accumulation_zone = price_ctx.get("is_accumulation_zone", False)
+            candidate.vol_trend_7d = price_ctx.get("vol_trend_7d", "neutral")
+
+            if price_ctx.get("is_near_ath", False):
+                # Penalize: buying near ATH — high reversal risk
+                pre_adj = candidate.gem_score
+                candidate.gem_score = max(0.0, round(candidate.gem_score - 10.0, 2))
+                logger.info(
+                    f"📉 NEAR-ATH PENALTY: {token.symbol} "
+                    f"range_pos={price_ctx['range_position']:.0%} "
+                    f"→ score {pre_adj} - 10 = {candidate.gem_score}"
+                )
+            elif price_ctx.get("is_accumulation_zone", False):
+                # Reward: buying in the dip with on-chain strength
+                pre_adj = candidate.gem_score
+                bonus = 10.0 if price_ctx.get("vol_trend_7d") == "expanding" else 8.0
+                candidate.gem_score = min(100.0, round(candidate.gem_score + bonus, 2))
+                logger.info(
+                    f"🟢 ACCUMULATION ZONE BONUS: {token.symbol} "
+                    f"range_pos={price_ctx['range_position']:.0%} "
+                    f"vol={price_ctx['vol_trend_7d']} "
+                    f"→ score {pre_adj} + {bonus:.0f} = {candidate.gem_score}"
+                )
+            else:
+                logger.debug(
+                    f"📊 Price context: {token.symbol} "
+                    f"range_pos={price_ctx.get('range_position', 0.5):.0%} "
+                    f"ctx_score={price_ctx.get('context_score', 50):.0f} "
+                    f"vol={price_ctx.get('vol_trend_7d', 'neutral')}"
+                )
+        except Exception as e:
+            logger.debug(f"Historical price context failed for {token.symbol}: {e}")
+            candidate.price_range_position = 0.5
+            candidate.price_context_score = 50.0
+            candidate.is_near_ath = False
+            candidate.is_accumulation_zone = False
+            candidate.vol_trend_7d = "neutral"
+
         return candidate
 
     def _signals_to_token(self, signals: dict, chain: str) -> Optional[Token]:

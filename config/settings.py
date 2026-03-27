@@ -69,19 +69,22 @@ MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
-HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "25.0"))
+HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "20.0"))  # Tightened: cut losers at 20%
 
-# ── Take-Profit Tiers (Offensive Playbook "House Money" Strategy) ──────────
-# TP1 at 2x: sell 50% → lock in capital + profit ("house money")
-# TP2 at 3x: sell 25% of original position
-# Remaining 25%: 15% trailing stop — let the runner run
-TAKE_PROFIT_TP1_MULT = float(os.getenv("TAKE_PROFIT_TP1_MULT", "2.0"))    # 100% gain
-TAKE_PROFIT_TP1_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP1_SELL_PCT", "0.50"))  # Sell 50%
-TAKE_PROFIT_TP2_MULT = float(os.getenv("TAKE_PROFIT_TP2_MULT", "3.0"))    # 200% gain
-TAKE_PROFIT_TP2_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP2_SELL_PCT", "0.50"))  # Sell 50% of remaining (= 25% of original)
+# ── Take-Profit Tiers (Profit Machine Playbook) ─────────────────────────────
+# TP1 at 1.5x: sell 40% → captures micro-cap gains before reversals
+# TP2 at 2.5x: sell 35% of remaining → asymmetric exit on confirmed runners
+# TP3 at 5x:   sell 25% of remaining → moonshot capture (remaining rides to 10x+)
+# Trailing stop after TP1: 15% below highest price seen
+TAKE_PROFIT_TP1_MULT = float(os.getenv("TAKE_PROFIT_TP1_MULT", "1.5"))    # 50% gain → sell 40%
+TAKE_PROFIT_TP1_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP1_SELL_PCT", "0.40"))  # Sell 40%
+TAKE_PROFIT_TP2_MULT = float(os.getenv("TAKE_PROFIT_TP2_MULT", "2.5"))    # 150% gain → sell 35% of remaining
+TAKE_PROFIT_TP2_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP2_SELL_PCT", "0.35"))  # Sell 35% of remaining
+TAKE_PROFIT_TP3_MULT = float(os.getenv("TAKE_PROFIT_TP3_MULT", "5.0"))    # 400% gain → sell 25% of remaining
+TAKE_PROFIT_TP3_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP3_SELL_PCT", "0.25"))  # Sell 25% of remaining
 
 # ── Time-Based & Liquidity Exits (Offensive Playbook §5) ──────────────────
-TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "12.0"))              # Cut if stale after 12h
+TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "24.0"))              # Extended: allow 24h for Base/BSC gems to develop
 TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # Must be up >10% to stay
 LIQUIDITY_DRAIN_EXIT_ENABLED = os.getenv("LIQUIDITY_DRAIN_EXIT_ENABLED", "true").lower() == "true"
 LIQUIDITY_DRAIN_DROP_PCT = float(os.getenv("LIQUIDITY_DRAIN_DROP_PCT", "30.0"))  # >30% pool drain = emergency sell

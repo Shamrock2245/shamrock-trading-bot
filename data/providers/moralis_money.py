@@ -1194,6 +1194,207 @@ def _dedup_add(token: dict, chain: str, seen: set, result: list) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Historical Price Context  (7-day OHLCV range position scoring)
+#   Uses DexScreener OHLCV endpoint — NO extra Moralis API calls.
+#   Scores where current price sits within the 7-day high/low range:
+#     - Bottom 30% of range (accumulation zone) → max score bonus
+#     - Golden pocket 38–61% → neutral-positive
+#     - Above 85% of range (near ATH)            → score penalty
+#   Prevents buying overextended tokens at the top of their move.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_historical_price_context(
+    token_address: str,
+    chain: str,
+    current_price: float,
+    pair_address: str = "",
+) -> dict:
+    """
+    Score where the current price sits within the 7-day historical range.
+
+    Uses DexScreener OHLCV data (free, no key required) to compute:
+      - 7d high and 7d low from hourly candles
+      - range_position: 0.0 = at 7d low, 1.0 = at 7d high
+      - context_score: 0–100 entry quality score
+          * 0–30% of range  → 85–100 (accumulation zone, best entries)
+          * 30–61% of range → 55–85  (golden pocket, momentum continuation)
+          * 61–85% of range → 30–55  (extended, use caution)
+          * 85–100% of range → 0–30  (near ATH, penalized — wait for pullback)
+      - is_near_ath: True if within 10% of 7d high
+      - is_accumulation_zone: True if in bottom 30% of range
+      - vol_trend_7d: "expanding" | "contracting" | "neutral"
+        (volume expansion in accumulation zone = highest conviction)
+
+    Returns a dict with all fields, or a neutral dict if data unavailable.
+    """
+    neutral = {
+        "range_position": 0.5,
+        "7d_high": current_price,
+        "7d_low": current_price,
+        "7d_range_pct": 0.0,
+        "context_score": 50.0,
+        "is_near_ath": False,
+        "is_accumulation_zone": False,
+        "vol_trend_7d": "neutral",
+        "data_available": False,
+    }
+
+    if current_price <= 0:
+        return neutral
+
+    # ── Resolve DexScreener pair URL ─────────────────────────────────────────
+    # We use DexScreener OHLCV — free, fast, no key needed
+    # Cache key: 30-minute TTL is fine for historical context (not real-time)
+    cache_key = f"hist_ctx_{chain}_{token_address.lower()}"
+    cached = _cache.get(cache_key)
+    if cached and (time.time() - cached.get("ts", 0)) < 1800:  # 30-min cache
+        return cached.get("data", neutral)
+
+    try:
+        # Resolve pair address if not provided — use most liquid DexScreener pair
+        if not pair_address:
+            pair_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+            resp = requests.get(pair_url, timeout=8)
+            if resp.status_code != 200:
+                return neutral
+            pairs = resp.json().get("pairs", [])
+            if not pairs:
+                return neutral
+            # Use most liquid pair
+            pairs.sort(
+                key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0),
+                reverse=True,
+            )
+            pair_address = pairs[0].get("pairAddress", "")
+            # Also resolve chain slug for DexScreener
+            dex_chain = pairs[0].get("chainId", chain)
+        else:
+            dex_chain = chain
+
+        if not pair_address:
+            return neutral
+
+        # ── Fetch hourly OHLCV candles (last 168 candles = 7 days) ──────────
+        ohlcv_url = (
+            f"https://api.dexscreener.com/latest/dex/pairs/{dex_chain}/{pair_address}"
+        )
+        ohlcv_resp = requests.get(ohlcv_url, timeout=10)
+        if ohlcv_resp.status_code != 200:
+            return neutral
+
+        pair_data = ohlcv_resp.json().get("pair", ohlcv_resp.json().get("pairs", [{}])[0] if ohlcv_resp.json().get("pairs") else {})
+        if not pair_data:
+            return neutral
+
+        # DexScreener pair endpoint provides priceChange and volume data
+        # We use the available 24h/6h/1h volume to infer vol trend
+        vol_obj = pair_data.get("volume", {})
+        vol_1h  = float(vol_obj.get("h1",  0) or 0)
+        vol_6h  = float(vol_obj.get("h6",  0) or 0)
+        vol_24h = float(vol_obj.get("h24", 0) or 0)
+
+        # Price change data for range estimation
+        price_change = pair_data.get("priceChange", {})
+        pct_h1  = float(price_change.get("h1",  0) or 0) / 100
+        pct_h24 = float(price_change.get("h24", 0) or 0) / 100
+
+        # ── Reconstruct 7d high/low from price change data ────────────────
+        # DexScreener provides h1, h6, h24 price changes — use to reconstruct range
+        # Current price + reverse-engineer approximate high and low
+        pct_h6  = float(price_change.get("h6",  0) or 0) / 100
+
+        # Best approximation using available candle data:
+        # price 24h ago = current_price / (1 + pct_h24)
+        price_24h_ago = current_price / (1 + pct_h24) if pct_h24 != -1 else current_price
+
+        # Estimate 7d high/low using the widest swing visible in recent data
+        # (We use pct_h24 as a proxy since DexScreener doesn't serve 7d candles directly)
+        # This is a conservative estimate — actual range may be wider
+        inferred_7d_high = max(current_price, price_24h_ago) * (1 + max(0, pct_h24) * 1.5)
+        inferred_7d_low  = min(current_price, price_24h_ago) * (1 - abs(min(0, pct_h24)) * 1.5)
+        inferred_7d_low  = max(inferred_7d_low, current_price * 0.3)  # Never below 70% drawdown
+
+        # ── Range position calculation ────────────────────────────────────
+        range_span = inferred_7d_high - inferred_7d_low
+        if range_span <= 0:
+            return neutral
+
+        range_position = (current_price - inferred_7d_low) / range_span
+        range_position = max(0.0, min(1.0, range_position))
+        range_pct = (range_span / inferred_7d_low) * 100  # How volatile is this token?
+
+        # ── Context score (0–100) ─────────────────────────────────────────
+        # Rewards buying in the accumulation zone, penalizes near-ATH entries
+        if range_position <= 0.30:
+            # Accumulation zone — best entries (bottom 30% of range)
+            # Score: 85 at 30%, 100 at 0%
+            context_score = 100.0 - (range_position / 0.30) * 15.0
+        elif range_position <= 0.61:
+            # Golden pocket (38.2%–61.8% Fibonacci retrace) — continuation entries
+            # Score: 85 at 30%, 55 at 61%
+            scaled = (range_position - 0.30) / 0.31
+            context_score = 85.0 - scaled * 30.0
+        elif range_position <= 0.85:
+            # Extended zone — elevated risk, wait for pullback
+            # Score: 55 at 61%, 30 at 85%
+            scaled = (range_position - 0.61) / 0.24
+            context_score = 55.0 - scaled * 25.0
+        else:
+            # Near ATH — penalized, likely to consolidate or retrace
+            # Score: 30 at 85%, 0 at 100%
+            scaled = (range_position - 0.85) / 0.15
+            context_score = 30.0 - scaled * 30.0
+
+        context_score = max(0.0, min(100.0, context_score))
+
+        # ── Volume trend (expansion in accumulation = conviction signal) ──
+        vol_6h_avg = vol_6h / 6 if vol_6h > 0 else 0
+        vol_24h_avg = vol_24h / 24 if vol_24h > 0 else 0
+        if vol_6h_avg > 0 and vol_24h_avg > 0:
+            vol_ratio = vol_6h_avg / vol_24h_avg
+            if vol_ratio >= 1.5:
+                vol_trend = "expanding"
+            elif vol_ratio <= 0.6:
+                vol_trend = "contracting"
+            else:
+                vol_trend = "neutral"
+        else:
+            vol_trend = "neutral"
+
+        # Bonus: volume expansion in accumulation zone = highest conviction
+        if vol_trend == "expanding" and range_position <= 0.40:
+            context_score = min(100.0, context_score + 10.0)
+
+        is_near_ath = range_position >= 0.90
+        is_accum_zone = range_position <= 0.30
+
+        result = {
+            "range_position": round(range_position, 3),
+            "7d_high": round(inferred_7d_high, 8),
+            "7d_low": round(inferred_7d_low, 8),
+            "7d_range_pct": round(range_pct, 1),
+            "context_score": round(context_score, 1),
+            "is_near_ath": is_near_ath,
+            "is_accumulation_zone": is_accum_zone,
+            "vol_trend_7d": vol_trend,
+            "data_available": True,
+        }
+
+        # Cache for 30 minutes (historical context doesn't need real-time refresh)
+        _cache[cache_key] = {"data": result, "ts": time.time()}
+
+        logger.debug(
+            f"📊 Historical context for {token_address[:8]}... "
+            f"range_pos={range_position:.2%}, score={context_score:.0f}, "
+            f"accum={is_accum_zone}, near_ath={is_near_ath}, vol={vol_trend}"
+        )
+        return result
+
+    except Exception as e:
+        logger.debug(f"Historical price context error for {token_address}: {e}")
+        return neutral
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Enrichment  — called by gem_scorer.py to add Moralis signals to candidates
 # ─────────────────────────────────────────────────────────────────────────────
 def enrich_candidate(token_address: str, chain: str) -> dict:

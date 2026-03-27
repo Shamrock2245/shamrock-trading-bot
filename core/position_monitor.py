@@ -8,13 +8,15 @@ Runs as a background loop alongside the gem scanner. Every 30 seconds it:
   4. Executes sells when thresholds are hit
   5. Persists updated positions back to disk
 
-Take-Profit Strategy (Alex Becker playbook):
-  - TP1 at 2x (100% gain): Sell 40% of position → lock in initial capital + profit
-  - TP2 at 5x (400% gain): Sell 35% more → ride the rest with house money
-  - TP3 at 10x (900% gain): Sell 20% → let 5% ride to potential 100x
-  - Trailing stop after TP1: 20% below highest price seen
-  - Hard stop-loss: 25% below entry (configurable)
-  - Time-based exit: if no 50% gain in 48h, exit to free capital
+Take-Profit Strategy (Profit Machine Playbook):
+  - TP1 at 1.5x (50% gain):  Sell 40% → capture micro-cap gains before reversals
+  - TP2 at 2.5x (150% gain): Sell 35% of remaining → asymmetric exit on confirmed runners
+  - TP3 at 5x  (400% gain):  Sell 25% of remaining → moonshot capture
+  - Trailing stop after TP1: 15% below highest price seen
+  - Hard stop-loss: 20% below entry (configurable) — cut losers fast
+  - Time-based exit: if no 10% gain in 24h, exit to free capital
+  - Multi-Signal Confluence Gate: profitable positions above TP1 require
+    2-of-5 bearish signals to trigger a trailing stop exit (prevents whipsaws)
 
 Position Persistence:
   - Positions saved to output/positions.json (JSON array)
@@ -276,6 +278,85 @@ def batch_get_prices_and_volumes(positions: list[dict]) -> dict[str, dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Multi-Signal Confluence Gate (Anti-Whipsaw for Profitable Positions)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def evaluate_profit_sell_confluence(pos: dict, current_price: float) -> dict:
+    """
+    Before closing a profitable position via trailing stop, require 2-of-5
+    bearish signals to confirm the reversal is real — not just a wick.
+
+    The 5 signals checked (all derived from stored position data):
+      1. Volume collapse: current 1h vol < 25% of entry 1h vol
+      2. Buy pressure dry-up: buy/sell ratio < 0.45 (stored from analytics)
+      3. Liquidity drain: pool liquidity dropped >20% from entry
+      4. Multiple red candles: price dropped >10% from highest AND we're below
+         the midpoint of (highest_price + entry_price) / 2
+      5. Momentum death: price dropped >5% in the LAST check window
+         (current_price vs last_check_price stored on position)
+
+    Returns:
+        {
+            "bearish_count": int,    # number of triggered signals (need >= 2)
+            "triggered": list[str],  # names of triggered signals
+            "blocked": bool,         # True if < 2 signals = don't sell yet
+        }
+    """
+    triggered = []
+    entry_price = float(pos.get("entry_price", 0) or 0)
+    highest_price = float(pos.get("highest_price", current_price) or current_price)
+
+    # ── Signal 1: Volume Collapse ──────────────────────────────────────────────
+    # Current 1h volume < 25% of entry volume = buyers have disappeared
+    vol_1h = float(pos.get("volume_1h", 0) or 0)
+    entry_vol_1h = float(pos.get("entry_volume_1h", 0) or 0)
+    if entry_vol_1h > 0 and vol_1h > 0:
+        if vol_1h / entry_vol_1h < 0.25:
+            triggered.append("vol_collapse")
+
+    # ── Signal 2: Buy Pressure Dry-Up ─────────────────────────────────────────
+    # On-chain buy/sell ratio < 0.45 = sellers dominating
+    # Stored from Moralis analytics at entry / last refresh
+    buy_pressure = float(pos.get("buy_pressure_ratio", pos.get("moralis_buy_pressure", 0.5)) or 0.5)
+    if buy_pressure < 0.45:
+        triggered.append("buy_pressure_dry")
+
+    # ── Signal 3: Liquidity Drain ──────────────────────────────────────────────
+    # Pool liquidity dropped > 20% from entry = LP providers pulling out
+    entry_liq = float(pos.get("entry_liquidity_usd", 0) or 0)
+    current_liq = float(pos.get("current_liquidity_usd", 0) or 0)
+    if entry_liq > 0 and current_liq > 0:
+        liq_drop_pct = ((entry_liq - current_liq) / entry_liq) * 100
+        if liq_drop_pct >= 20.0:
+            triggered.append("liquidity_drain")
+
+    # ── Signal 4: Below Mid-Range (structural breakdown) ──────────────────────
+    # Price is both 10%+ below the high AND below the midpoint between
+    # highest and entry — suggests the move is genuinely reversing
+    if entry_price > 0 and highest_price > entry_price:
+        mid_range = (highest_price + entry_price) / 2
+        drop_from_high_pct = ((highest_price - current_price) / highest_price) * 100
+        if drop_from_high_pct >= 10.0 and current_price < mid_range:
+            triggered.append("below_midrange")
+
+    # ── Signal 5: Momentum Death (recent candle shock) ────────────────────────
+    # Current price dropped >5% from last recorded check price.
+    # Detects sharp, fast continuation sells (not just a wick).
+    last_check_price = float(pos.get("last_check_price", 0) or 0)
+    if last_check_price > 0 and current_price > 0:
+        recent_drop_pct = ((last_check_price - current_price) / last_check_price) * 100
+        if recent_drop_pct >= 5.0:
+            triggered.append("momentum_death")
+
+    bearish_count = len(triggered)
+    return {
+        "bearish_count": bearish_count,
+        "triggered": triggered,
+        "blocked": bearish_count < 2,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Take-Profit / Stop-Loss Evaluation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -315,8 +396,8 @@ def evaluate_position(pos: dict, current_price: float,
         tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
         tp2_mult = settings.TAKE_PROFIT_TP2_MULT
         tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
-        tp3_mult = 0
-        tp3_sell = 0
+        tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)   # Global TP3 (moonshot capture)
+        tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
         trailing_tighten = {}
         profile_name = "default"
 
@@ -349,11 +430,36 @@ def evaluate_position(pos: dict, current_price: float,
         trailing_stop_price = highest_price * (1 - effective_trail / 100)
         if current_price <= trailing_stop_price:
             drop_from_high = ((current_price - highest_price) / highest_price) * 100
-            return {
-                "reason": f"trailing_stop ({drop_from_high:.1f}% from high, trail={effective_trail:.0f}%) [{profile_name}]",
-                "sell_pct": 1.0,
-                "urgency": "immediate",
-            }
+            # ── Multi-Signal Confluence Gate — protect profitable positions ───
+            # For positions well above TP1 (gain > 20%), require 2-of-5 bearish
+            # signals before executing the trailing stop. Single bad candles
+            # shouldn't shake us out of a genuine winner.
+            if gain_pct > 20.0:
+                confluence = evaluate_profit_sell_confluence(pos, current_price)
+                if confluence["bearish_count"] < 2:
+                    logger.debug(
+                        f"🛡️  Trailing stop suppressed for {pos.get('token_symbol')} "
+                        f"({drop_from_high:.1f}% from high) — only {confluence['bearish_count']}/5 "
+                        f"bearish signals ({', '.join(confluence['triggered'])}). "
+                        f"Need 2+ to confirm reversal."
+                    )
+                    # Don't sell yet — let the position breathe
+                else:
+                    logger.info(
+                        f"🛑 Trailing stop CONFIRMED for {pos.get('token_symbol')} — "
+                        f"{confluence['bearish_count']}/5 bearish: {confluence['triggered']}"
+                    )
+                    return {
+                        "reason": f"trailing_stop ({drop_from_high:.1f}% from high, trail={effective_trail:.0f}%, confluence={confluence['bearish_count']}/5) [{profile_name}]",
+                        "sell_pct": 1.0,
+                        "urgency": "immediate",
+                    }
+            else:
+                return {
+                    "reason": f"trailing_stop ({drop_from_high:.1f}% from high, trail={effective_trail:.0f}%) [{profile_name}]",
+                    "sell_pct": 1.0,
+                    "urgency": "immediate",
+                }
 
     # ── Take-profit tiers ─────────────────────────────────────────────────────
     # TP1
@@ -796,6 +902,11 @@ class PositionMonitor:
                     # First capture = entry liquidity (for drain comparison)
                     if "entry_liquidity_usd" not in pos:
                         pos["entry_liquidity_usd"] = pv["liquidity_usd"]
+
+                # Track previous check price for confluence Signal 5 (momentum death)
+                prev_check = pos.get("current_price")
+                if prev_check and float(prev_check) > 0:
+                    pos["last_check_price"] = float(prev_check)
 
                 pos["current_price"] = current_price
                 entry_price = float(pos.get("entry_price", 0))
