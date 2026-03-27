@@ -651,14 +651,20 @@ def route_trade(
             conviction_multiplier = 0.50
 
         # ── Chain-specific minimum trade sizes ────────────────────────────────
+        # Minimums calibrated to gas costs: gas guard (below) catches bad ratios
+        CHAIN_MIN_TRADE_USD = {
+            "ethereum": 100.0,   # ~$15 gas → need sizeable position
+            "solana": 1.0,       # ~$0.01 gas → near-free
+            "base": 5.0,         # ~$0.10 gas → L2 cheap
+            "arbitrum": 5.0,     # ~$0.25 gas → L2 cheap
+            "polygon": 5.0,      # ~$0.05 gas → very cheap
+            "bsc": 5.0,          # ~$0.50 gas → cheap
+            "avalanche": 5.0,    # ~$0.50 gas → cheap
+        }
         if settings.MODE == "paper":
             min_trade_usd = 1.0
-        elif chain == "ethereum":
-            min_trade_usd = 100.0
-        elif chain == "solana":
-            min_trade_usd = 1.0
         else:
-            min_trade_usd = 25.0
+            min_trade_usd = CHAIN_MIN_TRADE_USD.get(chain, 10.0)
 
         regime_label = regime_state.regime.value if regime_state else "unknown"
         logger.debug(
