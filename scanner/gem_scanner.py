@@ -706,21 +706,30 @@ class GemScanner:
 
             # Submit 5 lean enrichment calls — down from 9 (removed custom providers)
             enrichment_results = {}
+            future_map = {}
             with ThreadPoolExecutor(max_workers=5, thread_name_prefix="enrich") as pool:
-                futures = {
+                future_map = {
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
                     pool.submit(_get_moralis_meta): "moralis_meta",
                     pool.submit(_get_moralis_money): "moralis_money",
                     pool.submit(_get_binance_pulse): "binance_pulse",
                 }
-                for future in as_completed(futures, timeout=15):
-                    name = futures[future]
-                    try:
-                        enrichment_results[name] = future.result()
-                    except Exception as e:
-                        logger.debug(f"Enrichment '{name}' failed for {token.symbol}: {e}")
-                        enrichment_results[name] = None
+                try:
+                    for future in as_completed(future_map, timeout=15):
+                        name = future_map[future]
+                        try:
+                            enrichment_results[name] = future.result()
+                        except Exception as e:
+                            logger.debug(f"Enrichment '{name}' failed for {token.symbol}: {e}")
+                            enrichment_results[name] = None
+                except TimeoutError:
+                    # Cancel any slow futures that haven't completed yet to avoid
+                    # the "N futures unfinished" log noise on ThreadPoolExecutor exit.
+                    for f, n in future_map.items():
+                        if not f.done():
+                            f.cancel()
+                            logger.debug(f"Enrichment '{n}' timed out for {token.symbol} — cancelled")
 
             # Moralis-derived scores replace removed custom providers
             candidate.tvl_score = 50.0              # Now inside Moralis (liquidity_locked_pct)

@@ -1024,6 +1024,8 @@ async def run_bot_loop():
                         is_express=is_express,
                         state=offensive_state,
                         is_momentum_reentry=is_momentum_reentry,
+                        moralis_exp_net_buyers_1w=getattr(candidate, "moralis_exp_net_buyers_1w", 0),
+                        is_accumulation_zone=getattr(candidate, "is_accumulation_zone", False),
                     )
                     save_offensive_state(offensive_state)  # Save after boost consumption
                     profit_boost_remaining = offensive_state.profit_boost_remaining

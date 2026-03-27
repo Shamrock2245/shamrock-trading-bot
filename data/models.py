@@ -109,6 +109,48 @@ class GemCandidate:
     binance_smart_money_inflow_usd: float = 0.0   # USD inflow from smart money
     binance_smart_money_rank: int = 0              # Rank in smart money inflow list
 
+    # Moralis discovery enrichment (whale + holder growth)
+    moralis_exp_net_buyers_1d: int = 0          # Experienced net buyers (1 day)
+    moralis_exp_net_buyers_1w: int = 0          # Experienced net buyers (7 days) — whale signal
+    moralis_holders_change_1d: int = 0          # Holder count change (1 day)
+    moralis_holders_change_1w: int = 0          # Holder count change (7 days)
+    moralis_on_chain_strength: float = 0.0      # Moralis on-chain strength score
+    moralis_liquidity_locked_pct: float = 0.0   # % of liquidity locked
+    moralis_security_score: int = 0             # Moralis security score (0-100)
+    moralis_token_age_days: float = 0.0         # Token age in days (from Moralis)
+    moralis_is_bonding: bool = False            # True = still on bonding curve
+    moralis_fdv: float = 0.0                    # Fully diluted valuation
+    moralis_market_cap: float = 0.0             # Moralis market cap
+    moralis_verified: bool = False              # Contract verified
+    moralis_spam: bool = False                  # Spam flag
+    moralis_has_website: bool = False           # Has website
+    moralis_has_twitter: bool = False           # Has Twitter
+    moralis_categories: list = field(default_factory=list)  # Token categories
+
+    # Moralis pair stats (buyer/seller velocity)
+    moralis_pair_buyers_5m: int = 0             # Unique buyers last 5 minutes
+    moralis_pair_sellers_5m: int = 0            # Unique sellers last 5 minutes
+    moralis_pair_buy_vol_1h: float = 0.0        # Buy volume last 1h (USD)
+    moralis_pair_sell_vol_1h: float = 0.0       # Sell volume last 1h (USD)
+    moralis_pair_buyers_24h: int = 0            # Unique buyers last 24h
+    moralis_pair_sellers_24h: int = 0           # Unique sellers last 24h
+    moralis_total_liquidity: float = 0.0        # Total liquidity (USD)
+    moralis_bonding_exchange: str = ""          # Bonding curve exchange name
+
+    # Entry timing intelligence (multi-timeframe)
+    timing_bp_trend: str = "flat"              # "accelerating" | "decelerating" | "flat"
+    timing_bp_micro_ratio: float = 1.0         # 5m vs 1h buy pressure ratio
+    timing_volume_acceleration: float = 1.0   # Recent vs baseline volume multiplier
+    timing_buyer_velocity: float = 1.0         # Buyer count acceleration
+    timing_score: float = 50.0                 # Composite timing score (0-100)
+
+    # Historical price context (7-day range positioning)
+    price_range_position: float = 0.5          # 0.0=7d low, 1.0=7d high
+    price_context_score: float = 50.0          # Context quality score (0-100)
+    is_near_ath: bool = False                  # True = within 15% of 7d ATH (penalized)
+    is_accumulation_zone: bool = False         # True = bottom 30% of 7d range (bonus)
+    vol_trend_7d: str = "neutral"              # "expanding"|"neutral"|"contracting"
+
     # Signals
     signal_score: Optional["SignalScore"] = None
     block_reason: Optional[str] = None

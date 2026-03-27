@@ -734,6 +734,8 @@ def calculate_offensive_position_size(
     is_express: bool,
     state: OffensiveState,
     is_momentum_reentry: bool = False,
+    moralis_exp_net_buyers_1w: int = 0,
+    is_accumulation_zone: bool = False,
 ) -> tuple[float, str]:
     """
     Apply all offensive multipliers to the base position size.
@@ -746,7 +748,11 @@ def calculate_offensive_position_size(
       2. God Mode Kelly multiplier
       3. Express Lane Overdrive multiplier
       4. Profit boost multiplier
-      5. House money bonus (additive, not multiplicative)
+      5a. Whale accumulation bonus (Moralis experienced net buyers 1w ≥ 10)
+      5b. Accumulation zone bonus (token in bottom 30% of 7d price range)
+      6. Momentum reentry bonus
+      7. Blitz Mode synergy bonus
+      8. House money bonus (additive, not multiplicative)
     """
     multiplier = 1.0
     reasons = []
@@ -777,12 +783,36 @@ def calculate_offensive_position_size(
         state.profit_boost_remaining -= 1
         reasons.append(f"profit_boost={boost_mult:.2f}x🔥({state.profit_boost_remaining} left)")
 
-    # 5. Momentum reentry gets a bonus (we know this token moves)
+    # 5a. Whale accumulation bonus: Moralis experienced net buyers ≥ 10 in 7d
+    # This is the highest-signal indicator we have — institutional/smart money
+    # showing up in the week-long window = very high conviction entry.
+    if moralis_exp_net_buyers_1w >= 10:
+        whale_mult = 1.35
+        multiplier *= whale_mult
+        reasons.append(f"whale_accumulation={whale_mult:.2f}x🐋({moralis_exp_net_buyers_1w} exp buyers/wk)")
+        logger.info(
+            f"🐋 WHALE SIZING BONUS: {moralis_exp_net_buyers_1w} experienced net buyers this week → "
+            f"{whale_mult:.2f}x position size"
+        )
+    elif moralis_exp_net_buyers_1w >= 5:
+        whale_mult = 1.15
+        multiplier *= whale_mult
+        reasons.append(f"whale_interest={whale_mult:.2f}x🐋({moralis_exp_net_buyers_1w} exp buyers/wk)")
+
+    # 5b. Accumulation zone bonus: buying in the bottom 30% of the 7-day range
+    # = we're getting in at a discount vs recent price history. +15% sizing.
+    if is_accumulation_zone:
+        accum_mult = 1.15
+        multiplier *= accum_mult
+        reasons.append(f"accum_zone={accum_mult:.2f}x🟢")
+        logger.info(f"🟢 ACCUMULATION ZONE BONUS: +{(accum_mult-1)*100:.0f}% position size (buying the dip)")
+
+    # 6. Momentum reentry gets a bonus (we know this token moves)
     if is_momentum_reentry and settings.MOMENTUM_REENTRY_ENABLED:
         multiplier *= settings.MOMENTUM_REENTRY_SIZE_MULT
         reasons.append(f"reentry={settings.MOMENTUM_REENTRY_SIZE_MULT:.2f}x🔄")
 
-    # 6. Blitz Mode: 3+ offensive conditions active → synergy bonus
+    # 7. Blitz Mode: 3+ offensive conditions active → synergy bonus
     if settings.BLITZ_MODE_ENABLED:
         active_conditions = sum([
             streak_mult > 1.0,       # Hot streak active
@@ -790,6 +820,7 @@ def calculate_offensive_position_size(
             express_mult > 1.0,      # Express Lane active
             state.profit_boost_remaining > 0,  # Profit boost active
             is_momentum_reentry,     # Momentum reentry
+            moralis_exp_net_buyers_1w >= 10,   # Whale accumulation
         ])
         if active_conditions >= 3:
             multiplier *= settings.BLITZ_MODE_MULTIPLIER
@@ -802,7 +833,7 @@ def calculate_offensive_position_size(
     # Apply multiplier to base position
     final_position_usd = base_position_usd * multiplier
 
-    # 6. House money bonus (additive — uses locked profits)
+    # 8. House money bonus (additive — uses locked profits)
     house_bonus = get_house_money_bonus_usd(state, final_position_usd)
     if house_bonus > 0:
         final_position_usd += house_bonus
@@ -823,7 +854,8 @@ def calculate_offensive_position_size(
             f"({reason_str})"
         )
 
-    return final_position_usd, reason_str
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
