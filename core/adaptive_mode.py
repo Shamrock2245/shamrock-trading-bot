@@ -72,16 +72,16 @@ class AdaptiveModeState:
     swing_position_cap_usd: float = 100.0      # Position cap for swing trades
 
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
-DRAWDOWN_TRIGGER_PCT = 5.0          # Enter recovery at 5% drawdown
-CAPITAL_CRITICAL_USD = 250.0        # Enter recovery if capital drops below this
-GEM_DROUGHT_HOURS = 4.0             # Enter recovery after 4h with no gem wins
-RECOVERY_EXIT_PCT = 95.0            # Exit recovery when capital hits 95% of HWM
+# ── Thresholds (env-configurable for small accounts) ──────────────────────────
+DRAWDOWN_TRIGGER_PCT = float(os.environ.get("ADAPTIVE_DRAWDOWN_TRIGGER_PCT", "25.0"))  # Enter recovery at 25% drawdown
+CAPITAL_CRITICAL_USD = float(os.environ.get("ADAPTIVE_CAPITAL_CRITICAL_USD", "10.0"))  # Enter recovery if capital drops below this
+GEM_DROUGHT_HOURS = float(os.environ.get("ADAPTIVE_GEM_DROUGHT_HOURS", "6.0"))        # Enter recovery after 6h with no gem wins
+RECOVERY_EXIT_PCT = float(os.environ.get("ADAPTIVE_RECOVERY_EXIT_PCT", "90.0"))       # Exit recovery when capital hits 90% of HWM
 CONSECUTIVE_SWING_WINS_EXIT = 3     # Exit recovery after 3 swing wins in a row
 
-# Recovery mode overrides
+# Recovery mode overrides — still scan gems every cycle to not kill discovery
 RECOVERY_SWING_FREQUENCY = 1       # Swing every cycle in recovery
-RECOVERY_GEM_FREQUENCY = 3         # Gems every 3rd cycle in recovery
+RECOVERY_GEM_FREQUENCY = 1         # Gems every cycle too (was 3 — too restrictive)
 RECOVERY_MAX_SWING_ENTRIES = 5     # More swing entries per cycle
 RECOVERY_SWING_CAP_USD = 200.0     # Higher swing cap in recovery
 
