@@ -418,6 +418,28 @@ def evaluate_position(pos: dict, current_price: float,
             "urgency": "immediate",
         }
 
+    # ── FIX BUG 1: Pre-TP1 Peak Protection ───────────────────────────────────
+    # CRITICAL: Without this, a position that peaks at +40% then falls to -20%
+    # hits only the hard stop — all unrealized gain is surrendered. This trailing
+    # stop activates BEFORE TP1 with a wider window (default 25%) to protect
+    # any significant gain buildup while still giving room to keep running.
+    pre_tp1_trail = getattr(settings, "PRE_TP1_TRAILING_STOP_PCT", 25.0)
+    pre_tp1_activate = getattr(settings, "PRE_TP1_ACTIVATE_GAIN_PCT", 15.0)
+    if not tp1_hit and highest_price >= entry_price * (1 + pre_tp1_activate / 100):
+        pre_tp1_stop = highest_price * (1 - pre_tp1_trail / 100)
+        if current_price <= pre_tp1_stop:
+            drop_from_high = ((current_price - highest_price) / highest_price) * 100
+            logger.info(
+                f"🛑 Pre-TP1 Peak Protection: {pos.get('token_symbol')} "
+                f"hit {drop_from_high:.1f}% drawdown from ${highest_price:.6f} high "
+                f"(trail={pre_tp1_trail:.0f}%) — locking in gains before TP1"
+            )
+            return {
+                "reason": f"pre_tp1_peak_protection ({drop_from_high:.1f}% from high, trail={pre_tp1_trail:.0f}%) [{profile_name}]",
+                "sell_pct": 1.0,
+                "urgency": "immediate",
+            }
+
     # ── Dynamic trailing stop (only active after TP1) ─────────────────────────
     if tp1_hit and highest_price > entry_price:
         # Determine effective trailing % based on dynamic tightening
@@ -435,13 +457,34 @@ def evaluate_position(pos: dict, current_price: float,
             # signals before executing the trailing stop. Single bad candles
             # shouldn't shake us out of a genuine winner.
             if gain_pct > 20.0:
+                # FIX BUG 2: Confluence gate was requiring 2/5 bearish signals,
+                # but most signals depend on stored data fields (entry_volume_1h,
+                # buy_pressure_ratio, entry_liquidity_usd) that are often absent.
+                # When fields are missing, bearish_count stays 0 → sell PERMANENTLY
+                # BLOCKED. Fix: (a) lower to 1/5, (b) hard override if price dropped
+                # >CONFLUENCE_HARD_REVERSAL_PCT from peak regardless of signals.
+                hard_reversal_pct = getattr(settings, "CONFLUENCE_HARD_REVERSAL_PCT", 25.0)
+                drop_pct_from_high = ((highest_price - current_price) / highest_price) * 100
+
+                # Hard override: severe reversal bypasses all signal checks
+                if drop_pct_from_high >= hard_reversal_pct:
+                    logger.info(
+                        f"🛑 Hard reversal override: {pos.get('token_symbol')} "
+                        f"lost {drop_pct_from_high:.1f}% from peak — selling regardless of confluence"
+                    )
+                    return {
+                        "reason": f"trailing_stop_hard_reversal ({drop_from_high:.1f}% from high, {drop_pct_from_high:.1f}%>{hard_reversal_pct:.0f}% override) [{profile_name}]",
+                        "sell_pct": 1.0,
+                        "urgency": "immediate",
+                    }
+
                 confluence = evaluate_profit_sell_confluence(pos, current_price)
-                if confluence["bearish_count"] < 2:
+                if confluence["bearish_count"] < 1:  # Was 2, lowered to 1
                     logger.debug(
                         f"🛡️  Trailing stop suppressed for {pos.get('token_symbol')} "
-                        f"({drop_from_high:.1f}% from high) — only {confluence['bearish_count']}/5 "
+                        f"({drop_from_high:.1f}% from high) — {confluence['bearish_count']}/5 "
                         f"bearish signals ({', '.join(confluence['triggered'])}). "
-                        f"Need 2+ to confirm reversal."
+                        f"Need 1+ to confirm reversal."
                     )
                     # Don't sell yet — let the position breathe
                 else:
@@ -780,6 +823,25 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         except Exception as e:
             logger.error(f"Live sell failed for {pos.get('token_symbol')}: {e}")
             trade_record["error"] = str(e)
+            # FIX BUG 4: Track consecutive sell failures. After 3 failures,
+            # log at CRITICAL level and force wider slippage on next attempt.
+            fail_count = pos.get("sell_failure_count", 0) + 1
+            pos["sell_failure_count"] = fail_count
+            if fail_count >= 3:
+                logger.critical(
+                    f"🚨 SELL FAILURE #{fail_count}: {pos.get('token_symbol')} on {pos.get('chain')} "
+                    f"— forcing max slippage on next attempt. Manual intervention may be needed."
+                )
+                pos["force_max_slippage"] = True
+                try:
+                    from notifications.slack import send_slack_message
+                    send_slack_message(
+                        f"🚨 *SELL FAILURE* #{fail_count}: `{pos.get('token_symbol')}` on `{pos.get('chain')}` "
+                        f"could not be sold after {fail_count} attempts. Error: `{e}`. "
+                        f"Forcing max slippage — manual check recommended."
+                    )
+                except Exception:
+                    pass
     else:
         logger.info(
             f"PAPER SELL: {pos.get('token_symbol')} {sell_pct*100:.0f}% "
@@ -930,12 +992,17 @@ class PositionMonitor:
                 _sp = _PROFILE_MAP.get(_sp_name)
                 sell_action = evaluate_position(pos, current_price, strategy_profile=_sp)
 
-                # ── God Mode: skip TP1 (hold for higher target) ────────────────────────
+                # ── FIX BUG 3: God Mode: skip TP1 sell but MARK tp1_hit=True ─────────
+                # Without this fix, God Mode never sets tp1_hit, so the trailing stop
+                # (which requires tp1_hit) NEVER activates on God Mode positions.
+                # A 10x position could then reverse all the way back to the hard stop.
                 if sell_action and sell_action.get("reason", "").startswith("tp1_"):
                     if should_skip_tp1(offensive_state):
                         logger.info(
-                            f"⚡ God Mode: skipping TP1 on {pos.get('token_symbol')} — holding for 5x+"
+                            f"⚡ God Mode: skipping TP1 sell on {pos.get('token_symbol')} — "
+                            f"holding for 5x+ | trailing stop now ACTIVE at {settings.STOP_LOSS_PERCENT:.0f}%"
                         )
+                        pos["tp1_hit"] = True  # CRITICAL: activate trailing stop even without TP1 sell
                         sell_action = None
 
                 # ── Offensive: volume surge fast exit ─────────────────────────────────────

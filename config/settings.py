@@ -86,6 +86,18 @@ TAKE_PROFIT_TP3_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP3_SELL_PCT", "0.25")) 
 # ── Time-Based & Liquidity Exits (Offensive Playbook §5) ──────────────────
 TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "24.0"))              # Extended: allow 24h for Base/BSC gems to develop
 TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # Must be up >10% to stay
+
+# ── Pre-TP1 Peak Protection (CRITICAL: prevents holding through full reversals) ─
+# If a position builds gains but never hits TP1, we still protect those gains.
+# Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
+# Uses a WIDER stop than the post-TP1 trailing (25% vs 15%) to give room to run.
+PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "25.0"))  # 25% trail before TP1
+PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "15.0"))  # Activate when up 15%+
+
+# ── Confluence Gate Override ─────────────────────────────────────────────────
+# Hard override: if price drops this much from the high on a profitable position,
+# sell regardless of how many confluence signals are present.
+CONFLUENCE_HARD_REVERSAL_PCT = float(os.getenv("CONFLUENCE_HARD_REVERSAL_PCT", "25.0"))  # 25% drop from peak = sell
 LIQUIDITY_DRAIN_EXIT_ENABLED = os.getenv("LIQUIDITY_DRAIN_EXIT_ENABLED", "true").lower() == "true"
 LIQUIDITY_DRAIN_DROP_PCT = float(os.getenv("LIQUIDITY_DRAIN_DROP_PCT", "30.0"))  # >30% pool drain = emergency sell
 
