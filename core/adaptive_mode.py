@@ -79,6 +79,16 @@ GEM_DROUGHT_HOURS = float(os.environ.get("ADAPTIVE_GEM_DROUGHT_HOURS", "6.0"))  
 RECOVERY_EXIT_PCT = float(os.environ.get("ADAPTIVE_RECOVERY_EXIT_PCT", "90.0"))       # Exit recovery when capital hits 90% of HWM
 CONSECUTIVE_SWING_WINS_EXIT = 3     # Exit recovery after 3 swing wins in a row
 
+# ── HWM Reset Control ─────────────────────────────────────────────────────────
+# ADAPTIVE_FORCE_NORMAL=true: Override recovery mode, reset HWM to current capital.
+# Use when the HWM reflects a different funding epoch (e.g., account was topped up
+# then drained — the old HWM is no longer a meaningful recovery target).
+# Also triggers automatically when drawdown > ADAPTIVE_HWM_RESET_DRAWDOWN_PCT for
+# longer than ADAPTIVE_HWM_RESET_DAYS days (stale HWM auto-reset).
+ADAPTIVE_FORCE_NORMAL = os.environ.get("ADAPTIVE_FORCE_NORMAL", "false").lower() == "true"
+ADAPTIVE_HWM_RESET_DRAWDOWN_PCT = float(os.environ.get("ADAPTIVE_HWM_RESET_DRAWDOWN_PCT", "80.0"))  # Auto-reset if >80% drawdown
+ADAPTIVE_HWM_RESET_DAYS = float(os.environ.get("ADAPTIVE_HWM_RESET_DAYS", "7.0"))    # ...for more than 7 days
+
 # Recovery mode overrides — still scan gems every cycle to not kill discovery
 RECOVERY_SWING_FREQUENCY = 1       # Swing every cycle in recovery
 RECOVERY_GEM_FREQUENCY = 1         # Gems every cycle too (was 3 — too restrictive)
@@ -105,6 +115,30 @@ def load_mode_state() -> AdaptiveModeState:
     except Exception as e:
         logger.warning(f"Failed to load adaptive mode state: {e}")
     return AdaptiveModeState()
+
+
+def reset_hwm_to_current(state: AdaptiveModeState, reason: str = "manual") -> None:
+    """
+    Reset the high-water mark to the current capital level and force NORMAL mode.
+    Use when the HWM reflects a different funding epoch and is no longer a
+    meaningful recovery target (e.g., drawdown > 80% for > 7 days).
+    """
+    old_hwm = state.high_water_mark_usd
+    state.high_water_mark_usd = state.current_capital_usd
+    state.drawdown_pct = 0.0
+    state.mode = BotMode.NORMAL.value
+    state.mode_entered_at = time.time()
+    state.last_mode_change = datetime.now(timezone.utc).isoformat()
+    state.consecutive_swing_wins = 0
+    state.swing_frequency = NORMAL_SWING_FREQUENCY
+    state.gem_frequency = NORMAL_GEM_FREQUENCY
+    state.max_swing_entries_per_cycle = NORMAL_MAX_SWING_ENTRIES
+    state.swing_position_cap_usd = NORMAL_SWING_CAP_USD
+    save_mode_state(state)
+    logger.warning(
+        f"🔄 HWM RESET ({reason}): ${old_hwm:.0f} → ${state.current_capital_usd:.0f} | "
+        f"Mode forced to NORMAL | Full position sizing restored"
+    )
 
 
 def save_mode_state(state: AdaptiveModeState) -> None:
@@ -165,6 +199,26 @@ def evaluate_mode(state: AdaptiveModeState) -> BotMode:
     """
     current = BotMode(state.mode)
     now = time.time()
+
+    # ── ADAPTIVE_FORCE_NORMAL override ────────────────────────────────────────
+    # If set via env var, immediately reset HWM and return NORMAL.
+    if ADAPTIVE_FORCE_NORMAL:
+        if current == BotMode.RECOVERY or state.drawdown_pct > 5.0:
+            reset_hwm_to_current(state, reason="ADAPTIVE_FORCE_NORMAL=true")
+        return BotMode.NORMAL
+
+    # ── Auto-reset stale HWM ─────────────────────────────────────────────────
+    # If drawdown has been extreme (>80%) for longer than 7 days, the HWM is
+    # from a different funding epoch. Automatically reset to current capital.
+    if (state.drawdown_pct >= ADAPTIVE_HWM_RESET_DRAWDOWN_PCT
+            and state.mode_entered_at > 0
+            and (now - state.mode_entered_at) / 86400 >= ADAPTIVE_HWM_RESET_DAYS):
+        reset_hwm_to_current(
+            state,
+            reason=f"auto-reset: {state.drawdown_pct:.0f}% drawdown for "
+                   f"{(now - state.mode_entered_at) / 86400:.1f} days"
+        )
+        return BotMode.NORMAL
 
     if current == BotMode.NORMAL:
         # ── Check NORMAL → RECOVERY triggers ─────────────────────────────
