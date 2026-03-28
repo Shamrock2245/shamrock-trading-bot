@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-03-28",
+  "patterns": [
+    {
+      "id": "pm-001",
+      "category": "position_mgmt",
+      "name": "pre_tp1_trailing_stop_required",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "Position monitor MUST have a trailing stop that activates BEFORE TP1 is hit. The standard trailing stop gates on tp1_hit=True, but TP1 may never be reached. Without pre-TP1 protection, positions that peak at +30-40% can reverse all the way to the hard stop, surrendering all unrealized gain.",
+      "rule": "Add PRE_TP1_TRAILING_STOP_PCT (wider, e.g. 25%) that activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (e.g. 15%), independent of tp1_hit.",
+      "anti_pattern": "Trailing stop gated exclusively on tp1_hit",
+      "files": ["core/position_monitor.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | CRITICAL | Added from missed-sell post-mortem"
+    },
+    {
+      "id": "pm-002",
+      "category": "position_mgmt",
+      "name": "confluence_gate_requires_hard_override",
+      "priority": "critical",
+      "confidence": 0.97,
+      "applications": 1,
+      "description": "Confluence gates that require multiple stored data fields (volume, buy pressure, liquidity) to block a sell are dangerous. When fields are absent, the bearish count stays at 0, permanently blocking the exit. ALWAYS pair any confluence gate with a hard price-action override (e.g., if dropped >X% from peak, sell regardless of signals).",
+      "rule": "CONFLUENCE_HARD_REVERSAL_PCT (default 25%) must be checked BEFORE the signal gate. If crossed, sell unconditionally. Never let a data-absence cause a permanent hold.",
+      "anti_pattern": "Pure data-signal confluence gate with no price-action fallback",
+      "files": ["core/position_monitor.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | CRITICAL | Added from missed-sell post-mortem"
+    },
+    {
+      "id": "pm-003",
+      "category": "position_mgmt",
+      "name": "mode_skip_must_preserve_state_flags",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "When a special mode (God Mode, etc.) suppresses a sell action, it MUST still evaluate whether that action was supposed to set a state flag. Skipping tp1 sell without setting tp1_hit=True breaks all downstream logic that gates on that flag (trailing stop, TP2, etc.).",
+      "rule": "When God Mode skips TP1 sell: pos['tp1_hit'] = True. The sell is skipped, but the state transition still happens.",
+      "anti_pattern": "sell_action = None without preserving the state flag the sell would have set",
+      "files": ["core/position_monitor.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | CRITICAL | Added from God Mode trailing stop gap"
+    },
+    {
+      "id": "guard-001",
+      "category": "guardrails",
+      "name": "function_must_return_on_all_paths",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "Functions annotated with a tuple return type (e.g. -> tuple[float, str]) that fall through the end without a return statement will return None silently. This causes TypeError at the call site when unpacked, which can look like a data/provider error rather than a missing return.",
+      "rule": "After writing any function that returns a tuple: verify the return statement exists at ALL code paths. Pay special attention to functions that log and then fall through (logging is often the last visible action).",
+      "anti_pattern": "Function ends with a logger.info() call with no return statement below it",
+      "detection": "AST scan: find functions with tuple return annotations, verify return statement at every path exit",
+      "files": ["core/offensive_guardrails.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | CRITICAL | Root cause of NoneType unpack crash loop"
+    },
+    {
+      "id": "exec-001",
+      "category": "trade_execution",
+      "name": "live_sell_failure_must_escalate",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "When a live sell fails, silently logging and continuing leaves the position open at a loss with no retry mechanism. After N consecutive failures, escalate to CRITICAL log + Slack + wider slippage flag. Silent sell failures are invisible in production and result in held losing positions.",
+      "rule": "Track pos['sell_failure_count']. At >= 3: CRITICAL log + Slack alert + pos['force_max_slippage']=True",
+      "anti_pattern": "except Exception as e: logger.error(...) and move on",
+      "files": ["core/position_monitor.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | HIGH | Added from sell failure audit"
+    },
+    {
+      "id": "debug-001",
+      "category": "deployment",
+      "name": "nonetype_unpack_traceback_points_to_caller",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "TypeError: cannot unpack non-iterable NoneType object always shows the caller line, not the function that returned None. When hunting this error: find the unpack call site, trace to the function definition, verify return statement exists on ALL code paths — especially after logging calls at the end of a function.",
+      "rule": "To find missing return: grep for all tuple unpack sites (a, b = func()), find the function, check for return at the very end.",
+      "files": ["core/offensive_guardrails.py", "main.py"],
+      "source_episode": "ep-2026-03-28-001",
+      "evolution_marker": "2026-03-28 | HIGH | NoneType hunt methodology"
+    }
+  ]
+}

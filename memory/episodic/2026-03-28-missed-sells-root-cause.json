@@ -1,0 +1,80 @@
+{
+  "episode_id": "ep-2026-03-28-001",
+  "date": "2026-03-28",
+  "category": "position_mgmt",
+  "priority": "critical",
+  "title": "4 Missed Sell Bugs — Bot held positions through full reversals",
+  "context": {
+    "trigger": "User reported wallet 0x5067551a2b95710a9acba9623e92fb03c08ea656 as example of missed sell. Bot was holding positions through complete reversals, surrendering all unrealized gains.",
+    "impact": "Multiple positions peaked at 30-50%+ gain, reversed to hard stop at -20%, net loss on what should have been winning trades. User: 'you've cost me a ton of money'."
+  },
+  "bugs_found": [
+    {
+      "id": "BUG-001",
+      "name": "No trailing stop before TP1",
+      "file": "core/position_monitor.py",
+      "line": 422,
+      "pattern": "if tp1_hit and highest_price > entry_price:",
+      "root_cause": "Trailing stop gated on tp1_hit=True. TP1 at 1.5x (50% gain). If position peaks at +40% and never triggers TP1, trailing stop NEVER activates. Only exit is hard stop at -20%.",
+      "scenario": "Buy $1.00 → peak $1.40 (+40%) → falls to $0.80 (-20%) → hard stop. All $0.40 gain surrendered.",
+      "fix": "Added PRE_TP1_TRAILING_STOP_PCT=25% that activates when up >15%, before TP1 is hit.",
+      "severity": "critical"
+    },
+    {
+      "id": "BUG-002",
+      "name": "Confluence gate permanently blocking profitable exits",
+      "file": "core/position_monitor.py",
+      "line": 439,
+      "pattern": "if confluence['bearish_count'] < 2:",
+      "root_cause": "The 2-of-5 bearish signal gate depended on stored fields (entry_volume_1h, buy_pressure_ratio, entry_liquidity_usd) that are absent from most positions. Missing data → bearish_count stays 0 → sell PERMANENTLY BLOCKED for profitable positions >20% gain.",
+      "fix": "Lowered to 1-of-5. Added hard reversal override (CONFLUENCE_HARD_REVERSAL_PCT=25%): if price drops >25% from peak on a profitable position, bypass all signal checks and sell immediately.",
+      "severity": "critical"
+    },
+    {
+      "id": "BUG-003",
+      "name": "God Mode never activates trailing stop",
+      "file": "core/position_monitor.py",
+      "line": 934,
+      "pattern": "sell_action = None  # after skipping TP1",
+      "root_cause": "God Mode skips TP1 sell without setting pos['tp1_hit']=True. Trailing stop code gates on tp1_hit. God Mode positions could reverse from any height all the way down to the -20% hard stop with zero protection.",
+      "fix": "Now sets pos['tp1_hit']=True when God Mode skips TP1 sell, activating the trailing stop.",
+      "severity": "critical"
+    },
+    {
+      "id": "BUG-004",
+      "name": "Live sell failures silently swallowed",
+      "file": "core/position_monitor.py",
+      "line": 780,
+      "pattern": "except Exception as e: logger.error(...)",
+      "root_cause": "When a live sell fails (e.g., slippage exceeded, RPC error), the exception is swallowed. Position stays open. No retry, no alert. Bot continues monitoring and may re-evaluate next cycle but position is held at a loss.",
+      "fix": "Track sell_failure_count. After 3 failures: CRITICAL log + Slack alert + set force_max_slippage flag.",
+      "severity": "high"
+    }
+  ],
+  "also_fixed_this_session": {
+    "id": "BUG-000",
+    "name": "Missing return in calculate_offensive_position_size",
+    "file": "core/offensive_guardrails.py",
+    "line": 855,
+    "root_cause": "Function fell off the end without return statement. Python returned None. Caller at main.py:1021 tried to unpack (final_position_usd, sizing_reason) = None → TypeError: cannot unpack non-iterable NoneType object. This crashed every trade execution cycle.",
+    "method": "Found via AST cross-reference: identified a 2-tuple unpack at call site, traced to function definition, found no return statement in the code."
+  },
+  "lessons": [
+    "NEVER gate the trailing stop exclusively on tp1_hit. Always have a pre-TP1 peak protection layer.",
+    "Confluence gates that depend on stored data fields are unreliable — those fields are often not populated. Always have a hard override based on price action alone.",
+    "When a mode (God Mode, etc.) skips a sell action, check if that action was supposed to set a state flag (tp1_hit). Skipping the sell must not prevent the flag from being set.",
+    "Missing return statements in functions that return tuples are hard to detect because Python returns None silently. The TypeError only shows up at the call site, obscuring the real location.",
+    "Always add Slack escalation for failed live sells — silent failures are invisible in production."
+  ],
+  "files_modified": [
+    "core/position_monitor.py",
+    "core/offensive_guardrails.py",
+    "config/settings.py"
+  ],
+  "git_commits": [
+    "9391379 fix: add missing return statement in calculate_offensive_position_size",
+    "9642271 fix: 4 critical missed-sell bugs in position_monitor"
+  ],
+  "outcome": "success",
+  "tested": "Verified with Python simulation: position peaking at +40% then dropping 27% from high now triggers pre_tp1_peak_protection sell immediately. Previously this would have been held all the way to the -20% hard stop."
+}
