@@ -1,0 +1,80 @@
+{
+  "episode_id": "ep-2026-03-27-profit-audit",
+  "date": "2026-03-27",
+  "category": "scoring_engine",
+  "task": "Full audit of entry/exit calibration and win rate improvement",
+  "outcome": "partial",
+  "baseline_stats": {
+    "trades": 124,
+    "win_rate_pct": 44,
+    "pnl_usd": 66.69,
+    "active_positions": 6,
+    "chains": ["Solana", "BSC", "Ethereum", "Base", "Polygon", "Arbitrum", "Avalanche"]
+  },
+  "what_went_well": [
+    "Hard stop at 20% prevents catastrophic losses",
+    "Bearish confluence gate (2-of-5 signals) prevents premature trailing stop exits",
+    "TP1/TP2/TP3 tiered pyramid correctly set up",
+    "MIN_GEM_SCORE=65 is reasonable (not too permissive)",
+    "Bonding curve hard reject catches pre-graduation rug risk",
+    "Dev wallet serial deployer penalty (-30) is strong deterrent",
+    "20% trailing stop after TP1 prevents giving back profits"
+  ],
+  "what_went_wrong": [
+    "Whale signal was LOGGED but NOT SCORED — losing +15 pts on best entries (FIXED this session)",
+    "moralis_exp_net_buyers_1w never passed through to position sizer (FIXED this session)", 
+    "44% win rate means 56% of trades lose — entry bar possibly still too low",
+    "No minimum whale/smart-money confirmation required to enter (just a bonus)",
+    "Hetzner VPS web console cannot reliably accept typed passwords — always use SSH"
+  ],
+  "root_cause": "Whale accumulation was a scoring-orphan: detected, logged, bonused in sizing, but the score itself never reflected the signal. Tokens that SHOULD have gotten +15 pts were evaluated at their raw score, potentially failing the 65 threshold when they should have cleared it confidently.",
+  "fixes_applied_this_session": [
+    {
+      "file": "scanner/gem_scanner.py",
+      "change": "Added whale score bonus: +15 (>=10 exp net buyers/week), +8 (5-9/week), +5 (>=5/day)",
+      "commit": "40f3435"
+    },
+    {
+      "file": "core/offensive_guardrails.py", 
+      "change": "Added 1.35x position sizing bonus for whale accumulation, 1.15x for accumulation zone",
+      "commit": "44c3048"
+    },
+    {
+      "file": "main.py",
+      "change": "Pass moralis_exp_net_buyers_1w and is_accumulation_zone through to sizer",
+      "commit": "44c3048"
+    },
+    {
+      "file": "data/models.py",
+      "change": "Declared all dynamic GemCandidate fields as proper dataclass fields with defaults",
+      "commit": "44c3048"
+    },
+    {
+      "file": "scanner/gem_scanner.py",
+      "change": "Fixed ThreadPoolExecutor futures timeout — explicit cancel on slow futures",
+      "commit": "44c3048"
+    }
+  ],
+  "remaining_gaps": [
+    {
+      "gap": "No mandatory whale confirmation gate — whale signal is bonus only",
+      "recommendation": "Consider requiring exp_net_buyers_1w >= 3 OR buy_pressure >= 0.60 before entry",
+      "priority": "high"
+    },
+    {
+      "gap": "44% win rate origin unknown — need trade-level loss analysis",
+      "recommendation": "Add loss categorization logging: which chain, what score, what stop triggered",
+      "priority": "critical"
+    },
+    {
+      "gap": "Solana meme coins have higher rug rate — RugCheck no-data floor should be higher",
+      "recommendation": "RUGCHECK_NO_DATA_SCORE_FLOOR=65 (currently 55)",
+      "priority": "high"
+    },
+    {
+      "gap": "No max age gate — very new tokens (<2h) are higher risk",
+      "recommendation": "Require token age >= 2h unless whale-confirmed",
+      "priority": "medium"
+    }
+  ]
+}

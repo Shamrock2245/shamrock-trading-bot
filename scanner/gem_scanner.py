@@ -470,6 +470,17 @@ class GemScanner:
         """
         candidate = GemCandidate(token=token)
 
+        # ── HARD GATE #1: Solana tokens < 2h old → instant reject ─────────────
+        # Tokens this fresh on Solana are still in the rug-pull danger window.
+        # The 2h rule lets us see at least 2 candlesticks of real price action
+        # before we commit capital. No exceptions — not even for boosted tokens.
+        if token.chain == "solana" and (token.age_hours or 0) < 2.0 and not is_cto:
+            logger.info(
+                f"⛔ SOLANA AGE GATE: {token.symbol} is only {token.age_hours:.1f}h old "
+                f"— too fresh for safe entry (< 2h). Skipping."
+            )
+            return None
+
         # ── Age score (12%) ───────────────────────────────────────────────────
         # New tokens are better for sniping.
         # < 24h = 100, < 48h = 75, < 72h = 50, < 168h = 25, > 168h = 10
@@ -1051,7 +1062,7 @@ class GemScanner:
         # All replaced by Moralis native signals inside moralis_enrichment_score.
         # Dev wallet (4%) and copycat (5%) rug-protection retained.
         candidate.gem_score = round(
-            candidate.age_score              * 0.07
+            candidate.age_score              * 0.04  # Reduced: age is already hard-gated upstream
             + candidate.volume_score         * 0.07
             + candidate.liquidity_score      * 0.07
             + candidate.buy_pressure_score   * 0.08
@@ -1063,7 +1074,7 @@ class GemScanner:
             + candidate.social_score         * 0.05
             + candidate.boost_score          * 0.04
             + candidate.smart_money_score    * 0.03
-            + candidate.grok_sentiment_score * 0.02
+            + candidate.grok_sentiment_score * 0.05  # Boosted 2%→5%: critical swing-trade signal
             + candidate.dev_wallet_score     * 0.04
             + candidate.copycat_score        * 0.05,
             2,
@@ -1154,6 +1165,18 @@ class GemScanner:
                     f"range_pos={price_ctx['range_position']:.0%} "
                     f"→ score {pre_adj} - 10 = {candidate.gem_score}"
                 )
+                # ── HARD GATE #2: Near-ATH with no whale backing → reject ───
+                # If we're in the top 15% of the 7d range AND there's no smart
+                # money behind it, this is a late FOMO entry — highest loss risk.
+                whale_backing = getattr(candidate, "moralis_exp_net_buyers_1w", 0) or 0
+                buy_pressure = getattr(candidate, "moralis_buy_pressure", 0.0) or 0.0
+                if whale_backing < 3 and buy_pressure < 0.65:
+                    logger.info(
+                        f"⛔ NEAR-ATH REJECT: {token.symbol} is near 7d ATH with no whale "
+                        f"confirmation (exp_buyers={whale_backing}, bp={buy_pressure:.0%}) — "
+                        f"FOMO entry rejected."
+                    )
+                    return None
             elif price_ctx.get("is_accumulation_zone", False):
                 # Reward: buying in the dip with on-chain strength
                 pre_adj = candidate.gem_score

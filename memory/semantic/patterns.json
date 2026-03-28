@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-03-27",
+  "patterns": [
+    {
+      "id": "scoring-orphan-anti-pattern",
+      "category": "scoring_engine",
+      "pattern": "Never detect a signal without scoring it",
+      "description": "If you add whale/smart-money detection, it MUST add to gem_score AND flow to position sizer. Logging only = dead signal. Check: detect → score → size.",
+      "confidence": 0.99,
+      "priority": "critical",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "whale-signal-cascade",
+      "category": "scoring_engine",
+      "pattern": "Whale signals must cascade: score boost + sizing bonus",
+      "description": "moralis_exp_net_buyers_1w >= 10 → +15 gem_score AND 1.35x position size. Both must be wired end-to-end: gem_scanner -> main.py -> offensive_guardrails. Always verify the call site passes the new params.",
+      "confidence": 0.97,
+      "priority": "high",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "hetzner-ssh-only",
+      "category": "deployment",
+      "pattern": "Always use SSH for Hetzner VPS — never web console for passwords",
+      "description": "Hetzner web console (VNC) mangles numeric password input. The password 113014 consistently fails via web console regardless of input method. SSH to root@5.161.126.32 with password 113014 is the only reliable deployment path.",
+      "confidence": 1.0,
+      "priority": "critical",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "docker-data-safe-on-rebuild",
+      "category": "deployment",
+      "pattern": "docker compose down does NOT wipe trade data — bind mounts survive",
+      "description": "./data:/app/data and ./logs:/app/logs are bind mounts to host filesystem at /root/shamrock-trading-bot/. docker compose down + up never touches these. P&L, positions.json, trade_log.json all survive rebuilds.",
+      "confidence": 1.0,
+      "priority": "high",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "indicator-neutral-fallback",
+      "category": "scoring_engine",
+      "pattern": "All indicator fallback values must be neutral (50), never zero",
+      "description": "Using 0 as fallback for missing indicators zeroes out the weighted composite score. Always use 50 (neutral/average). This was the root cause of all gems scoring below MIN_GEM_SCORE when data was unavailable.",
+      "confidence": 0.98,
+      "priority": "critical",
+      "source": "ep-older",
+      "added": "2026-03-25"
+    },
+    {
+      "id": "dataclass-field-declaration",
+      "category": "data_pipeline",
+      "pattern": "All dynamically-set GemCandidate attributes must be declared as dataclass fields",
+      "description": "Setting attributes like candidate.moralis_exp_net_buyers_1w without declaring them in the dataclass causes AttributeError in some Python versions and breaks IDE introspection. Always add new fields to data/models.py GemCandidate with a default value.",
+      "confidence": 0.99,
+      "priority": "high",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "threadpool-futures-cleanup",
+      "category": "data_pipeline",
+      "pattern": "Always cancel unfinished ThreadPoolExecutor futures explicitly on timeout",
+      "description": "Using concurrent.futures.as_completed with a timeout leaves dangling futures if not cancelled. Always catch TimeoutError, iterate remaining futures, and call future.cancel() before pool shutdown. This prevents 'N futures unfinished' log noise.",
+      "confidence": 0.97,
+      "priority": "medium",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    },
+    {
+      "id": "win-rate-root-cause",
+      "category": "scoring_engine",
+      "pattern": "44% win rate — need trade-level loss categorization to improve",
+      "description": "Current win rate is below 50%. Root cause unknown without per-loss analysis. Need to log: chain, gem_score at entry, score components, exit reason (hard stop vs trailing vs TP) for every closed trade. Hypothesis: Solana meme coins with no RugCheck data are dragging win rate down.",
+      "confidence": 0.75,
+      "priority": "critical",
+      "source": "ep-2026-03-27-profit-audit",
+      "added": "2026-03-27"
+    }
+  ]
+}
