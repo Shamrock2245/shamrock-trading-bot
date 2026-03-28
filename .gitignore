@@ -37,3 +37,4 @@ data/*.json
 !data/models.py
 !data/providers.py
 .env.example
+deploy_bot.exp

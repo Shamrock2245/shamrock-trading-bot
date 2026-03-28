@@ -56,3 +56,20 @@ docker compose logs -f --tail=50 bot
 - The `.env` file on the server should already have all required API keys configured
 - If Docker build fails, check for Python dependency issues in `requirements.txt`
 - To quickly restart without rebuilding: `docker compose restart bot`
+
+## ⚠️ IMPORTANT: SSH Access
+The Hetzner VNC web console does NOT work for automated password input.
+Always deploy via your **local terminal** (not the Hetzner browser console).
+Password: stored in your password manager (do not commit to code).
+
+### One-Time Setup (SSH Key Auth — eliminates all password prompts):
+```bash
+ssh-keygen -t ed25519 -C "shamrock-deploy" -f ~/.ssh/shamrock_key
+ssh-copy-id -i ~/.ssh/shamrock_key.pub root@5.161.126.32
+# After this, use: ssh -i ~/.ssh/shamrock_key root@5.161.126.32
+```
+
+### Full Deploy (Copy-Paste Into Your Terminal):
+```bash
+ssh root@5.161.126.32 'cd /root/shamrock-trading-bot && git pull origin main && docker compose down && docker compose build --no-cache && docker compose up -d && docker compose ps && docker compose logs --tail=60 bot'
+```

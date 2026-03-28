@@ -86,5 +86,50 @@
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | HIGH | NoneType hunt methodology"
     }
+  ,
+    {
+      "id": "adapt-001",
+      "category": "guardrails",
+      "name": "recovery_mode_hwm_stale_lockout",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "When a wallet suffers a major drawdown (e.g. 80%+), the HWM becomes mathematically impossible to reach. Recovery Mode requires reaching 90% of HWM, but if HWM=$696 and capital=$94, that requires a 566% gain — an impossible threshold. The bot runs permanently throttled at half capacity.",
+      "rule": "Add ADAPTIVE_FORCE_NORMAL=true env var to immediately reset HWM to current capital and force NORMAL mode. Also add auto-reset: if drawdown > ADAPTIVE_HWM_RESET_DRAWDOWN_PCT for > ADAPTIVE_HWM_RESET_DAYS, auto-reset HWM. Check HWM vs capital ratio on every evaluate_mode() call.",
+      "detection": "Log the gap between current capital and 90% of HWM. If gap > 3x current capital, flag as 'stale HWM lockout'.",
+      "anti_pattern": "Hard-coded HWM with no reset mechanism and no stale detection",
+      "files": ["core/adaptive_mode.py"],
+      "source_episode": "ep-2026-03-28-002",
+      "evolution_marker": "2026-03-28 | CRITICAL | Bot throttled for unknown duration due to impossible HWM target"
+    },
+    {
+      "id": "deploy-001",
+      "category": "deployment",
+      "name": "hetzner_vnc_console_no_automated_password",
+      "priority": "high",
+      "confidence": 0.98,
+      "applications": 2,
+      "description": "Hetzner VNC web console does NOT reliably accept automated keyboard input for password fields. Browser automation tools (clicking + typing) consistently return 'Login incorrect' even with correct credentials, because the VNC input layer doesn't properly buffer/transmit keystrokes to the password field. The expect utility also struggles when run from a sandboxed terminal.",
+      "rule": "Set up SSH key authentication for password-free access. Run: ssh-keygen then ssh-copy-id root@5.161.126.32. After key setup, all deploy commands can run as: ssh root@IP 'cmd1 && cmd2' without any password prompt.",
+      "workaround": "User must manually paste the deploy commands into their own local terminal with the SSH session. Do NOT try to automate VNC console input.",
+      "anti_pattern": "Attempting to type SSH password via browser VNC automation",
+      "files": [".agents/workflows/sync-and-deploy.md"],
+      "source_episode": "ep-2026-03-28-002",
+      "evolution_marker": "2026-03-28 | HIGH | Two failed automated deploy attempts via Hetzner VNC"
+    },
+    {
+      "id": "chain-001",
+      "category": "trade_execution",
+      "name": "ethereum_mainnet_gas_kills_small_wallets",
+      "priority": "high",
+      "confidence": 0.97,
+      "applications": 1,
+      "description": "For wallets under $200, Ethereum mainnet is unusable for gem trading. Gas fees ($5-30 per tx) consume 3-15% of position value on entry alone, and an equal amount on exit. A round trip costs 6-30% before any price movement. The bot's gas guard catches this, but wastes API calls scanning ETH tokens.",
+      "rule": "Set ACTIVE_CHAINS=base,bsc,avalanche,solana for wallets under $500. Ethereum should only be enabled when position size > $150 AND gas < 1% of position. This is governed by wallet_router.py gas guard.",
+      "anti_pattern": "Including 'ethereum' in ACTIVE_CHAINS for small-capital wallets",
+      "files": ["config/settings.py", "core/wallet_router.py"],
+      "source_episode": "ep-2026-03-28-002",
+      "evolution_marker": "2026-03-28 | HIGH | Capital efficiency improvement for small wallets"
+    }
   ]
 }

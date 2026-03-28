@@ -1,0 +1,103 @@
+{
+  "episode_id": "ep-2026-03-28-002",
+  "date": "2026-03-28",
+  "session": "Profitability Hardening + Pipeline Audit",
+  "category": ["position_mgmt", "guardrails", "deployment", "data_pipeline"],
+  "priority": "critical",
+  "outcome": "success",
+  "summary": "Fixed 5 critical bugs that caused the bot to miss profitable exits. Audited the complete pipeline end-to-end confirming all integrations are healthy. Recovery Mode lockout resolved via ADAPTIVE_FORCE_NORMAL env var.",
+
+  "what_happened": {
+    "task": "Resolve missed profit exits — bot was holding positions through full reversals",
+    "trigger": "User identified bot had held tokens that peaked +60% and reversed to -20%, earning nothing",
+    "files_modified": [
+      "core/position_monitor.py",
+      "core/adaptive_mode.py",
+      "config/settings.py"
+    ]
+  },
+
+  "bugs_fixed": [
+    {
+      "id": "BUG-001",
+      "name": "No Pre-TP1 Trailing Stop",
+      "severity": "critical",
+      "description": "Trailing stop was gated on tp1_hit=True. Positions peaking before TP1 had zero protection.",
+      "fix": "Added PRE_TP1_TRAILING_STOP_PCT=25% that activates at any gain >= PRE_TP1_ACTIVATE_GAIN_PCT=15%, independent of TP1.",
+      "pattern_id": "pm-001"
+    },
+    {
+      "id": "BUG-002",
+      "name": "Confluence Gate Data Stalemate",
+      "severity": "critical",
+      "description": "Confluence gate required 2-of-5 bearish signals. Fields like entry_volume_1h were None, keeping bearish count at 0, permanently blocking exits even through -40% drops.",
+      "fix": "Lowered gate to 1-of-5. Added CONFLUENCE_HARD_REVERSAL_PCT=25% override that bypasses gate entirely.",
+      "pattern_id": "pm-002"
+    },
+    {
+      "id": "BUG-003",
+      "name": "God Mode State Preservation Gap",
+      "severity": "critical",
+      "description": "God Mode skipped TP1 sell correctly, but didn't set tp1_hit=True. Trailing stop never activated for God Mode positions.",
+      "fix": "Force pos['tp1_hit'] = True when God Mode suppresses TP1 sell.",
+      "pattern_id": "pm-003"
+    },
+    {
+      "id": "BUG-004",
+      "name": "Silent Sell Failure",
+      "severity": "high",
+      "description": "Live sell exceptions swallowed with generic except clause. Failed sells left positions open with no retry or alert.",
+      "fix": "Track sell_failure_count. At >=3 failures: CRITICAL log + Slack alert + force_max_slippage=True.",
+      "pattern_id": "exec-001"
+    },
+    {
+      "id": "BUG-005",
+      "name": "Recovery Mode Impossible Exit Target",
+      "severity": "critical",
+      "description": "HWM was $696, current capital $94. Recovery Mode requires reaching 90% of HWM = $626. Required 566% gain to exit. Bot was permanently throttled: half position sizes, gem scan throttled.",
+      "fix": "Added ADAPTIVE_FORCE_NORMAL=true env var to reset HWM to current capital and force NORMAL mode. Also added auto-reset: if drawdown >80% for >7 days, HWM auto-resets.",
+      "new_env_vars": ["ADAPTIVE_FORCE_NORMAL=true", "ADAPTIVE_HWM_RESET_DRAWDOWN_PCT=80", "ADAPTIVE_HWM_RESET_DAYS=7"]
+    }
+  ],
+
+  "pipeline_audit_findings": {
+    "moralis_discovery": "HEALTHY - all 6 endpoints active (buying_pressure, filtered_tokens, whale_accumulation, trending, top_gainers, top_losers)",
+    "moralis_enrichment": "HEALTHY - calls token_score + analytics + discovery_token_details + bonding_status + pair_stats per candidate",
+    "moralis_avalanche": "CONFIRMED - avalanche is in CHAIN_MAP with hex 0xa86a",
+    "moralis_weight": "27% of composite gem score - dominant signal",
+    "goplus_safety": "HEALTHY - called from core/safety.py pre-execution",
+    "solana_execution": "HEALTHY - routes to core/solana_executor.py → Jupiter DEX",
+    "evm_execution": "HEALTHY - routes to core/executor.py → CoW Protocol → 1inch",
+    "chain_recommendation": "Remove ethereum from ACTIVE_CHAINS - gas kills small-cap positions"
+  },
+
+  "deployment_lessons": {
+    "hetzner_console_vnc": "Automated browser agents CANNOT reliably type passwords into Hetzner VNC console. The VNC input layer doesn't process synthetic keystrokes correctly for password fields.",
+    "alternative_approaches": [
+      "Use expect via local terminal (requires user's own terminal, not sandbox)",
+      "Install SSH key for password-free access",
+      "Use sshpass (requires brew install, blocked by permission errors in sandbox)",
+      "User manually runs commands in their open SSH terminal"
+    ],
+    "recommended_fix": "Set up SSH key auth on Hetzner so future deploys can use: ssh root@5.161.126.32 'commands' without password"
+  },
+
+  "env_vars_added": [
+    "ADAPTIVE_FORCE_NORMAL=true",
+    "ACTIVE_CHAINS=base,bsc,avalanche,solana"
+  ],
+
+  "commits": [
+    "core/position_monitor.py - 4 exit logic bugs",
+    "core/adaptive_mode.py - HWM reset + ADAPTIVE_FORCE_NORMAL",
+    "config/settings.py - new constants for pre-TP1 and confluence override"
+  ],
+
+  "key_lessons": [
+    "Always add price-action hard override to any confluence gate — data absence must never block an exit",
+    "State flags must be set even when the corresponding action is bypassed",
+    "Recovery Mode HWM should be reset when drawdown exceeds a threshold for an extended time",
+    "Silent exception handlers are profit killers — all sell failures must surface immediately",
+    "Scan for trailing stop logic: verify it fires on gain, not just on state flag"
+  ]
+}
