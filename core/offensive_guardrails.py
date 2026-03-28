@@ -854,7 +854,7 @@ def calculate_offensive_position_size(
             f"({reason_str})"
         )
 
-
+    return final_position_usd, reason_str
 
 
 
