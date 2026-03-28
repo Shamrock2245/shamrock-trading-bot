@@ -99,6 +99,7 @@ from core.adaptive_mode import (
     load_mode_state, save_mode_state, update_capital,
     evaluate_mode, apply_mode, should_run_gems, should_run_swing,
     log_mode_banner, get_mode_status,
+    record_gem_trade, record_swing_trade,
 )
 from dashboard.state import BotStateWriter
 
@@ -1190,6 +1191,11 @@ async def run_bot_loop():
                                 "YES ⚡" if is_express else "no",
                             ),
                         )
+                        # ── Adaptive mode: record gem trade open (not yet profitable)
+                        # We record it as a trade event; profitability is determined at close.
+                        # For drought detection, we track the open — wins are recorded in
+                        # position_monitor when a TP sell fires. Here we just increment count.
+                        record_gem_trade(adaptive_state, profitable=False)  # open, not yet profitable
                     else:
                         logger.warning(f"❌ Trade failed: {token.symbol} on {wallet.alias} | {error}")
                         failed_trade_cooldown[token_addr_lower] = cycle  # 5-cycle cooldown
@@ -1416,6 +1422,8 @@ async def run_bot_loop():
                                           f"TP1=+3% SL=-2.5%",
                                 )
                                 logger.info(f"✅ Swing entry: {sc.symbol}/{sc.chain} | tx: {result.tx_hash}")
+                                # Adaptive mode: record swing trade open
+                                record_swing_trade(adaptive_state, profitable=False)  # open, not yet profitable
                             else:
                                 logger.warning(f"❌ Swing entry failed: {sc.symbol} — {result.error}")
 

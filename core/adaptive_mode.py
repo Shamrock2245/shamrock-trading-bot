@@ -5,16 +5,16 @@ Automatically switches between NORMAL (gem-first) and RECOVERY (swing-first)
 modes based on portfolio performance.
 
 NORMAL:   Gems every cycle, swing every 3rd cycle
-RECOVERY: Swing every cycle, gems every 3rd cycle, tighter exits
+RECOVERY: Swing every cycle, gems every cycle (discovery preserved), tighter exits
 
 Triggers:
   NORMAL → RECOVERY:
-    - Drawdown from high-water mark ≥ 5%
-    - Zero profitable gem trades in last 4 hours
-    - Capital below critical threshold ($250)
+    - Drawdown from high-water mark ≥ 25% (ADAPTIVE_DRAWDOWN_TRIGGER_PCT)
+    - No profitable gem trades in last 6 hours (ADAPTIVE_GEM_DROUGHT_HOURS)
+    - Capital below critical threshold ($10 — ADAPTIVE_CAPITAL_CRITICAL_USD)
 
   RECOVERY → NORMAL:
-    - Capital restored to 95% of high-water mark
+    - Capital restored to 90% of high-water mark (ADAPTIVE_RECOVERY_EXIT_PCT)
     - 3 consecutive profitable swing trades
 """
 
@@ -261,7 +261,7 @@ def evaluate_mode(state: AdaptiveModeState) -> BotMode:
             if state.current_capital_usd >= recovery_target:
                 reasons.append(
                     f"capital ${state.current_capital_usd:.0f} ≥ "
-                    f"${recovery_target:.0f} (95% of HWM)"
+                    f"${recovery_target:.0f} ({RECOVERY_EXIT_PCT:.0f}% of HWM)"
                 )
 
         # 2. Consecutive swing wins
@@ -305,7 +305,7 @@ def apply_mode(state: AdaptiveModeState, new_mode: BotMode) -> bool:
 
         logger.warning(
             f"⚡ MODE SWITCH: {old_mode.value.upper()} → RECOVERY | "
-            f"Swing every cycle, gems every 3rd | "
+            f"Swing every cycle, gems every cycle (discovery preserved) | "
             f"Swing cap ${state.swing_position_cap_usd:.0f} | "
             f"Recovery entry #{state.recovery_entries}"
         )

@@ -21,6 +21,9 @@ services:
       - 8.8.8.8
       - 1.1.1.1
       - 8.8.4.4
+    environment:
+      # Align bot_status.json write path with health check and dashboard readers
+      - DASHBOARD_STATE_DIR=/app/data/dashboard
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
@@ -100,9 +103,14 @@ services:
       - 8.8.8.8
       - 1.1.1.1
       - 8.8.4.4
+    environment:
+      # bot_status.json is written by dashboard/state.py to data/dashboard/
+      # health_check.py defaults to output/ — align them here
+      - BOT_STATUS_FILE=/app/data/dashboard/bot_status.json
     command: python3 scripts/health_check.py
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     networks:
       - shamrock-net
 
