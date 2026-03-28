@@ -145,9 +145,9 @@ def _available(chain: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 def get_filtered_tokens(
     chain: str,
-    min_experienced_buyers_1h: int = 5,
-    min_liquidity_usd: float = 50_000,
-    min_security_score: int = 60,
+    min_experienced_buyers_1h: int = 15,   # Raised 5→15: only high-conviction accumulation
+    min_liquidity_usd: float = 75_000,     # Raised 50k→75k: filter out micro-illiquid pools
+    min_security_score: int = 65,          # Raised 60→65: safer tokens only
     limit: int = 50,
 ) -> list[dict]:
     """
@@ -185,6 +185,13 @@ def get_filtered_tokens(
                     "metric": "securityScore",
                     "timeFrame": "oneDay",  # Point-in-time metric — must use oneDay
                     "gt": min_security_score,
+                },
+                {
+                    # Buy volume must dominate sell volume in last hour
+                    # This ensures we're buying INTO momentum, not a dead bounce
+                    "metric": "buyVolumeUsd",
+                    "timeFrame": "oneHour",
+                    "gt": 10_000,  # Min $10k buy volume in last hour
                 },
             ],
             "sortBy": {
@@ -249,6 +256,19 @@ def get_filtered_tokens(
                 ),
                 "volume_usd_1h": _safe_float(
                     (metrics.get("volumeUsd") or {}).get("oneHour", 0)
+                ),
+                "buy_volume_usd_1h": _safe_float(
+                    (metrics.get("buyVolumeUsd") or {}).get("oneHour", 0)
+                ),
+                "sell_volume_usd_1h": _safe_float(
+                    (metrics.get("sellVolumeUsd") or {}).get("oneHour", 0)
+                ),
+                # Compute buy pressure ratio directly from source data
+                "buy_pressure_ratio_1h": (
+                    lambda bv, sv: bv / (bv + sv) if (bv + sv) > 0 else 0.5
+                )(
+                    _safe_float((metrics.get("buyVolumeUsd") or {}).get("oneHour", 0)),
+                    _safe_float((metrics.get("sellVolumeUsd") or {}).get("oneHour", 0)),
                 ),
                 "net_volume_usd_1h": _safe_float(
                     (metrics.get("netVolumeUsd") or {}).get("oneHour", 0)
@@ -1150,7 +1170,11 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
     seen: set[str] = set()
 
     for chain in chains:
-        # 1. Filtered tokens — highest signal quality
+        # 0. BUYING PRESSURE — real-time momentum (most time-sensitive signal FIRST)
+        for t in get_buying_pressure_tokens(chain):
+            _dedup_add(t, chain, seen, all_tokens)
+
+        # 1. Filtered tokens — highest signal quality (experienced buyers + security)
         for t in get_filtered_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
@@ -1166,11 +1190,7 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
         for t in get_top_gainers(chain, time_frame="1h"):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 4. Buying pressure
-        for t in get_buying_pressure_tokens(chain):
-            _dedup_add(t, chain, seen, all_tokens)
-
-        # 5. Top losers — flag for Wallet B mean-reversion
+        # 4. Top losers — flag for Wallet B mean-reversion
         for t in get_top_losers(chain, time_frame="1h"):
             t["mean_reversion_candidate"] = True
             _dedup_add(t, chain, seen, all_tokens)
