@@ -121,8 +121,8 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
-# Raised to 65.0 — scoring distribution confirmed. Nuclear profile enforces 82.0 minimum.
-# Conservative profile uses this as baseline; nuclear overrides via StrategyProfile.min_gem_score.
+# 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
+# Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
 MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "65.0"))
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
@@ -211,8 +211,8 @@ VOLUME_SURGE_SELL_PCT = float(os.getenv("VOLUME_SURGE_SELL_PCT", "0.25"))  # Sel
 
 # Underperformer rotation: close flat positions to free capital
 UNDERPERFORMER_EXIT_ENABLED = os.getenv("UNDERPERFORMER_EXIT_ENABLED", "true").lower() == "true"
-UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "12.0"))  # Hours flat
-UNDERPERFORMER_FLAT_PCT = float(os.getenv("UNDERPERFORMER_FLAT_PCT", "5.0"))  # ±5% = "flat"
+UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "4.0"))   # FIX: project spec = 4h (was 12h — dead capital held too long)
+UNDERPERFORMER_FLAT_PCT = float(os.getenv("UNDERPERFORMER_FLAT_PCT", "2.5"))    # FIX: project spec = ±2.5% (was ±5% — too lenient)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Advanced Offensive Guardrails (Seven-Figure Acceleration System)
@@ -262,7 +262,7 @@ PROFIT_BOOST_LARGE_TRADES = int(os.getenv("PROFIT_BOOST_LARGE_TRADES", "5"))  # 
 # Allows more aggressive discovery as the bot builds a winning streak.
 # Losses recover the threshold. Floor prevents going too low.
 CASCADE_BOOST_ENABLED = os.getenv("CASCADE_BOOST_ENABLED", "true").lower() == "true"
-CASCADE_BOOST_PER_WIN = float(os.getenv("CASCADE_BOOST_PER_WIN", "0.5"))  # -0.5 per win
+CASCADE_BOOST_PER_WIN = float(os.getenv("CASCADE_BOOST_PER_WIN", "0.75"))  # FIX: project spec = 0.75 pts per win (was 0.5)
 CASCADE_BOOST_MAX_REDUCTION = float(os.getenv("CASCADE_BOOST_MAX_REDUCTION", "5.0"))  # Reduced from 10 → 5: floor can't drop as far
 CASCADE_BOOST_RECOVERY_PER_LOSS = float(os.getenv("CASCADE_BOOST_RECOVERY_PER_LOSS", "1.0"))  # +1 per loss
 CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "58.0"))  # Raised from 40 → 58: hard quality floor
@@ -429,7 +429,7 @@ def validate_settings() -> list[str]:
         )
 
     if not GROK_API_KEY:
-        warnings_list.append("GROK_API_KEY not set — Grok sentiment scoring (2% weight) disabled. Minor impact.")
+        warnings_list.append("GROK_API_KEY not set — Grok sentiment scoring (5% weight) disabled. Meaningful impact on narrative-driven tokens.")  # FIX: was 2% — Grok boosted to 5%
 
     _sol_pk_primary = os.getenv("SOLANA_PRIVATE_KEY_PRIMARY", "")
     _sol_pk_b = os.getenv("SOLANA_PRIVATE_KEY_B", "")
@@ -446,6 +446,6 @@ def validate_settings() -> list[str]:
         warnings_list.append("BASESCAN_API_KEY not set — contract verification on Base limited to 5 req/sec")
 
     if MIN_GEM_SCORE < 55.0:
-        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile enforces 82.0 independently)")
+        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile min=82.0, conservative min=65.0)")
 
     return warnings_list

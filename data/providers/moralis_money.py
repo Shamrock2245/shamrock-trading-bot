@@ -1141,13 +1141,13 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
     """
     PRIMARY DISCOVERY FUNCTION — called by GemScanner on every cycle.
 
-    Aggregates tokens from ALL six Moralis discovery endpoints:
+    Aggregates tokens from ALL six Moralis discovery endpoints in priority order:
+      0. Buying Pressure (FIRST — real-time rising buy:sell ratio, most time-sensitive)
       1. Filtered Tokens (experienced buyers + liquidity + security filters)
-      1b. Whale Accumulation (netExperiencedBuyers — strongest smart-money signal)
-      2. Trending Tokens
-      3. Top Gainers (1h)
-      4. Buying Pressure
-      5. Top Losers (for Wallet B mean-reversion)
+      2. Whale Accumulation (netExperiencedBuyers — strongest smart-money signal)
+      3. Trending Tokens (volume/social trending feed)
+      4. Top Gainers (1h breakout momentum)
+      5. Top Losers (mean-reversion candidates — Wallet B only)
 
     Deduplicates by address+chain. Tags each token with its source so the
     gem scorer can apply appropriate weight multipliers.

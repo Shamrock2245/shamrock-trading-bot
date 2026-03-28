@@ -684,7 +684,7 @@ class GemScanner:
         # ⚡ MORALIS-FIRST ENRICHMENT: 5 lean parallel calls replace the old 9.
         # Removed: DefiLlama TVL, LunarCrush social, holder_analysis, token_unlocks
         # All replaced by Moralis ecosystem signals (discovery, analytics, pair stats).
-        # Grok sentiment (6-8s LLM call, 2% weight) still deferred to 2nd pass.
+        # Grok sentiment (6-8s LLM call, 5% weight) still deferred to 2nd pass.
         if base_score >= 45:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -827,7 +827,7 @@ class GemScanner:
             candidate.moralis_pair_buyers_5m = 0
             candidate.moralis_pair_sellers_5m = 0
 
-        # ── GROK SENTIMENT (conditional second pass — 2% weight) ──────────────
+        # ── GROK SENTIMENT (conditional second pass — 5% weight) ──────────────
         # Only call the slow Grok LLM (~6-8s) if the token still looks
         # promising after all the fast enrichment signals. This saves API
         # credits and shaves ~6s off ~80% of tokens that won't pass anyway.

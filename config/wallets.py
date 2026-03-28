@@ -63,19 +63,19 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    min_gem_score=50.0,
+    min_gem_score=65.0,   # FIX: aligned with global MIN_GEM_SCORE and POSITION_SIZING.md spec
     express_lane_score=82.0,
-    # TP: 2x sell 40%, 3x sell 40%, no TP3
-    tp1_mult=2.0,
+    # TP: 1.5x sell 40%, 2.5x sell 35%, 5x sell 25% — project spec pyramid (TP3 re-enabled)
+    tp1_mult=1.5,
     tp1_sell_pct=0.40,
-    tp2_mult=3.0,
-    tp2_sell_pct=0.40,
-    tp3_mult=0.0,       # Disabled
-    tp3_sell_pct=0.0,
-    # Stops
+    tp2_mult=2.5,
+    tp2_sell_pct=0.35,
+    tp3_mult=5.0,       # FIX: re-enabled — Primary wallet must capture moonshots
+    tp3_sell_pct=0.25,
+    # Stops — project spec: 20% hard stop, 20% trailing after TP1
     hard_stop_pct=20.0,
-    trailing_stop_pct=15.0,
-    trailing_tighten={},  # Fixed 15%
+    trailing_stop_pct=20.0,  # FIX: was 15%, project spec Tier 1 trailing = 20%
+    trailing_tighten={2.5: 15.0, 5.0: 10.0},  # At TP2 → 15% trail, at TP3 → 10%
     # Sizing
     max_position_pct=5.0,
     kelly_clamp_max=0.20,
@@ -89,8 +89,8 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=52.0,
-    express_lane_score=78.0,
+    min_gem_score=82.0,   # FIX: POSITION_SIZING.md spec — Wallet B requires express-lane quality (82+)
+    express_lane_score=82.0,  # FIX: was 78 — nuclear entry IS express lane entry
     # TP: 5x sell 15%, 12x sell 25%, 30x sell 20% (ride 40% with trail)
     tp1_mult=5.0,
     tp1_sell_pct=0.15,
