@@ -1266,7 +1266,16 @@ def reconcile_onchain_positions(wallet_address: str, chain: str = "solana") -> N
                     f"⚠️ RECONCILIATION MISMATCH: Bot shows open position for {pos['token_symbol']} "
                     f"but on-chain history shows recent sells. Was it sold manually?"
                 )
-                # TODO: Send Slack alert here
+                try:
+                    from notifications.slack import send_slack_message
+                    send_slack_message(
+                        f"⚠️ *RECONCILIATION MISMATCH*: Bot shows open position for "
+                        f"`{pos.get('token_symbol')}` on `{pos.get('chain')}` but on-chain history "
+                        f"shows a recent sell. Was this sold manually? "
+                        f"Position may need manual close in the bot."
+                    )
+                except Exception:
+                    pass
                 
     except Exception as e:
         logger.error(f"Trade reconciliation failed: {e}")

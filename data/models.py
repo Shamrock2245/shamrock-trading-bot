@@ -77,17 +77,17 @@ class GemCandidate:
     social_sentiment_score: float = 0.0  # LunarCrush Galaxy Score
     holder_concentration_score: float = 0.0  # On-chain holder analysis
     unlock_risk_score: float = 0.0      # FDV/mcap dilution risk
-    grok_sentiment_score: float = 0.0   # Grok AI real-time X/Twitter sentiment
+    grok_sentiment_score: float = 50.0  # Grok AI real-time X/Twitter sentiment (50=neutral — 0 was tanking composite if API failed before fallback block)
 
     # Rug protection (Phase 4 — ported from RugscoreBotTG)
-    dev_wallet_score: float = 0.0       # Creator wallet history (age, rug patterns, selling)
-    copycat_score: float = 0.0          # Name/symbol impersonation detection
-    buy_pressure_score: float = 0.0     # Buy vs sell pressure ratio
+    dev_wallet_score: float = 50.0      # Creator wallet history (50=neutral fallback — 0 was silently penalizing all tokens on enrichment errors)
+    copycat_score: float = 70.0         # Name/symbol impersonation detection (70=likely-legit neutral — 0 falsely flagged everything as copycat)
+    buy_pressure_score: float = 50.0    # Buy vs sell pressure ratio (50=neutral)
     dev_wallet_flags: list = field(default_factory=list)   # Human-readable dev wallet findings
     copycat_flags: list = field(default_factory=list)      # Human-readable copycat findings
 
     # Moralis Money enrichment (Phase 4 — Pro subscription)
-    moralis_enrichment_score: float = 0.0  # Composite Moralis contribution (0–100)
+    moralis_enrichment_score: float = 50.0  # Composite Moralis contribution (0–100) — 50=neutral default (0 was silently zero-weighting 27% of final score)
     moralis_score: int = 0                 # Moralis proprietary token score
     moralis_buy_pressure: float = 0.5      # Buy pressure ratio from analytics
     moralis_net_buyers_1h: int = 0         # Net buyers in last hour
