@@ -38,3 +38,6 @@ data/*.json
 !data/providers.py
 .env.example
 deploy_bot.exp
+.shamrock_deploy_key
+.shamrock_deploy_key.pub
+install_key.exp
