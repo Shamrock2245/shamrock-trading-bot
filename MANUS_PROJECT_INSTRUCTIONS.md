@@ -1,6 +1,8 @@
 # 🤖 Shamrock Trading Bot — Manus Project Instructions
 
-> **Goal**: Build an AI-powered crypto trading bot that discovers undervalued gems across multiple wallets, executes trades with MEV protection, and manages portfolios — fully automated, 24/7.
+> **Status**: 🟢 LIVE — Running on Hetzner VPS (`root@5.161.126.32`) via Docker Compose.
+> **Current Build**: `df195f8` | **Chains**: 6 active | **Sources**: 9 discovery pipelines
+> **Goal**: AI-powered multi-chain gem discovery, execution, and portfolio management — 24/7 autonomous.
 
 ---
 
@@ -9,657 +11,381 @@
 ### Managed Wallets
 | Alias | Address | Role |
 |-------|---------|------|
-| **Primary** | `0x3eb320fad3f51fe4f2a4531f911ef56694346eef` | Main trading wallet — gem sniping & active positions |
-| **Wallet B** | `0x0835eb8447f3ac90351951bb5d22e77afd9b81c0` | Secondary wallet — DCA & mean-reversion strategies |
-| **Wallet C** | `0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860` | Cold/reserve wallet — long-term holds & profit sweeps |
+| **Primary** | `0x3eb320fad3f51fe4f2a4531f911ef56694346eef` | Main EVM trading wallet — gem sniping & active positions |
+| **Wallet B** | `0x0835eb8447f3ac90351951bb5d22e77afd9b81c0` | Secondary EVM — DCA, mean-reversion strategies |
+| **Wallet C** | `0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860` | Cold/reserve — long-term holds & profit sweeps |
+| **Solana** | Configured via `SOLANA_WALLET_ADDRESS` env | Solana-native execution via Jupiter V6 |
 
-### Supported Chains
-| Chain | Use Case | DEX Routers |
-|-------|----------|-------------|
-| **Ethereum** | Blue-chip tokens, high-liquidity pairs | Uniswap V3, 1inch, CoW Protocol |
-| **Base** | Low-gas gem sniping, new launches | Aerodrome, Uniswap V3 (Base) |
-| **Arbitrum** | Mid-cap trading, derivatives | Uniswap V3, Camelot, GMX |
-| **Polygon** | Low-fee swing trades | QuickSwap, Uniswap V3 |
-| **BSC** | Altcoin/memecoin scanning | PancakeSwap V3 |
+### Active Chains (LIVE)
+| Chain | Env Key | Use Case | DEX Routers |
+|-------|---------|----------|-------------|
+| **Ethereum** | `ethereum` | Blue-chip, high-liquidity pairs | Uniswap V3, 1inch, CoW Protocol |
+| **Base** | `base` | Low-gas gem sniping, new launches | Aerodrome, Uniswap V3 Base |
+| **Arbitrum** | `arbitrum` | Mid-cap, derivatives | Uniswap V3, Camelot |
+| **Polygon** | `polygon` | Low-fee swing trades | QuickSwap, Uniswap V3 |
+| **BSC** | `bsc` | Altcoin/memecoin scanning | PancakeSwap V3 |
+| **Solana** | `solana` | Meme coins, Pump.fun graduates, high-velocity plays | Jupiter V6 Swap API |
 
 > [!CAUTION]
-> **NEVER** hardcode private keys. Use environment variables (`WALLET_PRIVATE_KEY_PRIMARY`, `WALLET_PRIVATE_KEY_B`, `WALLET_PRIVATE_KEY_C`) or a secure vault (AWS Secrets Manager / HashiCorp Vault). Public addresses above are safe to reference in code.
+> **NEVER** hardcode private keys. All secrets live in `.env` via `WALLET_PRIVATE_KEY_PRIMARY`, `WALLET_PRIVATE_KEY_B`, `WALLET_PRIVATE_KEY_C`, `SOLANA_PRIVATE_KEY`. Public addresses above are safe to reference in code.
 
 ---
 
-## 📋 What to Build
-
-### Phase 1 — Gem Discovery Engine
-Build a multi-chain scanner that finds new/undervalued tokens before they pump.
-
-#### Data Sources to Wire Up
-
-| Source | What It Provides | Rate Limits | Cost |
-|--------|-----------------|-------------|------|
-| [CoinMarketCap API](https://coinmarketcap.com/api/documentation/v1/) | Listings, quotes, categories, gainers/losers, trending, ID mapping | 10K credits/mo (free) | Free / Pro |
-| [DexScreener API](https://docs.dexscreener.com/api/reference) | New pairs, boosted tokens, volume spikes, token profiles | 60 req/min (free) | Free |
-| [CoinGecko API](https://www.coingecko.com/en/api) | Market cap, historical data, trending coins, OHLCV | 30 req/min (free) | Free / Pro |
-| [Bitquery](https://bitquery.io/) | On-chain DEX trades, whale movements, token flows | Varies | Free tier + paid |
-| [DeFiLlama API](https://defillama.com/docs/api) | TVL, protocol revenue, yield data | Unlimited | Free |
-| [Etherscan/Basescan APIs](https://docs.etherscan.io/) | Contract verification, holder counts, token transfers | 5 req/sec (free) | Free |
-| [Moralis API](https://moralis.io/) | Wallet balances, token metadata, NFT data, historical txns | Varies | Free tier |
-| [GeckoTerminal API](https://www.geckoterminal.com/dex-api) | Pool data, OHLCV by pool, trending pools per chain | 30 req/min | Free |
-| [Shrimpy Developer API](https://developers.shrimpy.io/) | Universal exchange API, portfolio rebalancing, smart order routing, CEX data | Varies | Free tier + paid |
-| [CoinAPI](https://www.coinapi.io/) | Unified REST + WebSocket — trades, quotes, OHLCV, order books (400+ exchanges) | 100 req/day (free) | Free / Paid |
-
-**CoinMarketCap API Endpoints (Base: `https://pro-api.coinmarketcap.com`):**
-
-> Auth: Pass API key via `X-CMC_PRO_API_KEY` header. Sandbox for testing: `https://sandbox-api.coinmarketcap.com`
+## 🏗 System Architecture (LIVE)
 
 ```
-# ── Discovery & Screening ──────────────────────────────────────────────
-GET /v1/cryptocurrency/listings/latest    → All coins ranked by market cap (paginated)
-    ?sort=percent_change_24h&sort_dir=desc&limit=50    → Top 24h movers
-    ?sort=volume_24h&sort_dir=desc&limit=50            → Highest volume
-    ?market_cap_min=100000&market_cap_max=10000000      → Microcap gems filter
-    ?volume_24h_min=50000                               → Minimum volume floor
-
-GET /v1/cryptocurrency/trending/latest    → Currently trending coins (social + volume)
-GET /v1/cryptocurrency/trending/gainers-losers → Top gainers/losers by % change
-GET /v1/cryptocurrency/categories         → List all categories (DeFi, L2, AI, Meme, etc.)
-GET /v1/cryptocurrency/category?id={id}   → Drill into a specific category
-
-# ── Quotes & Pricing ──────────────────────────────────────────────────
-GET /v2/cryptocurrency/quotes/latest      → Real-time price, mcap, volume, % changes
-    ?id=1,1027,5426                        → By CMC IDs (BTC, ETH, SOL)
-    ?symbol=BTC,ETH,SOL                    → By ticker symbol
-    ?convert=USD,ETH                       → Multi-currency conversion
-
-# ── ID Mapping (IMPORTANT — use CMC IDs for consistency) ─────────────
-GET /v1/cryptocurrency/map               → Full mapping: symbol → CMC ID → platform/contract
-    ?listing_status=active                → Only active coins
-    ?start=1&limit=5000                   → Paginate through all
-
-# ── Metadata ──────────────────────────────────────────────────────────
-GET /v2/cryptocurrency/info              → Logo, description, website, explorers, socials
-    ?id=1                                → By CMC ID
-    ?symbol=BTC                          → By symbol
-
-# ── Historical ────────────────────────────────────────────────────────
-GET /v2/cryptocurrency/quotes/historical → OHLCV + market data over time (paid plans)
+┌─────────────────────────────────────────────────────────────┐
+│                    GEM SCANNER (9 Sources)                  │
+│  DexScreener × 4  |  Moralis × 1  |  Pump.fun  |  Binance  │
+│  Watchlist Reeval  |  CTO Revival  |  Ads                   │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ GemCandidate objects
+┌───────────────────────────▼─────────────────────────────────┐
+│              SIGNAL ENGINE (29 Indicators)                  │
+│  TA: RSI, MACD, BB, EMA, ADX, Stoch, OBV, VWAP, ATR…      │
+│  On-chain: Holders, Volume, Whale score, Moralis score      │
+│  Sentiment: Grok 5%, Social 3%                              │
+│  Fibonacci: Retracement zones from fib_hunter.py            │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ gem_score 0–100
+┌───────────────────────────▼─────────────────────────────────┐
+│              HARD ENTRY GATES (Pre-trade)                   │
+│  ① Solana age gate: REJECT if < 2h old                      │
+│  ② Near-ATH FOMO gate: REJECT if top 15% of 7d range        │
+│     without whale confirmation (exp_buyers < 3)             │
+│  ③ Score floor: MIN_GEM_SCORE = 65                          │
+│  ④ GoPlus safety: honeypot / tax / rug checks               │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ qualified gem
+┌───────────────────────────▼─────────────────────────────────┐
+│              EXECUTION ENGINE                               │
+│  EVM: executor.py → wallet_router.py → 1inch / Uniswap      │
+│  SOL: solana_executor.py → Jupiter V6 Swap API              │
+│  MEV: mev_protection.py (Flashbots / private mempool)       │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ open position
+┌───────────────────────────▼─────────────────────────────────┐
+│              POSITION MONITOR (30s interval)                │
+│  TP1 @ 1.5× → sell 40%   |  Trailing stop Tier 1: 20%      │
+│  TP2 @ 2.5× → sell 35%   |  Trailing stop Tier 2: 15%      │
+│  TP3 @ 5.0× → sell 25%   |  Trailing stop Tier 3: 10%      │
+│  Stale rotation: eject if ±2.5% for 4+ hours               │
+│  Pyramid scaling: add to winners at each TP tier            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Key CMC Integration Patterns:**
+---
+
+## 📡 Discovery Pipeline — 9 Active Sources
+
+The scanner runs `scan_for_gems()` on all 6 chains in parallel. Sources are evaluated in priority order.
+
+### Source Priority Order
+
+| # | Source | Signal | File |
+|---|--------|--------|------|
+| 1 | **DexScreener Latest Profiles** | New project launches | `dexscreener.py` |
+| 2 | **DexScreener Latest Boosts** | Community-paid visibility | `dexscreener.py` |
+| 3 | **DexScreener Top Boosts** | Strongest community momentum | `dexscreener.py` |
+| 4 | **CTO Revival** | Community-rescued projects (top-tier turnaround signal) | `dexscreener.py` |
+| 5 | **Ads** | Funded teams with marketing spend | `dexscreener.py` |
+| 6 | **Moralis Multi-Signal** | Buying pressure → filtered tokens → whale accumulation → trending → top gainers | `moralis_money.py` |
+| 7 | **Watchlist Re-evaluation** | Near-miss tokens that improved since last cycle | `gem_scanner.py` |
+| 8 | **Pump.fun Graduated** | Solana tokens that just graduated bonding curve to Raydium | `moralis_solana.py` |
+| 9 | **Binance Pulse Trending** | Web3 wallet trending tokens across supported chains | `binance_pulse.py` |
+
+### Moralis Discovery Sub-Sources (Source 6, in order)
+
+```
+moralis_discover():
+  [0] get_buying_pressure_tokens()      ← FIRST: real-time momentum
+  [1] get_filtered_tokens()             ← Smart money accumulation filter
+  [2] get_whale_accumulation_tokens()   ← netExperiencedBuyers signal
+  [3] get_trending_tokens()             ← Volume/social trending
+  [4] get_top_gainers(timeframe="1h")   ← 1h breakout momentum
+  [5] get_top_losers(timeframe="1h")    ← Mean-reversion candidates (Wallet B)
+```
+
+---
+
+## 🔢 Gem Scoring Engine — Live Weights
+
+All tokens are scored 0–100. A token needs **65+** to enter.
+
+### Composite Score Formula
+
+| Category | Weight | Key Signals |
+|----------|--------|-------------|
+| Volume score | 22% | Volume spike, buy/sell ratio, 1h vs 24h volume |
+| Holder/Whale score | 18% | Whale accumulation bonus (+20% if exp_buyers > 5), holder growth |
+| Liquidity score | 14% | Pool depth, liquidity change trend |
+| Age score | 4% | Optimal window 2h–24h (Solana < 2h = hard reject) |
+| Safety score | 12% | GoPlus security score, honeypot, taxes, ownership |
+| TA/Momentum score | 10% | RSI, MACD, BB squeeze, EMA crossovers |
+| Fibonacci score | 5% | Price position within retracement zones |
+| Social score | 3% | Twitter/TG mentions via `social_scoring.py` |
+| Grok sentiment | **5%** | Narrative/sentiment via `grok_sentiment.py` |
+| Boost/CTO score | 7% | DexScreener boost amount, CTO revival flag |
+
+> **Grok sentiment is a PRIMARY swing-trade signal** — boosted from 2% to 5%. Tokens with strong narrative momentum receive meaningful score uplift.
+
+### Score Floors & Gates
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `MIN_GEM_SCORE` | **65.0** | Standard entry gate |
+| `CAPITAL_RECOVERY_MIN_SCORE` | **62.0** | Floor during recovery mode (raised from 55) |
+| `CASCADE_BOOST_FLOOR_SCORE` | **58.0** | Floor during win-streak cascade (raised from 38) |
+| `CASCADE_BOOST_MAX_REDUCTION` | **5.0 pts** | Max score discount from win streak (was 12) |
+
+---
+
+## 🚫 Hard Entry Gates (MANDATORY — fires before scoring)
+
+These are binary REJECT gates in `gem_scanner.py::_score_token()`. If any fires, the token is **dropped entirely**.
+
+### Gate 1: Solana Age Gate
 ```python
-# Example: Find microcap gems with strong volume
-import requests
-
-CMC_BASE = "https://pro-api.coinmarketcap.com"
-headers = {"X-CMC_PRO_API_KEY": os.getenv("CMC_API_KEY")}
-
-def find_microcap_gems():
-    """Find tokens with <$10M mcap but >$50K daily volume — potential breakouts."""
-    resp = requests.get(f"{CMC_BASE}/v1/cryptocurrency/listings/latest", headers=headers, params={
-        "market_cap_min": 100_000,
-        "market_cap_max": 10_000_000,
-        "volume_24h_min": 50_000,
-        "sort": "percent_change_24h",
-        "sort_dir": "desc",
-        "limit": 50,
-        "convert": "USD",
-    })
-    return resp.json()["data"]
-
-def get_trending_gainers():
-    """Top trending gainers — cross-reference with DexScreener for DEX-specific data."""
-    resp = requests.get(f"{CMC_BASE}/v1/cryptocurrency/trending/gainers-losers",
-                        headers=headers, params={"limit": 30, "time_period": "24h"})
-    return resp.json()["data"]
+# In _score_token()
+if chain == "solana" and token.age_hours < 2.0:
+    logger.info(f"⛔ SOLANA AGE GATE: {token.symbol} only {token.age_hours:.1f}h old")
+    return None  # HARD REJECT
 ```
+**Why**: Solana tokens < 2h old are in the rug-pull danger window. The bonding curve hasn't proven itself.
 
----
-
-**DexScreener Specific Endpoints to Use:**
-```
-GET /token-profiles/latest        → Latest token profiles (new projects)
-GET /token-boosts/latest          → Currently boosted tokens (paid visibility = community hype signal)
-GET /token-boosts/top             → Most boosted tokens (strongest community push)
-GET /dex/search?q={query}         → Search pairs by token name/symbol
-GET /dex/tokens/{addresses}       → Get pairs for specific token addresses
-GET /dex/pairs/{chainId}/{pairAddress} → Detailed pair data (price, volume, liquidity, txns)
-```
-
-#### Scanning Criteria (Score Each Token 0–100)
-
-| Signal | Weight | Threshold |
-|--------|--------|-----------|
-| Token age | 15% | < 24h = high score, > 7d = lower |
-| Volume spike | 20% | >300% increase in 1h = hot |
-| Liquidity depth | 15% | Minimum $50K, ideal >$200K |
-| Contract verified | 10% | Must be verified on block explorer |
-| Honeypot check | **PASS/FAIL** | Must pass — instant disqualify if fail |
-| Holder distribution | 10% | Flag if top 10 wallets hold >60% |
-| Buy/sell tax | 10% | Flag if tax >5% on either side |
-| Social signals | 10% | Twitter mentions, TG group size, CT buzz |
-| DexScreener boost status | 5% | Boosted = community investing in visibility |
-| Smart money wallets | 5% | Tracked wallets buying = strong signal |
-
-#### Honeypot & Rug Detection (MANDATORY pre-trade checks)
-
-Run **ALL** of these before any buy:
-| Tool | What It Checks | API |
-|------|---------------|-----|
-| [Honeypot.is](https://honeypot.is/) | Simulates buy+sell, detects honeypots | `https://api.honeypot.is/v2/IsHoneypot?address={addr}&chainID={id}` |
-| [Token Sniffer](https://tokensniffer.com/) | "Smell Test" score, scam pattern matching | `https://tokensniffer.com/api/v2/tokens/{chainId}/{address}` |
-| [De.Fi Scanner](https://de.fi/scanner) | Contract audit, honeypot, rug patterns (40+ chains) | Web scrape or API |
-| [GoPlus Security API](https://gopluslabs.io/) | Token security, malicious contract detection | `https://api.gopluslabs.io/api/v1/token_security/{chainId}?contract_addresses={addr}` |
-
+### Gate 2: Near-ATH FOMO Reject
 ```python
-# Example: Pre-trade safety check pipeline
-async def is_safe_to_trade(token_address: str, chain_id: int) -> bool:
-    honeypot = await check_honeypot_is(token_address, chain_id)
-    goplus = await check_goplus_security(token_address, chain_id)
-    
-    if honeypot["isHoneypot"]:
-        return False  # BLOCKED
-    if goplus["buy_tax"] > 0.05 or goplus["sell_tax"] > 0.05:
-        return False  # High tax = likely scam
-    if goplus["is_open_source"] == "0":
-        return False  # Unverified contract
-    if goplus["owner_change_balance"] == "1":
-        return False  # Owner can drain
-    if goplus["cannot_sell_all"] == "1":
-        return False  # Sell restrictions
-    
-    return True
+# If price > 85% of 7d ATH AND whale confirmation missing:
+if near_ath and not whale_confirmed:
+    logger.info(f"⛔ NEAR-ATH REJECT: {token.symbol} at {pct_from_ath:.0f}% of ATH, no whale backing")
+    return None  # HARD REJECT
 ```
+**Why**: Chasing tokens near their ATH without smart money confirmation = FOMO entry = guaranteed bag.
 
----
-
-### Phase 2 — Technical Analysis & Signals
-
-#### Recommended Libraries
-| Library | Language | Best For | Link |
-|---------|----------|----------|------|
-| **pandas-ta** | Python | 120+ indicators, Pandas integration | [GitHub](https://github.com/twopirllc/pandas-ta) |
-| **ta** | Python | Feature engineering from OHLCV | [GitHub](https://github.com/bukosabino/ta) |
-| **ccxt** | Python/JS | 120+ exchange unified API | [GitHub](https://github.com/ccxt/ccxt) |
-| **finta** | Python | FinTech indicators in Pandas | [GitHub](https://github.com/peerchemist/finta) |
-| **technicalindicators** | JavaScript | 20+ indicators + 30 candlestick patterns | [GitHub](https://github.com/anandanand84/technicalindicators) |
-
-#### Indicators to Implement
-
-**Trend Detection:**
-- EMA crossovers: 9/21 (short-term), 50/200 (golden/death cross)
-- MACD (12, 26, 9) — crossover signals + histogram divergence
-- ADX (Average Directional Index) — trend strength filter (>25 = strong trend)
-
-**Momentum & Reversal:**
-- RSI (14-period) — Buy <30 (oversold), Sell >70 (overbought)
-- Stochastic RSI — confirmation signal for RSI extremes
-- Bollinger Bands — squeeze detection (volatility contraction → breakout imminent)
-- VWAP — institutional entry/exit reference
-
-**Volume Analysis:**
-- OBV (On-Balance Volume) — confirm price moves with volume
-- Volume spike detection (>3x average = significant event)
-- Accumulation/Distribution — smart money flow
-
-**On-Chain Signals (Gem-Specific):**
-- Unique holder count growth rate
-- Transaction count acceleration
-- Whale wallet accumulation (wallets >1% of supply buying)
-- DEX volume / Market cap ratio (>10% daily = high activity)
-- Liquidity lock status and duration
-
-#### Signal Scoring System
+### Gate 3: GoPlus Safety
 ```python
-class SignalScore:
-    def __init__(self):
-        self.trend_score = 0      # -100 to +100 (bearish to bullish)
-        self.momentum_score = 0   # 0 to 100
-        self.volume_score = 0     # 0 to 100
-        self.onchain_score = 0    # 0 to 100
-        
-    @property
-    def composite(self) -> float:
-        """Weighted composite score. >70 = BUY, <30 = SELL"""
-        return (
-            self.trend_score * 0.30 +
-            self.momentum_score * 0.25 +
-            self.volume_score * 0.20 +
-            self.onchain_score * 0.25
-        )
+# In safety.py / goplus.py — runs for every candidate
+if goplus["buy_tax"] > 0.10 or goplus["sell_tax"] > 0.10:
+    return False  # BLOCKED
+if goplus["is_honeypot"]:
+    return False  # BLOCKED
+if goplus["cannot_sell_all"] == "1":
+    return False  # BLOCKED
 ```
 
 ---
 
-### Phase 3 — Trade Execution Engine
+## 💰 Position Management — Live Rules
 
-#### Architecture
+### Take Profit Tiers (Pyramid Scaling)
+| Tier | Trigger | Action | Trailing Stop Applied |
+|------|---------|--------|-----------------------|
+| TP1 | Price = **1.5× entry** (+50%) | Sell **40%** of position | 20% trailing on remainder |
+| TP2 | Price = **2.5× entry** (+150%) | Sell **35%** of remaining | 15% trailing on remainder |
+| TP3 | Price = **5.0× entry** (+400%) | Sell **25%** of remaining | 10% trailing on remainder |
+| Moon | Price > 5× | Hold remainder with tight 10% trail | — |
+
+### Stale Position Rotation
+**Dead money is opportunity cost.** Any position that is flat gets ejected to free capital.
 ```
-┌──────────────┐    ┌──────────────────┐    ┌──────────────┐    ┌──────────────────┐
-│ Gem Scanner  │───→│ Signal Generator │───→│  Risk Check  │───→│ Execute Trade    │
-│ (Phase 1)    │    │ (Phase 2)        │    │              │    │                  │
-└──────────────┘    └──────────────────┘    │ • Position   │    │ • MEV Protected  │
-                                            │   Sizing     │    │ • Slippage Guard │
-┌──────────────┐                            │ • Stop-Loss  │    │ • Gas Optimized  │
-│ Portfolio    │←────────────────────────────│ • Circuit    │    │ • Multi-wallet   │
-│ Manager     │    (P&L updates, rebalance) │   Breaker    │    │   routing        │
-└──────────────┘                            └──────────────┘    └──────────────────┘
-                                                                         │
-                                                                    ┌────▼────┐
-                                                                    │ Flashbots│
-                                                                    │ Protect  │
-                                                                    │ RPC      │
-                                                                    └─────────┘
+UNDERPERFORMER_FLAT_HOURS = 4.0   # Was 12h — now 3× faster rotation
+UNDERPERFORMER_FLAT_PCT   = 2.5   # ±2.5% = "flat" (was ±5%)
+```
+If a position hasn't moved more than ±2.5% within **4 hours**, it is sold and capital is redeployed.
+
+### Position Sizing
+```
+MAX_POSITION_SIZE_PERCENT = 5.0%   # Per-position cap as % of portfolio
+MAX_PORTFOLIO_EXPOSURE    = 75.0%  # Max total deployed capital
 ```
 
-#### Execution Stack
-| Component | Tool | Why |
-|-----------|------|-----|
-| **On-chain txns** | [web3.py](https://github.com/ethereum/web3.py) | Python-native, mature, well-documented |
-| **DEX aggregation** | [1inch Swap API](https://portal.1inch.dev/) | Best price routing across all DEXs |
-| **Backup DEX** | Uniswap V3 SDK / Router | Direct contract calls when 1inch is slow |
-| **MEV Protection** | [Flashbots Protect RPC](https://docs.flashbots.net/flashbots-protect/overview) | Private mempool — prevents front-running/sandwich attacks |
-| **MEV Protection Alt** | [MEV Blocker](https://mevblocker.io/) | 90% backrun rebates, orderflow protection |
-| **Gas estimation** | EIP-1559 + Blocknative Gas API | Accurate priority fees, avoid overpaying |
+---
 
-#### MEV Protection (CRITICAL)
-All trades MUST be routed through MEV-protected RPCs to prevent:
-- **Front-running**: Bots seeing your pending txn and buying ahead of you
-- **Sandwich attacks**: Buy before you → your trade executes at worse price → sell after you
+## 🛠 Data Providers (ALL LIVE)
 
+| File | What It Provides |
+|------|-----------------|
+| `moralis_money.py` | Buying pressure, filtered tokens, whale accumulation, trending, gainers/losers |
+| `moralis_solana.py` | Pump.fun graduated tokens, Solana-specific discovery |
+| `moralis_wallet.py` | Wallet balances, token holdings, net worth |
+| `moralis_price.py` | Token prices, OHLCV via Moralis |
+| `dexscreener.py` | Token profiles, boosts, CTO, ads, pair data |
+| `goplus.py` | Security checks: honeypot, taxes, ownership, rug patterns |
+| `grok_sentiment.py` | Narrative/sentiment scoring via Grok API |
+| `binance_pulse.py` | Smart Money, Social Hype, Unified Rank from Binance Web3 |
+| `holder_analysis.py` | Holder count growth, concentration analysis |
+| `smart_money.py` | Tracked wallet buy/sell detection |
+| `social_scoring.py` | Twitter/TG mention velocity |
+| `copycat_detector.py` | Detects fake/clone tokens |
+| `ohlcv_provider.py` | OHLCV candlesticks for TA engine |
+| `coingecko.py` | Market cap, historical data |
+| `defillama.py` | TVL, protocol revenue |
+| `oneinch.py` | 1inch quote/swap routing for EVM |
+| `token_unlocks.py` | Unlock schedule risk detection |
+| `dev_wallet_history.py` | Dev wallet behavior patterns |
+
+---
+
+## ⚙️ Core Engine Modules
+
+| Module | Role |
+|--------|------|
+| `core/signal_engine.py` | 29-indicator composite scoring (RSI, MACD, BB, EMA, ADX, OBV, VWAP, ATR, Stoch, Fib…) |
+| `core/executor.py` | EVM trade execution via 1inch / Uniswap |
+| `core/solana_executor.py` | Solana execution via Jupiter V6 Swap API |
+| `core/wallet_router.py` | Routes trades to correct wallet (Primary / B / C) |
+| `core/mev_protection.py` | Flashbots / private mempool for front-run protection |
+| `core/position_monitor.py` | TP tiers, trailing stops, stale rotation, pyramid scaling |
+| `core/risk.py` | Portfolio exposure caps, daily loss limits |
+| `core/safety.py` | Pre-trade safety gate orchestration |
+| `core/adaptive_mode.py` | Capital Recovery Mode — tightens scoring on losing streaks |
+| `core/offensive_guardrails.py` | Win-streak cascade boost, express lane, overdrive mode |
+| `core/fib_hunter.py` | Fibonacci retracement zone detection |
+| `core/moonshot_allocator.py` | Allocates extra sizing to ultra-high-score tokens |
+| `core/regime_filter.py` | Market regime detection (bull/bear/sideways) |
+| `core/portfolio_rebalancer.py` | Cross-wallet rebalancing and profit sweeps |
+| `core/balance_fetcher.py` | Real-time balance fetching across all wallets/chains |
+| `core/reconciliation.py` | Trade reconciliation and PnL tracking |
+
+---
+
+## 🔄 Adaptive Trading Modes
+
+### Capital Recovery Mode
+Triggered when portfolio is below baseline. Bot becomes **more selective**:
+- `MIN_GEM_SCORE` raised to `CAPITAL_RECOVERY_MIN_SCORE = 62.0`
+- Position sizes reduced
+- Cascade boost disabled
+
+### Cascade Boost (Win Streak Mode)
+Triggered after consecutive wins. Score floor is relaxed slightly:
+- Floor never drops below `CASCADE_BOOST_FLOOR_SCORE = 58.0`
+- Max reduction: `CASCADE_BOOST_MAX_REDUCTION = 5.0 pts`
+- Per-win reduction: `CASCADE_BOOST_PER_WIN = 0.75 pts`
+
+### Express Overdrive
+After a strong win, slippage tolerance is raised to capture fast-moving plays:
+- `EXPRESS_OVERDRIVE_ENABLED = true`
+- `EXPRESS_OVERDRIVE_EXTRA_SLIPPAGE_BPS = 150`
+
+---
+
+## 🚀 Execution Stack
+
+### EVM Chains (Ethereum, Base, Arbitrum, Polygon, BSC)
 ```python
-# Flashbots Protect RPC endpoints
-MEV_PROTECTED_RPCS = {
-    "ethereum": "https://rpc.flashbots.net",
-    "base": "https://rpc.flashbots.net/base",  # If available, else use standard
-}
-
-# MEV Blocker (alternative — offers rebates)
-MEV_BLOCKER_RPC = "https://rpc.mevblocker.io"
+# core/executor.py → core/wallet_router.py
+# Routes: 1inch Aggregator (best price) or direct Uniswap V3
+# MEV protection: Flashbots bundle submission on Ethereum
+# Slippage: configurable per-chain, default 1–3%
 ```
 
-#### Multi-Wallet Trade Routing
+### Solana
 ```python
-WALLET_STRATEGY = {
-    "primary": {
-        "address": "0x3eb320fad3f51fe4f2a4531f911ef56694346eef",
-        "strategies": ["gem_snipe", "momentum"],
-        "max_position_eth": 0.5,
-        "chains": ["ethereum", "base"],
-    },
-    "wallet_b": {
-        "address": "0x0835eb8447f3ac90351951bb5d22e77afd9b81c0",
-        "strategies": ["dca", "mean_reversion"],
-        "max_position_eth": 0.3,
-        "chains": ["arbitrum", "polygon"],
-    },
-    "wallet_c": {
-        "address": "0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860",
-        "strategies": ["long_term_hold"],
-        "max_position_eth": 1.0,
-        "chains": ["ethereum"],
-        "note": "Profit sweep destination. Auto-transfer profits >0.5 ETH from primary/B here."
-    },
-}
-```
-
-#### Risk Management Rules
-| Rule | Parameter | Default |
-|------|-----------|---------|
-| Max position size | % of wallet balance | 2% per trade |
-| Max concurrent positions | Per wallet | 10 |
-| Slippage tolerance | Max % | 3% (configurable per token) |
-| Trailing stop-loss | % from peak | 10% |
-| Hard stop-loss | % from entry | 25% |
-| Take-profit levels | Staged exits | 50% at 2x, 25% at 5x, let 25% ride |
-| **Circuit breaker** | Portfolio drawdown | **HALT ALL TRADING if -15% in 24h** |
-| Daily loss limit | Max ETH lost | 0.5 ETH per wallet per day |
-| Gas ceiling | Max gwei willing to pay | 50 gwei (skip trade if higher) |
-| Token approval | Max approval amount | Exact trade amount only (NEVER unlimited) |
-
----
-
-### Phase 4 — Portfolio Management Dashboard
-
-#### Features
-| Feature | Description |
-|---------|-------------|
-| **Real-time portfolio** | All 3 wallets — ETH + USD values, per-chain breakdown |
-| **Position tracker** | Entry price, current price, % P&L, unrealized/realized gains |
-| **Trade history** | Full log with timestamps, gas costs, reasoning, CSV export |
-| **P&L reports** | Daily, weekly, monthly summaries — by wallet and combined |
-| **Alert system** | Slack + Telegram notifications for trades, stop-loss triggers, circuit breakers |
-| **Charting** | [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) embedded |
-| **Signal dashboard** | Live gem scanner output, confidence scores, pending signals |
-| **Safety dashboard** | Honeypot check results, rejected tokens, blocked wallets |
-
-#### Notification Events (Slack/Telegram)
-| Event | Priority | Channel |
-|-------|----------|---------|
-| New gem discovered (score >80) | 🟡 Medium | `#trading-gems` |
-| Trade executed | 🟢 Normal | `#trading-activity` |
-| Stop-loss triggered | 🔴 High | `#trading-alerts` |
-| Circuit breaker activated | 🔴🔴 Critical | `#trading-alerts` + SMS |
-| Honeypot detected (pre-trade block) | 🟡 Medium | `#trading-safety` |
-| Profit sweep to Wallet C | 🟢 Normal | `#trading-activity` |
-| Daily P&L summary | 🟢 Normal | `#trading-daily` |
-
----
-
-### Phase 5 — AI Strategy Layer (Advanced)
-
-#### Machine Learning Integration
-| Component | What It Does |
-|-----------|-------------|
-| **Pattern recognition** | Train on historical gem data — what signals preceded 10x tokens? |
-| **Sentiment analysis** | NLP on Crypto Twitter, Telegram groups, Reddit for alpha |
-| **Reinforcement learning** | Optimize entry/exit timing based on reward function (P&L) |
-| **Anomaly detection** | Flag unusual on-chain activity (whale dumps, liquidity pulls) |
-
-#### Recommended ML Tools
-- [scikit-learn](https://scikit-learn.org/) — Classification, feature importance
-- [XGBoost](https://github.com/dmlc/xgboost) — Gradient boosting for tabular signal data
-- [financial-dataset-generator](https://github.com/Erfaniaa/financial-dataset-generator) — Training data creation
-- [Intelligent Trading Bot](https://github.com/asavinov/intelligent-trading-bot) — Reference implementation for ML signals
-
----
-
-## 🏗 Tech Stack
-
-| Layer | Recommended | Alternatives |
-|-------|------------|--------------|
-| **Language** | Python 3.11+ | TypeScript/Node.js |
-| **Exchange Data** | [ccxt](https://github.com/ccxt/ccxt) | Exchange-specific SDKs |
-| **On-chain Execution** | [web3.py](https://github.com/ethereum/web3.py) | ethers.js, viem |
-| **DEX Aggregation** | 1inch Swap API | Paraswap, 0x API, CoW Protocol |
-| **Technical Analysis** | pandas-ta | ta-lib, finta |
-| **Honeypot Detection** | GoPlus Security API + Honeypot.is | Token Sniffer, De.Fi Scanner |
-| **MEV Protection** | Flashbots Protect RPC | MEV Blocker, Alchemy MEV Protection |
-| **Data Storage** | SQLite (dev) → PostgreSQL (prod) | MongoDB, TimescaleDB |
-| **Portfolio Rebalancing** | [Shrimpy API](https://developers.shrimpy.io/) | Custom rebalancer, CCXT-based |
-| **Task Scheduling** | APScheduler | Celery, cron |
-| **Notifications** | Slack webhooks + Telegram Bot | Discord webhooks |
-| **Dashboard** | Streamlit | Next.js, Grafana |
-| **ML/AI** | scikit-learn + XGBoost | TensorFlow, PyTorch |
-| **Containerization** | Docker + docker-compose | Podman |
-
----
-
-## 📦 Reference Repository
-
-**PRIMARY REFERENCE:**
-> 🔗 [https://github.com/botcrypto-io/awesome-crypto-trading-bots](https://github.com/botcrypto-io/awesome-crypto-trading-bots)
-
-### Top Open-Source Bots to Study
-| Bot | Language | Why It's Useful | Link |
-|-----|----------|----------------|------|
-| **freqtrade** | Python | Most mature — backtesting, ML, Telegram control, strategy marketplace | [GitHub](https://github.com/freqtrade/freqtrade) |
-| **Hummingbot** | Python | DEX + CEX market making, best architecture reference | [GitHub](https://github.com/coinalpha/hummingbot) |
-| **jesse** | Python | Advanced strategy framework, clean API, great docs | [GitHub](https://github.com/jesse-ai/jesse) |
-| **OctoBot** | Python | Fully modular, plugin-based, built-in UI | [GitHub](https://github.com/Drakkar-Software/OctoBot) |
-| **OpenTrader** | TypeScript | GRID + DCA strategies, 100+ exchanges via CCXT, UI included | [GitHub](https://github.com/bludnic/opentrader) |
-| **Intelligent Trading Bot** | Python | ML-based signal generation — closest to Phase 5 goals | [GitHub](https://github.com/asavinov/intelligent-trading-bot) |
-| **the0** | Multi | Multi-language strategy engine, containerized deployment | [GitHub](https://github.com/alexanderwanyoike/the0) |
-| **Superalgos** | JavaScript | Visual strategy designer, integrated charting & backtesting | [GitHub](https://github.com/Superalgos/Superalgos) |
-
-### Utility Repos & Communities
-| Tool | Purpose | Link |
-|------|---------|------|
-| **undervalued-crypto-finder** | Find coins below MA200 — gem scanner inspiration | [GitHub](https://github.com/Erfaniaa/undervalued-crypto-finder) |
-| **financial-dataset-generator** | Generate ML training datasets from market data | [GitHub](https://github.com/Erfaniaa/financial-dataset-generator) |
-| **crypto-trading-strategy-backtester** | Quick strategy backtesting framework | [GitHub](https://github.com/Erfaniaa/crypto-trading-strategy-backtester) |
-| **OrderBooks** | Orderbook snapshot & delta management (Node.js) | [GitHub](https://github.com/tiagosiebler/OrderBooks) |
-| **awesome-crypto-examples** | Working API examples for major exchanges | [GitHub](https://github.com/tiagosiebler/awesome-crypto-examples) |
-| **shrimpy-python** | Official Shrimpy Python SDK — portfolio rebalancing & exchange management | [GitHub](https://github.com/shrimpy-dev/shrimpy-python) |
-| **PineScripters** | TradingView Pine Script community — 150K+ open-source indicators & strategies | [Telegram](https://t.me/pinescripters) / [TradingView](https://www.tradingview.com/scripts/) |
-| **PineCoders QA** | Official TradingView Pine Script help channel | [Telegram](https://t.me/PineCodersQA) |
-
----
-
-## ⚙️ Configuration & Environment
-
-Create a `.env` file (**NEVER** commit this — already in `.gitignore`):
-
-```env
-# ═══════════════════════════════════════════════
-# WALLETS
-# ═══════════════════════════════════════════════
-WALLET_PRIVATE_KEY_PRIMARY=your_primary_key_here
-WALLET_PRIVATE_KEY_B=your_wallet_b_key_here
-WALLET_PRIVATE_KEY_C=your_wallet_c_key_here
-
-WALLET_ADDRESS_PRIMARY=0x3eb320fad3f51fe4f2a4531f911ef56694346eef
-WALLET_ADDRESS_B=0x0835eb8447f3ac90351951bb5d22e77afd9b81c0
-WALLET_ADDRESS_C=0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860
-
-# ═══════════════════════════════════════════════
-# RPC ENDPOINTS (get keys from Alchemy or Infura)
-# ═══════════════════════════════════════════════
-ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
-BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
-ARB_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY
-POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
-BSC_RPC_URL=https://bsc-dataseed.binance.org
-
-# MEV-Protected RPCs (USE THESE FOR TRADE EXECUTION)
-ETH_RPC_MEV_PROTECTED=https://rpc.flashbots.net
-# or: https://rpc.mevblocker.io
-
-# ═══════════════════════════════════════════════
-# API KEYS
-# ═══════════════════════════════════════════════
-ETHERSCAN_API_KEY=your_key
-BASESCAN_API_KEY=your_key
-ARBISCAN_API_KEY=your_key
-CMC_API_KEY=your_coinmarketcap_api_key        # Get free key: https://coinmarketcap.com/api/
-COINGECKO_API_KEY=your_key_if_pro
-ONEINCH_API_KEY=your_key
-MORALIS_API_KEY=your_key
-GOPLUS_API_KEY=optional
-SHRIMPY_API_KEY=your_shrimpy_key            # Get key: https://developers.shrimpy.io/
-SHRIMPY_API_SECRET=your_shrimpy_secret
-COINAPI_KEY=your_coinapi_key                # Get free key: https://www.coinapi.io/
-
-# ═══════════════════════════════════════════════
-# NOTIFICATIONS
-# ═══════════════════════════════════════════════
-SLACK_WEBHOOK_GEMS=https://hooks.slack.com/services/xxx
-SLACK_WEBHOOK_ACTIVITY=https://hooks.slack.com/services/xxx
-SLACK_WEBHOOK_ALERTS=https://hooks.slack.com/services/xxx
-TELEGRAM_BOT_TOKEN=optional
-TELEGRAM_CHAT_ID=optional
-
-# ═══════════════════════════════════════════════
-# TRADING PARAMETERS
-# ═══════════════════════════════════════════════
-MODE=paper                          # paper | live (START WITH PAPER!)
-MAX_POSITION_SIZE_PERCENT=2.0       # % of wallet per trade
-MAX_SLIPPAGE_PERCENT=3.0
-STOP_LOSS_PERCENT=10.0
-HARD_STOP_LOSS_PERCENT=25.0
-TAKE_PROFIT_1X=2.0                  # Sell 50% at 2x
-TAKE_PROFIT_2X=5.0                  # Sell 25% at 5x
-CIRCUIT_BREAKER_PERCENT=15.0        # Halt if portfolio drops this much in 24h
-MAX_GAS_GWEI=50
-MIN_LIQUIDITY_USD=50000
-MAX_CONCURRENT_POSITIONS=10
-DAILY_LOSS_LIMIT_ETH=0.5
-PROFIT_SWEEP_THRESHOLD_ETH=0.5     # Auto-transfer to Wallet C above this
+# core/solana_executor.py
+# Router: Jupiter V6 Swap API (best aggregated route)
+# Wallet: SOLANA_WALLET_ADDRESS / SOLANA_PRIVATE_KEY from env
+# Priority fee: dynamic based on network congestion
 ```
 
 ---
 
-## 🚨 Safety Rules (NON-NEGOTIABLE)
+## 📊 Dashboard (LIVE at http://5.161.126.32:8501)
 
-### Code Safety
-1. **NEVER** commit private keys, `.env`, or seed phrases to git
-2. **NEVER** approve unlimited token spending — use exact amounts per trade
-3. **ALWAYS** use MEV-protected RPCs (Flashbots/MEV Blocker) for trade execution
-4. **ALWAYS** run honeypot + rug checks (GoPlus + Honeypot.is) before any buy
-5. **ALWAYS** verify contract source code on block explorer before trading
+Built with Streamlit. 6 pages:
 
-### Trading Safety
-6. **START** in `MODE=paper` — paper trade for at least 2 weeks before going live
-7. **IMPLEMENT** circuit breaker: halt all trading if portfolio drops >15% in 24h
-8. **ENFORCE** daily loss limits per wallet (0.5 ETH default)
-9. **LOG** every transaction: timestamp, gas cost, reasoning, wallet, chain
-10. **SET** a gas ceiling (50 gwei) — skip trades during gas spikes
-
-### Operational Safety
-11. **RATE LIMIT** all API calls (respect each provider's limits — see table in Phase 1)
-12. **RETRY** with exponential backoff on failed requests (max 3 retries)
-13. **MONITOR** wallet balances — alert if ETH balance drops below 0.05 ETH (can't pay gas)
-14. **ROTATE** RPC endpoints if primary is slow/down (have fallback RPCs configured)
-15. **BACKUP** trade logs and database daily
+| Page | Content |
+|------|---------|
+| 🏠 Command Center | Portfolio P&L, active trades, scan activity |
+| 🔍 Gem Scanner | Live gem feed, score distribution, filter controls |
+| 📊 Analytics | Session stats, win rate, Fibonacci zone breakdown |
+| 💰 Positions | Open positions with real-time PnL |
+| 🏥 System Health | API status, scraper health, Docker container states |
+| 👛 Wallet Overview | Balance across all wallets and chains |
 
 ---
 
-## 📁 Project Structure
+## 🔑 Environment Variables (Required)
 
-```
-shamrock-trading-bot/
-├── .env                          # Secrets (gitignored)
-├── .env.example                  # Template with placeholder values
-├── .gitignore
-├── README.md
-├── requirements.txt
-├── docker-compose.yml            # Container orchestration
-├── Dockerfile
-│
-├── config/
-│   ├── settings.py               # Trading parameters from .env
-│   ├── chains.py                 # Chain configs (RPC URLs, router addresses, chain IDs)
-│   ├── wallets.py                # Multi-wallet config & strategy assignment
-│   └── tokens.py                 # Known token lists, blocklists, whitelists
-│
-├── core/
-│   ├── scanner.py                # Gem discovery engine (Phase 1)
-│   ├── analyzer.py               # Technical analysis signals (Phase 2)
-│   ├── executor.py               # Trade execution with MEV protection (Phase 3)
-│   ├── portfolio.py              # Portfolio tracking & P&L (Phase 4)
-│   ├── risk.py                   # Position sizing, stop-loss, circuit breakers
-│   └── safety.py                 # Honeypot/rug detection pipeline
-│
-├── data/
-│   ├── providers/
-│   │   ├── coinmarketcap.py      # CoinMarketCap API wrapper (listings, trending, categories)
-│   │   ├── dexscreener.py        # DexScreener API wrapper
-│   │   ├── coingecko.py          # CoinGecko API wrapper
-│   │   ├── goplus.py             # GoPlus security API wrapper
-│   │   ├── honeypot.py           # Honeypot.is API wrapper
-│   │   ├── onchain.py            # Etherscan/block explorer wrappers
-│   │   └── oneinch.py            # 1inch swap API wrapper
-│   ├── models.py                 # Data models (Token, Trade, Position, Signal)
-│   └── database.py               # SQLite/PostgreSQL ORM
-│
-├── strategies/
-│   ├── base.py                   # Abstract strategy class
-│   ├── gem_snipe.py              # New listing sniper (Primary wallet)
-│   ├── momentum.py               # Momentum-based trading (Primary wallet)
-│   ├── dca.py                    # Dollar-cost averaging (Wallet B)
-│   ├── mean_reversion.py         # Buy dips on established tokens (Wallet B)
-│   └── long_term.py              # Blue-chip accumulation (Wallet C)
-│
-├── ml/                           # Phase 5 — AI Strategy Layer
-│   ├── features.py               # Feature engineering pipeline
-│   ├── models.py                 # ML model training & inference
-│   ├── sentiment.py              # Social sentiment analysis
-│   └── backtest_ml.py            # ML strategy backtesting
-│
-├── notifications/
-│   ├── slack.py                  # Slack webhook alerts (multi-channel)
-│   └── telegram.py               # Telegram bot alerts
-│
-├── dashboard/
-│   └── app.py                    # Streamlit dashboard
-│
-├── scripts/
-│   ├── backtest.py               # Run backtests on historical data
-│   ├── paper_trade.py            # Simulated trading mode
-│   ├── sweep_profits.py          # Transfer profits to Wallet C
-│   └── health_check.py           # System health monitoring
-│
-├── tests/
-│   ├── test_scanner.py
-│   ├── test_safety.py            # Honeypot/rug detection tests
-│   ├── test_executor.py
-│   ├── test_risk.py
-│   └── test_strategies.py
-│
-└── logs/
-    ├── trades.log                # Transaction history
-    ├── scanner.log               # Gem discovery log
-    ├── safety.log                # Blocked tokens & reasons
-    └── errors.log                # Error tracking
-```
-
----
-
-## 🎯 Success Metrics
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Gems discovered per day | 10–50 candidates | Scanner output count |
-| Pre-trade safety check pass rate | 100% enforced | Every trade must pass |
-| Signal accuracy (backtested) | >55% win rate | Backtest results |
-| Average trade execution time | <5 seconds | Execution logs |
-| MEV protection coverage | 100% of trades | All txns via Flashbots |
-| Max drawdown tolerance | 15% | Circuit breaker enforcement |
-| Portfolio tracking accuracy | <$1 discrepancy | Cross-reference with Etherscan |
-| Uptime | 99%+ | Docker health checks |
-
----
-
-## 🏁 Getting Started — Manus Execution Order
-
-### Step 1: Scaffold
 ```bash
-git clone https://github.com/Shamrock2245/shamrock-trading-bot.git
-cd shamrock-trading-bot
-python -m venv venv && source venv/bin/activate
-pip install ccxt pandas-ta web3 python-dotenv requests aiohttp sqlalchemy
-cp .env.example .env  # Then fill in real values
+# Wallets
+WALLET_PRIVATE_KEY_PRIMARY=       # Primary EVM wallet
+WALLET_PRIVATE_KEY_B=             # Wallet B
+WALLET_PRIVATE_KEY_C=             # Wallet C
+SOLANA_PRIVATE_KEY=               # Solana wallet
+
+# APIs
+MORALIS_API_KEY=                  # Primary discovery + enrichment
+GROK_API_KEY=                     # Sentiment scoring
+DEXSCREENER_API_KEY=              # Token data (most endpoints free)
+GOPLUS_API_KEY=                   # Safety checks
+ONEINCH_API_KEY=                  # EVM swap routing
+BINANCE_PULSE_API_KEY=            # Binance Web3 trending
+
+# Chains
+ACTIVE_CHAINS=ethereum,base,arbitrum,polygon,bsc,solana
+
+# Scoring
+MIN_GEM_SCORE=65.0
+CAPITAL_RECOVERY_MIN_SCORE=62.0
+CASCADE_BOOST_FLOOR_SCORE=58.0
+
+# Position Management
+UNDERPERFORMER_FLAT_HOURS=4.0
+UNDERPERFORMER_FLAT_PCT=2.5
+MAX_POSITION_SIZE_PERCENT=5.0
+MAX_PORTFOLIO_EXPOSURE_PCT=75.0
 ```
-
-### Step 2: Build Phase 1 (Gem Scanner) FIRST
-- Wire up CoinMarketCap + DexScreener + CoinGecko + GoPlus APIs
-- Use CMC `/listings/latest` for microcap screening, `/trending/gainers-losers` for momentum
-- Cross-reference CMC discoveries with DexScreener for on-chain DEX data
-- Implement the token scoring system (0–100)
-- Build the honeypot/rug detection pipeline
-- Output: ranked list of gems printed to console + logged
-
-### Step 3: Build Phase 2 (Signals)
-- Implement TA indicators using pandas-ta
-- Create the SignalScore composite system
-- Connect signals to scanner output
-
-### Step 4: Build Phase 3 (Execution) — PAPER MODE ONLY
-- Set `MODE=paper` in `.env`
-- Build trade executor with 1inch + web3.py
-- Implement risk management (position sizing, stop-loss)
-- Simulate trades for minimum 2 weeks
-
-### Step 5: Build Phase 4 (Dashboard)
-- Streamlit app showing all 3 wallets
-- Trade history, P&L, open positions
-- Slack/Telegram notifications
-
-### Step 6: Go Live (CAREFULLY)
-- Switch `MODE=live` only after thorough paper trading
-- Start with tiny positions (0.01 ETH max)
-- Monitor closely for first 48 hours
-- Scale up gradually
-
-### Step 7: Phase 5 (ML — when ready)
-- Collect 30+ days of trading data first
-- Train models on what worked vs. what didn't
-- Deploy incrementally
-
-**Study this entire repo thoroughly:**
-> 🔗 [awesome-crypto-trading-bots](https://github.com/botcrypto-io/awesome-crypto-trading-bots)
-
-**Push all code to GitHub as you go:**
-> 🔗 [https://github.com/Shamrock2245/shamrock-trading-bot](https://github.com/Shamrock2245/shamrock-trading-bot)
 
 ---
 
-*Built for Shamrock Trading. Three wallets. Zero tolerance for rugs. Let's find gems. 💎☘️*
+## 🏛 Prime Directives for Manus
+
+1. **Never lower score floors below 58** — the cascade boost has a hard floor. Do not override it.
+2. **GoPlus safety is non-negotiable** — every EVM buy must pass safety checks before execution.
+3. **Solana age gate is inviolable** — no Solana token under 2 hours old, ever.
+4. **Moralis is the primary discovery source** — DexScreener feeds the pipeline but Moralis filters by smart money. Wire them together, not against each other.
+5. **Stale positions must be ejected** — dead money kills compounding. 4h flat = rotate.
+6. **TP tiers are sacred** — never exit 100% in one shot unless stop-loss triggers. The pyramid is how you capture moonshots.
+7. **The .env on the server is the source of truth** — settings.py defaults can be overridden. Always check both.
+8. **Never touch private keys in code** — all secrets via env vars only.
+9. **Test on paper mode first** — `PAPER_TRADING=true` before any new execution logic goes live.
+10. **The signal engine has 29 indicators** — do not add more without removing something. Complexity kills speed.
+
+---
+
+## 📦 Deployment
+
+```bash
+# Running on Hetzner VPS (root@5.161.126.32)
+# Four Docker containers:
+#   shamrock-bot        — main trading engine
+#   shamrock-dashboard  — Streamlit UI on :8501
+#   shamrock-health     — health monitoring
+#   shamrock-db         — local data persistence
+
+# Deploy new code:
+cd /root/shamrock-trading-bot
+git pull origin main
+docker compose down
+docker compose build --no-cache bot
+docker compose up -d
+docker compose logs -f --tail=40 bot
+
+# Update .env settings (gitignored — must update server directly):
+sed -i 's/OLD_VALUE/NEW_VALUE/' /root/shamrock-trading-bot/.env
+docker compose restart bot
+```
+
+---
+
+## 🔍 What Manus Should Focus On Next
+
+| Priority | Task | Why |
+|----------|------|-----|
+| 🔴 High | Improve TP exit timing using Grok sentiment reversals | Exit when narrative turns, not just price |
+| 🔴 High | Copy-trade pilot via Moralis Streams webhook | Mirror smart wallets in real-time |
+| 🟠 Medium | `getDiscoveryToken` deep intel pre-entry | 60+ data points per token before buy |
+| 🟠 Medium | Sharpen Pump.fun graduation filter | Add liquidity + holder minimum to graduated tokens |
+| 🟡 Low | Per-chain win rate analytics | Some chains may be systematically worse |
+| 🟡 Low | Watchlist promotion tuning | Near-misses need faster re-evaluation cycle |
