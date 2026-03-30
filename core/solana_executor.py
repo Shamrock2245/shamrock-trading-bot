@@ -47,8 +47,14 @@ import requests
 
 from config import settings
 from config.chains import CHAINS
+from core.mev_protection import execute_solana_via_jito
 
 logger = logging.getLogger(__name__)
+
+# Jito tip tiers (lamports) — scales with urgency and price impact
+JITO_TIP_STANDARD = 10_000        # ~$0.001 — routine gem trade
+JITO_TIP_HIGH_CONVICTION = 50_000  # ~$0.005 — score 80+ or God Signal
+JITO_TIP_SNIPE = 100_000           # ~$0.015 — new launch / congested block
 
 # Jupiter API endpoints — primary (keyed) and lite (free fallback)
 _JUPITER_PRIMARY_URL = settings.JUPITER_API_URL          # https://api.jup.ag/swap/v1
@@ -454,14 +460,61 @@ def execute_solana_buy(
         logger.error("Failed to get swap transaction from Jupiter")
         return None
 
-    # Sign and send
+    # ── Sign the transaction ──────────────────────────────────────────────────
+    signed_tx_b64 = None
+    try:
+        from solders.keypair import Keypair  # type: ignore
+        from solders.transaction import VersionedTransaction  # type: ignore
+        import base58 as _base58
+        import base64 as _base64
+
+        _pk_bytes = _base58.b58decode(private_key)
+        _keypair = Keypair.from_bytes(_pk_bytes)
+        _tx_bytes = _base64.b64decode(swap_tx)
+        _tx = VersionedTransaction.from_bytes(_tx_bytes)
+        try:
+            _signed_tx = VersionedTransaction(_tx.message, [_keypair])
+        except (TypeError, Exception):
+            _sig = _keypair.sign_message(bytes(_tx.message))
+            _signed_tx = VersionedTransaction.populate(_tx.message, [_sig])
+        signed_tx_b64 = _base64.b64encode(bytes(_signed_tx)).decode()
+    except ImportError:
+        logger.warning("solders not available — falling back to standard submission")
+
+    # ── Jito bundle submission (primary — MEV protected) ──────────────────────
+    if signed_tx_b64:
+        # Scale tip by price impact: higher impact = more competitive block needed
+        if price_impact > 2.0:
+            tip = JITO_TIP_SNIPE
+        elif price_impact > 0.5:
+            tip = JITO_TIP_HIGH_CONVICTION
+        else:
+            tip = JITO_TIP_STANDARD
+
+        jito_result = execute_solana_via_jito(
+            serialized_tx_b64=signed_tx_b64,
+            wallet_public_key=wallet_public_key,
+            tip_lamports=tip,
+        )
+        if jito_result.success:
+            logger.info(
+                f"✅ Solana buy via Jito bundle: {jito_result.bundle_id} "
+                f"| tip={tip:,} lamports | {token_mint[:8]}..."
+            )
+            return jito_result.bundle_id or "jito_bundle_submitted"
+        else:
+            logger.warning(
+                f"Jito bundle failed ({jito_result.error}) — falling back to standard RPC"
+            )
+
+    # ── Standard RPC fallback ─────────────────────────────────────────────────
     signature = sign_and_send_transaction(
         serialized_tx_b64=swap_tx,
         private_key_b58=private_key,
     )
 
     if signature:
-        logger.info(f"✅ Solana buy executed: https://solscan.io/tx/{signature}")
+        logger.info(f"✅ Solana buy executed (standard RPC): https://solscan.io/tx/{signature}")
     else:
         logger.error(f"❌ Solana buy failed for {token_mint}")
 

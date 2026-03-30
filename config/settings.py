@@ -107,8 +107,36 @@ DUST_MIN_SELL_USD = float(os.getenv("DUST_MIN_SELL_USD", "1.00"))           # On
 UNDERPERFORMER_LIQ_DOWN_PCT = float(os.getenv("UNDERPERFORMER_LIQ_DOWN_PCT", "30.0"))  # >30% down
 UNDERPERFORMER_LIQ_MIN_USD = float(os.getenv("UNDERPERFORMER_LIQ_MIN_USD", "20000.0"))  # <$20k liquidity
 
-# ── MEV Protection (Offensive Playbook §4) ─────────────────────────────────
+# ── MEV Protection (Offensive Playbook §4) ─────────────────────────────────────────────────────────────────────────────
 GAS_BRIBE_PREMIUM_PCT = float(os.getenv("GAS_BRIBE_PREMIUM_PCT", "15.0"))  # 15% gas premium for God Signals
+# Jito (Solana MEV protection)
+JITO_BLOCK_ENGINE_URL = os.getenv("JITO_BLOCK_ENGINE_URL", "https://mainnet.block-engine.jito.wtf/api/v1/bundles")
+JITO_AUTH_KEY = os.getenv("JITO_AUTH_KEY", "")  # Optional: Jito auth keypair for priority access
+# Helius RPC (enhanced Solana data — used by bundle detector + Jito)
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
+
+# ── Upgrade 2: Bundle Detector ───────────────────────────────────────────────
+BUNDLE_DETECTOR_ENABLED = os.getenv("BUNDLE_DETECTOR_ENABLED", "true").lower() == "true"
+BUNDLE_REJECT_THRESHOLD = float(os.getenv("BUNDLE_REJECT_THRESHOLD", "0.20"))  # Reject if >20% supply sniped in block 0
+
+# ── Upgrade 3: ML Weight Optimizer ───────────────────────────────────────────
+ML_WEIGHT_OPTIMIZER_ENABLED = os.getenv("ML_WEIGHT_OPTIMIZER_ENABLED", "true").lower() == "true"
+ML_WEIGHT_LOOKBACK_DAYS = int(os.getenv("ML_WEIGHT_LOOKBACK_DAYS", "7"))        # Rolling 7-day training window
+ML_WEIGHT_MIN_TRADES = int(os.getenv("ML_WEIGHT_MIN_TRADES", "20"))             # Min trades before ML kicks in
+ML_WEIGHT_RETRAIN_HOURS = int(os.getenv("ML_WEIGHT_RETRAIN_HOURS", "6"))        # Retrain every 6 hours
+DYNAMIC_WEIGHTS_PATH = os.getenv("DYNAMIC_WEIGHTS_PATH", "output/dynamic_weights.json")
+
+# ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
+WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"
+WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30"))      # seconds between polls
+WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "500"))       # ignore buys < $500
+WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "120"))         # ignore txs older than 2 min
+WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "3"))           # wallets for Tier 1 (immediate)
+WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))           # wallets for Tier 2 (express)
+WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.5"))   # copy 50% of alpha buy size
+WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "500"))     # cap copy trade at $500
+# Solana alpha wallets (EVM wallets use SMART_MONEY_WALLETS)
+ALPHA_WALLETS_SOLANA: list[str] = []  # Add known Solana alpha wallet addresses here
 
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))

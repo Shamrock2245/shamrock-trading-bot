@@ -401,7 +401,37 @@ async def run_bot_loop():
     monitor_thread.start()
     logger.info("Position monitor started in background thread")
 
-    # ── Check for Base USDC deployment plan ───────────────────────────────────
+    # ── Start proactive smart money copy-trading daemon ───────────────────────────
+    # Monitors alpha wallets every 30s and injects copy trades into the
+    # express lane when 2+ wallets buy the same token within 2 minutes.
+    try:
+        from core.wallet_monitor import start_monitor as _start_wallet_monitor
+        def _on_copy_trade_signal(candidate, signal):
+            """Callback: notify when a copy trade signal is detected."""
+            logger.info(
+                f"🔥 COPY TRADE SIGNAL: {signal.token_symbol} [{signal.chain}] "
+                f"Tier {signal.tier} | {len(signal.confirming_wallets)} alpha wallets | "
+                f"buy=${signal.buy_value_usd:.0f}"
+            )
+            try:
+                notify_alert(
+                    f"🔥 Copy Trade Signal: {signal.token_symbol}",
+                    f"Chain: {signal.chain} | Tier {signal.tier} | "
+                    f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
+                    f"Alpha buy: ${signal.buy_value_usd:.0f}",
+                    level="info",
+                )
+            except Exception:
+                pass
+        _wallet_monitor = _start_wallet_monitor(on_signal_callback=_on_copy_trade_signal)
+        logger.info(
+            f"✅ Wallet monitor daemon started: "
+            f"{len(getattr(settings, 'SMART_MONEY_WALLETS', []))} alpha wallets tracked"
+        )
+    except Exception as _wm_err:
+        logger.warning(f"Wallet monitor failed to start: {_wm_err}")
+
+    # ── Check for Base USDC deployment plan ───────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):
             with open("reports/base_deploy_plan.json", "r") as f:
