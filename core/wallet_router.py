@@ -596,10 +596,14 @@ def route_trade(
         # ── Profile-aware sizing ───────────────────────────────────────────────
         # Use the wallet's strategy profile for Kelly clamp and max position %
         profile_max_pct = profile.max_position_pct / 100  # e.g. 0.60 for nuclear
-        # In recovery mode, cap at CAPITAL_RECOVERY_MAX_POSITION_PCT
         if in_recovery_mode:
+            # Recovery mode: bypass the profile cap — it was designed for full-capital wallets.
+            # At small balances (e.g. $9), the conservative profile's 5% produces $0.45 positions
+            # which fail the min_trade check ($1 SOL). The CAPITAL_RECOVERY_MAX_POSITION_PCT (15%)
+            # is explicitly designed to allow larger relative bets during rebuilding.
+            # $9 × 15% = $1.35 → clears the Solana $0.50 min_trade floor.
             recovery_cap_pct = settings.CAPITAL_RECOVERY_MAX_POSITION_PCT / 100
-            effective_max_pct = min(phase_max_pct, profile_max_pct, recovery_cap_pct)
+            effective_max_pct = min(phase_max_pct, recovery_cap_pct)
         else:
             effective_max_pct = min(phase_max_pct, profile_max_pct)
 
@@ -651,10 +655,12 @@ def route_trade(
             conviction_multiplier = 0.50
 
         # ── Chain-specific minimum trade sizes ────────────────────────────────
-        # Minimums calibrated to gas costs: gas guard (below) catches bad ratios
+        # Minimums calibrated to gas costs: gas guard (below) catches bad ratios.
+        # Solana lowered to $0.50 (was $1.00): recovery wallets at $9 with 15% sizing
+        # produce $1.35 positions — keeping floor at $0.50 gives headroom for Kelly variance.
         CHAIN_MIN_TRADE_USD = {
             "ethereum": 100.0,   # ~$15 gas → need sizeable position
-            "solana": 1.0,       # ~$0.01 gas → near-free
+            "solana": 0.50,      # ~$0.01 gas → near-free (lowered from $1.00 for recovery)
             "base": 5.0,         # ~$0.10 gas → L2 cheap
             "arbitrum": 5.0,     # ~$0.25 gas → L2 cheap
             "polygon": 5.0,      # ~$0.05 gas → very cheap
@@ -667,15 +673,17 @@ def route_trade(
             min_trade_usd = CHAIN_MIN_TRADE_USD.get(chain, 10.0)
 
         regime_label = regime_state.regime.value if regime_state else "unknown"
-        logger.debug(
+        logger.info(  # Upgraded DEBUG→INFO so rejection reasons are visible in logs
             f"  {wallet.alias} [{profile.name}] phase={phase.name} max_pct={effective_max_pct:.1%} "
             f"regime={regime_label}(x{regime_mult:.1f}) balance=${wallet_balance_usd:.2f} "
-            f"pos_size=${position_size_usd:.2f} min_trade=${min_trade_usd}"
+            f"pos_size=${position_size_usd:.2f} min_trade=${min_trade_usd} "
+            f"recovery={in_recovery_mode}"
         )
         if position_size_usd < min_trade_usd:
-            logger.debug(
-                f"Position size too small for {wallet.alias} on {chain}: "
-                f"${position_size_usd:.2f} (min ${min_trade_usd:.2f})"
+            logger.warning(
+                f"  ❌ Position size too small for {wallet.alias} on {chain}: "
+                f"${position_size_usd:.2f} < min ${min_trade_usd:.2f} — "
+                f"(balance=${wallet_balance_usd:.2f} × {effective_max_pct:.1%})"
             )
             continue
 
