@@ -225,26 +225,68 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
         score = 30.0
         logger.debug(f"Smart money: no overlap for {token_address[:10]}... on {chain} ({len(holders)} checked)")
 
-        # ── Moralis Wallet Stats profiling (Onchain Skills: Combo A) ──
-        # If no known smart wallets found, check if top holders are
-        # experienced traders via TX count. This is a secondary signal.
-        # Only check top 3 EVM holders to conserve API calls.
-        if chain != "solana" and holders[:3]:
+        # ── Moralis Wallet Profitability (Tier 1: win rate + realized PnL) ──
+        # Profile top holders by actual trading performance, not just TX count.
+        # A wallet with 70% win rate and +$10K PnL is real smart money.
+        # A wallet with 10,000 TX but -$50K PnL is noise.
+        if holders[:3]:
             try:
-                from data.providers.moralis_wallet import get_wallet_stats
+                profitable_holders = 0
                 experienced_holders = 0
-                for holder_addr in holders[:3]:
-                    stats = get_wallet_stats(holder_addr, chain)
-                    token_transfers = stats.get("token_transfers_total", 0)
-                    if token_transfers >= 500:
-                        experienced_holders += 1
-                if experienced_holders >= 2:
+
+                if chain != "solana":
+                    from data.providers.moralis_wallet import (
+                        get_wallet_pnl_summary,
+                        get_wallet_stats,
+                    )
+                    for holder_addr in holders[:3]:
+                        # Tier 1: PnL summary (win rate + total realized profit)
+                        try:
+                            pnl = get_wallet_pnl_summary(holder_addr, chain)
+                            total_trades = pnl.get("total_count_of_trades", 0) or 0
+                            total_sells = pnl.get("total_sells", 0) or 0
+                            total_pnl_usd = pnl.get("total_realized_profit_usd", 0) or 0
+                            # Derive win_rate: profitable sells / total trades
+                            win_rate = (total_sells / total_trades) if total_trades > 0 else 0
+                            if win_rate >= 0.60 and total_pnl_usd > 0:
+                                profitable_holders += 1
+                                logger.debug(
+                                    f"Smart money PnL: {holder_addr[:10]}... "
+                                    f"winRate={win_rate:.0%} PnL=${total_pnl_usd:,.0f}"
+                                )
+                        except Exception:
+                            pass
+                        # Tier 2: TX count fallback
+                        try:
+                            stats = get_wallet_stats(holder_addr, chain)
+                            if stats.get("token_transfers_total", 0) >= 500:
+                                experienced_holders += 1
+                        except Exception:
+                            pass
+                else:
+                    # Solana: use wallet swap history as PnL proxy
+                    try:
+                        from data.providers.moralis_solana import get_wallet_swaps
+                        for holder_addr in holders[:3]:
+                            swaps = get_wallet_swaps(holder_addr, limit=50)
+                            if swaps and len(swaps) >= 10:
+                                experienced_holders += 1
+                    except Exception:
+                        pass
+
+                if profitable_holders >= 2:
+                    score = 65.0
+                    logger.info(
+                        f"Smart money (profitable): {profitable_holders}/3 top holders have "
+                        f"strong win rate + PnL for {token_address[:10]}... on {chain}"
+                    )
+                elif experienced_holders >= 2:
                     score = 50.0
                     logger.info(
                         f"Smart money (profiled): {experienced_holders}/3 top holders are "
                         f"experienced traders for {token_address[:10]}... on {chain}"
                     )
             except Exception as e:
-                logger.debug(f"Moralis wallet stats profiling failed: {e}")
+                logger.debug(f"Moralis wallet profiling failed: {e}")
 
     return _store(cache_key, score)

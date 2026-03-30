@@ -427,12 +427,36 @@ def fetch_ohlcv(
     logger.debug(f"Fetching OHLCV for {token_address[:10]}... on {chain} ({days}d)")
 
     # Source 0: Moralis Pro OHLCV (highest priority — real pair candles)
-    if pair_address:
+    # For Solana: auto-discover pair address from token mint if not provided.
+    # The scanner passes token mint addresses; Moralis OHLCV needs a pair address.
+    _resolved_pair = pair_address
+    if chain == "solana" and not _resolved_pair:
+        try:
+            from data.providers.moralis_solana import get_solana_token_pairs
+            pairs_data = get_solana_token_pairs(token_address)
+            if pairs_data:
+                # Pick pair with highest liquidity USD
+                best = max(
+                    pairs_data,
+                    key=lambda p: float(p.get("liquidityUsd", 0) or 0),
+                    default=None,
+                )
+                if best:
+                    _resolved_pair = best.get("pairAddress") or best.get("address")
+                    if _resolved_pair:
+                        logger.debug(
+                            f"Solana pair auto-discovered: {_resolved_pair[:10]}... "
+                            f"for {token_address[:10]}... (liq=${best.get('liquidityUsd', 0):,.0f})"
+                        )
+        except Exception as e:
+            logger.debug(f"Solana pair discovery failed for {token_address[:10]}...: {e}")
+
+    if _resolved_pair:
         try:
             if chain == "solana":
                 from data.providers.moralis_solana import get_token_ohlcv as moralis_solana_ohlcv
                 candles = moralis_solana_ohlcv(
-                    pair_address=pair_address,
+                    pair_address=_resolved_pair,
                     timeframe="1h",
                     limit=max(200, days * 24),
                 )
@@ -441,16 +465,18 @@ def fetch_ohlcv(
                     df["timestamp"] = pd.to_datetime(df["timestamp"])
                     df.set_index("timestamp", inplace=True)
                     df.sort_index(inplace=True)
+                else:
+                    df = None
             else:
                 from data.providers.moralis_price import get_ohlcv as moralis_ohlcv
                 df = moralis_ohlcv(
-                    pair_address=pair_address,
+                    pair_address=_resolved_pair,
                     chain=chain,
                     timeframe="1h",
                     limit=max(200, days * 24),
                 )
-                
-            if 'df' in locals() and df is not None and len(df) >= min_candles:
+
+            if df is not None and len(df) >= min_candles:
                 logger.info(
                     f"Moralis OHLCV: {len(df)} candles for "
                     f"{token_address[:10]}... on {chain}"
