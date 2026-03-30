@@ -201,6 +201,9 @@ def get_filtered_tokens(
             },
             "limit": limit,
             "metricsToReturn": [
+                # Time-series metrics only — point-in-time metrics (totalLiquidityUsd,
+                # totalHolders, securityScore) must NOT be here; they live in metadata
+                # and cause 400 when the API tries to map them to timeFramesToReturn.
                 "experiencedBuyers",
                 "netBuyers",
                 "volumeUsd",
@@ -210,9 +213,6 @@ def get_filtered_tokens(
                 "usdPrice",
                 "usdPricePercentChange",
                 "liquidityChangeUSD",
-                "totalLiquidityUsd",
-                "totalHolders",
-                "securityScore",
             ],
             "timeFramesToReturn": ["oneHour", "fourHours", "oneDay"],
             "excludeMetadata": False,
@@ -225,6 +225,9 @@ def get_filtered_tokens(
         )
         if resp.status_code in (402, 403):
             logger.debug(f"Moralis filtered tokens: plan limitation for {chain}")
+            return []
+        if resp.status_code == 400:
+            logger.warning(f"Moralis filtered tokens 400 for {chain}: {resp.text[:300]}")
             return []
         resp.raise_for_status()
         raw = resp.json()
@@ -357,6 +360,9 @@ def get_whale_accumulation_tokens(
             "limit": limit,
             "categories": {"exclude": ["stablecoin"]},
             "metricsToReturn": [
+                # Time-series metrics only — point-in-time snapshots (totalLiquidityUsd,
+                # totalHolders, securityScore, fullyDilutedValuation) live in metadata
+                # and cause 400 when sliced by timeFramesToReturn.
                 "netExperiencedBuyers",
                 "experiencedBuyers",
                 "experiencedSellers",
@@ -364,12 +370,8 @@ def get_whale_accumulation_tokens(
                 "netVolumeUsd",
                 "volumeUsd",
                 "holders",
-                "totalHolders",
                 "usdPrice",
                 "usdPricePercentChange",
-                "totalLiquidityUsd",
-                "securityScore",
-                "fullyDilutedValuation",
             ],
             "timeFramesToReturn": ["oneDay", "oneWeek"],
             "excludeMetadata": False,
@@ -382,6 +384,9 @@ def get_whale_accumulation_tokens(
         )
         if resp.status_code in (402, 403):
             logger.debug(f"Moralis whale accumulation: plan limitation for {chain}")
+            return []
+        if resp.status_code == 400:
+            logger.warning(f"Moralis whale accumulation 400 for {chain}: {resp.text[:300]}")
             return []
         resp.raise_for_status()
         raw = resp.json()
