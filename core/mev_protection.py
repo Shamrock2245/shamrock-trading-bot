@@ -1,34 +1,29 @@
 """
-core/mev_protection.py — Flashbots bundle submission and CoW Protocol live signing.
-
-This module fills the "not yet implemented" gaps in executor.py:
-  1. Flashbots: Submit private transaction bundles to avoid front-running
-  2. CoW Protocol: Full EIP-712 order signing for live execution
+core/mev_protection.py — Flashbots bundle submission, Jito Solana bundles, and CoW Protocol live signing.
 
 MEV Protection Strategy by Chain:
-  - Ethereum: CoW Protocol (batch auctions) → Flashbots (private mempool) → 1inch
-  - Base/Arbitrum/Polygon/BSC: 1inch (fast finality, MEV less of a concern)
-  - Solana: Jupiter (MEV protection built-in via priority fees)
+  - Ethereum:        CoW Protocol (batch auctions) → Flashbots Bundle (private mempool) → 1inch
+  - Base/Arbitrum:   Flashbots Protect RPC (private tx, no bundle auth needed) → 1inch
+  - Polygon/BSC:     1inch (fast finality, MEV less critical at these sizes)
+  - Solana:          Jito Bundle API (private bundle, tip-based priority) → Jupiter standard
 
-Flashbots:
-  - Sends tx as a private bundle to Flashbots relay
-  - Bundle is only included if profitable for the block builder
-  - Completely invisible to mempool scanners — no front-running possible
-  - Requires FLASHBOTS_SIGNING_KEY (separate from wallet key — just for auth)
-
-CoW Protocol:
-  - Off-chain order matching in batch auctions
-  - Orders are matched peer-to-peer before on-chain settlement
-  - Best price + MEV protection for Ethereum mainnet
-  - Requires EIP-712 signature of order struct
+UPGRADE LOG (2026-03-30):
+  - Fixed _sign_flashbots_request: now uses EIP-191 eth_account signing (not HMAC)
+  - Added execute_via_flashbots chain routing: Ethereum=bundle, Base/Arb=Protect RPC
+  - Added EIP-1559 gas pricing (maxFeePerGas/maxPriorityFeePerGas) with 15% escalation
+  - Added Jito bundle submission for Solana: submit_jito_bundle, execute_solana_via_jito
+  - Added submit_via_flashbots_protect for Base/Arbitrum single-tx private relay
+  - Added FlashbotsResult.execution_path field for execution audit trail
+  - Added JitoResult dataclass
 """
 
-import hashlib
-import hmac
+import base64
 import json
 import logging
+import os
+import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
@@ -41,136 +36,70 @@ from config.chains import CHAINS
 
 logger = logging.getLogger(__name__)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Flashbots Bundle Submission
+# Constants
 # ─────────────────────────────────────────────────────────────────────────────
-
 FLASHBOTS_RELAY_URL = "https://relay.flashbots.net"
-FLASHBOTS_PROTECT_RPC = "https://rpc.flashbots.net"
+FLASHBOTS_PROTECT_RPC = "https://rpc.flashbots.net/fast"
 
+JITO_BLOCK_ENGINE_URL = "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
+JITO_TIP_ACCOUNTS = [
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+    "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+    "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+    "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+    "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+    "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Data Classes
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class FlashbotsResult:
-    """Result of a Flashbots bundle submission."""
+    """Result of a Flashbots bundle or Protect RPC submission."""
     success: bool
     bundle_hash: Optional[str] = None
     block_number: Optional[int] = None
     tx_hash: Optional[str] = None
     error: Optional[str] = None
     simulation_passed: bool = False
+    execution_path: str = "flashbots"
 
 
+@dataclass
+class JitoResult:
+    """Result of a Jito bundle submission."""
+    success: bool
+    bundle_id: Optional[str] = None
+    tx_signature: Optional[str] = None
+    error: Optional[str] = None
+    tip_lamports: int = 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Flashbots — EIP-191 Request Signing (FIXED: was HMAC, now eth_account)
+# ─────────────────────────────────────────────────────────────────────────────
 def _sign_flashbots_request(body: str, signing_key: str) -> str:
     """
-    Sign a Flashbots API request body with the signing key.
-    Flashbots uses HMAC-SHA256 of the body for authentication.
+    Sign a Flashbots API request body using EIP-191 personal_sign.
+    Flashbots authenticates via keccak256(body) signed with the signing key.
+    Returns: "address:0xsignature" header value.
     """
-    signature = hmac.new(
-        signing_key.encode("utf-8"),
-        body.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"0x{signature}"
+    body_hash = Web3.keccak(text=body)
+    message = encode_defunct(body_hash)
+    signed = Account.sign_message(message, private_key=signing_key)
+    signer_address = Account.from_key(signing_key).address
+    return f"{signer_address}:{signed.signature.hex()}"
 
 
-def submit_flashbots_bundle(
-    signed_txs: list[str],
-    target_block: int,
-    signing_key: str,
-    simulate: bool = True,
-) -> FlashbotsResult:
-    """
-    Submit a transaction bundle to the Flashbots relay.
-
-    Args:
-        signed_txs: List of signed raw transactions (hex strings)
-        target_block: Target block number for inclusion
-        signing_key: Flashbots signing key (NOT wallet private key)
-        simulate: Whether to simulate the bundle first
-
-    Returns:
-        FlashbotsResult with bundle hash or error
-    """
-    if not signing_key:
-        return FlashbotsResult(
-            success=False,
-            error="FLASHBOTS_SIGNING_KEY not configured",
-        )
-
-    if settings.IS_PAPER:
-        logger.info(f"[PAPER] Flashbots bundle: {len(signed_txs)} txs → block {target_block}")
-        return FlashbotsResult(
-            success=True,
-            bundle_hash="0x" + "0" * 64,
-            block_number=target_block,
-            simulation_passed=True,
-        )
-
-    # Step 1: Simulate the bundle (optional but recommended)
-    if simulate:
-        sim_result = _simulate_flashbots_bundle(signed_txs, target_block, signing_key)
-        if not sim_result:
-            logger.warning("Flashbots simulation failed — submitting anyway")
-        else:
-            logger.info(f"Flashbots simulation passed: {sim_result}")
-
-    # Step 2: Submit the bundle
-    bundle_payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "eth_sendBundle",
-        "params": [
-            {
-                "txs": signed_txs,
-                "blockNumber": hex(target_block),
-                "minTimestamp": 0,
-                "maxTimestamp": int(time.time()) + 120,  # 2 min window
-            }
-        ],
-    }
-
-    body = json.dumps(bundle_payload)
-    signature = _sign_flashbots_request(body, signing_key)
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-Flashbots-Signature": f"flashbots:{signature}",
-    }
-
-    try:
-        resp = requests.post(
-            FLASHBOTS_RELAY_URL,
-            data=body,
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-
-        if "error" in result:
-            return FlashbotsResult(
-                success=False,
-                error=f"Flashbots error: {result['error']}",
-            )
-
-        bundle_hash = result.get("result", {}).get("bundleHash", "")
-        logger.info(f"Flashbots bundle submitted: {bundle_hash} → block {target_block}")
-
-        return FlashbotsResult(
-            success=True,
-            bundle_hash=bundle_hash,
-            block_number=target_block,
-            simulation_passed=simulate,
-        )
-
-    except Exception as e:
-        logger.error(f"Flashbots submission error: {e}")
-        return FlashbotsResult(success=False, error=str(e))
-
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Flashbots — Bundle Simulation
+# ─────────────────────────────────────────────────────────────────────────────
 def _simulate_flashbots_bundle(
-    signed_txs: list[str],
+    signed_txs: list,
     target_block: int,
     signing_key: str,
 ) -> Optional[dict]:
@@ -179,37 +108,142 @@ def _simulate_flashbots_bundle(
         "jsonrpc": "2.0",
         "id": 1,
         "method": "eth_callBundle",
-        "params": [
-            {
-                "txs": signed_txs,
-                "blockNumber": hex(target_block),
-                "stateBlockNumber": "latest",
-            }
-        ],
+        "params": [{
+            "txs": signed_txs,
+            "blockNumber": hex(target_block),
+            "stateBlockNumber": "latest",
+        }],
     }
-
     body = json.dumps(sim_payload)
     signature = _sign_flashbots_request(body, signing_key)
     headers = {
         "Content-Type": "application/json",
-        "X-Flashbots-Signature": f"flashbots:{signature}",
+        "X-Flashbots-Signature": signature,
     }
-
     try:
-        resp = requests.post(
-            FLASHBOTS_RELAY_URL,
-            data=body,
-            headers=headers,
-            timeout=20,
-        )
+        resp = requests.post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=20)
         resp.raise_for_status()
         result = resp.json()
+        if "error" in result:
+            logger.warning(f"Flashbots simulation error: {result['error']}")
+            return None
         return result.get("result")
     except Exception as e:
-        logger.debug(f"Flashbots simulation error: {e}")
+        logger.debug(f"Flashbots simulation failed: {e}")
         return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Flashbots — Bundle Submission (Ethereum mainnet)
+# ─────────────────────────────────────────────────────────────────────────────
+def submit_flashbots_bundle(
+    signed_txs: list,
+    target_block: int,
+    signing_key: str,
+    simulate: bool = True,
+) -> FlashbotsResult:
+    """
+    Submit a transaction bundle to the Flashbots relay (Ethereum mainnet).
+    The bundle is completely invisible to the public mempool.
+    """
+    if not signing_key:
+        return FlashbotsResult(success=False, error="FLASHBOTS_SIGNING_KEY not configured")
+
+    if settings.IS_PAPER:
+        logger.info(f"[PAPER] Flashbots bundle: {len(signed_txs)} txs -> block {target_block}")
+        return FlashbotsResult(
+            success=True,
+            bundle_hash="0x" + "0" * 64,
+            block_number=target_block,
+            simulation_passed=True,
+        )
+
+    if simulate:
+        sim_result = _simulate_flashbots_bundle(signed_txs, target_block, signing_key)
+        if sim_result:
+            logger.info(f"Flashbots simulation passed: {sim_result}")
+        else:
+            logger.warning("Flashbots simulation failed — submitting anyway (may revert)")
+
+    bundle_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": [{
+            "txs": signed_txs,
+            "blockNumber": hex(target_block),
+            "minTimestamp": 0,
+            "maxTimestamp": int(time.time()) + 120,
+        }],
+    }
+    body = json.dumps(bundle_payload)
+    signature = _sign_flashbots_request(body, signing_key)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Flashbots-Signature": signature,
+    }
+    try:
+        resp = requests.post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        if "error" in result:
+            return FlashbotsResult(success=False, error=f"Flashbots relay error: {result['error']}")
+        bundle_hash = result.get("result", {}).get("bundleHash", "")
+        logger.info(f"Flashbots bundle submitted: {bundle_hash} -> block {target_block}")
+        return FlashbotsResult(
+            success=True,
+            bundle_hash=bundle_hash,
+            block_number=target_block,
+            simulation_passed=simulate,
+        )
+    except Exception as e:
+        logger.error(f"Flashbots bundle submission error: {e}")
+        return FlashbotsResult(success=False, error=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Flashbots Protect RPC — Single-tx private relay (Base / Arbitrum / Ethereum)
+# ─────────────────────────────────────────────────────────────────────────────
+def submit_via_flashbots_protect(
+    signed_raw_tx: str,
+    rpc_url: str = FLASHBOTS_PROTECT_RPC,
+) -> FlashbotsResult:
+    """
+    Submit a single signed transaction via Flashbots Protect RPC.
+    Lightweight path for Base and Arbitrum — no bundle signing needed.
+    The tx is forwarded to builders privately, bypassing the public mempool.
+    """
+    if settings.IS_PAPER:
+        logger.info("[PAPER] Flashbots Protect RPC: simulated private tx submission")
+        return FlashbotsResult(success=True, tx_hash="0x" + "0" * 64, execution_path="flashbots_protect")
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendRawTransaction",
+        "params": [signed_raw_tx],
+    }
+    try:
+        resp = requests.post(rpc_url, json=payload, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        if "error" in result:
+            return FlashbotsResult(
+                success=False,
+                error=f"Flashbots Protect error: {result['error']}",
+                execution_path="flashbots_protect",
+            )
+        tx_hash = result.get("result", "")
+        logger.info(f"Flashbots Protect tx submitted: {tx_hash[:16]}...")
+        return FlashbotsResult(success=True, tx_hash=tx_hash, execution_path="flashbots_protect")
+    except Exception as e:
+        logger.error(f"Flashbots Protect RPC error: {e}")
+        return FlashbotsResult(success=False, error=str(e), execution_path="flashbots_protect")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# execute_via_flashbots — Full EVM Flashbots execution (called by executor.py)
+# ─────────────────────────────────────────────────────────────────────────────
 def execute_via_flashbots(
     w3: Web3,
     private_key: str,
@@ -219,90 +253,262 @@ def execute_via_flashbots(
     value: int,
     gas: int,
     chain_id: int = 1,
+    chain: str = "ethereum",
 ) -> FlashbotsResult:
     """
-    Execute a transaction via Flashbots private mempool.
+    Execute a transaction via Flashbots MEV protection.
 
-    Builds, signs, and submits a transaction as a Flashbots bundle.
-    The transaction is invisible to mempool scanners — no front-running.
+    Routing:
+      - Ethereum (chain_id=1): Full Flashbots bundle -> relay.flashbots.net
+        Targets next 3 blocks with 15% gas escalation per attempt.
+      - Base / Arbitrum:       Flashbots Protect RPC (single-tx private relay)
+        No bundle signing needed.
 
     Args:
-        w3: Web3 instance connected to Ethereum
-        private_key: Wallet private key (from env var)
-        signing_key: Flashbots signing key (FLASHBOTS_SIGNING_KEY env var)
-        to: Contract address to call
-        data: Encoded calldata
-        value: ETH value in wei
-        gas: Gas limit
-        chain_id: Chain ID (1 for Ethereum mainnet)
-
-    Returns:
-        FlashbotsResult with tx hash or error
+        w3:          Web3 instance connected to the target chain
+        private_key: Wallet private key (from env var — NEVER hardcoded)
+        signing_key: FLASHBOTS_SIGNING_KEY (auth key — separate from wallet)
+        to:          Contract address to call
+        data:        Encoded calldata (hex string)
+        value:       ETH/native value in wei
+        gas:         Gas limit
+        chain_id:    EVM chain ID
+        chain:       Chain name string (ethereum, base, arbitrum, etc.)
     """
     if settings.IS_PAPER:
-        logger.info(f"[PAPER] Flashbots tx: to={to[:10]}... value={value/1e18:.4f} ETH")
+        logger.info(f"[PAPER] Flashbots tx: chain={chain} to={to[:10]}... value={value/1e18:.4f}")
         return FlashbotsResult(
             success=True,
             tx_hash="0x" + "0" * 64,
             simulation_passed=True,
+            execution_path="flashbots_paper",
         )
 
     try:
         account = Account.from_key(private_key)
-        nonce = w3.eth.get_transaction_count(account.address)
-        gas_price = w3.eth.gas_price
 
-        transaction = {
-            "from": account.address,
-            "to": Web3.to_checksum_address(to),
-            "data": data,
-            "value": value,
-            "gas": gas,
-            "gasPrice": gas_price,
-            "nonce": nonce,
-            "chainId": chain_id,
-        }
+        # EIP-1559 gas pricing
+        try:
+            latest = w3.eth.get_block("latest")
+            base_fee = latest.get("baseFeePerGas", w3.eth.gas_price)
+            priority_fee = Web3.to_wei(5 if chain == "ethereum" else 2, "gwei")
+            max_fee = int(base_fee * 1.25) + priority_fee
+            use_eip1559 = True
+        except Exception:
+            base_gas_price = w3.eth.gas_price
+            use_eip1559 = False
 
-        signed = account.sign_transaction(transaction)
-        raw_tx = signed.raw_transaction.hex()
-        if not raw_tx.startswith("0x"):
-            raw_tx = "0x" + raw_tx
+        nonce = w3.eth.get_transaction_count(account.address, "pending")
 
-        # Target the next 3 blocks for inclusion
+        # Base / Arbitrum: Flashbots Protect RPC
+        if chain in ("base", "arbitrum"):
+            tx = {
+                "from": account.address,
+                "to": Web3.to_checksum_address(to),
+                "data": data,
+                "value": value,
+                "gas": gas,
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+            if use_eip1559:
+                tx["maxFeePerGas"] = max_fee
+                tx["maxPriorityFeePerGas"] = priority_fee
+            else:
+                tx["gasPrice"] = base_gas_price
+            signed = account.sign_transaction(tx)
+            raw_tx = signed.raw_transaction.hex()
+            if not raw_tx.startswith("0x"):
+                raw_tx = "0x" + raw_tx
+            result = submit_via_flashbots_protect(raw_tx)
+            if result.success:
+                result.tx_hash = signed.hash.hex()
+                logger.info(
+                    f"Flashbots Protect ({chain}): {result.tx_hash[:16]}... "
+                    f"| gas={gas:,} | value={value/1e18:.4f}"
+                )
+            return result
+
+        # Ethereum: Full Flashbots bundle with multi-block retry + gas escalation
+        if not signing_key:
+            logger.warning("FLASHBOTS_SIGNING_KEY not set — falling back to Protect RPC")
+            tx = {
+                "from": account.address,
+                "to": Web3.to_checksum_address(to),
+                "data": data,
+                "value": value,
+                "gas": gas,
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+            if use_eip1559:
+                tx["maxFeePerGas"] = max_fee
+                tx["maxPriorityFeePerGas"] = priority_fee
+            else:
+                tx["gasPrice"] = base_gas_price
+            signed = account.sign_transaction(tx)
+            raw_tx = signed.raw_transaction.hex()
+            if not raw_tx.startswith("0x"):
+                raw_tx = "0x" + raw_tx
+            return submit_via_flashbots_protect(raw_tx)
+
         current_block = w3.eth.block_number
-        for target_block in range(current_block + 1, current_block + 4):
+
+        for attempt, target_block in enumerate(range(current_block + 1, current_block + 4)):
+            gas_mult = 1.0 + (0.15 * attempt)
+            tx = {
+                "from": account.address,
+                "to": Web3.to_checksum_address(to),
+                "data": data,
+                "value": value,
+                "gas": int(gas * gas_mult),
+                "nonce": nonce,
+                "chainId": chain_id,
+            }
+            if use_eip1559:
+                tx["maxFeePerGas"] = int(max_fee * gas_mult)
+                tx["maxPriorityFeePerGas"] = int(priority_fee * gas_mult)
+            else:
+                tx["gasPrice"] = int(base_gas_price * gas_mult)
+
+            signed = account.sign_transaction(tx)
+            raw_tx = signed.raw_transaction.hex()
+            if not raw_tx.startswith("0x"):
+                raw_tx = "0x" + raw_tx
+
             result = submit_flashbots_bundle(
                 signed_txs=[raw_tx],
                 target_block=target_block,
                 signing_key=signing_key,
-                simulate=(target_block == current_block + 1),  # Only simulate first attempt
+                simulate=(attempt == 0),
             )
             if result.success:
                 result.tx_hash = signed.hash.hex()
+                result.execution_path = "flashbots_bundle"
                 logger.info(
-                    f"Flashbots tx submitted: {result.tx_hash[:10]}... "
-                    f"→ block {target_block}"
+                    f"Flashbots bundle submitted: {result.tx_hash[:16]}... "
+                    f"-> block {target_block} | gas x{gas_mult:.2f}"
                 )
                 return result
+            logger.warning(f"Flashbots bundle attempt {attempt+1}/3 failed: {result.error}")
 
         return FlashbotsResult(
             success=False,
-            error="Failed to submit to Flashbots after 3 block attempts",
+            error="Flashbots bundle failed after 3 block attempts",
+            execution_path="flashbots_bundle",
         )
 
     except Exception as e:
-        logger.error(f"Flashbots execution error: {e}")
-        return FlashbotsResult(success=False, error=str(e))
+        logger.error(f"execute_via_flashbots error: {e}", exc_info=True)
+        return FlashbotsResult(success=False, error=str(e), execution_path="flashbots_error")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CoW Protocol Live Signing
+# Jito Bundle Submission (Solana)
 # ─────────────────────────────────────────────────────────────────────────────
+def submit_jito_bundle(
+    signed_transactions_b64: list,
+    tip_lamports: int = 10_000,
+) -> JitoResult:
+    """
+    Submit a Jito bundle to the Jito Block Engine.
+    Bypasses the public Solana mempool — no sandwich attacks possible.
 
-# CoW Protocol EIP-712 domain and type hashes
+    Args:
+        signed_transactions_b64: List of base64-encoded signed VersionedTransactions
+        tip_lamports:            Tip amount in lamports (10,000 = ~$0.001 at $150 SOL)
+
+    Returns:
+        JitoResult with bundle_id or error
+    """
+    if settings.IS_PAPER:
+        logger.info(f"[PAPER] Jito bundle: {len(signed_transactions_b64)} txs, tip={tip_lamports} lamports")
+        return JitoResult(
+            success=True,
+            bundle_id="paper_jito_bundle_" + str(int(time.time())),
+            tip_lamports=tip_lamports,
+        )
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "sendBundle",
+        "params": [signed_transactions_b64],
+    }
+    headers = {"Content-Type": "application/json"}
+
+    # Optional: Jito auth keypair for higher rate limits
+    jito_auth_key = os.getenv("JITO_AUTH_KEYPAIR", "")
+    if jito_auth_key:
+        try:
+            import base58
+            from solders.keypair import Keypair  # type: ignore
+            auth_keypair = Keypair.from_bytes(base58.b58decode(jito_auth_key))
+            body_bytes = json.dumps(payload).encode()
+            auth_sig = auth_keypair.sign_message(body_bytes)
+            headers["x-jito-auth"] = base64.b64encode(bytes(auth_sig)).decode()
+            headers["x-jito-pubkey"] = str(auth_keypair.pubkey())
+        except Exception as e:
+            logger.debug(f"Jito auth signing failed (proceeding without auth): {e}")
+
+    try:
+        resp = requests.post(JITO_BLOCK_ENGINE_URL, json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        if "error" in result:
+            err = result["error"]
+            err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            logger.error(f"Jito bundle error: {err_msg}")
+            return JitoResult(success=False, error=err_msg)
+        bundle_id = result.get("result", "")
+        logger.info(f"Jito bundle submitted: {bundle_id} | tip={tip_lamports:,} lamports")
+        return JitoResult(success=True, bundle_id=bundle_id, tip_lamports=tip_lamports)
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Jito HTTP error: {e.response.status_code} — {e.response.text[:200]}")
+        return JitoResult(success=False, error=str(e))
+    except Exception as e:
+        logger.error(f"Jito bundle submission error: {e}")
+        return JitoResult(success=False, error=str(e))
+
+
+def execute_solana_via_jito(
+    serialized_tx_b64: str,
+    wallet_public_key: str,
+    tip_lamports: int = 10_000,
+) -> JitoResult:
+    """
+    Submit a pre-signed Solana transaction via Jito bundle for MEV protection.
+    Wraps a single Jupiter swap transaction in a Jito bundle.
+
+    Tip guidance:
+      - Standard gem trade:      10,000 lamports (~$0.001)
+      - High-conviction / busy:  50,000 lamports (~$0.005)
+      - God Signal / snipe:     100,000 lamports (~$0.015)
+
+    Args:
+        serialized_tx_b64: Base64-encoded signed VersionedTransaction from Jupiter
+        wallet_public_key: Wallet public key (for logging)
+        tip_lamports:      Jito tip in lamports
+    """
+    if settings.IS_PAPER:
+        logger.info(f"[PAPER] Jito execute: wallet={wallet_public_key[:8]}... tip={tip_lamports}")
+        return JitoResult(
+            success=True,
+            bundle_id="paper_jito_" + str(int(time.time())),
+            tip_lamports=tip_lamports,
+        )
+
+    logger.info(
+        f"Submitting Jito bundle: wallet={wallet_public_key[:8]}... "
+        f"tip={tip_lamports:,} lamports"
+    )
+    return submit_jito_bundle([serialized_tx_b64], tip_lamports=tip_lamports)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CoW Protocol Live Signing (Ethereum)
+# ─────────────────────────────────────────────────────────────────────────────
 COW_DOMAIN_SEPARATOR_MAINNET = "0xc078f884a2676e1345748b1feace7b0abee5d00ecadb6e574dcdd109a63e8943"
-
-# Order type hash (keccak256 of the Order struct)
 COW_ORDER_TYPE_HASH = "0xd5a25ba2e97094ad7d83dc28a6572da797d6b3e7fc6663bd93efb789fc17e489"
 
 
@@ -326,61 +532,48 @@ class CowOrder:
 def get_cow_quote(
     sell_token: str,
     buy_token: str,
-    sell_amount: int,
-    from_address: str,
+    sell_amount_wei: int,
+    wallet_address: str,
     chain: str = "ethereum",
 ) -> Optional[dict]:
-    """
-    Get a quote from CoW Protocol.
-
-    Returns the quote dict with buyAmount, feeAmount, etc.
-    """
+    """Get a price quote from the CoW Protocol API."""
     cow_url = settings.COW_API_URL
-    if chain != "ethereum":
-        # CoW is only on Ethereum mainnet + Gnosis Chain
-        return None
-
     payload = {
         "sellToken": sell_token,
         "buyToken": buy_token,
-        "sellAmountBeforeFee": str(sell_amount),
-        "from": from_address,
+        "receiver": wallet_address,
+        "sellAmountBeforeFee": str(sell_amount_wei),
+        "from": wallet_address,
         "kind": "sell",
         "partiallyFillable": False,
-        "signingScheme": "eip712",
-        "onchainOrder": False,
+        "sellTokenBalance": "erc20",
+        "buyTokenBalance": "erc20",
     }
-
     try:
-        resp = requests.post(
-            f"{cow_url}/api/v1/quote",
-            json=payload,
-            timeout=15,
-        )
-        if resp.status_code != 200:
-            logger.warning(f"CoW quote failed: {resp.status_code} {resp.text[:200]}")
-            return None
-        return resp.json()
+        resp = requests.post(f"{cow_url}/api/v1/quote", json=payload, timeout=20)
+        if resp.status_code in (200, 201):
+            return resp.json()
+        logger.warning(f"CoW quote failed: {resp.status_code} {resp.text[:200]}")
+        return None
     except Exception as e:
         logger.error(f"CoW quote error: {e}")
         return None
 
 
-def sign_cow_order(order: CowOrder, private_key: str, chain_id: int = 1) -> Optional[str]:
-    """
-    Sign a CoW Protocol order using EIP-712 structured data signing.
-
-    Returns the hex signature string, or None on failure.
-    """
+def sign_cow_order(
+    order: CowOrder,
+    private_key: str,
+    chain_id: int = 1,
+) -> Optional[str]:
+    """Sign a CoW Protocol order using EIP-712."""
     try:
-        # Build EIP-712 structured data
+        cow_settlement = "0x9008D19f58AAbD9eD0D60971565AA8510560ab41"
         domain = {
             "name": "Gnosis Protocol",
             "version": "v2",
             "chainId": chain_id,
-            "verifyingContract": "0x9008D19f58AAbD9eD0D60971565AA8510560ab41",  # CoW settlement
+            "verifyingContract": cow_settlement,
         }
-
         order_types = {
             "Order": [
                 {"name": "sellToken", "type": "address"},
@@ -397,7 +590,6 @@ def sign_cow_order(order: CowOrder, private_key: str, chain_id: int = 1) -> Opti
                 {"name": "buyTokenBalance", "type": "bytes32"},
             ]
         }
-
         order_data = {
             "sellToken": order.sell_token,
             "buyToken": order.buy_token,
@@ -412,35 +604,13 @@ def sign_cow_order(order: CowOrder, private_key: str, chain_id: int = 1) -> Opti
             "sellTokenBalance": Web3.keccak(text=order.sell_token_balance).hex(),
             "buyTokenBalance": Web3.keccak(text=order.buy_token_balance).hex(),
         }
-
-        from eth_account.structured_data.hashing import hash_domain, hash_message
-        from eth_account._utils.structured_data.hashing import hash_domain
-
         account = Account.from_key(private_key)
-
-        # Use eth_account's sign_typed_data for EIP-712
-        structured_data = {
-            "types": {
-                "EIP712Domain": [
-                    {"name": "name", "type": "string"},
-                    {"name": "version", "type": "string"},
-                    {"name": "chainId", "type": "uint256"},
-                    {"name": "verifyingContract", "type": "address"},
-                ],
-                **order_types,
-            },
-            "domain": domain,
-            "primaryType": "Order",
-            "message": order_data,
-        }
-
         signed = account.sign_typed_data(
             domain_data=domain,
             message_types=order_types,
             message_data=order_data,
         )
         return signed.signature.hex()
-
     except Exception as e:
         logger.error(f"CoW order signing error: {e}")
         return None
@@ -451,13 +621,8 @@ def submit_cow_order(
     signature: str,
     chain: str = "ethereum",
 ) -> Optional[str]:
-    """
-    Submit a signed CoW order to the CoW Protocol API.
-
-    Returns the order UID (string) on success, None on failure.
-    """
+    """Submit a signed CoW order to the CoW Protocol API. Returns order UID on success."""
     cow_url = settings.COW_API_URL
-
     order_payload = {
         "sellToken": order.sell_token,
         "buyToken": order.buy_token,
@@ -473,20 +638,14 @@ def submit_cow_order(
         "signingScheme": "eip712",
         "from": order.receiver,
     }
-
     try:
-        resp = requests.post(
-            f"{cow_url}/api/v1/orders",
-            json=order_payload,
-            timeout=20,
-        )
+        resp = requests.post(f"{cow_url}/api/v1/orders", json=order_payload, timeout=20)
         if resp.status_code in (200, 201):
             order_uid = resp.json()
             logger.info(f"CoW order submitted: {order_uid}")
             return order_uid
-        else:
-            logger.warning(f"CoW order submission failed: {resp.status_code} {resp.text[:200]}")
-            return None
+        logger.warning(f"CoW order submission failed: {resp.status_code} {resp.text[:200]}")
+        return None
     except Exception as e:
         logger.error(f"CoW order submission error: {e}")
         return None
@@ -503,21 +662,16 @@ def execute_via_cow_live(
 ) -> Optional[str]:
     """
     Full CoW Protocol live execution:
-    1. Get quote
-    2. Build order with min buy amount (quote - slippage)
-    3. Sign order (EIP-712)
-    4. Submit to CoW API
-
+    1. Get quote -> 2. Build order -> 3. Sign (EIP-712) -> 4. Submit to CoW API
     Returns order UID on success, None on failure.
     """
     if settings.IS_PAPER:
         logger.info(
-            f"[PAPER] CoW order: {sell_token[:10]}... → {buy_token[:10]}... "
+            f"[PAPER] CoW order: {sell_token[:10]}... -> {buy_token[:10]}... "
             f"amount={sell_amount_wei/1e18:.4f}"
         )
         return "paper_order_uid_" + str(int(time.time()))
 
-    # Step 1: Get quote
     quote_resp = get_cow_quote(sell_token, buy_token, sell_amount_wei, wallet_address, chain)
     if not quote_resp:
         logger.warning("CoW quote failed — cannot execute live order")
@@ -526,26 +680,21 @@ def execute_via_cow_live(
     quote = quote_resp.get("quote", {})
     buy_amount = int(quote.get("buyAmount", 0))
     fee_amount = int(quote.get("feeAmount", 0))
-
     if buy_amount <= 0:
-        logger.warning(f"CoW quote returned zero buy amount")
+        logger.warning("CoW quote returned zero buy amount")
         return None
 
-    # Apply slippage to minimum buy amount
     min_buy_amount = int(buy_amount * (1 - slippage_bps / 10000))
-
-    # Step 2: Build order
     order = CowOrder(
         sell_token=sell_token,
         buy_token=buy_token,
         receiver=wallet_address,
         sell_amount=sell_amount_wei - fee_amount,
         buy_amount=min_buy_amount,
-        valid_to=int(time.time()) + 1800,  # 30 min validity
+        valid_to=int(time.time()) + 1800,
         fee_amount=fee_amount,
     )
 
-    # Step 3: Sign order
     chain_config = CHAINS.get(chain)
     chain_id = chain_config.chain_id if chain_config else 1
     signature = sign_cow_order(order, private_key, chain_id)
@@ -553,11 +702,10 @@ def execute_via_cow_live(
         logger.error("CoW order signing failed")
         return None
 
-    # Step 4: Submit
     order_uid = submit_cow_order(order, signature, chain)
     if order_uid:
         logger.info(
             f"CoW live order submitted: {order_uid} | "
-            f"sell={sell_amount_wei/1e18:.4f} → min_buy={min_buy_amount/1e18:.6f}"
+            f"sell={sell_amount_wei/1e18:.4f} -> min_buy={min_buy_amount/1e18:.6f}"
         )
     return order_uid

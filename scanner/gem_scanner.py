@@ -70,6 +70,20 @@ from data.providers.binance_pulse import (
 )
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
+# ── ML Dynamic Weight Optimizer ───────────────────────────────────────────────
+# Loads XGBoost-derived weights from output/dynamic_weights.json.
+# Falls back to static defaults if insufficient trade history exists.
+try:
+    from ml.weight_optimizer import load_dynamic_weights, STATIC_WEIGHTS as _STATIC_WEIGHTS
+    _ML_WEIGHTS_AVAILABLE = True
+except ImportError:
+    _ML_WEIGHTS_AVAILABLE = False
+    _STATIC_WEIGHTS = {
+        "volume": 0.22, "whale_holder": 0.18, "liquidity": 0.14,
+        "safety": 0.12, "momentum_ta": 0.10, "boost_cto": 0.07,
+        "fibonacci": 0.05, "grok_sentiment": 0.05, "age": 0.04, "social": 0.03,
+    }
+
 logger = logging.getLogger(__name__)
 
 # Chains to scan (EVM + Solana)
@@ -100,6 +114,19 @@ class GemScanner:
 
     def __init__(self):
         self.watchlist = GemWatchlist()
+        # Load ML-derived dynamic weights (refreshed every 6h from trades.json)
+        # Falls back to static defaults when insufficient trade history exists.
+        if _ML_WEIGHTS_AVAILABLE:
+            self._weights = load_dynamic_weights()
+        else:
+            self._weights = dict(_STATIC_WEIGHTS)
+        logger.info(
+            f"GemScanner weights loaded: "
+            f"vol={self._weights.get('volume', 0):.2f} | "
+            f"whale={self._weights.get('whale_holder', 0):.2f} | "
+            f"liq={self._weights.get('liquidity', 0):.2f} | "
+            f"grok={self._weights.get('grok_sentiment', 0):.2f}"
+        )
 
     def scan(self) -> list[GemCandidate]:
         """
@@ -481,7 +508,34 @@ class GemScanner:
             )
             return None
 
-        # ── Age score (12%) ───────────────────────────────────────────────────
+        # ── HARD GATE #2: Block-0 Sniper / Bundle Detection ───────────────────────
+        # Reject tokens where coordinated snipers acquired a disproportionate
+        # share of supply at launch. This structural overhang means the top
+        # holders are permanent sellers at any price uptick — no TA signal
+        # can overcome it. Hard reject before any scoring runs.
+        try:
+            from core.bundle_detector import check_bundle
+            _bundle = check_bundle(token.address, token.chain)
+            if _bundle.is_bundled:
+                logger.warning(
+                    f"⛔ BUNDLE GATE: {token.symbol} [{token.chain}] rejected — "
+                    f"{_bundle.reject_reason}"
+                )
+                return None
+            elif _bundle.detection_method not in (
+                "disabled", "skipped_unsupported_chain",
+                "skipped_no_data", "skipped_no_supply",
+                "skipped_no_holders", "skipped_zero_supply", "error",
+            ):
+                logger.debug(
+                    f"✅ Bundle check clean: {token.symbol} | "
+                    f"block0={_bundle.block_0_supply_pct:.1f}% | "
+                    f"cluster={_bundle.cluster_supply_pct:.1f}%"
+                )
+        except Exception as _bd_err:
+            logger.debug(f"Bundle detection skipped for {token.symbol}: {_bd_err}")
+
+        # ── Age score (12%) ────────────────────────────────────────────────────────
         # New tokens are better for sniping.
         # < 24h = 100, < 48h = 75, < 72h = 50, < 168h = 25, > 168h = 10
         # For Moralis trending tokens (which are often older), we are more lenient
@@ -1061,22 +1115,27 @@ class GemScanner:
         # Removed: tvl(0.04), social_sentiment(0.04), holder_conc(0.03), unlock(0.02)
         # All replaced by Moralis native signals inside moralis_enrichment_score.
         # Dev wallet (4%) and copycat (5%) rug-protection retained.
+        # ── Final composite score ────────────────────────────────────────────────────────────
+        # Uses ML-derived dynamic weights (self._weights) when sufficient trade
+        # history exists, otherwise falls back to static defaults.
+        # Fixed-weight signals (safety/rug protection) are NOT ML-adjusted.
+        _w = self._weights
         candidate.gem_score = round(
-            candidate.age_score              * 0.04  # Reduced: age is already hard-gated upstream
-            + candidate.volume_score         * 0.07
-            + candidate.liquidity_score      * 0.07
-            + candidate.buy_pressure_score   * 0.08
-            + candidate.moralis_enrichment_score * 0.27 # ← DOMINANT: full Moralis ecosystem
-            + candidate.sniper_score         * 0.04    # Solana sniper detection
-            + candidate.contract_score       * 0.06
-            + candidate.holder_score         * 0.05
-            + candidate.tax_score            * 0.06
-            + candidate.social_score         * 0.05
-            + candidate.boost_score          * 0.04
-            + candidate.smart_money_score    * 0.03
-            + candidate.grok_sentiment_score * 0.05  # Boosted 2%→5%: critical swing-trade signal
-            + candidate.dev_wallet_score     * 0.04
-            + candidate.copycat_score        * 0.05,
+            candidate.age_score              * _w.get("age", 0.04)
+            + candidate.volume_score         * _w.get("volume", 0.07)
+            + candidate.liquidity_score      * _w.get("liquidity", 0.07)
+            + candidate.buy_pressure_score   * 0.08   # Fixed: buy pressure is always critical
+            + candidate.moralis_enrichment_score * 0.27  # Fixed: Moralis dominant signal
+            + candidate.sniper_score         * 0.04   # Fixed: Solana sniper detection
+            + candidate.contract_score       * 0.06   # Fixed: safety signal
+            + candidate.holder_score         * _w.get("whale_holder", 0.05)
+            + candidate.tax_score            * 0.06   # Fixed: safety signal
+            + candidate.social_score         * _w.get("social", 0.05)
+            + candidate.boost_score          * _w.get("boost_cto", 0.04)
+            + candidate.smart_money_score    * 0.03   # Fixed: smart money baseline
+            + candidate.grok_sentiment_score * _w.get("grok_sentiment", 0.05)
+            + candidate.dev_wallet_score     * 0.04   # Fixed: rug protection
+            + candidate.copycat_score        * 0.05,  # Fixed: rug protection
             2,
         )
 

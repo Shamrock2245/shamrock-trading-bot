@@ -31,7 +31,13 @@ from config.chains import CHAINS, ChainConfig
 from config.wallets import WalletConfig
 from config import settings
 from core.safety import check_token_safety, SafetyResult
-from core.mev_protection import execute_via_cow_live, execute_via_flashbots
+from core.mev_protection import (
+    execute_via_cow_live,
+    execute_via_flashbots,
+    execute_solana_via_jito,
+    FlashbotsResult,
+    JitoResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -550,6 +556,110 @@ class TradeExecutor:
             logger.error(f"1inch execution error: {e}")
             return TradeResult(success=False, error=str(e), execution_path="1inch")
 
+    # ── Flashbots / Protect RPC Execution ────────────────────────────────────
+
+    def _execute_via_flashbots(self, params: TradeParams) -> TradeResult:
+        """
+        Execute a trade via Flashbots MEV protection.
+
+        Routing:
+          - Ethereum:      Full Flashbots bundle → relay.flashbots.net
+            Targets next 3 blocks with 15% gas escalation per attempt.
+          - Base/Arbitrum: Flashbots Protect RPC (single-tx private relay)
+            No bundle signing needed — just forward via private RPC.
+
+        Called AFTER CoW fails on Ethereum, and as the PRIMARY private path
+        for Base and Arbitrum before falling back to public 1inch.
+        """
+        try:
+            chain_config = CHAINS[params.chain]
+            w3 = self._get_web3(chain_config)
+            if not w3:
+                return TradeResult(
+                    success=False,
+                    error=f"No Web3 connection for {params.chain}",
+                    execution_path="flashbots",
+                )
+
+            private_key = params.wallet.private_key
+            if not private_key:
+                return TradeResult(
+                    success=False,
+                    error="No private key configured for wallet",
+                    execution_path="flashbots",
+                )
+
+            signing_key = settings.FLASHBOTS_SIGNING_KEY
+
+            # Flashbots wraps the swap tx — we need calldata from 1inch first
+            if not settings.ONEINCH_API_KEY:
+                return TradeResult(
+                    success=False,
+                    error="1inch API key required to build Flashbots calldata",
+                    execution_path="flashbots",
+                )
+
+            url = f"{settings.ONEINCH_API_URL}/{chain_config.chain_id}/swap"
+            headers = {"Authorization": f"Bearer {settings.ONEINCH_API_KEY}"}
+            account = Account.from_key(private_key)
+            swap_params = {
+                "src": params.token_in,
+                "dst": params.token_out,
+                "amount": str(params.amount_in_wei),
+                "from": account.address,
+                "slippage": params.slippage_bps / 100,
+                "disableEstimate": "true",
+                "allowPartialFill": "false",
+            }
+            resp = requests.get(url, headers=headers, params=swap_params, timeout=20)
+            if resp.status_code != 200:
+                return TradeResult(
+                    success=False,
+                    error=f"1inch calldata fetch failed: {resp.text[:200]}",
+                    execution_path="flashbots",
+                )
+            swap_data = resp.json()
+            tx_data = swap_data.get("tx", {})
+            dst_amount = int(swap_data.get("dstAmount", 0))
+
+            if settings.IS_PAPER:
+                return TradeResult(
+                    success=True,
+                    tx_hash="0x" + "0" * 64,
+                    amount_in=params.amount_in_wei / 1e18,
+                    amount_out=dst_amount / 1e18,
+                    execution_path="flashbots_paper",
+                )
+
+            fb_result = execute_via_flashbots(
+                w3=w3,
+                private_key=private_key,
+                signing_key=signing_key,
+                to=tx_data.get("to", ""),
+                data=tx_data.get("data", "0x"),
+                value=int(tx_data.get("value", 0)),
+                gas=int(int(tx_data.get("gas", 300_000)) * 1.15),
+                chain_id=chain_config.chain_id,
+                chain=params.chain,
+            )
+
+            if fb_result.success:
+                return TradeResult(
+                    success=True,
+                    tx_hash=fb_result.tx_hash,
+                    amount_in=params.amount_in_wei / 1e18,
+                    amount_out=dst_amount / 1e18,
+                    execution_path=fb_result.execution_path,
+                )
+            return TradeResult(
+                success=False,
+                error=fb_result.error,
+                execution_path="flashbots",
+            )
+        except Exception as e:
+            logger.error(f"Flashbots execution error: {e}")
+            return TradeResult(success=False, error=str(e), execution_path="flashbots")
+
     # ── Main Entry Point ──────────────────────────────────────────────────────
 
     def execute_trade(self, params: TradeParams) -> TradeResult:
@@ -604,18 +714,32 @@ class TradeExecutor:
         )
 
         # ── Route to best execution path ──────────────────────────────────────
+        #
+        # Ethereum:    CoW Protocol → Flashbots bundle → 1inch
+        # Base/Arb:    Flashbots Protect RPC → 1inch
+        # Polygon/BSC: 1inch (fast finality, MEV less critical at these sizes)
+        # Solana:      Handled by solana_executor.py (Jito bundle path)
+        # ─────────────────────────────────────────────────────────────────────
         chain_config = CHAINS[params.chain]
         result = None
 
-        # CoW Protocol: Ethereum only, best MEV protection
+        # CoW Protocol: Ethereum only, best MEV protection via batch auctions
         if params.chain == "ethereum" and chain_config.cow_settlement:
             result = self._execute_via_cow(params)
             if result.success:
                 result.safety_result = safety
                 return result
-            logger.warning(f"CoW failed, falling back to 1inch: {result.error}")
+            logger.warning(f"CoW failed, trying Flashbots: {result.error}")
 
-        # 1inch: All chains
+        # Flashbots: Ethereum bundle fallback + Base/Arbitrum primary private path
+        if params.chain in ("ethereum", "base", "arbitrum"):
+            result = self._execute_via_flashbots(params)
+            if result.success:
+                result.safety_result = safety
+                return result
+            logger.warning(f"Flashbots failed, falling back to 1inch: {result.error}")
+
+        # 1inch: Final fallback for all chains (public mempool)
         result = self._execute_via_oneinch(params)
         result.safety_result = safety
         return result
