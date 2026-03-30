@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
+from requests.exceptions import HTTPError as RequestsHTTPError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from config.chains import GOPLUS_CHAIN_MAP, HONEYPOT_CHAIN_MAP
 from config.tokens import is_blocked, is_stablecoin, is_trusted, add_to_blocklist
@@ -173,7 +174,24 @@ def _call_tokensniffer(token_address: str, chain_id: int) -> dict:
     return resp.json()
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=8))
+def _is_retriable_error(exc: Exception) -> bool:
+    """Only retry on network/timeout errors — NOT on HTTP 4xx/5xx."""
+    if isinstance(exc, RequestsHTTPError):
+        return False  # Server returned an error — retrying won't help
+    return True  # Network error, timeout — worth retrying
+
+
+# Short-circuit failure cache: token_address → (timestamp, result)
+_rugcheck_fail_cache: dict[str, tuple[float, dict]] = {}
+_RUGCHECK_FAIL_CACHE_TTL = 120  # 2 minutes — don't hammer a failing API
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
 def _call_rugcheck(token_address: str) -> dict:
     """
     Call RugCheck.xyz API — Solana-native rug detection.
@@ -182,13 +200,38 @@ def _call_rugcheck(token_address: str) -> dict:
     top holder concentration, and overall risk level.
 
     Free API, no key required.
+    Only retries on network/timeout failures — NOT on HTTP 4xx/5xx.
     """
+    # Check short-circuit failure cache first
+    now = time.time()
+    if token_address in _rugcheck_fail_cache:
+        ts, cached_result = _rugcheck_fail_cache[token_address]
+        if now - ts < _RUGCHECK_FAIL_CACHE_TTL:
+            logger.debug(f"RugCheck fail cache HIT for {token_address[:10]}... — skipping API call")
+            return cached_result  # Return cached empty/fail result
+
     url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
-    resp = requests.get(url, timeout=15)
-    if resp.status_code == 404:
-        return {}  # Token not indexed — new token
-    resp.raise_for_status()
-    return resp.json()
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 404:
+            return {}  # Token not indexed — new token, expected
+        if resp.status_code >= 400:
+            # Server-side error — cache it and skip retries
+            logger.debug(
+                f"RugCheck HTTP {resp.status_code} for {token_address[:10]}... — caching failure"
+            )
+            _rugcheck_fail_cache[token_address] = (now, {})
+            return {}  # Treat as no-data, not a hard failure
+        resp.raise_for_status()
+        result = resp.json()
+        # Clear failure cache on success
+        _rugcheck_fail_cache.pop(token_address, None)
+        return result
+    except RequestsHTTPError as e:
+        _rugcheck_fail_cache[token_address] = (now, {})
+        raise  # Let tenacity see it (won't retry due to retry_if_exception_type)
+    except Exception:
+        raise  # Network/timeout — tenacity will retry
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -325,10 +368,16 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 _set_cached(token_address, chain, result)
                 return result
         except Exception as e:
-            logger.warning(f"RugCheck.xyz check failed for {token_address}: {e}")
-            # Don't block on API failure — pass with warning
+            err_str = str(e)
+            # Only log at WARNING if it's not a cached/expected failure
+            if token_address not in _rugcheck_fail_cache:
+                logger.warning(f"RugCheck.xyz check failed for {token_address}: {e}")
+            else:
+                logger.debug(f"RugCheck cached failure for {token_address[:10]}...: {e}")
+            # Don't block on API failure — pass with warning flag
             result.is_safe = True
             result.rugcheck_no_data = True  # type: ignore[attr-defined]
+            result.rugcheck_api_down = True  # type: ignore[attr-defined] — distinguish API down vs truly unindexed
             safety_logger.warning(
                 f"CAUTION (Solana — RugCheck unavailable) | {token_address} | {chain} "
                 f"— applying score penalty in scanner"

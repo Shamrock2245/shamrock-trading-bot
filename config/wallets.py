@@ -63,7 +63,12 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    min_gem_score=65.0,   # FIX: aligned with global MIN_GEM_SCORE and POSITION_SIZING.md spec
+    # FIX: was 65.0 — created a dead zone where cascade-boost-eligible tokens (60-64)
+    # passed the scanner's dynamic MIN_GEM_SCORE gate but got rejected HERE, causing
+    # "No wallet available". Set to 58.0 = CASCADE_BOOST_FLOOR_SCORE (the absolute
+    # minimum the dynamic gate can reach). Primary wallet will accept anything the
+    # scanner already cleared. Nuclear profile remains at 82.0 (express-lane only).
+    min_gem_score=58.0,
     express_lane_score=82.0,
     # TP: 1.5x sell 40%, 2.5x sell 35%, 5x sell 25% — project spec pyramid (TP3 re-enabled)
     tp1_mult=1.5,

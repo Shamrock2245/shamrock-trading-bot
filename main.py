@@ -926,19 +926,33 @@ async def run_bot_loop():
                 # ── RugCheck no-data penalty (Solana only) ────────────────────
                 # If RugCheck has no data on this token, it's unindexed/brand new.
                 # Require a higher gem score to compensate for missing safety data.
-                # This directly addresses the Solana meme coin loss pattern.
+                #
+                # Two cases:
+                #   rugcheck_api_down=True  → API is unreachable (503/timeout). Don't
+                #     penalize the token for an infrastructure problem. Apply a minimal
+                #     floor (48) just to filter junk, but allow strong signals through.
+                #   rugcheck_no_data=True (not api_down) → token genuinely unindexed.
+                #     Apply the full 55.0 floor (missing data = higher risk).
                 RUGCHECK_NO_DATA_SCORE_FLOOR = float(os.getenv("RUGCHECK_NO_DATA_SCORE_FLOOR", "55.0"))
+                RUGCHECK_API_DOWN_SCORE_FLOOR = float(os.getenv("RUGCHECK_API_DOWN_SCORE_FLOOR", "48.0"))
+                rugcheck_api_down = getattr(safety, "rugcheck_api_down", False)
                 if (
                     token.chain == "solana"
                     and getattr(safety, "rugcheck_no_data", False)
-                    and candidate.gem_score < RUGCHECK_NO_DATA_SCORE_FLOOR
                 ):
-                    logger.warning(
-                        f"⚠️ {token.symbol}: RugCheck has no data (unindexed token) and "
-                        f"gem_score={candidate.gem_score:.1f} < {RUGCHECK_NO_DATA_SCORE_FLOOR} floor "
-                        f"— skipping until score improves or RugCheck indexes it"
-                    )
-                    continue
+                    floor = RUGCHECK_API_DOWN_SCORE_FLOOR if rugcheck_api_down else RUGCHECK_NO_DATA_SCORE_FLOOR
+                    floor_label = "API_DOWN" if rugcheck_api_down else "UNINDEXED"
+                    if candidate.gem_score < floor:
+                        logger.warning(
+                            f"⚠️ {token.symbol}: RugCheck {floor_label} — "
+                            f"gem_score={candidate.gem_score:.1f} < {floor:.1f} floor — skipping"
+                        )
+                        continue
+                    else:
+                        logger.debug(
+                            f"ℹ️ {token.symbol}: RugCheck {floor_label} but "
+                            f"gem_score={candidate.gem_score:.1f} >= {floor:.1f} — proceeding"
+                        )
 
                 # Phase 2: Signal engine (TA + momentum)
                 # Express lane tokens skip full TA — they already scored ≥82
