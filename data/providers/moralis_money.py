@@ -178,12 +178,12 @@ def get_filtered_tokens(
                 },
                 {
                     "metric": "totalLiquidityUsd",
-                    "timeFrame": "oneDay",  # Point-in-time metric — must use oneDay
+                    # Point-in-time metric — no timeFrame field allowed (causes 400)
                     "gt": min_liquidity_usd,
                 },
                 {
                     "metric": "securityScore",
-                    "timeFrame": "oneDay",  # Point-in-time metric — must use oneDay
+                    # Point-in-time metric — no timeFrame field allowed (causes 400)
                     "gt": min_security_score,
                 },
                 {
@@ -345,7 +345,7 @@ def get_whale_accumulation_tokens(
                 },
                 {
                     "metric": "totalLiquidityUsd",
-                    "timeFrame": "oneDay",
+                    # Point-in-time metric — no timeFrame field allowed (causes 400)
                     "gt": min_liquidity_usd,
                 },
             ],
