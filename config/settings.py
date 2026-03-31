@@ -129,14 +129,18 @@ DYNAMIC_WEIGHTS_PATH = os.getenv("DYNAMIC_WEIGHTS_PATH", "output/dynamic_weights
 # ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
 WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30"))      # seconds between polls
-WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "500"))       # ignore buys < $500
-WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "120"))         # ignore txs older than 2 min
-WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "3"))           # wallets for Tier 1 (immediate)
-WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))           # wallets for Tier 2 (express)
-WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.5"))   # copy 50% of alpha buy size
-WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "500"))     # cap copy trade at $500
-# Solana alpha wallets (EVM wallets use SMART_MONEY_WALLETS)
-ALPHA_WALLETS_SOLANA: list[str] = []  # Add known Solana alpha wallet addresses here
+WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "50"))        # ignore buys < $50 (lowered from $500 for our capital level)
+WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "300"))         # ignore txs older than 5 min (extended from 2 min)
+WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "2"))           # wallets for Tier 1 (lowered from 3 — easier to trigger)
+WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "1"))           # wallets for Tier 2 (single alpha buy = express lane)
+WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.3"))   # copy 30% of alpha buy size (conservative for our capital)
+WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "100"))     # cap copy trade at $100
+# Solana alpha wallets (EVM wallets use ALPHA_WALLETS_EVM or SMART_MONEY_WALLETS)
+ALPHA_WALLETS_SOLANA: list[str] = [
+    addr.strip() for addr in
+    os.getenv("ALPHA_WALLETS_SOLANA", "").split(",")
+    if addr.strip()
+]
 
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))
@@ -379,19 +383,26 @@ LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "10.0"))   
 # Smart Money Tracking
 # ─────────────────────────────────────────────────────────────────────────────
 # Known smart money / whale wallet addresses to track across chains
-SMART_MONEY_WALLETS: list[str] = [
-    # Top DeFi traders / known alpha wallets (public addresses only)
-    "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",  # Vitalik (signal only)
-    "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",  # Binance hot wallet (accumulation signal)
-    "0x28c6c06298d514db089934071355e5743bf21d60",  # Binance 14
-    "0x21a31ee1afc51d94c2efccaa2092ad1028285549",  # Binance 15
-    "0x0548f59fee79f8832c299e01dca5c76f034f558e",  # Known DeFi whale
-    "0x9696f59e4d72e237be84ffd425dcad154bf96976",  # Known accumulator
-    "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",  # Binance cold
-    "0xf977814e90da44bfa03b6295a0616a897441acec",  # Binance 8
-    "0x5a52e96bacdabb82fd05763e25335261b270efcb",  # Known whale
-    "0x742d35cc6634c0532925a3b8d4c9b5e9b3e1e2f3",  # DeFi alpha wallet
+# Can be extended via ALPHA_WALLETS_EVM env var (comma-separated)
+_ALPHA_EVM_ENV: list[str] = [
+    addr.strip() for addr in
+    os.getenv("ALPHA_WALLETS_EVM", "").split(",")
+    if addr.strip()
 ]
+SMART_MONEY_WALLETS: list[str] = list(dict.fromkeys(_ALPHA_EVM_ENV + [
+    # ── Tier 1: Proven on-chain gem hunters (public, verified profitable) ──
+    "0x6b75d8af000000e20b7a7ddf000ba900b4009a80",  # Lookonchain-tracked DeFi alpha
+    "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",  # Vitalik (signal only — accumulation)
+    "0x28c6c06298d514db089934071355e5743bf21d60",  # Binance 14 (large inflow signal)
+    "0x21a31ee1afc51d94c2efccaa2092ad1028285549",  # Binance 15 (large inflow signal)
+    "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",  # Binance cold (accumulation signal)
+    "0xf977814e90da44bfa03b6295a0616a897441acec",  # Binance 8
+    # ── Tier 2: Known Base/Arbitrum gem snipers ────────────────────────────
+    "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",  # Base ecosystem whale
+    "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",  # Known early gem buyer (Base)
+    "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",  # Binance hot wallet
+    "0x9696f59e4d72e237be84ffd425dcad154bf96976",  # Known accumulator
+]))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications
