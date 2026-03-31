@@ -58,12 +58,12 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 ENABLED = getattr(settings, "WALLET_MONITOR_ENABLED", True)
 POLL_INTERVAL = int(getattr(settings, "WALLET_MONITOR_POLL_INTERVAL", 30))
-MIN_BUY_USD = float(getattr(settings, "WALLET_MONITOR_MIN_BUY_USD", 500))
-MAX_BUY_AGE_SECONDS = int(getattr(settings, "WALLET_MONITOR_MAX_BUY_AGE", 120))
-TIER1_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER1_COUNT", 3))
-TIER2_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER2_COUNT", 2))
-COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.5))
-MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 500))
+MIN_BUY_USD = float(getattr(settings, "WALLET_MONITOR_MIN_BUY_USD", 50))        # lowered from 500 — matches our capital level
+MAX_BUY_AGE_SECONDS = int(getattr(settings, "WALLET_MONITOR_MAX_BUY_AGE", 300))    # extended from 120s to 5 min
+TIER1_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER1_COUNT", 2))              # lowered from 3 — easier to trigger
+TIER2_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER2_COUNT", 1))              # single alpha buy = express lane
+COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.3))      # 30% of alpha buy size
+MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 100))        # cap at $100 for our capital level
 
 # Moralis API key (required for EVM wallet monitoring)
 MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") or os.getenv("MORALIS_API_KEY", "")
