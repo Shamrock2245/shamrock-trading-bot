@@ -232,6 +232,19 @@ class BotStateWriter:
                 "safety_passed": getattr(c, "safety_passed", False),
                 "is_safe": getattr(c, "is_safe", False),
                 "discovered_at": now.isoformat(),
+                # Entry timing intelligence fields
+                "timing_score": getattr(c, "timing_score", 50.0),
+                "timing_bp_trend": getattr(c, "timing_bp_trend", "flat"),
+                "timing_volume_acceleration": getattr(c, "timing_volume_acceleration", 1.0),
+                "timing_buyer_velocity": getattr(c, "timing_buyer_velocity", 1.0),
+                "timing_bp_micro_ratio": getattr(c, "timing_bp_micro_ratio", 1.0),
+                "is_accumulation_zone": getattr(c, "is_accumulation_zone", False),
+                "is_near_ath": getattr(c, "is_near_ath", False),
+                "price_range_position": getattr(c, "price_range_position", 0.5),
+                "vol_trend_7d": getattr(c, "vol_trend_7d", "neutral"),
+                "moralis_buy_pressure": getattr(c, "moralis_buy_pressure", 0.5),
+                "moralis_exp_net_buyers_1w": getattr(c, "moralis_exp_net_buyers_1w", 0),
+                "strategy_tag": getattr(c, "strategy_tag", "gem_snipe"),
                 "scores": {
                     "age": getattr(c, "age_score", 0),
                     "volume": getattr(c, "volume_score", 0),
@@ -310,6 +323,34 @@ def get_gem_history() -> list:
 
 def get_errors() -> list:
     return _read_json("errors.json", [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Force-Scan Trigger (Dashboard → Bot IPC via shared JSON file)
+# The dashboard writes scan_trigger.json; the bot checks it each cycle.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def request_force_scan(reason: str = "manual") -> None:
+    """Write a scan trigger file. The bot loop checks this at the top of each cycle."""
+    _ensure_dir()
+    _write_json("scan_trigger.json", {
+        "requested": True,
+        "reason": reason,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def get_force_scan_request() -> dict:
+    """Read the scan trigger file. Returns {} if no pending request."""
+    data = _read_json("scan_trigger.json", {})
+    if data.get("requested"):
+        return data
+    return {}
+
+
+def clear_force_scan_request() -> None:
+    """Clear the scan trigger after the bot has processed it."""
+    _write_json("scan_trigger.json", {"requested": False, "cleared_at": datetime.now(timezone.utc).isoformat()})
 
 
 def get_positions() -> list:

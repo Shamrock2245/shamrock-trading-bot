@@ -193,7 +193,32 @@ class GemSnipeStrategy:
                 gem_score=candidate.gem_score,
             )
 
-        # ── Decision: BUY ─────────────────────────────────────────────────
+        # ── Gate 5: Hard DECELERATING Block (worst entry timing) ───────────────────
+        # If buy pressure is actively decelerating AND timing_score is critically
+        # low (<30), this is a dying move. Reject to avoid buying the top.
+        # Express lane tokens bypass this gate (they scored ≥82 for a reason).
+        _hard_timing_bp = getattr(candidate, 'timing_bp_trend', 'flat')
+        _hard_timing_score = getattr(candidate, 'timing_score', 50.0)
+        _is_express = getattr(candidate, 'express_lane', False)
+        if (
+            not _is_express
+            and _hard_timing_bp == 'decelerating'
+            and _hard_timing_score < 30.0
+        ):
+            logger.info(
+                f"⛔ TIMING HARD BLOCK: {token.symbol} — decelerating BP + timing_score={_hard_timing_score:.0f} < 30 "
+                f"(buying a dying move — rejected)"
+            )
+            return StrategyDecision(
+                action="skip",
+                reason=f"Timing hard block: decelerating BP trend + timing_score={_hard_timing_score:.0f} (late entry risk)",
+                signal_score=signal_score,
+                ta_result=ta_result,
+                fib_result=fib_result,
+                gem_score=candidate.gem_score,
+            )
+
+        # ── Decision: BUY ───────────────────────────────────────────────────────────────────
         # All gates passed — this is a high-confidence entry
         # timing_score (0–100) from Moralis multi-timeframe entry intelligence:
         #   accelerating BP trend → +5 confidence bonus (momentum building)

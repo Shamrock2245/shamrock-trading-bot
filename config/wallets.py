@@ -96,25 +96,26 @@ NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
     min_gem_score=82.0,   # FIX: POSITION_SIZING.md spec — Wallet B requires express-lane quality (82+)
     express_lane_score=82.0,  # FIX: was 78 — nuclear entry IS express lane entry
-    # TP: 5x sell 15%, 12x sell 25%, 30x sell 20% (ride 40% with trail)
+    # TP: 5x sell 20%, 12x sell 25%, 30x sell 20% (ride 35% with trail)
+    # TUNED: tp1_sell_pct 15% → 20% — take more off at 5x to bank gains
     tp1_mult=5.0,
-    tp1_sell_pct=0.15,
+    tp1_sell_pct=0.20,   # TUNED: was 0.15 — bank 20% at 5x
     tp2_mult=12.0,
     tp2_sell_pct=0.25,
     tp3_mult=30.0,
     tp3_sell_pct=0.20,
     # Stops — tighten aggressively as it runs
-    hard_stop_pct=10.0,
-    trailing_stop_pct=30.0,
-    trailing_tighten={10: 18.0, 20: 8.0},  # At 10x → 18% trail, at 20x → 8%
+    hard_stop_pct=8.0,   # TUNED: was 10% — tighter stop = less capital burned on losers
+    trailing_stop_pct=28.0,  # TUNED: was 30% — slightly tighter to protect nuclear gains
+    trailing_tighten={10: 15.0, 20: 7.0},  # TUNED: tighter at 10x/20x milestones
     # Sizing — the missile
     max_position_pct=60.0,
     kelly_clamp_max=0.70,
     max_position_usd=0.0,  # No hard cap
     max_concurrent=3,
     # Fast fail — tighter
-    fast_fail_down_pct=15.0,
-    fast_fail_hours=1.5,
+    fast_fail_down_pct=12.0,  # TUNED: was 15% — cut losers faster
+    fast_fail_hours=1.0,      # TUNED: was 1.5h — faster failure detection
     max_slippage_pct=8.0,  # Wider for nuclear entries on memes
 )
 

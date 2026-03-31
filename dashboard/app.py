@@ -1,26 +1,25 @@
 """
-dashboard/app.py — ☘️ Shamrock Trading Bot — Command Center
+dashboard/app.py — ☘️ Shamrock Trading Bot — Command Center v4.0
 
-Premium dark-mode dashboard: Fortune 50-grade aesthetics.
-This is the main entry point for the Streamlit multi-page app.
+Fortune 50-grade dark-mode dashboard.
+Navigation card grid · Force Scan IPC · Daily Floor Guardian status ·
+Blue-Chip Anchor status · Full Moralis intelligence display.
 """
 
 import sys
 import os
 
-# Add parent dir to path so we can import dashboard modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from styles import (
     PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI,
-    DANGER, WARNING, INFO,
+    DANGER, WARNING,
 )
 from state import (
     get_bot_status,
@@ -30,65 +29,180 @@ from state import (
     get_trades,
     get_positions,
     get_errors,
+    request_force_scan,
+    get_force_scan_request,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page Config
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Shamrock Trading Bot",
+    page_title="Shamrock | Command Center",
     page_icon="☘️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-# Inject premium CSS
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+
+# ── Brand-specific CSS additions ──────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── Navigation Cards ─────────────────────────────────────────────────────── */
+.nav-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+.nav-card {
+    background: linear-gradient(145deg, rgba(13,17,23,0.98), rgba(22,27,34,0.95));
+    border: 1px solid rgba(48,54,61,0.7);
+    border-radius: 14px;
+    padding: 18px 14px 14px;
+    text-align: center;
+    text-decoration: none !important;
+    display: block;
+    transition: all 0.22s cubic-bezier(.4,0,.2,1);
+    position: relative;
+    overflow: hidden;
+}
+.nav-card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,208,156,0.04), transparent);
+    opacity: 0; transition: opacity 0.22s;
+}
+.nav-card:hover { border-color: rgba(0,208,156,0.45); transform: translateY(-3px);
+    box-shadow: 0 8px 32px rgba(0,208,156,0.10); }
+.nav-card:hover::before { opacity: 1; }
+.nav-icon { font-size: 1.9rem; margin-bottom: 8px; display: block; }
+.nav-title {
+    color: #E6EDF3; font-size: 0.78rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 5px;
+}
+.nav-desc { color: #484F58; font-size: 0.68rem; line-height: 1.45; }
+.nav-badge {
+    position: absolute; top: 9px; right: 9px;
+    background: rgba(0,208,156,0.15); color: #00D09C;
+    border-radius: 20px; padding: 2px 7px;
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+}
+/* ── Floor/Anchor Status Cards ────────────────────────────────────────────── */
+.guardian-card {
+    background: linear-gradient(145deg, rgba(13,17,23,0.98), rgba(22,27,34,0.95));
+    border: 1px solid rgba(48,54,61,0.7);
+    border-radius: 14px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+}
+.guardian-card.preservation {
+    border-color: rgba(255,71,87,0.5);
+    background: linear-gradient(145deg, rgba(255,71,87,0.05), rgba(13,17,23,0.98));
+}
+.guardian-card.healthy {
+    border-color: rgba(0,208,156,0.3);
+    background: linear-gradient(145deg, rgba(0,208,156,0.04), rgba(13,17,23,0.98));
+}
+.guardian-label {
+    color: #484F58; font-size: 0.62rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;
+}
+.guardian-value {
+    color: #E6EDF3; font-size: 1.25rem; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 3px;
+}
+.guardian-sub { color: #8B949E; font-size: 0.72rem; }
+/* ── Force Scan Button ────────────────────────────────────────────────────── */
+.scan-pending-pill {
+    background: rgba(255,184,77,0.12);
+    border: 1px solid rgba(255,184,77,0.3);
+    border-radius: 20px; padding: 6px 12px;
+    color: #FFB84D; font-size: 0.72rem; font-weight: 600;
+    text-align: center; margin-top: 6px;
+}
+/* ── Sidebar meta ─────────────────────────────────────────────────────────── */
+.sidebar-stat-row { display: flex; flex-direction: column; gap: 10px; }
+.sidebar-stat { }
+.sidebar-stat-label {
+    color: #30363D; font-size: 0.6rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.09em;
+}
+.sidebar-stat-value {
+    color: #E6EDF3; font-size: 0.92rem; font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sidebar
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("# ☘️ SHAMROCK")
+    # Brand header
     st.markdown(
-        '<span style="color:#8B949E;font-size:0.82rem;font-weight:500;">'
-        'Multi-Chain Trading Engine</span>',
+        '<div style="display:flex;align-items:center;gap:10px;padding:4px 0 12px;">'
+        '<span style="font-size:1.6rem;">☘️</span>'
+        '<div>'
+        '<div style="color:#E6EDF3;font-size:1.05rem;font-weight:800;letter-spacing:0.04em;">SHAMROCK</div>'
+        '<div style="color:#30363D;font-size:0.65rem;font-weight:600;letter-spacing:0.08em;'
+        'text-transform:uppercase;">Multi-Chain AI Trading Engine</div>'
+        '</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
-    st.markdown("---")
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:0 0 14px;">', unsafe_allow_html=True)
 
+    # Bot status badge
     status = get_bot_status()
     mode = status.get("mode", "unknown").upper()
     is_running = status.get("is_running", False)
 
-    # Live status indicator
     if is_running:
-        badge_class = "status-live" if mode == "LIVE" else "status-paper"
+        badge_class = "status-live"
         st.markdown(
             f'<div class="{badge_class}">'
-            f'<span class="live-dot"></span> RUNNING • {mode}'
-            f'</div>',
+            f'<span class="live-dot"></span> RUNNING · {mode}</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div style="display:flex;align-items:center;gap:8px;">'
-            '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
-            'background:#FF4757;"></span>'
-            '<span style="color:#FF4757;font-weight:600;font-size:0.82rem;">OFFLINE</span>'
+            '<div style="display:flex;align-items:center;gap:7px;padding:6px 10px;'
+            'background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.2);'
+            'border-radius:8px;">'
+            '<span style="width:7px;height:7px;border-radius:50%;background:#FF4757;'
+            'display:inline-block;"></span>'
+            '<span style="color:#FF4757;font-weight:600;font-size:0.78rem;">OFFLINE</span>'
             '</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown("---")
+    st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
 
-    # Chains
+    # ── Force Scan ────────────────────────────────────────────────────────────
+    st.markdown(
+        '<div class="sidebar-stat-label" style="margin-bottom:8px;">Manual Controls</div>',
+        unsafe_allow_html=True,
+    )
+    pending = get_force_scan_request()
+    if pending:
+        st.markdown(
+            '<div class="scan-pending-pill">⏳ Scan queued — picks up next cycle</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        if st.button(
+            "🔍  Force Scan Now",
+            key="sb_force_scan",
+            use_container_width=True,
+            help="Trigger an immediate gem scan regardless of the scheduled interval",
+        ):
+            request_force_scan(reason="sidebar_button")
+            st.success("✅ Scan request sent!")
+            st.rerun()
+
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
+
+    # Active chains
     chains = status.get("chains_scanned", [])
     if chains:
         st.markdown(
-            '<div style="color:#8B949E;font-size:0.68rem;font-weight:700;'
-            'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">'
-            'Active Chains</div>',
+            '<div class="sidebar-stat-label" style="margin-bottom:8px;">Active Chains</div>',
             unsafe_allow_html=True,
         )
         chain_html = ""
@@ -96,431 +210,480 @@ with st.sidebar:
             color = CHAIN_COLORS.get(chain, "#8B949E")
             emoji = CHAIN_EMOJI.get(chain, "⬡")
             chain_html += (
-                f'<div style="display:flex;align-items:center;gap:8px;'
-                f'padding:4px 0;font-size:0.82rem;">'
-                f'<span>{emoji}</span>'
-                f'<span style="color:{color};font-weight:500;">{chain.capitalize()}</span>'
+                f'<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">'
+                f'<span style="font-size:0.85rem;">{emoji}</span>'
+                f'<span style="color:{color};font-size:0.8rem;font-weight:500;">'
+                f'{chain.capitalize()}</span>'
                 f'</div>'
             )
         st.markdown(chain_html, unsafe_allow_html=True)
+        st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # Uptime & Cycles
+    # Uptime + cycles
     uptime = status.get("uptime_seconds", 0)
     days = uptime // 86400
     hours = (uptime % 86400) // 3600
     minutes = (uptime % 3600) // 60
-
-    if days > 0:
-        uptime_str = f"{days}d {hours}h {minutes}m"
-    elif hours > 0:
-        uptime_str = f"{hours}h {minutes}m"
-    else:
-        uptime_str = f"{minutes}m"
-
+    uptime_str = (
+        f"{days}d {hours}h {minutes}m" if days > 0
+        else f"{hours}h {minutes}m" if hours > 0
+        else f"{minutes}m"
+    )
     cycle = status.get("cycle_count", 0)
 
-    sidebar_stats = f"""
-    <div style="display:flex;flex-direction:column;gap:10px;">
-        <div>
-            <div style="color:#484F58;font-size:0.65rem;font-weight:600;text-transform:uppercase;
-                letter-spacing:0.08em;">Uptime</div>
-            <div style="color:#E6EDF3;font-size:0.95rem;font-weight:600;
-                font-family:'JetBrains Mono',monospace;">{uptime_str}</div>
-        </div>
-        <div>
-            <div style="color:#484F58;font-size:0.65rem;font-weight:600;text-transform:uppercase;
-                letter-spacing:0.08em;">Scan Cycles</div>
-            <div style="color:#E6EDF3;font-size:0.95rem;font-weight:600;
-                font-family:'JetBrains Mono',monospace;">{cycle:,}</div>
-        </div>
-    </div>
-    """
-    st.markdown(sidebar_stats, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="sidebar-stat-row">'
+        f'<div class="sidebar-stat">'
+        f'<div class="sidebar-stat-label">Uptime</div>'
+        f'<div class="sidebar-stat-value">{uptime_str}</div>'
+        f'</div>'
+        f'<div class="sidebar-stat">'
+        f'<div class="sidebar-stat-label">Scan Cycles</div>'
+        f'<div class="sidebar-stat-value">{cycle:,}</div>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     last_cycle = status.get("last_cycle_at", "")
     if last_cycle:
         try:
             dt = datetime.fromisoformat(last_cycle.replace("Z", "+00:00"))
             ago = (datetime.now(timezone.utc) - dt).total_seconds()
-            if ago < 120:
-                ago_str = f"{int(ago)}s ago"
-            elif ago < 7200:
-                ago_str = f"{int(ago/60)}m ago"
-            else:
-                ago_str = f"{int(ago/3600)}h ago"
+            ago_str = (
+                f"{int(ago)}s ago" if ago < 120
+                else f"{int(ago/60)}m ago" if ago < 7200
+                else f"{int(ago/3600)}h ago"
+            )
             st.markdown(
-                f'<div style="color:#484F58;font-size:0.72rem;margin-top:8px;">'
-                f'Last scan: <span style="color:#8B949E;">{ago_str}</span></div>',
+                f'<div style="color:#30363D;font-size:0.68rem;margin-top:8px;">'
+                f'Last scan: <span style="color:#484F58;">{ago_str}</span></div>',
                 unsafe_allow_html=True,
             )
         except (ValueError, TypeError):
             pass
 
-    # Auto-refresh
-    st.markdown("---")
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
+
     auto_refresh = st.toggle("Auto-refresh", value=True)
     refresh_rate = st.select_slider(
-        "Interval",
-        options=[5, 10, 15, 30, 60],
-        value=15,
+        "Interval", options=[5, 10, 15, 30, 60], value=15,
         format_func=lambda x: f"{x}s",
     )
 
-    if auto_refresh:
-        st.markdown(
-            f'<div style="color:#484F58;font-size:0.7rem;margin-top:4px;">'
-            f'↻ Every {refresh_rate}s</div>',
-            unsafe_allow_html=True,
-        )
-
-    # Version footer
-    st.markdown("---")
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
     st.markdown(
-        '<div style="color:#30363D;font-size:0.65rem;text-align:center;">'
-        'v3.0 · 18-Signal Engine<br>Moralis Pro · Rug Protection</div>',
+        '<div style="color:#30363D;font-size:0.6rem;text-align:center;line-height:1.6;">'
+        'v4.0 · 29-Signal Engine · Full Moralis Suite<br>'
+        'Daily Floor Guardian · Blue-Chip Anchor · God Mode</div>',
         unsafe_allow_html=True,
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main Content — Command Center
+# Main Content
 # ─────────────────────────────────────────────────────────────────────────────
-
-# ── Page Header ──────────────────────────────────────────────────────────────
 st.markdown(
     '<div class="page-header">'
     '<div style="display:flex;align-items:center;gap:12px;">'
-    '<span style="font-size:1.8rem;">☘️</span>'
+    '<span style="font-size:1.7rem;">☘️</span>'
     '<div>'
     '<h1>COMMAND CENTER</h1>'
-    '<div class="subtitle">Real-time trading intelligence · 18-signal pipeline</div>'
+    '<div class="subtitle">'
+    '29-signal AI pipeline · Full Moralis Suite · Daily Floor Guardian · Blue-Chip Anchor'
+    '</div>'
     '</div>'
     '</div>'
     '</div>',
     unsafe_allow_html=True,
 )
 
-# ── Data Loading ─────────────────────────────────────────────────────────────
+# ── Data Loading ──────────────────────────────────────────────────────────────
 history = get_scan_history()
 gems = get_gem_history()
 trades_data = get_trades()
 positions_data = get_positions()
+latest_gems = get_latest_gems()
 
-total_scans = len(history)
-total_gems = len(gems)
 active_positions = len([p for p in positions_data if p.get("is_open", False)])
-
-# Calculate P&L
-buy_total = sum(
-    t.get("amount_in", 0) * t.get("price_usd", 1)
-    for t in trades_data if t.get("direction") == "buy"
-)
-sell_total = sum(
-    t.get("amount_out", 0) * t.get("price_usd", 1)
-    for t in trades_data if t.get("direction") == "sell"
-)
-# Also consider realized PnL from position monitor
 realized_pnl = sum(t.get("pnl_usd", 0) for t in trades_data if t.get("direction") == "sell")
-# Unrealized from open positions
-unrealized_pnl = sum(
-    p.get("realized_pnl_usd", 0) for p in positions_data if p.get("is_open", False)
-)
-total_pnl = realized_pnl + unrealized_pnl
 total_trades = len(trades_data)
+sells = [t for t in trades_data if t.get("direction") == "sell"]
+wins = [t for t in sells if t.get("pnl_usd", 0) > 0]
+win_rate = (len(wins) / max(len(sells), 1)) * 100
 
-# ── Moralis Wallet Intelligence ──────────────────────────────────────────
-# Fetch real-time portfolio value and on-chain P&L from Moralis Pro API
-moralis_net_worth = 0.0
-moralis_pnl_data = {}
+# ── Guardian + Anchor Status (read from output files) ─────────────────────────
+guardian_status = {}
+anchor_status = {}
 try:
-    from data.providers.moralis_wallet import get_wallet_net_worth, get_aggregate_pnl
-    import os as _os
-    _wallets = {
-        "evm": _os.getenv("EVM_WALLET_ADDRESS", ""),
-    }
-    for _wkey, _waddr in _wallets.items():
-        if _waddr:
-            nw = get_wallet_net_worth(_waddr)
-            moralis_net_worth += nw.get("total_networth_usd", 0)
-    if moralis_net_worth > 0:
-        moralis_pnl_data = get_aggregate_pnl(days=30)
+    import json as _json
+    _gf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "daily_floor.json")
+    if os.path.exists(_gf):
+        guardian_status = _json.loads(open(_gf).read())
 except Exception:
-    pass  # Graceful degradation — dashboard still works without Moralis
+    pass
+try:
+    import json as _json2
+    _af = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "bluechip_anchor.json")
+    if os.path.exists(_af):
+        anchor_status = _json2.loads(open(_af).read())
+except Exception:
+    pass
 
-# ── P&L Hero Display ────────────────────────────────────────────────────────
-pnl_class = "positive" if total_pnl > 0 else ("negative" if total_pnl < 0 else "zero")
-pnl_sign = "+" if total_pnl > 0 else ""
-pnl_display = f"{pnl_sign}${abs(total_pnl):,.2f}"
+# ── P&L Hero ──────────────────────────────────────────────────────────────────
+pnl_class = "positive" if realized_pnl > 0 else ("negative" if realized_pnl < 0 else "zero")
+pnl_sign = "+" if realized_pnl > 0 else ""
+pnl_subtitle = (
+    f"{total_trades} trades · {win_rate:.0f}% win rate"
+    if total_trades > 0 else "Awaiting first trade"
+)
 
-# Build subtitle
-if total_trades > 0:
-    wins = len([t for t in trades_data if t.get("direction") == "sell" and t.get("pnl_usd", 0) > 0])
-    sells = len([t for t in trades_data if t.get("direction") == "sell"])
-    win_rate = (wins / max(sells, 1)) * 100
-    pnl_subtitle = f"{total_trades} trades · {win_rate:.0f}% win rate"
-else:
-    pnl_subtitle = "Awaiting first trade"
-
-hero_col1, hero_col2, hero_col3 = st.columns([1, 2, 1])
-
-with hero_col2:
+_hc1, _hc2, _hc3 = st.columns([1, 2, 1])
+with _hc2:
     st.markdown(
         f'<div class="pnl-hero">'
-        f'<div class="pnl-label">Total Portfolio P&L</div>'
-        f'<div class="pnl-value {pnl_class}">{pnl_display}</div>'
+        f'<div class="pnl-label">Realized P&L (Session)</div>'
+        f'<div class="pnl-value {pnl_class}">{pnl_sign}${abs(realized_pnl):,.2f}</div>'
         f'<div class="pnl-subtitle">{pnl_subtitle}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-# ── Moralis Net Worth Row ────────────────────────────────────────────────
-if moralis_net_worth > 0:
-    nw_col1, nw_col2, nw_col3 = st.columns([1, 2, 1])
-    with nw_col2:
-        moralis_pnl_total = moralis_pnl_data.get("total_profit_usd", 0)
-        mpnl_class = "positive" if moralis_pnl_total > 0 else ("negative" if moralis_pnl_total < 0 else "zero")
-        mpnl_sign = "+" if moralis_pnl_total > 0 else ""
+st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+# ── Guardian + Anchor Status Row ──────────────────────────────────────────────
+if guardian_status or anchor_status:
+    ga_col1, ga_col2, ga_col3, ga_col4 = st.columns(4)
+
+    with ga_col1:
+        floor_usd = guardian_status.get("floor_usd", 0)
+        current_usd = guardian_status.get("current_portfolio_usd", 0)
+        is_pres = guardian_status.get("is_preservation_mode", False)
+        daily_gain_pct = guardian_status.get("daily_gain_pct", 0)
+        card_class = "preservation" if is_pres else "healthy"
+        status_icon = "🛡️ PRESERVATION" if is_pres else "✅ HEALTHY"
+        status_color = DANGER if is_pres else ACCENT
         st.markdown(
-            f'<div style="text-align:center;padding:12px 0;margin:-10px 0 6px 0;">'
-            f'<div style="display:flex;justify-content:center;gap:32px;">'
-            f'<div>'
-            f'<div style="color:#484F58;font-size:0.65rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:0.1em;">On-Chain Net Worth</div>'
-            f'<div style="color:#E6EDF3;font-size:1.3rem;font-weight:700;'
-            f'font-family:\'JetBrains Mono\',monospace;">${moralis_net_worth:,.2f}</div>'
-            f'</div>'
-            f'<div>'
-            f'<div style="color:#484F58;font-size:0.65rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:0.1em;">30d Realized P&L</div>'
-            f'<div class="pnl-value {mpnl_class}" style="font-size:1.3rem;">'
-            f'{mpnl_sign}${abs(moralis_pnl_total):,.2f}</div>'
-            f'</div>'
-            f'</div>'
-            f'<div style="color:#30363D;font-size:0.6rem;margin-top:4px;">'
-            f'Powered by Moralis Pro API</div>'
+            f'<div class="guardian-card {card_class}">'
+            f'<div class="guardian-label">Daily Floor Guardian</div>'
+            f'<div class="guardian-value">${floor_usd:,.2f}</div>'
+            f'<div class="guardian-sub">Floor · Current: ${current_usd:,.2f}</div>'
+            f'<div style="margin-top:6px;font-size:0.7rem;font-weight:700;color:{status_color};">'
+            f'{status_icon}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+    with ga_col2:
+        daily_gain = guardian_status.get("daily_gain_usd", 0)
+        peak = guardian_status.get("peak_usd_today", 0)
+        gain_class = "positive" if daily_gain >= 0 else "negative"
+        gain_sign = "+" if daily_gain >= 0 else ""
+        st.markdown(
+            f'<div class="guardian-card healthy">'
+            f'<div class="guardian-label">24h P&L vs Floor</div>'
+            f'<div class="guardian-value {gain_class}">{gain_sign}${abs(daily_gain):,.2f}</div>'
+            f'<div class="guardian-sub">{gain_sign}{daily_gain_pct:+.2f}% · Peak: ${peak:,.2f}</div>'
+            f'<div style="margin-top:6px;font-size:0.7rem;color:#484F58;">'
+            f'Floor date: {guardian_status.get("floor_date", "—")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-# ── Stats Row ────────────────────────────────────────────────────────────────
-avg_gems_per_scan = (
+    with ga_col3:
+        anchor_sym = anchor_status.get("anchor_symbol", "ETH")
+        anchor_usd = anchor_status.get("anchor_current_usd", 0)
+        anchor_pct = anchor_status.get("anchor_current_pct", 0)
+        anchor_target = anchor_status.get("anchor_target_pct", 20)
+        scores = anchor_status.get("last_scores", {})
+        best_score = max(scores.values()) if scores else 0
+        st.markdown(
+            f'<div class="guardian-card healthy">'
+            f'<div class="guardian-label">Blue-Chip Anchor</div>'
+            f'<div class="guardian-value">⚓ {anchor_sym}</div>'
+            f'<div class="guardian-sub">${anchor_usd:,.2f} · {anchor_pct:.1f}% of portfolio</div>'
+            f'<div style="margin-top:6px;font-size:0.7rem;color:#484F58;">'
+            f'Target: {anchor_target:.0f}% · Momentum: {best_score:.0f}/100</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with ga_col4:
+        rebalances = anchor_status.get("rebalance_count", 0)
+        switches = anchor_status.get("switches", 0)
+        last_rb = anchor_status.get("last_rebalance_at", "")
+        last_rb_str = last_rb[:10] if last_rb else "Never"
+        scores_html = ""
+        if scores:
+            for sym, sc in sorted(scores.items(), key=lambda x: -x[1])[:4]:
+                bar_w = int(sc)
+                color = ACCENT if sc >= 60 else (WARNING if sc >= 40 else DANGER)
+                scores_html += (
+                    f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
+                    f'<span style="color:#8B949E;font-size:0.65rem;width:32px;">{sym}</span>'
+                    f'<div style="flex:1;height:4px;background:rgba(48,54,61,0.5);border-radius:2px;">'
+                    f'<div style="width:{bar_w}%;height:100%;background:{color};border-radius:2px;"></div>'
+                    f'</div>'
+                    f'<span style="color:{color};font-size:0.62rem;width:24px;text-align:right;">{sc:.0f}</span>'
+                    f'</div>'
+                )
+        st.markdown(
+            f'<div class="guardian-card healthy">'
+            f'<div class="guardian-label">Anchor Momentum Scores</div>'
+            f'{scores_html if scores_html else "<div class=guardian-sub>Awaiting first evaluation</div>"}'
+            f'<div style="margin-top:6px;font-size:0.65rem;color:#30363D;">'
+            f'Rebalances: {rebalances} · Switches: {switches} · Last: {last_rb_str}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+# ── Navigation Cards ──────────────────────────────────────────────────────────
+st.markdown(
+    '<div style="color:#484F58;font-size:0.62rem;font-weight:700;'
+    'text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;">Navigate</div>',
+    unsafe_allow_html=True,
+)
+
+latest_count = len(latest_gems)
+express_count = len([g for g in latest_gems if g.get("express_lane")])
+pos_badge = f'<div class="nav-badge">{active_positions} open</div>' if active_positions > 0 else ""
+gem_badge = f'<div class="nav-badge">{latest_count} live</div>' if latest_count > 0 else ""
+
+nav_c1, nav_c2, nav_c3, nav_c4, nav_c5 = st.columns(5)
+
+with nav_c1:
+    st.markdown(
+        f'<a href="/Gem_Scanner" target="_self" class="nav-card">'
+        f'{gem_badge}'
+        f'<span class="nav-icon">🔍</span>'
+        f'<div class="nav-title">Gem Scanner</div>'
+        f'<div class="nav-desc">Live candidates · Score breakdowns · Intelligence signals · Force Scan</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_c2:
+    st.markdown(
+        f'<a href="/Analytics" target="_self" class="nav-card">'
+        f'<span class="nav-icon">📊</span>'
+        f'<div class="nav-title">Analytics</div>'
+        f'<div class="nav-desc">P&L curves · Win rate · Chain performance · Score trends</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_c3:
+    st.markdown(
+        f'<a href="/Positions" target="_self" class="nav-card">'
+        f'{pos_badge}'
+        f'<span class="nav-icon">💰</span>'
+        f'<div class="nav-title">Positions</div>'
+        f'<div class="nav-desc">Open trades · TP/SL tiers · Pyramid scaling · Unrealized P&L</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_c4:
+    st.markdown(
+        f'<a href="/System_Health" target="_self" class="nav-card">'
+        f'<span class="nav-icon">🏥</span>'
+        f'<div class="nav-title">System Health</div>'
+        f'<div class="nav-desc">API status · Error feed · Memory · Pipeline health</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_c5:
+    st.markdown(
+        f'<a href="/Wallet_Overview" target="_self" class="nav-card">'
+        f'<span class="nav-icon">👛</span>'
+        f'<div class="nav-title">Wallets</div>'
+        f'<div class="nav-desc">Net worth · DeFi positions · Approvals · Chain activity</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown('<div style="height:20px;"></div>', unsafe_allow_html=True)
+
+# ── Stats Row ─────────────────────────────────────────────────────────────────
+avg_gems = (
     sum(h.get("candidates_found", 0) for h in history[-50:]) / max(len(history[-50:]), 1)
     if history else 0
 )
 
-col1, col2, col3, col4 = st.columns(4)
+sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
 
-with col1:
-    st.markdown(
-        '<div class="stat-card">'
-        '<div class="stat-icon">📡</div>'
-        '<div class="stat-label">Total Scans</div>'
-        f'<div class="stat-value">{total_scans:,}</div>'
-        f'<div class="stat-delta neutral">~{avg_gems_per_scan:.1f} gems/scan</div>'
-        '</div>',
-        unsafe_allow_html=True,
+def _stat(icon, label, value, delta, delta_class="neutral"):
+    return (
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">{icon}</div>'
+        f'<div class="stat-label">{label}</div>'
+        f'<div class="stat-value">{value}</div>'
+        f'<div class="stat-delta {delta_class}">{delta}</div>'
+        f'</div>'
     )
 
-with col2:
-    st.markdown(
-        '<div class="stat-card">'
-        '<div class="stat-icon">💎</div>'
-        '<div class="stat-label">Gems Discovered</div>'
-        f'<div class="stat-value">{total_gems:,}</div>'
-        f'<div class="stat-delta neutral">Across all chains</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+with sc1:
+    st.markdown(_stat("📡", "Total Scans", f"{len(history):,}", f"~{avg_gems:.1f} gems/scan"), unsafe_allow_html=True)
+with sc2:
+    st.markdown(_stat("💎", "Gems Found", f"{len(gems):,}", "All chains"), unsafe_allow_html=True)
+with sc3:
+    exp_str = f"⚡ {express_count} express" if express_count > 0 else "No express"
+    exp_cls = "positive" if express_count > 0 else "neutral"
+    st.markdown(_stat("🚀", "Live Candidates", str(latest_count), exp_str, exp_cls), unsafe_allow_html=True)
+with sc4:
+    pos_cls = "positive" if active_positions > 0 else "neutral"
+    st.markdown(_stat("📍", "Active Positions", str(active_positions), f"{len(positions_data)} total", pos_cls), unsafe_allow_html=True)
+with sc5:
+    st.markdown(_stat("⚡", "Trades", str(total_trades), "Executed"), unsafe_allow_html=True)
+with sc6:
+    pnl_cls = "positive" if realized_pnl > 0 else ("negative" if realized_pnl < 0 else "neutral")
+    pnl_s = "+" if realized_pnl > 0 else ""
+    st.markdown(_stat("💵", "Realized P&L", f"{pnl_s}${abs(realized_pnl):,.0f}", f"{win_rate:.0f}% win rate", pnl_cls), unsafe_allow_html=True)
 
-with col3:
-    pos_delta_class = "positive" if active_positions > 0 else "neutral"
-    st.markdown(
-        '<div class="stat-card">'
-        '<div class="stat-icon">📍</div>'
-        '<div class="stat-label">Active Positions</div>'
-        f'<div class="stat-value">{active_positions}</div>'
-        f'<div class="stat-delta {pos_delta_class}">'
-        f'{len(positions_data)} total tracked</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
 
-with col4:
-    trade_delta = f"{total_trades} executed" if total_trades > 0 else "Scanning..."
-    st.markdown(
-        '<div class="stat-card">'
-        '<div class="stat-icon">⚡</div>'
-        '<div class="stat-label">Trades</div>'
-        f'<div class="stat-value">{total_trades}</div>'
-        f'<div class="stat-delta neutral">{trade_delta}</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+# ── Charts Row ────────────────────────────────────────────────────────────────
+chart_c1, chart_c2 = st.columns([2, 1])
 
-st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
-
-# ── Charts Row ───────────────────────────────────────────────────────────────
-chart_col1, chart_col2 = st.columns([2, 1])
-
-with chart_col1:
+with chart_c1:
     st.markdown("#### 📈 Scan Activity")
-
     if history:
-        df_hist = pd.DataFrame(history)
-        df_hist["timestamp"] = pd.to_datetime(df_hist["timestamp"])
-        df_hist = df_hist.sort_values("timestamp")
-
+        df_h = pd.DataFrame(history)
+        df_h["timestamp"] = pd.to_datetime(df_h["timestamp"])
+        df_h = df_h.sort_values("timestamp")
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=df_hist["timestamp"],
-            y=df_hist["candidates_found"],
-            mode="lines",
-            name="Candidates",
+            x=df_h["timestamp"], y=df_h["candidates_found"],
+            mode="lines", name="Candidates",
             line=dict(color=ACCENT, width=2),
-            fill="tozeroy",
-            fillcolor="rgba(0, 208, 156, 0.06)",
+            fill="tozeroy", fillcolor="rgba(0,208,156,0.06)",
             hovertemplate="<b>%{y} candidates</b><br>%{x|%H:%M:%S}<extra></extra>",
         ))
-
-        if "trades_attempted" in df_hist.columns:
+        if "trades_attempted" in df_h.columns:
             fig.add_trace(go.Bar(
-                x=df_hist["timestamp"],
-                y=df_hist["trades_attempted"],
-                name="Trades",
-                marker_color="rgba(88, 166, 255, 0.5)",
+                x=df_h["timestamp"], y=df_h["trades_attempted"],
+                name="Trades", marker_color="rgba(88,166,255,0.45)",
                 hovertemplate="<b>%{y} trades</b><br>%{x|%H:%M:%S}<extra></extra>",
             ))
-
-        fig.update_layout(
-            **PLOTLY_LAYOUT,
-            height=300,
-            xaxis_title=None,
-            yaxis_title=None,
-        )
+        fig.update_layout(**PLOTLY_LAYOUT, height=280, xaxis_title=None, yaxis_title=None)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.markdown(
-            '<div class="glass-card" style="text-align:center;padding:3rem;">'
-            '<div style="font-size:2rem;margin-bottom:0.5rem;">📡</div>'
+            '<div class="glass-card" style="text-align:center;padding:2.5rem;">'
+            '<div style="font-size:1.8rem;margin-bottom:8px;">📡</div>'
             '<div style="color:#8B949E;">Waiting for scan data...</div>'
-            '<div style="color:#484F58;font-size:0.78rem;">Data appears after the first cycle</div>'
+            '<div style="color:#484F58;font-size:0.75rem;margin-top:4px;">'
+            'Appears after the first scan cycle</div>'
             '</div>',
             unsafe_allow_html=True,
         )
 
-with chart_col2:
+with chart_c2:
     st.markdown("#### 🔗 Chain Distribution")
-
     if gems:
         chain_counts = {}
         for g in gems:
-            chain = g.get("chain", "unknown")
-            chain_counts[chain] = chain_counts.get(chain, 0) + 1
-
+            c = g.get("chain", "unknown")
+            chain_counts[c] = chain_counts.get(c, 0) + 1
         chains_list = list(chain_counts.keys())
         counts = list(chain_counts.values())
         colors = [CHAIN_COLORS.get(c, "#8B949E") for c in chains_list]
-
-        fig_donut = go.Figure(data=[go.Pie(
-            labels=[c.capitalize() for c in chains_list],
-            values=counts,
-            hole=0.72,
+        fig_d = go.Figure(data=[go.Pie(
+            labels=[c.capitalize() for c in chains_list], values=counts, hole=0.70,
             marker=dict(colors=colors, line=dict(color="#06090F", width=2)),
-            textinfo="percent",
-            textfont=dict(size=11, color="#E6EDF3"),
+            textinfo="percent", textfont=dict(size=10, color="#E6EDF3"),
             hovertemplate="<b>%{label}</b><br>%{value} gems (%{percent})<extra></extra>",
         )])
-
-        fig_donut.update_layout(
-            **PLOTLY_LAYOUT,
-            height=300,
+        fig_d.update_layout(
+            **PLOTLY_LAYOUT, height=280,
             annotations=[dict(
-                text=f"<b>{sum(counts)}</b><br>gems",
-                x=0.5, y=0.5, font_size=15,
+                text=f"<b>{sum(counts)}</b><br><span style='font-size:11px;'>gems</span>",
+                x=0.5, y=0.5, font_size=14,
                 font=dict(color="#E6EDF3", family="JetBrains Mono, Inter"),
                 showarrow=False,
             )],
         )
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
     else:
         st.markdown(
-            '<div class="glass-card" style="text-align:center;padding:3rem;">'
-            '<div style="font-size:2rem;margin-bottom:0.5rem;">🔗</div>'
+            '<div class="glass-card" style="text-align:center;padding:2.5rem;">'
+            '<div style="font-size:1.8rem;margin-bottom:8px;">🔗</div>'
             '<div style="color:#8B949E;">No chain data yet</div>'
             '</div>',
             unsafe_allow_html=True,
         )
 
-# ── Recent Gems Table ────────────────────────────────────────────────────────
-st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
-st.markdown("#### 💎 Recent Gem Candidates")
+# ── Recent Gems Table ─────────────────────────────────────────────────────────
+st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
+st.markdown("#### 💎 Latest Gem Candidates")
 
-latest = get_latest_gems()
-if latest:
-    gem_rows = []
-    for g in sorted(latest, key=lambda x: x.get("gem_score", 0), reverse=True)[:20]:
+if latest_gems:
+    # De-duplicate by token address (keep highest score)
+    seen = {}
+    for g in latest_gems:
+        addr = g.get("address", g.get("symbol", ""))
+        if addr not in seen or g.get("gem_score", 0) > seen[addr].get("gem_score", 0):
+            seen[addr] = g
+    deduped = sorted(seen.values(), key=lambda x: x.get("gem_score", 0), reverse=True)[:25]
+
+    rows = []
+    for g in deduped:
         score = g.get("gem_score", 0)
         chain = g.get("chain", "")
         emoji = CHAIN_EMOJI.get(chain, "⬡")
-
-        gem_rows.append({
+        timing = g.get("timing_bp_trend", "flat")
+        t_icon = {"accelerating": "🚀", "decelerating": "📉", "flat": "➡️"}.get(timing, "➡️")
+        intel = ("🧠" if g.get("intel_smart_money_buying") else "") + ("🐋" if g.get("intel_whale_buying") else "")
+        rows.append({
             "Score": f"{score:.1f}",
             "Token": g.get("symbol", "???"),
             "Chain": f"{emoji} {chain.capitalize()}",
-            "Price": f"${g.get('price_usd', 0):.6f}" if g.get("price_usd", 0) < 1 else f"${g.get('price_usd', 0):,.2f}",
-            "Liquidity": f"${g.get('liquidity_usd', 0):,.0f}",
-            "Vol 1h": f"${g.get('volume_1h', 0):,.0f}",
-            "MCap": f"${g.get('market_cap', 0):,.0f}",
-            "Age": f"{g.get('age_hours', 0):.1f}h" if g.get("age_hours") else "N/A",
-            "Boost": "🚀" if g.get("is_boosted") else "",
+            "Price": (f"${g.get('price_usd',0):.6f}" if g.get("price_usd",0) < 1 else f"${g.get('price_usd',0):,.4f}"),
+            "Liq": f"${g.get('liquidity_usd',0):,.0f}",
+            "Vol 1h": f"${g.get('volume_1h',0):,.0f}",
+            "Age": f"{g.get('age_hours',0):.1f}h" if g.get("age_hours") else "N/A",
+            "Timing": f"{t_icon} {timing.capitalize()}",
+            "Intel": intel or "—",
+            "⚡": "⚡" if g.get("express_lane") else "",
             "Safe": "✅" if g.get("is_safe") else "⚠️",
         })
-
-    df_gems = pd.DataFrame(gem_rows)
     st.dataframe(
-        df_gems,
+        pd.DataFrame(rows),
         use_container_width=True,
         hide_index=True,
-        height=min(400, len(gem_rows) * 40 + 40),
+        height=min(420, len(rows) * 38 + 40),
     )
 else:
     st.markdown(
-        '<div class="glass-card" style="text-align:center;padding:2.5rem;">'
-        '<div style="font-size:1.5rem;margin-bottom:0.5rem;">💎</div>'
-        '<div style="color:#8B949E;">No gem candidates discovered yet</div>'
-        '<div style="color:#484F58;font-size:0.78rem;margin-top:4px;">'
-        'The scanner is searching across all chains</div>'
+        '<div class="glass-card" style="text-align:center;padding:2rem;">'
+        '<div style="font-size:1.4rem;margin-bottom:6px;">💎</div>'
+        '<div style="color:#8B949E;">No gem candidates yet — scanner is running</div>'
+        '<div style="color:#484F58;font-size:0.75rem;margin-top:4px;">'
+        'Use Force Scan in the sidebar to trigger immediately</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-# ── Error Feed (if any) ─────────────────────────────────────────────────────
+# ── Error Feed ────────────────────────────────────────────────────────────────
 errors = get_errors()
 if errors:
     with st.expander(f"⚠️ Recent Errors ({len(errors[-10:])})", expanded=False):
         for err in reversed(errors[-10:]):
             st.markdown(
-                f'<div style="padding:6px 12px;margin:4px 0;border-radius:8px;'
+                f'<div style="padding:5px 10px;margin:3px 0;border-radius:6px;'
                 f'background:rgba(255,71,87,0.05);border-left:3px solid #FF4757;'
-                f'font-size:0.78rem;">'
-                f'<span style="color:#484F58;">{err.get("timestamp", "")[:19]}</span> · '
-                f'<span style="color:#FF4757;">{err.get("error", "Unknown error")}</span>'
+                f'font-size:0.75rem;">'
+                f'<span style="color:#30363D;">{err.get("timestamp","")[:19]}</span> · '
+                f'<span style="color:#FF4757;">{err.get("error","Unknown error")}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-# ── Auto-refresh Script ─────────────────────────────────────────────────────
+# ── Auto-refresh ──────────────────────────────────────────────────────────────
 if auto_refresh:
     st.markdown(
-        f"""
-        <script>
-            setTimeout(function() {{
-                window.location.reload();
-            }}, {refresh_rate * 1000});
-        </script>
-        """,
+        f'<script>setTimeout(()=>window.location.reload(),{refresh_rate*1000});</script>',
         unsafe_allow_html=True,
     )

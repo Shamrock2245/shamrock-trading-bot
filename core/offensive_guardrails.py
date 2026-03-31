@@ -170,6 +170,10 @@ def get_kelly_streak_multiplier(state: OffensiveState) -> float:
         mult = 0.70
     elif losses == 1:
         mult = 0.85
+    elif wins >= 10:
+        mult = 3.0   # MONSTER STREAK: 10+ wins — max aggression, ride the wave
+    elif wins >= 8:
+        mult = 2.5   # ELITE STREAK: 8+ wins — 1.5x Full Kelly
     elif wins >= 6:
         mult = 2.0   # Full Kelly on a 6+ win streak
     elif wins >= 4:
@@ -180,8 +184,8 @@ def get_kelly_streak_multiplier(state: OffensiveState) -> float:
         mult = 1.0   # Baseline Half-Kelly
 
     if mult != 1.0:
-        logger.debug(
-            f"Hot streak multiplier: {mult:.2f}x "
+        logger.info(
+            f"🔥 Hot streak multiplier: {mult:.2f}x "
             f"(streak: {wins}W/{losses}L)"
         )
     return mult

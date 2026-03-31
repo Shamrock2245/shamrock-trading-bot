@@ -101,7 +101,9 @@ from core.adaptive_mode import (
     log_mode_banner, get_mode_status,
     record_gem_trade, record_swing_trade,
 )
-from dashboard.state import BotStateWriter
+from dashboard.state import BotStateWriter, get_force_scan_request, clear_force_scan_request
+from core.daily_floor_guardian import DailyFloorGuardian
+from core.bluechip_anchor import BluechipAnchor
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -482,6 +484,10 @@ async def run_bot_loop():
     # ── Adaptive Mode Controller ── load persistent state ──────────────────
     adaptive_state = load_mode_state()
     logger.info(f"Adaptive Mode: loaded state — mode={adaptive_state.mode}, HWM=${adaptive_state.high_water_mark_usd:.0f}")
+    # ── Daily Floor Guardian — ensures portfolio never drops over 24h ─────────
+    floor_guardian = DailyFloorGuardian()
+    # ── Blue-Chip Anchor — always hold % of capital in strongest blue chip ────
+    bluechip_anchor = BluechipAnchor()
 
     while True:
         cycle += 1
@@ -573,6 +579,52 @@ async def run_bot_loop():
                 log_mode_banner(adaptive_state)
             except Exception as _mode_err:
                 logger.debug(f"Adaptive mode check failed (non-blocking): {_mode_err}")
+
+            # ── Daily Floor Guardian + Blue-Chip Anchor ────────────────────────
+            _preservation_active = False
+            try:
+                _total_deployed = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
+                _total_unrealized = sum(float(p.get("current_value_usd", 0)) for p in open_positions)
+                _portfolio_usd = max(_total_unrealized, _total_deployed) if open_positions else _total_deployed
+
+                _floor_result = floor_guardian.update(_portfolio_usd)
+                _preservation_active = _floor_result["mode"] == "preservation"
+
+                if _floor_result["entered_preservation"]:
+                    notify_alert(
+                        "🛡️ CAPITAL PRESERVATION MODE ACTIVATED",
+                        f"Portfolio ${_portfolio_usd:,.2f} breached daily floor "
+                        f"${_floor_result['floor_usd']:,.2f} by {_floor_result['breach_pct']:.1f}%. "
+                        f"New entries BLOCKED. Rotating to blue-chip anchor.",
+                        level="warning",
+                    )
+                    # Force anchor rebalance with freed capital
+                    _anchor_result = bluechip_anchor.evaluate(
+                        portfolio_usd=_portfolio_usd, force_rebalance=True
+                    )
+                    logger.info(f"🛡️ Anchor rebalance: {_anchor_result['reason']}")
+
+                elif _floor_result["exited_preservation"]:
+                    notify_alert(
+                        "✅ Capital Preservation Mode Deactivated",
+                        f"Portfolio ${_portfolio_usd:,.2f} recovered above floor "
+                        f"${_floor_result['floor_usd']:,.2f}. Normal trading resumed.",
+                        level="info",
+                    )
+
+                # Run anchor evaluation every 6 cycles (not every cycle to avoid rate limits)
+                if cycle % 6 == 0:
+                    _anchor_result = bluechip_anchor.evaluate(portfolio_usd=_portfolio_usd)
+                    if _anchor_result["needs_rebalance"] and not _preservation_active:
+                        logger.info(
+                            f"⚓ ANCHOR REBALANCE: {_anchor_result['action'].upper()} "
+                            f"{_anchor_result['recommended_symbol']} | "
+                            f"delta=${_anchor_result['delta_usd']:,.0f} | "
+                            f"{_anchor_result['reason']}"
+                        )
+
+            except Exception as _guardian_err:
+                logger.debug(f"Floor guardian/anchor check failed (non-blocking): {_guardian_err}")
 
             if open_positions:
                 total_entry = sum(float(p.get("entry_value_usd", 0)) for p in open_positions)
@@ -865,15 +917,39 @@ async def run_bot_loop():
                 logger.debug(f"Regime check failed (non-blocking): {_regime_err}")
                 _regime_skip_new_entries = False
 
+            # ── Force-Scan Trigger: check if dashboard requested an immediate scan ─────
+            _force_scan_req = get_force_scan_request()
+            if _force_scan_req.get("requested"):
+                logger.info(
+                    f"⚡ FORCE SCAN REQUESTED from dashboard — "
+                    f"reason={_force_scan_req.get('reason', 'manual')} "
+                    f"requested_at={_force_scan_req.get('requested_at', '')}"
+                )
+                clear_force_scan_request()
+                _force_scan_this_cycle = True
+            else:
+                _force_scan_this_cycle = False
+
             # 2. Scan for gems (adaptive: every cycle in NORMAL, every 3rd in RECOVERY)
             candidates = []
-            if should_run_gems(adaptive_state, cycle):
+            if _force_scan_this_cycle or should_run_gems(adaptive_state, cycle):
                 candidates = scanner.scan()
-                logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found")
+                label = " [⚡ FORCE SCAN]" if _force_scan_this_cycle else ""
+                logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found{label}")
             else:
                 logger.info(f"Cycle {cycle}: ⏭️ Skipping gem scan (RECOVERY mode — gems every {adaptive_state.gem_frequency} cycles)")
 
             # 3. Process candidates (iterate all, but cap successful trades)
+            # ── PRESERVATION MODE GATE: block all new entries if floor breached ─────
+            if _preservation_active:
+                logger.warning(
+                    f"🛡️ CAPITAL PRESERVATION MODE: skipping all {len(candidates)} candidates. "
+                    f"Floor=${floor_guardian.floor_usd:,.2f} | "
+                    f"Current=${floor_guardian.state.current_portfolio_usd:,.2f} | "
+                    f"Daily P&L={floor_guardian.daily_gain_pct:+.1f}%"
+                )
+                candidates = []  # Block all entries
+
             for candidate in candidates:
                 # ── Per-cycle trade cap (enforced on SUCCESSFUL trades) ────────
                 if trades_this_cycle >= settings.MAX_TRADES_PER_CYCLE:

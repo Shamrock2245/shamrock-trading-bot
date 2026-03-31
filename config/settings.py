@@ -268,13 +268,13 @@ HOT_STREAK_ENABLED = os.getenv("HOT_STREAK_ENABLED", "true").lower() == "true"
 # Activates when daily realized PnL crosses threshold.
 # Switches to Full Kelly sizing, tightens trailing stops, skips TP1 (hold for 5x).
 GOD_MODE_ENABLED = os.getenv("GOD_MODE_ENABLED", "true").lower() == "true"
-GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "500.0"))
-GOD_MODE_KELLY_MULTIPLIER = float(os.getenv("GOD_MODE_KELLY_MULTIPLIER", "2.0"))  # Full Kelly
-GOD_MODE_TRAILING_STOP_PCT = float(os.getenv("GOD_MODE_TRAILING_STOP_PCT", "12.0"))  # Tighter stop
+GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "250.0"))  # TUNED: was $500 — enter God Mode sooner
+GOD_MODE_KELLY_MULTIPLIER = float(os.getenv("GOD_MODE_KELLY_MULTIPLIER", "2.5"))  # TUNED: was 2.0 — more aggressive in God Mode
+GOD_MODE_TRAILING_STOP_PCT = float(os.getenv("GOD_MODE_TRAILING_STOP_PCT", "10.0"))  # TUNED: was 12% — tighter to protect God Mode gains
 GOD_MODE_SKIP_TP1 = os.getenv("GOD_MODE_SKIP_TP1", "true").lower() == "true"
 
 # Deactivate God Mode if daily PnL drops this much below the peak (protect gains)
-GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD = float(os.getenv("GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD", "200.0"))
+GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD = float(os.getenv("GOD_MODE_MAX_DRAWDOWN_FROM_PEAK_USD", "150.0"))  # TUNED: was $200 — protect gains more aggressively
 # Lock and Coast: if daily PnL hits this, reduce max position size to protect the day's gains
 DAILY_PROFIT_LOCK_THRESHOLD_USD = float(os.getenv("DAILY_PROFIT_LOCK_THRESHOLD_USD", "2000.0"))
   # Skip 2x sell
@@ -283,19 +283,19 @@ DAILY_PROFIT_LOCK_THRESHOLD_USD = float(os.getenv("DAILY_PROFIT_LOCK_THRESHOLD_U
 # Reinvests a % of each win's profit into a "house money pool".
 # Pool is deployed as a bonus on top of the next high-conviction trade.
 HOUSE_MONEY_ENABLED = os.getenv("HOUSE_MONEY_ENABLED", "true").lower() == "true"
-HOUSE_MONEY_REINVEST_PCT = float(os.getenv("HOUSE_MONEY_REINVEST_PCT", "30.0"))  # 30% of wins → pool
-HOUSE_MONEY_MAX_POOL_USD = float(os.getenv("HOUSE_MONEY_MAX_POOL_USD", "2000.0"))  # Max pool size
+HOUSE_MONEY_REINVEST_PCT = float(os.getenv("HOUSE_MONEY_REINVEST_PCT", "40.0"))  # TUNED: was 30% — compound harder from wins
+HOUSE_MONEY_MAX_POOL_USD = float(os.getenv("HOUSE_MONEY_MAX_POOL_USD", "5000.0"))  # TUNED: was $2000 — bigger war chest
 HOUSE_MONEY_MIN_DEPLOY_USD = float(os.getenv("HOUSE_MONEY_MIN_DEPLOY_USD", "10.0"))  # Min to deploy
-HOUSE_MONEY_MAX_DEPLOY_PCT = float(os.getenv("HOUSE_MONEY_MAX_DEPLOY_PCT", "50.0"))  # Max % of pool per trade
-HOUSE_MONEY_MAX_POSITION_MULT = float(os.getenv("HOUSE_MONEY_MAX_POSITION_MULT", "1.5"))  # Max 1.5x base
+HOUSE_MONEY_MAX_DEPLOY_PCT = float(os.getenv("HOUSE_MONEY_MAX_DEPLOY_PCT", "60.0"))  # TUNED: was 50% — deploy more per trade
+HOUSE_MONEY_MAX_POSITION_MULT = float(os.getenv("HOUSE_MONEY_MAX_POSITION_MULT", "2.0"))  # TUNED: was 1.5x — allow 2x base on house money
 
 # ── 4. Dynamic Profit Boost (enhanced from existing) ─────────────────────────
 # Existing PROFIT_BOOST_* settings are the baseline.
 # Large wins trigger an even bigger boost.
-PROFIT_BOOST_MIN_GAIN_USD = float(os.getenv("PROFIT_BOOST_MIN_GAIN_USD", "50.0"))  # Min USD gain
-PROFIT_BOOST_LARGE_WIN_USD = float(os.getenv("PROFIT_BOOST_LARGE_WIN_USD", "500.0"))  # Large win threshold
-PROFIT_BOOST_LARGE_MULTIPLIER = float(os.getenv("PROFIT_BOOST_LARGE_MULTIPLIER", "1.75"))  # 75% bigger bets
-PROFIT_BOOST_LARGE_TRADES = int(os.getenv("PROFIT_BOOST_LARGE_TRADES", "5"))  # 5 boosted trades
+PROFIT_BOOST_MIN_GAIN_USD = float(os.getenv("PROFIT_BOOST_MIN_GAIN_USD", "30.0"))  # TUNED: was $50 — trigger boost on smaller wins
+PROFIT_BOOST_LARGE_WIN_USD = float(os.getenv("PROFIT_BOOST_LARGE_WIN_USD", "300.0"))  # TUNED: was $500 — trigger large-win boost sooner
+PROFIT_BOOST_LARGE_MULTIPLIER = float(os.getenv("PROFIT_BOOST_LARGE_MULTIPLIER", "2.0"))  # TUNED: was 1.75x — 2x bets after large wins
+PROFIT_BOOST_LARGE_TRADES = int(os.getenv("PROFIT_BOOST_LARGE_TRADES", "7"))  # TUNED: was 5 — ride the streak 7 trades
 
 # ── 5. Cascade Score Boost ────────────────────────────────────────────────────
 # Each profitable trade lowers MIN_GEM_SCORE by CASCADE_BOOST_PER_WIN points.
@@ -339,9 +339,9 @@ PYRAMID_TIER3_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER3_TRAILING_STOP_P
 FAST_FAIL_ENABLED = os.getenv("FAST_FAIL_ENABLED", "true").lower() == "true"
 FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "2.0"))  # Hours before checking
 FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "10.0"))  # Down >10% = momentum dead
-FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "4.0"))  # Hours before stall check
-FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "15.0"))  # Must be up >15% in 4h
-FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "80.0"))  # Vol drops 80% from entry
+FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "3.0"))  # TUNED: was 4h — cut stalls faster
+FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "20.0"))  # TUNED: was 15% — must show stronger momentum to survive
+FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "70.0"))  # TUNED: was 80% — exit sooner on volume death
 
 # ── 9. Momentum Reentry ───────────────────────────────────────────────────────
 # After TP1 is hit on a token, immediately re-enters if volume is still surging.

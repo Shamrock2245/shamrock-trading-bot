@@ -68,6 +68,13 @@ from data.providers.binance_pulse import (
     get_trending_tokens as binance_trending,
     get_supported_chains as binance_supported_chains,
 )
+from data.providers.moralis_intelligence import (
+    enrich_token_intelligence,
+    calculate_intelligence_score_boost,
+    get_pumpfun_new_tokens,
+    get_pumpfun_bonding_tokens,
+    get_chain_heat,
+)
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
 # ── ML Dynamic Weight Optimizer ───────────────────────────────────────────────
@@ -769,16 +776,26 @@ class GemScanner:
                     return {"binance_smart_money_confirmed": False, "binance_social_hype_score": 50.0}
                 return binance_enrich(token.address, chain=token.chain)
 
-            # Submit 5 lean enrichment calls — down from 9 (removed custom providers)
+            def _get_intelligence():
+                """Full Moralis intelligence suite — top traders, snipers, holders, swap flow."""
+                return enrich_token_intelligence(
+                    token_address=token.address,
+                    chain=token.chain,
+                    pair_address=getattr(token, "pair_address", ""),
+                    is_solana=(token.chain == "solana"),
+                )
+
+            # Submit 6 enrichment calls — added moralis_intelligence for full suite
             enrichment_results = {}
             future_map = {}
-            with ThreadPoolExecutor(max_workers=5, thread_name_prefix="enrich") as pool:
+            with ThreadPoolExecutor(max_workers=6, thread_name_prefix="enrich") as pool:
                 future_map = {
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
                     pool.submit(_get_moralis_meta): "moralis_meta",
                     pool.submit(_get_moralis_money): "moralis_money",
                     pool.submit(_get_binance_pulse): "binance_pulse",
+                    pool.submit(_get_intelligence): "moralis_intelligence",
                 }
                 try:
                     for future in as_completed(future_map, timeout=15):
@@ -1187,7 +1204,83 @@ class GemScanner:
         else:
             candidate.strategy_tag = "gem_snipe"
 
-        # ── Express lane flag ─────────────────────────────────────────────────
+        # ── MORALIS INTELLIGENCE SCORE BOOST ──────────────────────────────────────────────────
+        # Apply all new intelligence signals (top traders, snipers, holder trend,
+        # momentum timeseries, swap flow, chain heat) as a score delta.
+        # Max +30 / -25 points. Runs AFTER base composite and bonuses.
+        if base_score >= 45:
+            intel = enrichment_results.get("moralis_intelligence", {}) if base_score >= 45 else {}
+            if intel:
+                try:
+                    intel_delta, intel_reasons = calculate_intelligence_score_boost(intel)
+                    if intel_delta != 0.0:
+                        pre_intel = candidate.gem_score
+                        candidate.gem_score = max(0.0, min(100.0, round(candidate.gem_score + intel_delta, 2)))
+                        # Store intel fields on candidate for dashboard display
+                        candidate.intel_smart_money_buying    = intel.get("intel_smart_money_buying", False)
+                        candidate.intel_smart_money_score     = intel.get("intel_smart_money_score", 50.0)
+                        candidate.intel_sniper_count          = intel.get("intel_sniper_count", 0)
+                        candidate.intel_sniper_risk           = intel.get("intel_sniper_risk", "unknown")
+                        candidate.intel_momentum_trend        = intel.get("intel_momentum_trend", "neutral")
+                        candidate.intel_holder_trend          = intel.get("intel_holder_trend", "stable")
+                        candidate.intel_holder_growth_pct     = intel.get("intel_holder_growth_pct", 0.0)
+                        candidate.intel_concentration_risk    = intel.get("intel_concentration_risk", "unknown")
+                        candidate.intel_whale_buying          = intel.get("intel_whale_buying", False)
+                        candidate.intel_swap_flow_score       = intel.get("intel_swap_flow_score", 50.0)
+                        candidate.intel_chain_heat            = intel.get("intel_chain_heat", 50.0)
+                        candidate.intel_score_trend           = intel.get("intel_score_trend", "stable")
+                        if intel_delta > 0:
+                            logger.info(
+                                f"🧠 INTEL BOOST: {token.symbol} +{intel_delta:.1f} "
+                                f"({', '.join(intel_reasons[:3])}) "
+                                f"score {pre_intel} → {candidate.gem_score}"
+                            )
+                        else:
+                            logger.info(
+                                f"🧠 INTEL PENALTY: {token.symbol} {intel_delta:.1f} "
+                                f"({', '.join(intel_reasons[:3])}) "
+                                f"score {pre_intel} → {candidate.gem_score}"
+                            )
+                    # Hard block: critical EVM snipers → reject immediately
+                    if intel.get("intel_sniper_risk") == "critical" or intel.get("intel_sniper_count", 0) >= 10:
+                        logger.warning(
+                            f"⛔ EVM SNIPER BLOCK: {token.symbol} — "
+                            f"{intel.get('intel_sniper_count', 0)} snipers (critical risk) → dropped"
+                        )
+                        return None
+                except Exception as e:
+                    logger.debug(f"Intelligence boost failed for {token.symbol}: {e}")
+
+        # ── ENTRY TIMING INTEGRATION: timing_score adjusts gem_score ────────────────────
+        # timing_score (0–100) from Moralis multi-timeframe entry intelligence.
+        # Accelerating buy pressure = momentum building = BEST time to enter.
+        # Decelerating buy pressure = momentum fading = LATE entry risk.
+        # Only apply when timing data is actually available (not default 50).
+        _timing_score = getattr(candidate, 'timing_score', 50.0)
+        _timing_bp_trend = getattr(candidate, 'timing_bp_trend', 'flat')
+        _timing_vol_accel = getattr(candidate, 'timing_volume_acceleration', 1.0)
+        if _timing_bp_trend == 'accelerating' and _timing_score > 60:
+            # Strong momentum building: best possible entry window
+            _timing_bonus = min(8.0, round((_timing_score - 60) * 0.4, 1))
+            pre_adj = candidate.gem_score
+            candidate.gem_score = min(100.0, round(candidate.gem_score + _timing_bonus, 2))
+            logger.info(
+                f"⏱️ TIMING BONUS: {token.symbol} — accelerating BP → +{_timing_bonus:.1f} "
+                f"(timing_score={_timing_score:.0f}, vol_accel={_timing_vol_accel:.1f}x) "
+                f"score {pre_adj} → {candidate.gem_score}"
+            )
+        elif _timing_bp_trend == 'decelerating' and _timing_score < 40:
+            # Momentum fading: penalise to avoid chasing a dying move
+            _timing_penalty = min(12.0, round((40 - _timing_score) * 0.6, 1))
+            pre_adj = candidate.gem_score
+            candidate.gem_score = max(0.0, round(candidate.gem_score - _timing_penalty, 2))
+            logger.info(
+                f"⏱️ TIMING PENALTY: {token.symbol} — decelerating BP → -{_timing_penalty:.1f} "
+                f"(timing_score={_timing_score:.0f}, vol_accel={_timing_vol_accel:.1f}x) "
+                f"score {pre_adj} → {candidate.gem_score}"
+            )
+
+        # ── Express lane flag ───────────────────────────────────────────────────────────────────────────
         # CTO tokens with score >= 75 also qualify for express lane
         # (lower threshold than standard 82 — CTO is inherently high-conviction)
         cto_express_threshold = 75.0
