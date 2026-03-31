@@ -1280,74 +1280,90 @@ def enrich_token_intelligence(
         "intel_chain_heat":            50.0,
     }
 
+    # ── Run all API calls in parallel with a hard 5-second total timeout ────────
+    # This prevents intelligence enrichment from blocking the scan cycle.
+    # Each individual call already has an 8s timeout — but running 8 sequentially
+    # could take 64s. With parallel execution + 5s wall-clock cap, worst case is 5s.
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+    INTEL_TIMEOUT = 5.0  # Hard wall-clock cap for the entire enrichment
+
     try:
         if is_solana:
-            # Solana-specific intelligence
-            holder_stats = get_solana_holder_stats(token_address)
-            result["intel_total_holders"]      = holder_stats.get("total_holders", 0)
+            tasks = {
+                "holder_stats":  lambda: get_solana_holder_stats(token_address),
+                "holder_growth": lambda: get_solana_holder_growth(token_address),
+                "score_ts":      lambda: get_solana_score_timeseries(token_address),
+                "chain_heat":    lambda: get_chain_heat("solana") if MORALIS_API_KEY else 50.0,
+            }
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="intel_sol") as pool:
+                fmap = {pool.submit(fn): name for name, fn in tasks.items()}
+                done = {}
+                for fut in _as_completed(fmap, timeout=INTEL_TIMEOUT):
+                    done[fmap[fut]] = fut.result()
+            holder_stats  = done.get("holder_stats", {})
+            holder_growth = done.get("holder_growth", {})
+            score_ts      = done.get("score_ts", {})
+            chain_heat    = done.get("chain_heat", 50.0)
+            result["intel_total_holders"]       = holder_stats.get("total_holders", 0)
             result["intel_holder_concentration"] = holder_stats.get("holder_score", 50.0)
-            result["intel_concentration_risk"] = holder_stats.get("concentration_risk", "unknown")
-
-            holder_growth = get_solana_holder_growth(token_address)
-            result["intel_holder_trend"]       = holder_growth.get("holder_trend", "stable")
-            result["intel_holder_growth_pct"]  = holder_growth.get("growth_rate_pct", 0.0)
-
-            score_ts = get_solana_score_timeseries(token_address)
-            result["intel_score_trend"]  = score_ts.get("score_trend", "stable")
-            result["intel_score_delta"]  = score_ts.get("score_delta", 0.0)
-
-            result["intel_chain_heat"] = get_chain_heat("solana") if MORALIS_API_KEY else 50.0
+            result["intel_concentration_risk"]  = holder_stats.get("concentration_risk", "unknown")
+            result["intel_holder_trend"]        = holder_growth.get("holder_trend", "stable")
+            result["intel_holder_growth_pct"]   = holder_growth.get("growth_rate_pct", 0.0)
+            result["intel_score_trend"]         = score_ts.get("score_trend", "stable")
+            result["intel_score_delta"]         = score_ts.get("score_delta", 0.0)
+            result["intel_chain_heat"]          = chain_heat if isinstance(chain_heat, float) else 50.0
 
         else:
-            # EVM intelligence
             if chain in CHAIN_HEX:
-                # Top traders (smart money)
-                trader_signal = get_top_trader_signal(token_address, chain)
+                tasks = {
+                    "traders":      lambda: get_top_trader_signal(token_address, chain),
+                    "snipers":      lambda: get_evm_snipers(token_address, chain),
+                    "score_ts":     lambda: get_token_score_timeseries(token_address, chain),
+                    "analytics_ts": lambda: get_analytics_timeseries(token_address, chain),
+                    "holder_stats": lambda: get_holder_stats(token_address, chain),
+                    "holder_growth":lambda: get_holder_growth(token_address, chain),
+                    "swap_flow":    lambda: analyze_swap_flow(token_address, chain),
+                    "chain_heat":   lambda: get_chain_heat(chain),
+                }
+                with ThreadPoolExecutor(max_workers=8, thread_name_prefix="intel_evm") as pool:
+                    fmap = {pool.submit(fn): name for name, fn in tasks.items()}
+                    done = {}
+                    for fut in _as_completed(fmap, timeout=INTEL_TIMEOUT):
+                        done[fmap[fut]] = fut.result()
+                trader_signal = done.get("traders", {})
+                sniper_data   = done.get("snipers", {})
+                score_ts      = done.get("score_ts", {})
+                analytics_ts  = done.get("analytics_ts", {})
+                holder_stats  = done.get("holder_stats", {})
+                holder_growth = done.get("holder_growth", {})
+                swap_flow     = done.get("swap_flow", {})
+                chain_heat    = done.get("chain_heat", 50.0)
                 result["intel_smart_money_buying"]    = trader_signal.get("smart_money_buying", False)
                 result["intel_smart_money_score"]     = trader_signal.get("smart_money_score", 50.0)
                 result["intel_top_trader_count"]      = trader_signal.get("top_trader_count", 0)
                 result["intel_profitable_traders"]    = trader_signal.get("profitable_trader_count", 0)
                 result["intel_total_smart_money_usd"] = trader_signal.get("total_smart_money_usd", 0.0)
                 result["intel_top_trader_addresses"]  = trader_signal.get("top_trader_addresses", [])
-
-                # EVM snipers
-                sniper_data = get_evm_snipers(token_address, chain)
-                result["intel_sniper_count"] = sniper_data.get("sniper_count", 0)
-                result["intel_sniper_risk"]  = sniper_data.get("risk_level", "unknown")
-                result["intel_sniped_usd"]   = sniper_data.get("total_sniped_usd", 0.0)
-
-                # Score timeseries
-                score_ts = get_token_score_timeseries(token_address, chain)
-                result["intel_score_trend"]  = score_ts.get("score_trend", "stable")
-                result["intel_score_delta"]  = score_ts.get("score_delta", 0.0)
-
-                # Analytics timeseries
-                analytics_ts = get_analytics_timeseries(token_address, chain)
-                result["intel_momentum_trend"]      = analytics_ts.get("momentum_trend", "neutral")
-                result["intel_buyer_acceleration"]  = analytics_ts.get("buyer_acceleration", 1.0)
-
-                # Holder intelligence
-                holder_stats = get_holder_stats(token_address, chain)
-                result["intel_total_holders"]       = holder_stats.get("total_holders", 0)
-                result["intel_holder_concentration"] = holder_stats.get("holder_score", 50.0)
-                result["intel_concentration_risk"]  = holder_stats.get("concentration_risk", "unknown")
-
-                holder_growth = get_holder_growth(token_address, chain)
-                result["intel_holder_trend"]        = holder_growth.get("holder_trend", "stable")
-                result["intel_holder_growth_pct"]   = holder_growth.get("growth_rate_pct", 0.0)
-
-                # Swap flow analysis
-                swap_flow = analyze_swap_flow(token_address, chain)
-                result["intel_whale_buying"]     = swap_flow.get("whale_buying", False)
-                result["intel_swap_flow_score"]  = swap_flow.get("swap_flow_score", 50.0)
-                result["intel_large_buy_count"]  = swap_flow.get("large_buy_count", 0)
-                result["intel_net_flow_usd"]     = swap_flow.get("net_flow_usd", 0.0)
-
-                # Chain heat
-                result["intel_chain_heat"] = get_chain_heat(chain)
+                result["intel_sniper_count"]          = sniper_data.get("sniper_count", 0)
+                result["intel_sniper_risk"]           = sniper_data.get("risk_level", "unknown")
+                result["intel_sniped_usd"]            = sniper_data.get("total_sniped_usd", 0.0)
+                result["intel_score_trend"]           = score_ts.get("score_trend", "stable")
+                result["intel_score_delta"]           = score_ts.get("score_delta", 0.0)
+                result["intel_momentum_trend"]        = analytics_ts.get("momentum_trend", "neutral")
+                result["intel_buyer_acceleration"]    = analytics_ts.get("buyer_acceleration", 1.0)
+                result["intel_total_holders"]         = holder_stats.get("total_holders", 0)
+                result["intel_holder_concentration"]  = holder_stats.get("holder_score", 50.0)
+                result["intel_concentration_risk"]   = holder_stats.get("concentration_risk", "unknown")
+                result["intel_holder_trend"]          = holder_growth.get("holder_trend", "stable")
+                result["intel_holder_growth_pct"]     = holder_growth.get("growth_rate_pct", 0.0)
+                result["intel_whale_buying"]          = swap_flow.get("whale_buying", False)
+                result["intel_swap_flow_score"]       = swap_flow.get("swap_flow_score", 50.0)
+                result["intel_large_buy_count"]       = swap_flow.get("large_buy_count", 0)
+                result["intel_net_flow_usd"]          = swap_flow.get("net_flow_usd", 0.0)
+                result["intel_chain_heat"]            = chain_heat if isinstance(chain_heat, float) else 50.0
 
     except Exception as e:
-        logger.warning(f"Intelligence enrichment error for {token_address[:8]}/{chain}: {e}")
+        logger.warning(f"Intelligence enrichment timeout/error for {token_address[:8]}/{chain}: {e}")
 
     return result
 
