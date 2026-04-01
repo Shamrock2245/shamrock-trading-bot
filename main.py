@@ -19,9 +19,11 @@ Environment:
 
 import argparse
 import asyncio
+from collections import deque
 import json
 import logging
 import os
+from queue import Empty, Queue
 import sys
 import threading
 from datetime import datetime, timezone
@@ -406,10 +408,179 @@ async def run_bot_loop():
     # ── Start proactive smart money copy-trading daemon ───────────────────────────
     # Monitors alpha wallets every 30s and injects copy trades into the
     # express lane when 2+ wallets buy the same token within 2 minutes.
+    copy_trade_queue = deque(maxlen=settings.WALLET_MONITOR_FASTLANE_QUEUE_MAX)
+    copy_trade_lock = threading.Lock()
+    fastlane_queue: Queue = Queue(maxsize=settings.WALLET_MONITOR_FASTLANE_QUEUE_MAX)
+    fastlane_seen: set[str] = set()
+    fastlane_seen_lock = threading.Lock()
+    fastlane_stop = threading.Event()
+
+    def _latency_seconds(ts_start) -> float:
+        return max(0.0, (datetime.now(timezone.utc) - ts_start).total_seconds())
+
+    def _delay_risk_multiplier(delay_s: float) -> float:
+        start = float(settings.COPYTRADE_DELAY_REDUCTION_START_SECONDS)
+        reject_at = float(settings.COPYTRADE_MAX_DELAY_REJECT_SECONDS)
+        if delay_s >= reject_at:
+            return 0.0
+        if delay_s <= start:
+            return 1.0
+        span = max(1.0, reject_at - start)
+        # Linear decay down to 20% size before rejection
+        return max(0.2, 1.0 - ((delay_s - start) / span) * 0.8)
+
+    def _enqueue_fastlane(candidate, signal) -> None:
+        idem_key = f"{signal.tx_hash.lower()}:{signal.token_address.lower()}:{signal.wallet_address.lower()}"
+        with fastlane_seen_lock:
+            if idem_key in fastlane_seen:
+                return
+            fastlane_seen.add(idem_key)
+        try:
+            fastlane_queue.put_nowait((candidate, signal, idem_key))
+        except Exception:
+            logger.warning("Fastlane queue full — dropping copy-trade candidate")
+
+    def _execute_fastlane_candidate(candidate, signal) -> None:
+        token = candidate.token
+        signal.candidate_built_at = datetime.now(timezone.utc)
+
+        # Mandatory safety gate
+        safety = check_token_safety(token.address, token.chain)
+        if not safety.is_safe:
+            logger.info(f"Fastlane skip {token.symbol}: {safety.block_reason}")
+            return
+
+        # Dedup against existing open positions
+        for p in load_positions():
+            if p.get("status") == "open" and (p.get("token_address", "").lower() == token.address.lower()):
+                logger.info(f"Fastlane dedup skip {token.symbol}: already open")
+                return
+
+        wallet = route_trade(candidate.gem_score, token.chain, is_express=True)
+        if not wallet:
+            logger.info(f"Fastlane skip {token.symbol}: no wallet route")
+            return
+
+        # Freshness/risk coupling
+        delay_s = _latency_seconds(signal.timestamp)
+        size_mult = _delay_risk_multiplier(delay_s)
+        if size_mult <= 0:
+            logger.info(f"Fastlane reject {token.symbol}: stale signal ({delay_s:.1f}s)")
+            return
+
+        # Small native balance snapshot for risk sizing
+        fetcher = BalanceFetcher()
+        chain_balances = fetcher.fetch_wallet_chain_balances(wallet, token.chain)
+        native_balance = 0.0
+        for token_data in chain_balances.get("tokens", []):
+            if token_data.get("is_native"):
+                native_balance = token_data.get("balance", 0.0)
+                break
+
+        base_position_native = max(0.0, native_balance * 0.02 * size_mult)
+        base_position_usd = float(getattr(candidate, "copy_trade_size_usd", 0.0)) * size_mult
+        risk = risk_manager.check_trade(
+            position_size_native=base_position_native,
+            position_size_usd=base_position_usd,
+            wallet=wallet,
+            wallet_balance_native=native_balance,
+            token_address=token.address,
+            chain=token.chain,
+            usdc_balance=0.0,
+        )
+        if not risk.approved:
+            logger.info(f"Fastlane risk blocked {token.symbol}: {risk.reason}")
+            return
+        signal.risk_passed_at = datetime.now(timezone.utc)
+
+        if token.chain == "solana":
+            from core.solana_executor import execute_solana_buy
+            sol_public_key = wallet.solana_address or wallet.address
+            sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
+            tx_hash = execute_solana_buy(
+                token_mint=token.address,
+                sol_amount=max(risk.position_size_eth, base_position_native),
+                wallet_public_key=sol_public_key,
+                wallet_private_key_env=sol_key_env,
+                slippage_bps=150,
+                is_paper=is_paper,
+            )
+            success = tx_hash is not None
+            execution_path = "jupiter_fastlane"
+            amount_out = 0.0
+            err = None if success else "Solana fastlane execution failed"
+        else:
+            params = build_gem_snipe_params(
+                wallet=wallet,
+                chain=token.chain,
+                token_address=token.address,
+                eth_amount=risk.position_size_eth,
+                use_usdc=risk.use_usdc,
+                usdc_amount=risk.position_size_usdc,
+            )
+            res = executor.execute_trade(params)
+            success = res.success
+            tx_hash = res.tx_hash
+            execution_path = res.execution_path
+            amount_out = res.amount_out
+            err = res.error
+
+        if not success:
+            logger.warning(f"Fastlane trade failed {token.symbol}: {err}")
+            return
+
+        signal.broadcasted_at = datetime.now(timezone.utc)
+        total_latency = _latency_seconds(signal.timestamp)
+        if total_latency > settings.COPYTRADE_LATENCY_SLO_SECONDS:
+            notify_alert(
+                "⚠️ Copy-trade latency SLO breached",
+                f"{token.symbol} {token.chain} latency={total_latency:.1f}s "
+                f"(SLO={settings.COPYTRADE_LATENCY_SLO_SECONDS:.1f}s)",
+                level="warning",
+            )
+
+        register_position(
+            token_address=token.address,
+            token_symbol=token.symbol,
+            chain=token.chain,
+            wallet=wallet.alias.lower().replace(" ", "_"),
+            entry_price=token.price_usd,
+            quantity=amount_out if amount_out > 0 else 0.0,
+            pair_address=token.pair_address,
+            tx_hash=tx_hash or "",
+            gem_score=candidate.gem_score,
+            is_paper=is_paper,
+            entry_value_usd=float(getattr(candidate, "copy_trade_size_usd", 0.0)) * size_mult,
+            strategy_profile=getattr(wallet.strategy_profile, "name", ""),
+        )
+        logger.info(
+            f"✅ Fastlane copy trade: {token.symbol} [{token.chain}] tx={tx_hash} "
+            f"latency={total_latency:.1f}s source={getattr(signal, 'source', 'polling')}"
+        )
+
+    def _fastlane_worker():
+        while not fastlane_stop.is_set():
+            try:
+                candidate, signal, idem_key = fastlane_queue.get(timeout=1.0)
+            except Empty:
+                continue
+            try:
+                _execute_fastlane_candidate(candidate, signal)
+            except Exception as e:
+                logger.error(f"Fastlane worker error: {e}", exc_info=True)
+            finally:
+                with fastlane_seen_lock:
+                    fastlane_seen.discard(idem_key)
+                fastlane_queue.task_done()
+
     try:
         from core.wallet_monitor import start_monitor as _start_wallet_monitor
         def _on_copy_trade_signal(candidate, signal):
-            """Callback: notify when a copy trade signal is detected."""
+            """Callback: enqueue copy-trade candidates for execution in main loop."""
+            with copy_trade_lock:
+                copy_trade_queue.append((candidate, signal))
+            if settings.WALLET_MONITOR_FASTLANE_ENABLED:
+                _enqueue_fastlane(candidate, signal)
             logger.info(
                 f"🔥 COPY TRADE SIGNAL: {signal.token_symbol} [{signal.chain}] "
                 f"Tier {signal.tier} | {len(signal.confirming_wallets)} alpha wallets | "
@@ -432,6 +603,23 @@ async def run_bot_loop():
         )
     except Exception as _wm_err:
         logger.warning(f"Wallet monitor failed to start: {_wm_err}")
+
+    # Optional Moralis Streams webhook server (push-based copy-detection source)
+    streams_server = None
+    try:
+        if settings.MORALIS_STREAMS_ENABLED:
+            from core.moralis_streams import MoralisStreamsServer
+            from core.wallet_monitor import get_monitor as _get_wallet_monitor
+            wm = _get_wallet_monitor()
+            streams_server = MoralisStreamsServer(
+                host=settings.MORALIS_STREAMS_HOST,
+                port=settings.MORALIS_STREAMS_PORT,
+                webhook_secret=settings.MORALIS_STREAMS_WEBHOOK_SECRET,
+                on_swap_event=wm.ingest_external_swap,
+            )
+            streams_server.start()
+    except Exception as stream_err:
+        logger.warning(f"Moralis Streams server failed to start: {stream_err}")
 
     # ── Check for Base USDC deployment plan ───────────────────────────────────────────────
     try:
@@ -463,6 +651,8 @@ async def run_bot_loop():
     executor = TradeExecutor()
     strategy = GemSnipeStrategy()
     signal_engine = SignalEngine()
+    fastlane_thread = threading.Thread(target=_fastlane_worker, name="CopyTradeFastlane", daemon=True)
+    fastlane_thread.start()
     state_writer = BotStateWriter()
     cycle = 0
     trades_this_session = 0
@@ -938,6 +1128,20 @@ async def run_bot_loop():
                 logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found{label}")
             else:
                 logger.info(f"Cycle {cycle}: ⏭️ Skipping gem scan (RECOVERY mode — gems every {adaptive_state.gem_frequency} cycles)")
+
+            # Inject copy-trade signals from wallet monitor (highest priority).
+            # This turns the monitor from "alert-only" into actionable execution:
+            # detected alpha buys are processed in the same cycle trade loop.
+            with copy_trade_lock:
+                queued_copy_signals = list(copy_trade_queue)
+                copy_trade_queue.clear()
+            if queued_copy_signals:
+                copy_candidates = [item[0] for item in queued_copy_signals]
+                candidates = copy_candidates + candidates
+                logger.info(
+                    f"🔥 Injected {len(copy_candidates)} copy-trade candidate(s) "
+                    f"from WalletMonitor into cycle {cycle}"
+                )
 
             # 3. Process candidates (iterate all, but cap successful trades)
             # ── PRESERVATION MODE GATE: block all new entries if floor breached ─────
@@ -1608,6 +1812,9 @@ async def run_bot_loop():
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")
             monitor.stop()
+            fastlane_stop.set()
+            if streams_server:
+                streams_server.stop()
             break
         except Exception as e:
             logger.error(f"Cycle {cycle} error: {e}", exc_info=True)

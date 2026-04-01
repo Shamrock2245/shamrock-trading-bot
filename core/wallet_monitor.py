@@ -115,6 +115,11 @@ class AlphaSignal:
     # Signal aggregation
     confirming_wallets: list[str] = field(default_factory=list)
     tier: int = 3  # 1=immediate, 2=express, 3=watchlist
+    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    candidate_built_at: Optional[datetime] = None
+    risk_passed_at: Optional[datetime] = None
+    broadcasted_at: Optional[datetime] = None
+    source: str = "polling"
 
     @property
     def conviction_score(self) -> float:
@@ -135,6 +140,7 @@ class WalletMonitorState:
     active_signals: dict[str, AlphaSignal] = field(default_factory=dict)
     # Processed tx hashes (dedup)
     processed_txs: set[str] = field(default_factory=set)
+    processed_keys: set[str] = field(default_factory=set)  # tx_hash:token:wallet
     # Stats
     total_signals_detected: int = 0
     total_copy_trades_executed: int = 0
@@ -555,6 +561,7 @@ class WalletMonitor:
             "total_signals_detected": self.state.total_signals_detected,
             "total_copy_trades_executed": self.state.total_copy_trades_executed,
             "processed_txs": len(self.state.processed_txs),
+            "processed_keys": len(self.state.processed_keys),
         }
 
     # ── Internal loop ─────────────────────────────────────────────────────────
@@ -604,11 +611,11 @@ class WalletMonitor:
     def _process_swap(self, wallet_address: str, swap: dict) -> None:
         """Process a single swap transaction from an alpha wallet."""
         tx_hash = swap.get("tx_hash", "")
-        if not tx_hash or tx_hash in self.state.processed_txs:
-            return
-
         token_address = swap.get("token_address", "").lower()
-        if not token_address:
+        if not tx_hash or not token_address:
+            return
+        idem_key = f"{tx_hash.lower()}:{token_address}:{wallet_address.lower()}"
+        if tx_hash in self.state.processed_txs or idem_key in self.state.processed_keys:
             return
 
         chain = swap.get("chain", "")
@@ -616,6 +623,7 @@ class WalletMonitor:
 
         with self._lock:
             self.state.processed_txs.add(tx_hash)
+            self.state.processed_keys.add(idem_key)
 
             # Check if we already have a signal for this token
             if token_address in self.state.active_signals:
@@ -648,6 +656,7 @@ class WalletMonitor:
                     timestamp=ts,
                     token_name=swap.get("token_name", ""),
                     confirming_wallets=[wallet_address],
+                    source=swap.get("seen_via", "polling"),
                 )
                 self.state.active_signals[token_address] = signal
                 self.state.total_signals_detected += 1
@@ -657,6 +666,15 @@ class WalletMonitor:
                     f"wallet={wallet_address[:8]}... | "
                     f"buy=${buy_value_usd:.0f} | tx={tx_hash[:8]}..."
                 )
+
+    def ingest_external_swap(self, wallet_address: str, swap: dict) -> None:
+        """
+        Inject a swap from an external source (e.g., Moralis Streams webhook).
+        """
+        try:
+            self._process_swap(wallet_address, swap)
+        except Exception as e:
+            logger.debug(f"External swap ingest failed: {e}")
 
     def _process_signals(self) -> None:
         """Evaluate active signals and execute copy trades for qualifying ones."""
