@@ -79,6 +79,39 @@ _ALPHA_WALLETS_EVM: list[str] = (
 # Solana alpha wallets — must be configured separately
 _ALPHA_WALLETS_SOLANA: list[str] = getattr(settings, "ALPHA_WALLETS_SOLANA", [])
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Dynamic Sniper Wallet Loading (from sniper_discovery.py)
+# Merges auto-discovered high-PnL wallets into the live tracking pool
+# ─────────────────────────────────────────────────────────────────────────────
+_SNIPER_RELOAD_INTERVAL = 300  # Reload discovered snipers every 5 minutes
+_last_sniper_reload: float = 0.0
+
+
+def _load_discovered_snipers() -> tuple[list[str], list[str]]:
+    """
+    Load auto-discovered sniper wallets from sniper_discovery.py output.
+    Returns (evm_addresses, solana_addresses) of NEW wallets not already tracked.
+    """
+    global _last_sniper_reload
+    now = time.monotonic()
+    if now - _last_sniper_reload < _SNIPER_RELOAD_INTERVAL:
+        return [], []
+    _last_sniper_reload = now
+    try:
+        from core.sniper_discovery import get_active_sniper_addresses
+        addrs = get_active_sniper_addresses()
+        evm = [a.lower() for a in addrs.get("evm", []) if a]
+        sol = [a for a in addrs.get("solana", []) if a]
+        if evm or sol:
+            logger.info(
+                f"WalletMonitor: Loaded {len(evm)} EVM + {len(sol)} Solana "
+                f"discovered snipers into tracking pool"
+            )
+        return evm, sol
+    except Exception as e:
+        logger.debug(f"WalletMonitor: Could not load discovered snipers: {e}")
+        return [], []
+
 # Moralis API base
 _MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2"
 _HELIUS_RPC = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else "https://api.mainnet-beta.solana.com"
@@ -586,6 +619,15 @@ class WalletMonitor:
 
     def _poll_all_wallets(self) -> None:
         """Poll all alpha wallets for new transactions."""
+        # Dynamically merge newly discovered sniper wallets into tracking pool
+        new_evm, new_sol = _load_discovered_snipers()
+        for addr in new_evm:
+            if addr not in self._evm_wallets:
+                self._evm_wallets.append(addr)
+        for addr in new_sol:
+            if addr not in self._solana_wallets:
+                self._solana_wallets.append(addr)
+
         # EVM wallets — poll each chain
         evm_chains = [c for c in ["ethereum", "base", "arbitrum", "polygon", "bsc"]
                       if c in getattr(settings, "ACTIVE_CHAINS", [])]

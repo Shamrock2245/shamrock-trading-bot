@@ -628,6 +628,19 @@ async def run_bot_loop():
     except Exception as stream_err:
         logger.warning(f"Moralis Streams server failed to start: {stream_err}")
 
+    # ── Sniper Discovery Daemon (proactive microcap whale wallet discovery) ───────────────
+    _sniper_discovery_daemon = None
+    try:
+        from core.sniper_discovery import start_discovery as _start_sniper_discovery
+        _sniper_discovery_daemon = _start_sniper_discovery(run_immediately=True)
+        logger.info(
+            "✅ Sniper Discovery daemon started — "
+            "proactively harvesting high-PnL microcap wallets from gems "
+            "(Moralis profitability/summary + stats + top-traders)"
+        )
+    except Exception as _sd_err:
+        logger.warning(f"Sniper Discovery daemon failed to start: {_sd_err}")
+
     # ── Check for Base USDC deployment plan ───────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):

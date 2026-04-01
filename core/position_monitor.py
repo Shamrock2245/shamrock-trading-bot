@@ -883,6 +883,31 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
     if new_remaining <= 0 or sell_pct >= 1.0:
         pos["status"] = "closed"
         pos["closed_at"] = now
+        # ── Capital Compounding Loop ──
+        # Record full position PnL and run compounding/sweep/milestone logic
+        total_position_pnl = float(pos.get("realized_pnl_usd", 0))
+        try:
+            from core.capital_compounder import record_trade_pnl
+            compound_result = record_trade_pnl(
+                pnl_usd=total_position_pnl,
+                token_symbol=pos.get("symbol", ""),
+                wallet=pos.get("wallet", "primary"),
+                trade_id=pos.get("id", ""),
+            )
+            if compound_result.get("phase_changed"):
+                logger.info(
+                    f"🚀 COMPOUND PHASE UP: {compound_result['new_phase']} | "
+                    f"Capital: ${compound_result['current_capital_usd']:,.0f} | "
+                    f"New max position: ${compound_result['new_max_position_usd']:,.0f}"
+                )
+            for m in compound_result.get("milestones_hit", []):
+                logger.info(f"🏆 MILESTONE: ${m:,.0f} reached! Keep compounding 🍀")
+            if compound_result.get("sweep_amount_usd", 0) > 0:
+                logger.info(
+                    f"💰 PROFIT SWEEP: ${compound_result['sweep_amount_usd']:.2f} → Wallet C cold storage"
+                )
+        except Exception as _ce:
+            logger.debug(f"Capital compounder record error: {_ce}")
 
     return pos
 
