@@ -641,7 +641,27 @@ async def run_bot_loop():
     except Exception as _sd_err:
         logger.warning(f"Sniper Discovery daemon failed to start: {_sd_err}")
 
-    # ── Check for Base USDC deployment plan ───────────────────────────────────────────────
+    # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
+    def _rl_training_daemon():
+        """Background thread: trains RL position sizer every 24h."""
+        import time as _time
+        _time.sleep(60)  # Wait 60s for bot to fully initialize before first training attempt
+        while True:
+            try:
+                from ml.rl_position_sizer import train_rl_agent
+                train_rl_agent(force=False)
+            except Exception as _rl_daemon_err:
+                logger.debug(f"RL training daemon cycle error: {_rl_daemon_err}")
+            _time.sleep(3600)  # Check every hour (train_rl_agent enforces 24h interval internally)
+
+    _rl_thread = threading.Thread(target=_rl_training_daemon, daemon=True, name="rl-position-sizer")
+    _rl_thread.start()
+    logger.info(
+        "✅ RL Position Sizer daemon started — "
+        "trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)"
+    )
+
+    # ── Check for Base USDC deployment plan ─────────────────────────────────────────────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):
             with open("reports/base_deploy_plan.json", "r") as f:
@@ -1554,6 +1574,33 @@ async def run_bot_loop():
                     )
                     save_offensive_state(offensive_state)  # Save after boost consumption
                     profit_boost_remaining = offensive_state.profit_boost_remaining
+
+                    # ── RL Position Sizer: apply learned multiplier on top of Kelly/offensive ──
+                    # Neutral (1.0x) until 50 completed trades are available for training.
+                    try:
+                        from ml.rl_position_sizer import get_position_multiplier as _rl_size
+                        from core.macro_filter import get_current_regime as _get_regime
+                        _macro_r = _get_regime()
+                        _rl_mult, _rl_reason = _rl_size(
+                            gem_score=candidate.gem_score,
+                            macro_regime=_macro_r.regime,
+                            win_streak=offensive_state.consecutive_wins,
+                            loss_streak=offensive_state.consecutive_losses,
+                            capital_phase=getattr(offensive_state, "capital_phase", 0),
+                            chain=token.chain,
+                            timesfm_direction=getattr(candidate, "timesfm_direction", "FLAT"),
+                            chainaware_risk=getattr(candidate, "chainaware_risk", 0.0),
+                            perplexity_risk=getattr(candidate, "perplexity_risk", 0.0),
+                            is_express=is_express,
+                        )
+                        if _rl_mult != 1.0:
+                            final_position_usd = round(final_position_usd * _rl_mult, 2)
+                            sizing_reason = f"{sizing_reason} | {_rl_reason}"
+                            logger.info(
+                                f"🤖 RL sizer: {token.symbol} {_rl_mult:.2f}x → ${final_position_usd:.2f}"
+                            )
+                    except Exception as _rl_err:
+                        logger.debug(f"RL sizer skipped: {_rl_err}")
 
                     if final_position_usd != base_position_usd:
                         scale_factor = final_position_usd / base_position_usd if base_position_usd > 0 else 1.0

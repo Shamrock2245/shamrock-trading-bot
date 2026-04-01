@@ -557,26 +557,6 @@ class GemScanner:
             )
             return None
 
-        # ── HARD GATE #1B: Solana Minimum Liquidity ──────────────────────────
-        # Meme coins with < $15K liquidity are untradeable — we become exit
-        # liquidity for insiders. No exceptions.
-        if token.chain == "solana" and (token.liquidity_usd or 0) < 15_000:
-            logger.info(
-                f"⛔ SOLANA LIQUIDITY GATE: {token.symbol} has only "
-                f"${token.liquidity_usd or 0:,.0f} liquidity — minimum $15K required. Skipping."
-            )
-            return None
-
-        # ── HARD GATE #1C: Solana Minimum Market Cap ─────────────────────────
-        # Sub-$50K mcap Solana tokens are noise — almost always rugs or
-        # abandoned projects. Not worth the risk at any score.
-        if token.chain == "solana" and (token.market_cap or 0) < 50_000:
-            logger.info(
-                f"⛔ SOLANA MCAP GATE: {token.symbol} mcap=${token.market_cap or 0:,.0f} "
-                f"— minimum $50K required. Skipping."
-            )
-            return None
-
         # ── HARD GATE #2: Block-0 Sniper / Bundle Detection ───────────────────────
         # Reject tokens where coordinated snipers acquired a disproportionate
         # share of supply at launch. This structural overhang means the top
@@ -868,7 +848,37 @@ class GemScanner:
             except Exception as _he_err:
                 logger.debug(f"Helius enrichment failed for {token.symbol}: {_he_err}")
 
-        # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
+        # ── TimesFM Price Direction Forecast ────────────────────────────────────
+        # Google’s 200M-parameter time series foundation model (zero-shot).
+        # Runs locally on VPS CPU. Falls back to linear regression if not installed.
+        # Applies a score bonus (UP) or penalty (DOWN) based on direction + confidence.
+        try:
+            from ml.timesfm_signal import get_forecast_from_dexscreener
+            _tf_result = get_forecast_from_dexscreener(
+                token_address=token.address,
+                chain=token.chain,
+                pair_address=getattr(token, "pair_address", ""),
+            )
+            _tf_delta = _tf_result.get("score_delta", 0.0)
+            if _tf_delta != 0.0:
+                pre_tf = candidate.gem_score
+                candidate.gem_score = max(0.0, min(100.0, round(candidate.gem_score + _tf_delta, 2)))
+                logger.debug(
+                    f"🔮 TimesFM [{_tf_result.get('method','?')}] {token.symbol}: "
+                    f"dir={_tf_result.get('direction','?')} "
+                    f"conf={_tf_result.get('confidence', 0):.0%} "
+                    f"→ score {pre_tf} {_tf_delta:+.1f} = {candidate.gem_score}"
+                )
+            candidate.timesfm_direction = _tf_result.get("direction", "FLAT")
+            candidate.timesfm_confidence = _tf_result.get("confidence", 0.0)
+            candidate.timesfm_method = _tf_result.get("method", "none")
+        except Exception as _tf_err:
+            logger.debug(f"TimesFM signal skipped for {token.symbol}: {_tf_err}")
+            candidate.timesfm_direction = "FLAT"
+            candidate.timesfm_confidence = 0.0
+            candidate.timesfm_method = "none"
+
+        # ── Enhanced signal enrichment (Phase 3) ────────────────────────────────
         # ⚡ MORALIS-FIRST ENRICHMENT: 5 lean parallel calls replace the old 9.
         # Removed: DefiLlama TVL, LunarCrush social, holder_analysis, token_unlocks
         # All replaced by Moralis ecosystem signals (discovery, analytics, pair stats).
@@ -1482,7 +1492,41 @@ class GemScanner:
             candidate.is_accumulation_zone = False
             candidate.vol_trend_7d = "neutral"
 
-        # ── FINAL GATE: Solana Meme Coin Quality Floor ───────────────────────
+        # ── CoinPaprika: True All-Time ATH Gate ──────────────────────────────────
+        # Supplements the 7-day ATH gate with true all-time ATH data (free, no key).
+        # Rejects tokens within 15% of their all-time high — strongest FOMO signal.
+        # Graceful no-op if CoinPaprika doesn’t have the token indexed.
+        try:
+            from data.providers.coinpaprika import check_alltime_ath_gate
+            cp_reject, cp_reason = check_alltime_ath_gate(
+                symbol=token.symbol,
+                current_price_usd=token.price_usd,
+                name=getattr(token, "name", ""),
+                reject_within_pct=0.15,
+            )
+            if cp_reject:
+                logger.info(f"⛔ ALLTIME-ATH REJECT: {token.symbol} — {cp_reason}")
+                return None
+        except Exception as _cp_err:
+            logger.debug(f"CoinPaprika ATH gate skipped for {token.symbol}: {_cp_err}")
+
+        # ── Apply ChainAware score penalty (if safety check stored one) ─────────────
+        # safety.py stores chainaware_penalty on SafetyResult when the deployer
+        # wallet has suspicious (but sub-threshold) fraud indicators.
+        try:
+            safety_result = getattr(candidate, "_safety_result", None)
+            ca_penalty = getattr(safety_result, "chainaware_penalty", 0.0) or 0.0
+            if ca_penalty > 0:
+                pre_adj = candidate.gem_score
+                candidate.gem_score = max(0.0, round(candidate.gem_score - ca_penalty, 2))
+                logger.info(
+                    f"🔴 CHAINAWARE PENALTY: {token.symbol} deployer risk → "
+                    f"score {pre_adj} - {ca_penalty:.1f} = {candidate.gem_score}"
+                )
+        except Exception:
+            pass
+
+        # ── FINAL GATE: Solana Meme Coin Quality Floor ─────────────────────────────────────────────────────────────────────────────────────
         # Solana meme coins need a HIGHER bar than EVM tokens. The ecosystem
         # is flooded with low-quality pump-and-dumps. Only take the cream.
         SOLANA_MIN_SCORE = 72.0
@@ -1494,7 +1538,6 @@ class GemScanner:
             return None
 
         return candidate
-
     def _signals_to_token(self, signals: dict, chain: str) -> Optional[Token]:
         """Convert DexScreener signals dict to a Token object."""
         address = signals.get("base_token_address", "")

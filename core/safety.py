@@ -498,7 +498,58 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
     except Exception as e:
         logger.debug(f"Token Sniffer check failed for {token_address}: {e}")
 
-    # ── All checks passed ─────────────────────────────────────────────────────
+    # ── Step 6: ChainAware deployer wallet fraud scoring ─────────────────────
+    # EVM only — Solana deployer safety is handled by RugCheck above.
+    # Checks the owner/deployer wallet for fraud history, malicious contracts,
+    # darkweb/mixer activity, and sanctions.  Graceful no-op if no API key.
+    if chain != "solana":
+        try:
+            from data.providers.chainaware import check_deployer_wallet
+            owner_addr = (result.goplus_raw or {}).get("owner_address", "")
+            if owner_addr and owner_addr != "0x0000000000000000000000000000000000000000":
+                ca = check_deployer_wallet(owner_addr, chain)
+                if ca.is_blocked:
+                    result.block_reason = ca.block_reason
+                    result.goplus_passed = False
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+                # Store score penalty for gem_scanner to apply
+                result.chainaware_penalty = ca.to_score_penalty()   # type: ignore[attr-defined]
+                result.chainaware_fraud_prob = ca.fraud_probability  # type: ignore[attr-defined]
+        except Exception as _ca_err:
+            logger.debug(f"ChainAware check skipped: {_ca_err}")
+
+    # ── Step 7: Perplexity Real-Time Rug/Scam Web Search ───────────────────────
+    # Searches the open web for rug alerts, scam reports, dev wallet exposure.
+    # Completely different from Grok (which only searches X/Twitter).
+    # Hard rejects if rug_risk_score >= 70. Stores penalty for gem_scanner.
+    # Graceful no-op if PERPLEXITY_API_KEY not set.
+    try:
+        from data.providers.perplexity_rug_check import check_token_rug_risk
+        _pplx = check_token_rug_risk(
+            symbol=getattr(result, "symbol", ""),
+            address=token_address,
+            chain=chain,
+            name=getattr(result, "name", ""),
+        )
+        if not _pplx.get("skipped", True):
+            result.perplexity_rug_score = _pplx["rug_risk_score"]   # type: ignore[attr-defined]
+            result.perplexity_penalty = _pplx["score_penalty"]       # type: ignore[attr-defined]
+            result.perplexity_flags = _pplx.get("flags", [])         # type: ignore[attr-defined]
+            if _pplx["hard_reject"]:
+                result.is_safe = False
+                result.block_reason = (
+                    f"Perplexity: confirmed rug/scam (risk={_pplx['rug_risk_score']}) — "
+                    f"{_pplx.get('summary', 'web evidence found')}"
+                )
+                _log_blocked(result)
+                _set_cached(token_address, chain, result)
+                return result
+    except Exception as _pplx_err:
+        logger.debug(f"Perplexity rug check skipped: {_pplx_err}")
+
+    # ── All checks passed ─────────────────────────────────────────────
     result.is_safe = True
     safety_logger.info(
         f"SAFE | {token_address} | {chain} | "

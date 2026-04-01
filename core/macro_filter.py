@@ -115,7 +115,7 @@ def _ema(prices: list[float], period: int) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fetch_coin_history(coin_id: str, days: int = 200) -> list[float]:
-    """Fetch daily close prices from CoinGecko. Returns list of closes, oldest first."""
+    """Fetch daily close prices from CoinGecko with CoinPaprika fallback."""
     try:
         r = requests.get(
             f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
@@ -125,9 +125,25 @@ def _fetch_coin_history(coin_id: str, days: int = 200) -> list[float]:
         r.raise_for_status()
         data = r.json()
         prices = data.get("prices", [])
-        return [p[1] for p in prices]
+        if prices:
+            return [p[1] for p in prices]
+        raise ValueError("Empty price data from CoinGecko")
     except Exception as e:
-        logger.warning(f"MacroFilter: CoinGecko fetch failed for {coin_id}: {e}")
+        logger.warning(f"MacroFilter: CoinGecko fetch failed for {coin_id} — trying CoinPaprika fallback: {e}")
+        # ── CoinPaprika fallback (free, no key, 20k calls/month) ──────────────────────
+        _cg_to_sym = {
+            "bitcoin": "btc", "ethereum": "eth", "solana": "sol",
+            "binancecoin": "bnb", "matic-network": "matic",
+        }
+        sym = _cg_to_sym.get(coin_id, coin_id)
+        try:
+            from data.providers.coinpaprika import get_macro_ohlcv
+            candles = get_macro_ohlcv(sym, days=days)
+            if candles:
+                logger.info(f"MacroFilter: CoinPaprika fallback OK for {sym} ({len(candles)} candles)")
+                return [c["close"] for c in candles]
+        except Exception as cp_err:
+            logger.debug(f"MacroFilter: CoinPaprika fallback also failed for {sym}: {cp_err}")
         return []
 
 
