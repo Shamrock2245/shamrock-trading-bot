@@ -77,6 +77,16 @@ from data.providers.moralis_intelligence import (
 )
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
+# ── Macro Market Regime Filter ────────────────────────────────────────────────
+# Adjusts gem score threshold and applies a multiplier based on BTC/ETH/SOL
+# market regime (BULL / NEUTRAL / BEAR / EXTREME_FEAR). Fetched once per scan
+# cycle and cached for 1 hour to respect free API rate limits.
+try:
+    from core.macro_filter import get_macro_regime, get_effective_min_score
+    _MACRO_FILTER_AVAILABLE = True
+except ImportError:
+    _MACRO_FILTER_AVAILABLE = False
+
 # ── ML Dynamic Weight Optimizer ───────────────────────────────────────────────
 # Loads XGBoost-derived weights from output/dynamic_weights.json.
 # Falls back to static defaults if insufficient trade history exists.
@@ -147,6 +157,26 @@ class GemScanner:
         candidates: list[GemCandidate] = []
         seen_addresses: set[str] = set()
 
+        # ── Macro Regime: fetch once per scan cycle ───────────────────────────
+        _macro_multiplier = 1.0
+        _macro_min_score = float(settings.MIN_GEM_SCORE)
+        _macro_regime_label = "NEUTRAL"
+        if _MACRO_FILTER_AVAILABLE:
+            try:
+                _mr = get_macro_regime()
+                _macro_multiplier = _mr.score_multiplier
+                _macro_min_score = get_effective_min_score(settings.MIN_GEM_SCORE)
+                _macro_regime_label = _mr.regime
+                logger.info(
+                    f"MacroFilter active: regime={_mr.regime} | "
+                    f"multiplier={_macro_multiplier:.2f}x | "
+                    f"effective_min={_macro_min_score:.0f} | "
+                    f"F&G={_mr.fear_greed_value} ({_mr.fear_greed_label}) | "
+                    f"cached={_mr.cached}"
+                )
+            except Exception as _mf_err:
+                logger.debug(f"MacroFilter unavailable: {_mf_err}")
+
         # ── Source 1: Latest token profiles ──────────────────────────────────
         profiles = get_latest_token_profiles()
         logger.info(f"Fetched {len(profiles)} latest token profiles")
@@ -168,10 +198,12 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=False)
                     if candidate is None:
                         break
-                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                    _adjusted_score = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adjusted_score
+                    if _adjusted_score >= _macro_min_score:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
-                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
                         self.add_near_miss(token, candidate.gem_score, "profiles")
                     break  # Use first (most liquid) pair only
 
@@ -199,10 +231,12 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
-                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                    _adjusted_score = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adjusted_score
+                    if _adjusted_score >= _macro_min_score:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
-                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
                         self.add_near_miss(token, candidate.gem_score, "boosts")
                     break
 
@@ -230,10 +264,12 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
-                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                    _adjusted_score = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adjusted_score
+                    if _adjusted_score >= _macro_min_score:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
-                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
                         self.add_near_miss(token, candidate.gem_score, "top_boosts")
                     break
 
@@ -270,9 +306,11 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=True, is_cto=True)
                     if candidate is None:
                         break
-                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                    _adj = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adj
+                    if _adj >= _macro_min_score:
                         candidates.append(candidate)
-                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    elif _adj >= WATCHLIST_MIN_SCORE:
                         self.add_near_miss(token, candidate.gem_score, "cto_revival")
                         seen_addresses.add(token_addr.lower())
                     break
@@ -300,7 +338,9 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
-                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                    _adj = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adj
+                    if _adj >= _macro_min_score:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
                     break
@@ -332,12 +372,14 @@ class GemScanner:
                         candidate = self._score_token(token, is_boosted=True)
                         if candidate is None:
                             break
-                        if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        _adj = candidate.gem_score * _macro_multiplier
+                        candidate.gem_score = _adj
+                        if _adj >= _macro_min_score:
                             candidate.strategy_tag = "moralis_trending"
                             candidates.append(candidate)
                             seen_addresses.add(token_addr.lower())
                             moralis_added += 1
-                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        elif _adj >= WATCHLIST_MIN_SCORE:
                             self.add_near_miss(token, candidate.gem_score, "moralis")
                         break
             if moralis_added:
@@ -740,6 +782,71 @@ class GemScanner:
                     candidate.holder_concentration_score = 90.0
             except Exception as e:
                 logger.debug(f"Solana holder analysis failed for {token.symbol}: {e}")
+
+            # ── Helius DAS + Moralis Solana Gateway enrichment ────────────────────
+            # Uses Helius DAS (getAsset, getTokenAccounts) + Moralis Solana
+            # gateway for richer metadata, authority checks, and price data.
+            # Score bonus: -10 to +15 points based on on-chain safety signals.
+            try:
+                from data.providers.helius_enrichment import enrich_solana_token
+                # Load known sniper wallets for presence check
+                _sniper_wallets: list[str] = []
+                try:
+                    import json as _json, os as _os
+                    _lb_path = _os.path.join(
+                        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                        "data", "dashboard", "sniper_leaderboard.json"
+                    )
+                    if _os.path.exists(_lb_path):
+                        _lb = _json.loads(open(_lb_path).read())
+                        _sniper_wallets = [
+                            w.get("address", "") for w in _lb
+                            if w.get("is_active") and w.get("chain") == "solana"
+                        ]
+                except Exception:
+                    pass
+
+                _helius_enrich = enrich_solana_token(
+                    token.address,
+                    known_sniper_wallets=_sniper_wallets or None,
+                )
+                # Apply score bonus from enrichment
+                if _helius_enrich.sniper_score_bonus != 0:
+                    candidate.gem_score = max(
+                        0.0,
+                        min(100.0, candidate.gem_score + _helius_enrich.sniper_score_bonus)
+                    )
+                    logger.debug(
+                        f"Helius enrichment bonus for {token.symbol}: "
+                        f"{_helius_enrich.sniper_score_bonus:+.1f} pts "
+                        f"(top10={_helius_enrich.top10_holder_pct}, "
+                        f"mutable={_helius_enrich.is_mutable_metadata}, "
+                        f"mint_auth={_helius_enrich.is_mint_authority_set})"
+                    )
+                # Store enrichment data on candidate for dashboard display
+                candidate.helius_enrichment = _helius_enrich.to_dict()
+                # Override holder concentration if Helius gave us better data
+                if _helius_enrich.top10_holder_pct is not None:
+                    conc_pct = _helius_enrich.top10_holder_pct
+                    if conc_pct >= 80:
+                        candidate.holder_concentration_score = 10.0
+                    elif conc_pct >= 50:
+                        candidate.holder_concentration_score = 30.0
+                    elif conc_pct >= 30:
+                        candidate.holder_concentration_score = 60.0
+                    else:
+                        candidate.holder_concentration_score = 90.0
+                # Smart wallet presence boosts conviction
+                if _helius_enrich.smart_wallet_count >= 3:
+                    candidate.smart_money_score = min(
+                        100.0, candidate.smart_money_score + 20.0
+                    )
+                elif _helius_enrich.smart_wallet_count >= 1:
+                    candidate.smart_money_score = min(
+                        100.0, candidate.smart_money_score + 10.0
+                    )
+            except Exception as _he_err:
+                logger.debug(f"Helius enrichment failed for {token.symbol}: {_he_err}")
 
         # ── Enhanced signal enrichment (Phase 3) ──────────────────────────────
         # ⚡ MORALIS-FIRST ENRICHMENT: 5 lean parallel calls replace the old 9.

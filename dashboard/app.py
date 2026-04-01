@@ -617,6 +617,111 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Macro Market Regime Widget ───────────────────────────────────────────────
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from core.macro_filter import get_macro_regime
+    _macro = get_macro_regime()
+    _mr_regime = _macro.regime
+    _mr_mult = _macro.score_multiplier
+    _mr_min = _macro.min_score_override
+    _mr_fg = _macro.fear_greed_value
+    _mr_fg_label = _macro.fear_greed_label
+    _mr_dom = _macro.btc_dominance_signal
+    _mr_coins = _macro.coins
+    _mr_cached = _macro.cached
+    _mr_ok = True
+except Exception:
+    _mr_ok = False
+    _mr_regime = "NEUTRAL"
+    _mr_mult = 1.0
+    _mr_min = 65.0
+    _mr_fg = 50
+    _mr_fg_label = "Neutral"
+    _mr_dom = "NEUTRAL"
+    _mr_coins = {}
+    _mr_cached = False
+
+_regime_colors = {
+    "BULL": ("#00D09C", "rgba(0,208,156,0.08)", "rgba(0,208,156,0.3)"),
+    "NEUTRAL": ("#8B949E", "rgba(139,148,158,0.06)", "rgba(139,148,158,0.2)"),
+    "BEAR": ("#FF4757", "rgba(255,71,87,0.08)", "rgba(255,71,87,0.3)"),
+    "EXTREME_FEAR": ("#FF4757", "rgba(255,71,87,0.12)", "rgba(255,71,87,0.5)"),
+}
+_rc, _rbg, _rborder = _regime_colors.get(_mr_regime, _regime_colors["NEUTRAL"])
+
+_regime_icons = {"BULL": "🟢", "NEUTRAL": "🟡", "BEAR": "🔴", "EXTREME_FEAR": "🚨"}
+_regime_icon = _regime_icons.get(_mr_regime, "🟡")
+
+# F&G color
+_fg_color = (
+    "#FF4757" if _mr_fg <= 25
+    else "#FFB84D" if _mr_fg <= 45
+    else "#8B949E" if _mr_fg <= 55
+    else "#58A6FF" if _mr_fg <= 75
+    else "#00D09C"
+)
+
+# Build coin pills
+_coin_pills = ""
+for _sym, _cr in _mr_coins.items():
+    _cc = "#00D09C" if _cr.regime == "BULL" else ("#FF4757" if _cr.regime == "BEAR" else "#8B949E")
+    _ema_icon = "▲" if _cr.above_ema200 else "▼"
+    _coin_pills += (
+        f'<div style="background:rgba(255,255,255,0.03);border:1px solid {_cc}33;'
+        f'border-radius:8px;padding:6px 10px;min-width:90px;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;">'
+        f'{_sym}</div>'
+        f'<div style="color:{_cc};font-size:0.82rem;font-weight:700;font-family:monospace;">'
+        f'{_ema_icon} {_cr.chg_7d_pct:+.1f}%</div>'
+        f'<div style="color:#30363D;font-size:0.58rem;">7d · EMA200 {"above" if _cr.above_ema200 else "below"}</div>'
+        f'</div>'
+    )
+
+# Multiplier display
+_mult_color = "#00D09C" if _mr_mult >= 1.0 else ("#FF4757" if _mr_mult < 0.85 else "#FFB84D")
+_mult_str = f"{_mr_mult:.2f}×"
+_cached_str = ' <span style="color:#30363D;font-size:0.6rem;">(cached)</span>' if _mr_cached else ''
+
+st.markdown(
+    f'<div style="background:{_rbg};border:1px solid {_rborder};border-radius:12px;'
+    f'padding:12px 18px;margin-bottom:18px;">'
+    f'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
+    f'<div style="display:flex;align-items:center;gap:10px;">'
+    f'<span style="font-size:1.2rem;">{_regime_icon}</span>'
+    f'<div>'
+    f'<div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;'
+    f'letter-spacing:0.1em;">Macro Market Regime{_cached_str}</div>'
+    f'<div style="color:{_rc};font-size:1.05rem;font-weight:800;letter-spacing:0.05em;">{_mr_regime}</div>'
+    f'</div>'
+    f'</div>'
+    f'<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
+    f'<div style="text-align:center;">'
+    f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;">Gem Multiplier</div>'
+    f'<div style="color:{_mult_color};font-size:1.0rem;font-weight:800;font-family:monospace;">{_mult_str}</div>'
+    f'</div>'
+    f'<div style="text-align:center;">'
+    f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;">Min Score</div>'
+    f'<div style="color:#E6EDF3;font-size:1.0rem;font-weight:800;font-family:monospace;">{_mr_min:.0f}</div>'
+    f'</div>'
+    f'<div style="text-align:center;">'
+    f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;">Fear & Greed</div>'
+    f'<div style="color:{_fg_color};font-size:1.0rem;font-weight:800;font-family:monospace;">{_mr_fg} <span style="font-size:0.7rem;">{_mr_fg_label}</span></div>'
+    f'</div>'
+    f'<div style="text-align:center;">'
+    f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;">BTC Dom Signal</div>'
+    f'<div style="color:#8B949E;font-size:0.78rem;font-weight:700;">{_mr_dom.replace("_"," ")}</div>'
+    f'</div>'
+    f'</div>'
+    f'</div>'
+    f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'
+    + _coin_pills
+    + f'</div>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+
 # ── Stats Row ─────────────────────────────────────────────────────────────────
 avg_gems = (
     sum(h.get("candidates_found", 0) for h in history[-50:]) / max(len(history[-50:]), 1)

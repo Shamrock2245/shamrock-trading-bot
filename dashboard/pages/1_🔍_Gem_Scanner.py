@@ -378,13 +378,13 @@ if filtered:
                     sig_emoji = {"BUY": "🟢", "SELL": "🔴", "NEUTRAL": "🟡"}.get(sig_str, "⚪")
                     st.metric("Signal", f"{sig_emoji} {sig_str}")
 
-            # ── Manual Force Buy ──────────────────────────────────────────────
+            # ── Manual Force Buy + Research Report ───────────────────────────
             gem_addr = gem.get("address", "")
             gem_sym = gem.get("symbol", "?")
             gem_chain = gem.get("chain", "base")
             if gem_addr:
                 st.markdown("---")
-                fb_c1, fb_c2, fb_c3, fb_c4 = st.columns([1, 1, 1, 2])
+                fb_c1, fb_c2, fb_c3, fb_c4, fb_c5 = st.columns([1, 1, 1, 1, 1])
                 with fb_c1:
                     if st.button(
                         "🛒 Buy $50",
@@ -437,8 +437,37 @@ if filtered:
                         st.success(f"✅ Queued: buy $250 of {gem_sym} on {gem_chain}")
                         st.rerun()
                 with fb_c4:
+                    if st.button(
+                        "📄 Research Report",
+                        key=f"report_{i}_{gem_addr[:8]}",
+                        use_container_width=True,
+                        help=f"Generate a full PDF research report for {gem_sym}",
+                    ):
+                        with st.spinner(f"Generating report for {gem_sym}..."):
+                            try:
+                                from core.research_report import generate_token_report
+                                result = generate_token_report(
+                                    token_address=gem_addr,
+                                    chain=gem_chain,
+                                    capital_usd=5000.0,
+                                )
+                                if result.get("success") and result.get("pdf_path"):
+                                    with open(result["pdf_path"], "rb") as _pdf:
+                                        st.download_button(
+                                            label=f"⬇️ Download {gem_sym} Report",
+                                            data=_pdf.read(),
+                                            file_name=os.path.basename(result["pdf_path"]),
+                                            mime="application/pdf",
+                                            key=f"dl_report_{i}_{gem_addr[:8]}",
+                                        )
+                                    st.success(f"✅ Report ready: {result.get('verdict')} ({result.get('gem_score', 0):.0f}/100)")
+                                else:
+                                    st.error(f"Report failed: {result.get('error', 'Unknown error')}")
+                            except Exception as _re:
+                                st.error(f"Report error: {_re}")
+                with fb_c5:
                     st.markdown(
-                        f'<div style="color:#484F58;font-size:0.65rem;padding-top:8px;">'  
+                        f'<div style="color:#484F58;font-size:0.65rem;padding-top:8px;">'
                         f'⚠️ Safety checks always run. Score gate bypassed. '
                         f'Chain: <b style="color:#8B949E;">{gem_chain}</b> · '
                         f'Addr: <span style="font-family:monospace;">{gem_addr[:12]}...</span>'
