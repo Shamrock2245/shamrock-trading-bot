@@ -1,0 +1,560 @@
+"""
+dashboard/pages/6_🤝_Alpha_Wallets.py — ☘️ Shamrock Trading Bot
+Alpha Wallet Monitor — copy-trade status, alpha wallet activity,
+capital distribution per chain, and what the bot is doing right now.
+"""
+
+import sys
+import os
+import json
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+
+from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
+from state import get_trades, get_positions, get_bot_status, get_force_scan_request, request_force_scan
+
+st.set_page_config(
+    page_title="Shamrock | Alpha Wallets",
+    page_icon="🤝",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Extra CSS
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.alpha-card {
+    background: linear-gradient(145deg, rgba(13,17,23,0.98), rgba(22,27,34,0.95));
+    border: 1px solid rgba(48,54,61,0.7);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+}
+.alpha-card:hover { border-color: rgba(0,208,156,0.35); }
+.alpha-card.active { border-color: rgba(0,208,156,0.4); background: linear-gradient(145deg, rgba(0,208,156,0.04), rgba(13,17,23,0.98)); }
+.alpha-card.signal { border-color: rgba(255,184,77,0.5); background: linear-gradient(145deg, rgba(255,184,77,0.05), rgba(13,17,23,0.98)); }
+.wallet-addr { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: #58A6FF; }
+.wallet-label { font-size: 0.78rem; font-weight: 700; color: #E6EDF3; }
+.tier-badge {
+    font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.08em; padding: 2px 8px; border-radius: 20px;
+}
+.tier-1 { background: rgba(0,208,156,0.15); color: #00D09C; border: 1px solid rgba(0,208,156,0.3); }
+.tier-2 { background: rgba(88,166,255,0.12); color: #58A6FF; border: 1px solid rgba(88,166,255,0.25); }
+.tier-3 { background: rgba(255,184,77,0.12); color: #FFB84D; border: 1px solid rgba(255,184,77,0.25); }
+.chain-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.chain-bar-label { width: 70px; font-size: 0.7rem; color: #8B949E; }
+.chain-bar-track { flex: 1; height: 6px; background: rgba(48,54,61,0.5); border-radius: 3px; }
+.chain-bar-fill { height: 100%; border-radius: 3px; }
+.chain-bar-value { width: 55px; text-align: right; font-size: 0.7rem; font-family: monospace; }
+.status-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700;
+}
+.pill-monitoring { background: rgba(0,208,156,0.1); color: #00D09C; border: 1px solid rgba(0,208,156,0.25); }
+.pill-signal    { background: rgba(255,184,77,0.12); color: #FFB84D; border: 1px solid rgba(255,184,77,0.3); }
+.pill-copied    { background: rgba(88,166,255,0.12); color: #58A6FF; border: 1px solid rgba(88,166,255,0.25); }
+.pill-skipped   { background: rgba(139,148,158,0.1); color: #8B949E; border: 1px solid rgba(139,148,158,0.2); }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sidebar
+# ─────────────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:10px;padding:4px 0 12px;">'
+        '<span style="font-size:1.6rem;">☘️</span>'
+        '<div>'
+        '<div style="color:#E6EDF3;font-size:1.05rem;font-weight:800;letter-spacing:0.04em;">SHAMROCK</div>'
+        '<div style="color:#30363D;font-size:0.65rem;font-weight:600;letter-spacing:0.08em;'
+        'text-transform:uppercase;">Alpha Wallet Monitor</div>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:0 0 14px;">', unsafe_allow_html=True)
+
+    status = get_bot_status()
+    is_running = status.get("is_running", False)
+    mode = status.get("mode", "unknown").upper()
+    if is_running:
+        st.markdown(
+            f'<div class="status-live"><span class="live-dot"></span> RUNNING · {mode}</div>',
+            unsafe_allow_html=True,
+        )
+    pending = get_force_scan_request()
+    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+    if pending:
+        st.markdown('<div class="scan-pending-pill">⏳ Scan queued</div>', unsafe_allow_html=True)
+    else:
+        if st.button("🔍 Force Scan Now", key="aw_force_scan", use_container_width=True):
+            request_force_scan(reason="alpha_wallets_page")
+            st.success("✅ Scan queued!")
+            st.rerun()
+
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
+    auto_refresh = st.toggle("Auto-refresh", value=True)
+    refresh_rate = st.select_slider("Interval", options=[5, 10, 15, 30, 60], value=15, format_func=lambda x: f"{x}s")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data
+# ─────────────────────────────────────────────────────────────────────────────
+_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def _load_json(path, default=None):
+    try:
+        full = os.path.join(_BASE, path)
+        if os.path.exists(full):
+            return json.loads(open(full).read())
+    except Exception:
+        pass
+    return default if default is not None else {}
+
+trades_data     = get_trades()
+positions_data  = get_positions()
+adaptive_state  = _load_json("output/adaptive_mode_state.json")
+offensive_state = _load_json("output/offensive_state.json")
+
+# Rebalance plans
+_rebalance_plans = {}
+for _wc in ["primary_base", "primary_bsc", "primary_ethereum", "primary_solana",
+            "wallet_b_base", "wallet_b_bsc", "wallet_b_arbitrum", "wallet_b_ethereum"]:
+    _plan = _load_json(f"output/rebalance_plan_{_wc}.json")
+    if _plan:
+        _rebalance_plans[_wc] = _plan
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alpha Wallet Definitions
+# ─────────────────────────────────────────────────────────────────────────────
+ALPHA_WALLETS = [
+    {
+        "address": "0x6b75d8af000000e20b7a7ddf000ba900b4009a80",
+        "label": "Lookonchain Alpha",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "Tracked by Lookonchain — consistent early gem entries",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+        "label": "Vitalik (Signal Only)",
+        "network": "EVM",
+        "tier": 3,
+        "notes": "High-signal whale — large moves indicate macro sentiment",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+        "label": "Binance Hot Wallet 14",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "Binance institutional flow — early accumulation signal",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+        "label": "Binance Hot Wallet 15",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "Binance institutional flow — early accumulation signal",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",
+        "label": "Binance Cold Reserve",
+        "network": "EVM",
+        "tier": 2,
+        "notes": "Large reserve movements = macro signal",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0xf977814e90da44bfa03b6295a0616a897441acec",
+        "label": "Binance Hot Wallet 8",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "High-frequency institutional flow",
+        "chain": "bsc",
+    },
+    {
+        "address": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
+        "label": "Base Ecosystem Whale",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "Top Base chain accumulator — early DeFi/gem entries",
+        "chain": "base",
+    },
+    {
+        "address": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "label": "Base Gem Sniper",
+        "network": "EVM",
+        "tier": 1,
+        "notes": "Consistent early entries on Base launches",
+        "chain": "base",
+    },
+    {
+        "address": "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
+        "label": "Binance Hot Wallet 1",
+        "network": "EVM",
+        "tier": 2,
+        "notes": "Primary Binance hot wallet — large volume signal",
+        "chain": "ethereum",
+    },
+    {
+        "address": "0x9696f59e4d72e237be84ffd425dcad154bf96976",
+        "label": "Known Accumulator",
+        "network": "EVM",
+        "tier": 2,
+        "notes": "Tracked accumulator — consistent mid-cap entries",
+        "chain": "ethereum",
+    },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Header
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown(
+    '<div class="page-header">'
+    '<div style="display:flex;align-items:center;gap:12px;">'
+    '<span style="font-size:1.7rem;">🤝</span>'
+    '<div>'
+    '<h1>ALPHA WALLET MONITOR</h1>'
+    '<div class="subtitle">10 tracked alpha wallets · Copy-trade status · Capital distribution · What the bot is doing right now</div>'
+    '</div>'
+    '</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bot Activity Banner
+# ─────────────────────────────────────────────────────────────────────────────
+bot_mode     = adaptive_state.get("mode", "unknown").upper()
+consec_wins  = offensive_state.get("consecutive_wins", 0)
+consec_losses = offensive_state.get("consecutive_losses", 0)
+god_mode     = offensive_state.get("god_mode_active", False)
+hwm          = adaptive_state.get("high_water_mark_usd", 0)
+current_cap  = adaptive_state.get("current_capital_usd", 0)
+drawdown     = adaptive_state.get("drawdown_pct", 0)
+house_pool   = offensive_state.get("house_money_pool_usd", 0)
+session_pnl  = offensive_state.get("session_realized_pnl_usd", 0)
+session_trades = offensive_state.get("session_trades", 0)
+profit_boost = offensive_state.get("profit_boost_remaining", 0)
+express_od   = offensive_state.get("express_overdrive_count", 0)
+
+_mode_colors = {
+    "LIVE":         ("#00D09C", "rgba(0,208,156,0.08)"),
+    "GOD MODE":     ("#FFD700", "rgba(255,215,0,0.10)"),
+    "RECOVERY":     ("#FF4757", "rgba(255,71,87,0.08)"),
+    "EXPANSION":    ("#58A6FF", "rgba(88,166,255,0.08)"),
+    "CONSERVATIVE": ("#FFB84D", "rgba(255,184,77,0.08)"),
+}
+_mc, _mbg = _mode_colors.get(bot_mode, ("#8B949E", "rgba(139,148,158,0.08)"))
+
+st.markdown(
+    f'<div style="background:{_mbg};border:1px solid {_mc}33;border-radius:12px;'
+    f'padding:14px 18px;margin-bottom:20px;">'
+    f'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">'
+    f'<span style="background:{_mc}22;color:{_mc};font-size:0.7rem;font-weight:800;'
+    f'text-transform:uppercase;letter-spacing:0.1em;padding:4px 12px;border-radius:20px;'
+    f'border:1px solid {_mc}44;">● {bot_mode}</span>'
+    + (f'<span style="color:#FFD700;font-weight:800;font-size:0.8rem;">⚡ GOD MODE ACTIVE</span>' if god_mode else '')
+    + (f'<span style="color:#00D09C;font-size:0.78rem;">🔥 {consec_wins}-win streak</span>' if consec_wins >= 2 else '')
+    + (f'<span style="color:#FF4757;font-size:0.78rem;">⚠️ {consec_losses} consecutive losses</span>' if consec_losses >= 2 else '')
+    + f'</div>'
+    f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:12px;">'
+    f'<div><div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Capital</div>'
+    f'<div style="color:#E6EDF3;font-size:0.95rem;font-weight:700;font-family:monospace;">${current_cap:,.2f}</div></div>'
+    f'<div><div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">HWM</div>'
+    f'<div style="color:#E6EDF3;font-size:0.95rem;font-weight:700;font-family:monospace;">${hwm:,.2f}</div></div>'
+    f'<div><div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Drawdown</div>'
+    f'<div style="color:{"#FF4757" if drawdown > 30 else "#00D09C"};font-size:0.95rem;font-weight:700;font-family:monospace;">{drawdown:.1f}%</div></div>'
+    f'<div><div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Session P&L</div>'
+    f'<div style="color:{"#00D09C" if session_pnl >= 0 else "#FF4757"};font-size:0.95rem;font-weight:700;font-family:monospace;">{"+" if session_pnl>=0 else ""}${session_pnl:.4f}</div></div>'
+    f'<div><div style="color:#484F58;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">House Pool</div>'
+    f'<div style="color:#58A6FF;font-size:0.95rem;font-weight:700;font-family:monospace;">${house_pool:.4f}</div></div>'
+    f'</div>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy-Trade Status Explanation
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("### 🤝 Do You Need to Do Anything to Trigger Copy Trading?")
+st.markdown(
+    '<div class="glass-card" style="padding:18px 20px;margin-bottom:20px;">'
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">'
+    '<div>'
+    '<div style="color:#00D09C;font-size:0.85rem;font-weight:700;margin-bottom:8px;">✅ Fully Automatic — No Action Required</div>'
+    '<div style="color:#8B949E;font-size:0.78rem;line-height:1.7;">'
+    'The copy-trade daemon runs automatically every bot cycle (~2 minutes). '
+    'It monitors all 10 alpha wallets in real-time using Moralis wallet activity feeds. '
+    'When an alpha wallet buys a token ≥ $50, the bot automatically scores it and, '
+    'if it passes the entry gates (score ≥ 62 in recovery mode), executes a copy trade '
+    'proportional to your wallet balance.'
+    '</div>'
+    '</div>'
+    '<div>'
+    '<div style="color:#FFB84D;font-size:0.85rem;font-weight:700;margin-bottom:8px;">⚠️ Current Constraint: Low Liquid Capital</div>'
+    '<div style="color:#8B949E;font-size:0.78rem;line-height:1.7;">'
+    'The bot is in <b style="color:#FF4757;">RECOVERY MODE</b> with ~$94–$127 liquid capital. '
+    'Position sizes are $2–$6 per trade. To unlock larger copy trades and full gem sniping, '
+    'add capital to the wallets. The bot will automatically scale up position sizes '
+    'as the portfolio grows via the Kelly multiplier system.'
+    '</div>'
+    '</div>'
+    '</div>'
+    '<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(48,54,61,0.5);">'
+    '<div style="color:#484F58;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">How Copy Trading Works</div>'
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    '<div style="background:rgba(0,208,156,0.06);border:1px solid rgba(0,208,156,0.2);border-radius:8px;padding:8px 12px;flex:1;min-width:140px;">'
+    '<div style="color:#00D09C;font-size:0.68rem;font-weight:700;">STEP 1</div>'
+    '<div style="color:#8B949E;font-size:0.7rem;margin-top:3px;">Alpha wallet buys token ≥ $50</div>'
+    '</div>'
+    '<div style="background:rgba(88,166,255,0.06);border:1px solid rgba(88,166,255,0.2);border-radius:8px;padding:8px 12px;flex:1;min-width:140px;">'
+    '<div style="color:#58A6FF;font-size:0.68rem;font-weight:700;">STEP 2</div>'
+    '<div style="color:#8B949E;font-size:0.7rem;margin-top:3px;">Bot detects within 5 min window</div>'
+    '</div>'
+    '<div style="background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);border-radius:8px;padding:8px 12px;flex:1;min-width:140px;">'
+    '<div style="color:#FFB84D;font-size:0.68rem;font-weight:700;">STEP 3</div>'
+    '<div style="color:#8B949E;font-size:0.7rem;margin-top:3px;">Token scored through 29-signal engine</div>'
+    '</div>'
+    '<div style="background:rgba(0,208,156,0.06);border:1px solid rgba(0,208,156,0.2);border-radius:8px;padding:8px 12px;flex:1;min-width:140px;">'
+    '<div style="color:#00D09C;font-size:0.68rem;font-weight:700;">STEP 4</div>'
+    '<div style="color:#8B949E;font-size:0.7rem;margin-top:3px;">If score ≥ 62 → execute copy trade</div>'
+    '</div>'
+    '</div>'
+    '</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alpha Wallet Cards
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("### 👁️ Tracked Alpha Wallets")
+
+# Find any copy trades from history
+copy_trades = [t for t in trades_data if
+               t.get("strategy_tag") == "copy_trade" or
+               "copy" in str(t.get("reason", "")).lower()]
+copy_trade_map = {}
+for ct in copy_trades:
+    # Try to match by token
+    sym = ct.get("token_symbol", "")
+    copy_trade_map[sym] = ct
+
+tier_counts = {1: 0, 2: 0, 3: 0}
+for w in ALPHA_WALLETS:
+    tier_counts[w["tier"]] = tier_counts.get(w["tier"], 0) + 1
+
+# Summary stats
+col_t1, col_t2, col_t3, col_total = st.columns(4)
+with col_t1:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">🥇</div>'
+        f'<div class="stat-label">Tier 1 Wallets</div>'
+        f'<div class="stat-value">{tier_counts.get(1,0)}</div>'
+        f'<div class="stat-delta positive">2-wallet trigger</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with col_t2:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">🥈</div>'
+        f'<div class="stat-label">Tier 2 Wallets</div>'
+        f'<div class="stat-value">{tier_counts.get(2,0)}</div>'
+        f'<div class="stat-delta neutral">1-wallet trigger</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with col_t3:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">📡</div>'
+        f'<div class="stat-label">Tier 3 (Signal)</div>'
+        f'<div class="stat-value">{tier_counts.get(3,0)}</div>'
+        f'<div class="stat-delta neutral">Macro signal only</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with col_total:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">🤝</div>'
+        f'<div class="stat-label">Copy Trades</div>'
+        f'<div class="stat-value">{len(copy_trades)}</div>'
+        f'<div class="stat-delta {"positive" if copy_trades else "neutral"}">{"Executed" if copy_trades else "Monitoring"}</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+
+st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+# Wallet cards grid
+left_col, right_col = st.columns(2)
+for i, wallet in enumerate(ALPHA_WALLETS):
+    col = left_col if i % 2 == 0 else right_col
+    addr = wallet["address"]
+    short_addr = addr[:10] + "..." + addr[-6:]
+    tier = wallet["tier"]
+    tier_class = f"tier-{tier}"
+    tier_label = {1: "Tier 1 — Express", 2: "Tier 2 — Standard", 3: "Tier 3 — Signal"}.get(tier, "")
+    chain = wallet.get("chain", "ethereum")
+    chain_emoji = CHAIN_EMOJI.get(chain, "⬡")
+    chain_color = CHAIN_COLORS.get(chain, "#8B949E")
+
+    # Check if this wallet has triggered any copy trades (simplified heuristic)
+    card_class = "alpha-card"
+
+    with col:
+        st.markdown(
+            f'<div class="{card_class}">'
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+            f'<div>'
+            f'<div class="wallet-label">{wallet["label"]}</div>'
+            f'<div class="wallet-addr">{short_addr}</div>'
+            f'</div>'
+            f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'
+            f'<span class="tier-badge {tier_class}">{tier_label}</span>'
+            f'<span style="color:{chain_color};font-size:0.65rem;">{chain_emoji} {chain.capitalize()}</span>'
+            f'</div>'
+            f'</div>'
+            f'<div style="color:#484F58;font-size:0.7rem;line-height:1.5;margin-bottom:8px;">{wallet["notes"]}</div>'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+            f'<span class="status-pill pill-monitoring">● Monitoring</span>'
+            f'<a href="https://debank.com/profile/{addr}" target="_blank" '
+            f'style="color:#484F58;font-size:0.65rem;text-decoration:none;">View on DeBank →</a>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Capital Distribution Per Chain
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("### 💰 Capital Distribution & Rebalance Status")
+st.markdown(
+    '<div style="color:#8B949E;font-size:0.78rem;margin-bottom:16px;">'
+    'The bot automatically rebalances capital across chains to ensure liquid capital is available '
+    'where gems are being found. Below is the current rebalance plan per wallet/chain.'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+if _rebalance_plans:
+    for plan_key, plan in _rebalance_plans.items():
+        wallet_name, chain_name = plan_key.rsplit("_", 1) if "_" in plan_key else (plan_key, "")
+        wallet_display = {"primary": "Primary Wallet", "wallet_b": "Wallet B"}.get(wallet_name, wallet_name.title())
+        chain_emoji_d = CHAIN_EMOJI.get(chain_name, "⬡")
+        chain_color_d = CHAIN_COLORS.get(chain_name, "#8B949E")
+
+        hold_items = plan.get("hold", [])
+        liq_items  = plan.get("liquidate", [])
+        monitor_items = plan.get("monitor", [])
+        dust_items = plan.get("dust", [])
+
+        total_hold = sum(t.get("value_usd", 0) for t in hold_items)
+        total_liq  = sum(t.get("value_usd", 0) for t in liq_items)
+
+        with st.expander(
+            f"{chain_emoji_d} {wallet_display} — {chain_name.capitalize()} "
+            f"| Hold: ${total_hold:,.2f} | Liquidate: ${total_liq:,.2f} "
+            f"| {len(hold_items)} hold · {len(liq_items)} liq · {len(monitor_items)} monitor",
+            expanded=False,
+        ):
+            rb_c1, rb_c2, rb_c3 = st.columns(3)
+            with rb_c1:
+                st.markdown(f'<div style="color:#00D09C;font-size:0.72rem;font-weight:700;margin-bottom:6px;">✅ HOLD ({len(hold_items)})</div>', unsafe_allow_html=True)
+                for t in hold_items[:8]:
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
+                        f'border-bottom:1px solid rgba(48,54,61,0.3);">'
+                        f'<span style="color:#E6EDF3;font-size:0.72rem;font-weight:600;">{t.get("symbol","?")}</span>'
+                        f'<span style="color:#8B949E;font-size:0.68rem;">${t.get("value_usd",0):,.2f}</span>'
+                        f'<span style="color:#484F58;font-size:0.65rem;">score {t.get("score",0):.0f}</span>'
+                        f'</div>', unsafe_allow_html=True,
+                    )
+            with rb_c2:
+                st.markdown(f'<div style="color:#FFB84D;font-size:0.72rem;font-weight:700;margin-bottom:6px;">👁️ MONITOR ({len(monitor_items)})</div>', unsafe_allow_html=True)
+                for t in monitor_items[:8]:
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
+                        f'border-bottom:1px solid rgba(48,54,61,0.3);">'
+                        f'<span style="color:#E6EDF3;font-size:0.72rem;font-weight:600;">{t.get("symbol","?")}</span>'
+                        f'<span style="color:#8B949E;font-size:0.68rem;">${t.get("value_usd",0):,.2f}</span>'
+                        f'<span style="color:#484F58;font-size:0.65rem;">score {t.get("score",0):.0f}</span>'
+                        f'</div>', unsafe_allow_html=True,
+                    )
+            with rb_c3:
+                st.markdown(f'<div style="color:#FF4757;font-size:0.72rem;font-weight:700;margin-bottom:6px;">🔴 LIQUIDATE ({len(liq_items)})</div>', unsafe_allow_html=True)
+                for t in liq_items[:8]:
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
+                        f'border-bottom:1px solid rgba(48,54,61,0.3);">'
+                        f'<span style="color:#FF4757;font-size:0.72rem;font-weight:600;">{t.get("symbol","?")}</span>'
+                        f'<span style="color:#8B949E;font-size:0.68rem;">${t.get("value_usd",0):,.2f}</span>'
+                        f'<span style="color:#484F58;font-size:0.65rem;">{t.get("reason","")[:25]}</span>'
+                        f'</div>', unsafe_allow_html=True,
+                    )
+else:
+    st.markdown(
+        '<div class="glass-card" style="text-align:center;padding:2rem;">'
+        '<div style="font-size:1.4rem;margin-bottom:6px;">⚖️</div>'
+        '<div style="color:#8B949E;">No rebalance plans generated yet</div>'
+        '<div style="color:#484F58;font-size:0.75rem;margin-top:4px;">'
+        'Plans are generated each scan cycle based on portfolio scoring</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Recent Trades Feed
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("### 📋 Recent Trade History")
+if trades_data:
+    recent = sorted(trades_data, key=lambda x: x.get("timestamp", ""), reverse=True)[:20]
+    rows = []
+    for t in recent:
+        pnl = t.get("pnl_usd", 0) or 0
+        action = t.get("action", t.get("direction", "?")).upper()
+        pnl_str = f"+${pnl:.4f}" if pnl > 0 else (f"-${abs(pnl):.4f}" if pnl < 0 else "—")
+        chain = t.get("chain", "")
+        rows.append({
+            "Time": t.get("timestamp", "")[:19],
+            "Token": t.get("token_symbol", "?"),
+            "Chain": f"{CHAIN_EMOJI.get(chain,'⬡')} {chain.capitalize()}",
+            "Action": action,
+            "Value": f"${t.get('value_usd', 0):,.4f}",
+            "P&L": pnl_str,
+            "Reason": t.get("reason", "—")[:40],
+        })
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True, height=min(500, len(rows) * 38 + 40))
+else:
+    st.markdown(
+        '<div class="glass-card" style="text-align:center;padding:2rem;">'
+        '<div style="font-size:1.4rem;margin-bottom:6px;">📋</div>'
+        '<div style="color:#8B949E;">No trades yet — bot is scanning and monitoring</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-refresh
+# ─────────────────────────────────────────────────────────────────────────────
+if auto_refresh:
+    st.markdown(
+        f'<script>setTimeout(()=>window.location.reload(),{refresh_rate*1000});</script>',
+        unsafe_allow_html=True,
+    )
