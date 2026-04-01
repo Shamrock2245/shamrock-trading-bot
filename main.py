@@ -1282,7 +1282,6 @@ async def run_bot_loop():
                                         else:
                                             logger.error("🎮 Manual buy: cannot fetch SOL price")
                                     else:
-                                        from core.executor import TradeExecutor, build_gem_snipe_params
                                         _manual_executor = TradeExecutor(is_paper=is_paper)
                                         _params = build_gem_snipe_params(
                                             wallet=_buy_wallet,
