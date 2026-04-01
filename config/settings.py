@@ -132,9 +132,20 @@ WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30
 WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "50"))        # ignore buys < $50 (lowered from $500 for our capital level)
 WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "300"))         # ignore txs older than 5 min (extended from 2 min)
 WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "2"))           # wallets for Tier 1 (lowered from 3 — easier to trigger)
-WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "1"))           # wallets for Tier 2 (single alpha buy = express lane)
+WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))           # safer default: require 2 wallets for express lane
 WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.3"))   # copy 30% of alpha buy size (conservative for our capital)
 WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "100"))     # cap copy trade at $100
+WALLET_MONITOR_FASTLANE_ENABLED = os.getenv("WALLET_MONITOR_FASTLANE_ENABLED", "true").lower() == "true"
+WALLET_MONITOR_FASTLANE_QUEUE_MAX = int(os.getenv("WALLET_MONITOR_FASTLANE_QUEUE_MAX", "200"))
+COPYTRADE_LATENCY_SLO_SECONDS = float(os.getenv("COPYTRADE_LATENCY_SLO_SECONDS", "20"))
+COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "180"))
+COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "45"))
+
+# Moralis Streams webhook ingestion (optional, for push-based low-latency detection)
+MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "false").lower() == "true"
+MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
+MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
+MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
 # Solana alpha wallets (EVM wallets use ALPHA_WALLETS_EVM or SMART_MONEY_WALLETS)
 ALPHA_WALLETS_SOLANA: list[str] = [
     addr.strip() for addr in

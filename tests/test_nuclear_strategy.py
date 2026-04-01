@@ -72,8 +72,8 @@ class TestNuclearTPLadder:
         assert "tp1_" in result.get("reason", ""), (
             f"Reason should contain 'tp1_', got: {result.get('reason')}"
         )
-        assert abs(result.get("sell_pct", 0) - 0.15) < 0.01, (
-            f"Nuclear TP1 should sell 15%, got: {result.get('sell_pct')}"
+        assert abs(result.get("sell_pct", 0) - 0.20) < 0.01, (
+            f"Nuclear TP1 should sell 20%, got: {result.get('sell_pct')}"
         )
 
     def test_tp2_fires_at_12x(self):
@@ -140,11 +140,11 @@ class TestHardStops:
     """Hard stop should use profile-specific percentages."""
 
     def test_nuclear_hard_stop_at_10pct(self):
-        """Nuclear hard stop is -10%, should fire at 0.9x entry."""
+        """Nuclear hard stop is -8%, should fire below 0.92x entry."""
         pos = _make_position(entry_price=1.0)
-        # Price dropped 10%
+        # Price dropped 10% (also below -8%)
         result = evaluate_position(pos, current_price=0.90, strategy_profile=NUCLEAR_PROFILE)
-        assert result is not None, "Nuclear hard stop should fire at -10%"
+        assert result is not None, "Nuclear hard stop should fire at -8%"
         assert "stop" in result.get("reason", "").lower(), (
             f"Reason should mention 'stop', got: {result.get('reason')}"
         )
@@ -171,24 +171,24 @@ class TestProfileConfig:
     def test_nuclear_profile_values(self):
         assert NUCLEAR_PROFILE.name == "nuclear"
         assert NUCLEAR_PROFILE.tp1_mult == 5.0
-        assert NUCLEAR_PROFILE.tp1_sell_pct == 0.15
+        assert NUCLEAR_PROFILE.tp1_sell_pct == 0.20
         assert NUCLEAR_PROFILE.tp2_mult == 12.0
         assert NUCLEAR_PROFILE.tp2_sell_pct == 0.25
         assert NUCLEAR_PROFILE.tp3_mult == 30.0
         assert NUCLEAR_PROFILE.tp3_sell_pct == 0.20
-        assert NUCLEAR_PROFILE.hard_stop_pct == 10.0
-        assert NUCLEAR_PROFILE.trailing_tighten == {10: 18.0, 20: 8.0}
+        assert NUCLEAR_PROFILE.hard_stop_pct == 8.0
+        assert NUCLEAR_PROFILE.trailing_tighten == {10: 15.0, 20: 7.0}
         assert NUCLEAR_PROFILE.max_position_pct == 60.0
         assert NUCLEAR_PROFILE.kelly_clamp_max == 0.70
         assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
 
     def test_conservative_profile_values(self):
         assert CONSERVATIVE_PROFILE.name == "conservative"
-        assert CONSERVATIVE_PROFILE.tp1_mult == 2.0
+        assert CONSERVATIVE_PROFILE.tp1_mult == 1.5
         assert CONSERVATIVE_PROFILE.tp1_sell_pct == 0.40
-        assert CONSERVATIVE_PROFILE.tp2_mult == 3.0
-        assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.40
-        assert CONSERVATIVE_PROFILE.tp3_mult == 0.0  # Disabled
+        assert CONSERVATIVE_PROFILE.tp2_mult == 2.5
+        assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.35
+        assert CONSERVATIVE_PROFILE.tp3_mult == 5.0
         assert CONSERVATIVE_PROFILE.hard_stop_pct == 20.0
 
     def test_profile_map_lookups(self):
