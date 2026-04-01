@@ -557,6 +557,26 @@ class GemScanner:
             )
             return None
 
+        # ── HARD GATE #1B: Solana Minimum Liquidity ──────────────────────────
+        # Meme coins with < $15K liquidity are untradeable — we become exit
+        # liquidity for insiders. No exceptions.
+        if token.chain == "solana" and (token.liquidity_usd or 0) < 15_000:
+            logger.info(
+                f"⛔ SOLANA LIQUIDITY GATE: {token.symbol} has only "
+                f"${token.liquidity_usd or 0:,.0f} liquidity — minimum $15K required. Skipping."
+            )
+            return None
+
+        # ── HARD GATE #1C: Solana Minimum Market Cap ─────────────────────────
+        # Sub-$50K mcap Solana tokens are noise — almost always rugs or
+        # abandoned projects. Not worth the risk at any score.
+        if token.chain == "solana" and (token.market_cap or 0) < 50_000:
+            logger.info(
+                f"⛔ SOLANA MCAP GATE: {token.symbol} mcap=${token.market_cap or 0:,.0f} "
+                f"— minimum $50K required. Skipping."
+            )
+            return None
+
         # ── HARD GATE #2: Block-0 Sniper / Bundle Detection ───────────────────────
         # Reject tokens where coordinated snipers acquired a disproportionate
         # share of supply at launch. This structural overhang means the top
@@ -1461,6 +1481,17 @@ class GemScanner:
             candidate.is_near_ath = False
             candidate.is_accumulation_zone = False
             candidate.vol_trend_7d = "neutral"
+
+        # ── FINAL GATE: Solana Meme Coin Quality Floor ───────────────────────
+        # Solana meme coins need a HIGHER bar than EVM tokens. The ecosystem
+        # is flooded with low-quality pump-and-dumps. Only take the cream.
+        SOLANA_MIN_SCORE = 72.0
+        if token.chain == "solana" and candidate.gem_score < SOLANA_MIN_SCORE:
+            logger.info(
+                f"⛔ SOLANA QUALITY GATE: {token.symbol} score={candidate.gem_score:.1f} "
+                f"< {SOLANA_MIN_SCORE} Solana minimum. Only high-conviction Solana trades allowed."
+            )
+            return None
 
         return candidate
 

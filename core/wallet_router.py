@@ -102,7 +102,7 @@ class CapitalPhase:
 
 
 CAPITAL_PHASES = [
-    CapitalPhase("seed",         0,       15_000,   25.0, 5,  "Seed — concentrate, move fast"),
+    CapitalPhase("seed",         0,       15_000,   25.0, 15,  "Seed — concentrate, move fast"),
     CapitalPhase("growth",       15_000,  50_000,   3.0, 8,  "Growth — scale with discipline"),
     CapitalPhase("acceleration", 50_000,  250_000,  2.0, 10, "Acceleration — diversify"),
     CapitalPhase("whale",        250_000, float("inf"), 1.0, 15, "Whale — wealth preservation"),
