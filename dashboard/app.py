@@ -31,6 +31,10 @@ from state import (
     get_errors,
     request_force_scan,
     get_force_scan_request,
+    get_pending_manual_commands,
+    request_manual_sell,
+    request_manual_close,
+    request_manual_buy,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,7 +178,7 @@ with st.sidebar:
 
     st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
 
-    # ── Force Scan ────────────────────────────────────────────────────────────
+    # ── Force Scan + Manual Controls ──────────────────────────────────────────────────
     st.markdown(
         '<div class="sidebar-stat-label" style="margin-bottom:8px;">Manual Controls</div>',
         unsafe_allow_html=True,
@@ -196,9 +200,29 @@ with st.sidebar:
             st.success("✅ Scan request sent!")
             st.rerun()
 
-    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
+    # ── Pending manual command queue indicator ────────────────────────────────
+    _pending_cmds = get_pending_manual_commands()
+    if _pending_cmds:
+        st.markdown(
+            f'<div style="background:rgba(255,184,77,0.08);border:1px solid rgba(255,184,77,0.25);'
+            f'border-radius:8px;padding:7px 10px;margin-top:8px;">'
+            f'<div style="color:#FFB84D;font-size:0.68rem;font-weight:700;margin-bottom:4px;">'
+            f'🎮 {len(_pending_cmds)} Manual Command(s) Queued</div>'
+            + "".join(
+                f'<div style="color:#8B949E;font-size:0.62rem;padding:1px 0;">'
+                f'• {c.get("type","").upper().replace("_"," ")}: '
+                f'<b style="color:#E6EDF3;">{c.get("symbol","?")}</b>'
+                f' on {c.get("chain","?")}'
+                f'</div>'
+                for c in _pending_cmds[:5]
+            )
+            + (f'<div style="color:#484F58;font-size:0.6rem;">+{len(_pending_cmds)-5} more...</div>'
+               if len(_pending_cmds) > 5 else "")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
 
-    # Active chains
+    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)  # Active chains
     chains = status.get("chains_scanned", [])
     if chains:
         st.markdown(
@@ -274,7 +298,8 @@ with st.sidebar:
     st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
     st.markdown(
         '<div style="color:#30363D;font-size:0.6rem;text-align:center;line-height:1.6;">'
-        'v4.0 · 29-Signal Engine · Full Moralis Suite<br>'
+        'v4.1 · 29-Signal Engine · Full Moralis Suite<br>'
+        'Moralis Streams · Copy-Trade Fastlane · Manual Intervention<br>'
         'Daily Floor Guardian · Blue-Chip Anchor · God Mode</div>',
         unsafe_allow_html=True,
     )
@@ -289,7 +314,7 @@ st.markdown(
     '<div>'
     '<h1>COMMAND CENTER</h1>'
     '<div class="subtitle">'
-    '29-signal AI pipeline · Full Moralis Suite · Daily Floor Guardian · Blue-Chip Anchor'
+    '29-signal AI pipeline · Moralis Streams · Copy-Trade Fastlane · Manual Intervention · Daily Floor Guardian'
     '</div>'
     '</div>'
     '</div>'

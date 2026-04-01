@@ -115,6 +115,7 @@ for e in recent_errors:
 apis = [
     ("DexScreener", "Token profiles, boosts, pair data", "dexscreener.com"),
     ("Moralis Money", "Pro discovery + enrichment (10 endpoints)", "moralis.io"),
+    ("Moralis Streams", "Real-time push webhooks — Codex addition", "moralis.io"),
     ("CoinGecko", "OHLCV data, market data", "coingecko.com"),
     ("GoPlus", "Contract safety analysis", "gopluslabs.io"),
     ("Honeypot.is", "Honeypot detection", "honeypot.is"),
@@ -122,6 +123,8 @@ apis = [
     ("Jupiter", "Solana DEX aggregation & swap", "jup.ag"),
     ("Grok/X", "Sentiment analysis via X API", "x.com"),
     ("TokenSniffer", "Token audits & scores", "tokensniffer.com"),
+    ("Copy-Trade Fastlane", "Alpha wallet copy-trade execution", "internal"),
+    ("Manual Intervention IPC", "Dashboard → bot command pipeline", "internal"),
 ]
 
 api_cols = st.columns(3)
@@ -221,7 +224,64 @@ with error_col2:
             unsafe_allow_html=True,
         )
 
-# ── Log Viewer ───────────────────────────────────────────────────────────────
+# ── Manual Intervention Log ─────────────────────────────────────────────────────────────────────────────
+st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+st.markdown("## 🎮 Manual Intervention Log")
+
+try:
+    from state import get_pending_manual_commands, STATE_DIR
+    import os
+    _all_cmds_path = os.path.join(STATE_DIR, "manual_commands.json")
+    import json as _json_h
+    if os.path.exists(_all_cmds_path):
+        with open(_all_cmds_path) as _f:
+            _all_cmds = _json_h.load(_f)
+    else:
+        _all_cmds = []
+except Exception:
+    _all_cmds = []
+
+if _all_cmds:
+    mi_col1, mi_col2 = st.columns([3, 1])
+    with mi_col1:
+        mi_rows = []
+        for _c in reversed(_all_cmds[-50:]):
+            mi_rows.append({
+                "Time": _c.get("requested_at", "")[:19],
+                "Type": _c.get("type", "").upper().replace("_", " "),
+                "Symbol": _c.get("symbol", "?"),
+                "Chain": _c.get("chain", "").capitalize(),
+                "Detail": (
+                    f"{_c.get('sell_pct',100):.0f}%" if _c.get("type") in ("manual_sell","manual_close")
+                    else f"${_c.get('usd_amount',0):.2f}" if _c.get("type") == "manual_buy"
+                    else ""
+                ),
+                "Wallet": _c.get("wallet", ""),
+                "Reason": _c.get("reason", ""),
+                "Status": (
+                    "✅ Done" if _c.get("processed") and _c.get("result") == "executed"
+                    else "⏳ Pending" if not _c.get("processed")
+                    else f"⚠️ {_c.get('result','')[:30]}"
+                ),
+            })
+        import pandas as _pd_mi
+        st.dataframe(_pd_mi.DataFrame(mi_rows), use_container_width=True, hide_index=True)
+    with mi_col2:
+        pending_n = len([c for c in _all_cmds if not c.get("processed")])
+        done_n = len([c for c in _all_cmds if c.get("processed") and c.get("result") == "executed"])
+        st.metric("Pending", pending_n)
+        st.metric("Executed", done_n)
+else:
+    st.markdown(
+        '<div class="glass-card" style="text-align:center;padding:1.5rem;">'
+        '<div style="color:#8B949E;font-size:0.85rem;">No manual commands yet</div>'
+        '<div style="color:#484F58;font-size:0.72rem;margin-top:4px;">'
+        'Use the Positions or Gem Scanner pages to queue buy/sell commands</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+# ── Log Viewer ─────────────────────────────────────────────────────────────────────────────
 st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 st.markdown("## 📄 Live Logs")
 

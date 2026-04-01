@@ -20,7 +20,14 @@ import pandas as pd
 from datetime import datetime, timezone
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
-from state import get_latest_gems, get_gem_history, request_force_scan, get_force_scan_request
+from state import (
+    get_latest_gems,
+    get_gem_history,
+    request_force_scan,
+    get_force_scan_request,
+    request_manual_buy,
+    get_pending_manual_commands,
+)
 
 st.set_page_config(page_title="Gem Scanner | Shamrock", page_icon="🔍", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
@@ -370,6 +377,74 @@ if filtered:
                     sig_str = signal.get("signal", "N/A")
                     sig_emoji = {"BUY": "🟢", "SELL": "🔴", "NEUTRAL": "🟡"}.get(sig_str, "⚪")
                     st.metric("Signal", f"{sig_emoji} {sig_str}")
+
+            # ── Manual Force Buy ──────────────────────────────────────────────
+            gem_addr = gem.get("address", "")
+            gem_sym = gem.get("symbol", "?")
+            gem_chain = gem.get("chain", "base")
+            if gem_addr:
+                st.markdown("---")
+                fb_c1, fb_c2, fb_c3, fb_c4 = st.columns([1, 1, 1, 2])
+                with fb_c1:
+                    if st.button(
+                        "🛒 Buy $50",
+                        key=f"buy50_{i}_{gem_addr[:8]}",
+                        use_container_width=True,
+                        help=f"Force-buy {gem_sym} with $50 via primary wallet",
+                    ):
+                        request_manual_buy(
+                            token_address=gem_addr,
+                            chain=gem_chain,
+                            symbol=gem_sym,
+                            usd_amount=50.0,
+                            wallet="primary",
+                            reason="gemscanner_force_buy_50",
+                        )
+                        st.success(f"✅ Queued: buy ${50} of {gem_sym} on {gem_chain}")
+                        st.rerun()
+                with fb_c2:
+                    if st.button(
+                        "🛒 Buy $100",
+                        key=f"buy100_{i}_{gem_addr[:8]}",
+                        use_container_width=True,
+                        help=f"Force-buy {gem_sym} with $100 via primary wallet",
+                    ):
+                        request_manual_buy(
+                            token_address=gem_addr,
+                            chain=gem_chain,
+                            symbol=gem_sym,
+                            usd_amount=100.0,
+                            wallet="primary",
+                            reason="gemscanner_force_buy_100",
+                        )
+                        st.success(f"✅ Queued: buy $100 of {gem_sym} on {gem_chain}")
+                        st.rerun()
+                with fb_c3:
+                    if st.button(
+                        "🛒 Buy $250",
+                        key=f"buy250_{i}_{gem_addr[:8]}",
+                        use_container_width=True,
+                        help=f"Force-buy {gem_sym} with $250 via primary wallet",
+                    ):
+                        request_manual_buy(
+                            token_address=gem_addr,
+                            chain=gem_chain,
+                            symbol=gem_sym,
+                            usd_amount=250.0,
+                            wallet="primary",
+                            reason="gemscanner_force_buy_250",
+                        )
+                        st.success(f"✅ Queued: buy $250 of {gem_sym} on {gem_chain}")
+                        st.rerun()
+                with fb_c4:
+                    st.markdown(
+                        f'<div style="color:#484F58;font-size:0.65rem;padding-top:8px;">'  
+                        f'⚠️ Safety checks always run. Score gate bypassed. '
+                        f'Chain: <b style="color:#8B949E;">{gem_chain}</b> · '
+                        f'Addr: <span style="font-family:monospace;">{gem_addr[:12]}...</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
 else:
     st.markdown(

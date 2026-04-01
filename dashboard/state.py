@@ -375,3 +375,150 @@ def get_trades() -> list:
         return [_bridge_trade(t) for t in raw[-500:]]  # Last 500 trades
     # Fallback: legacy dashboard state
     return _read_json("trades.json", [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual Intervention IPC (Dashboard → Bot)
+#
+# The dashboard writes command files; the bot loop checks them each cycle.
+# Commands are processed in order and cleared after execution.
+#
+# Supported commands:
+#   manual_sell  — force-sell a % of an open position immediately
+#   manual_close — force-close 100% of an open position immediately
+#   manual_buy   — force-buy a specific token with a given USD amount
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MANUAL_COMMANDS_FILE = "manual_commands.json"
+
+
+def _get_manual_commands() -> list:
+    """Read all pending manual commands."""
+    return _read_json(_MANUAL_COMMANDS_FILE, [])
+
+
+def _write_manual_commands(commands: list) -> None:
+    """Persist the manual commands list."""
+    _write_json(_MANUAL_COMMANDS_FILE, commands)
+
+
+def request_manual_sell(
+    token_address: str,
+    chain: str,
+    symbol: str,
+    sell_pct: float = 100.0,
+    reason: str = "dashboard_manual_sell",
+) -> None:
+    """
+    Queue a manual sell command.  The bot will execute it at the top of the
+    next cycle, bypassing TP/SL logic.
+
+    Args:
+        token_address: Contract address of the token to sell.
+        chain:         Chain name (e.g. "base", "solana").
+        symbol:        Human-readable ticker (for logging).
+        sell_pct:      Fraction of remaining position to sell (0–100).
+        reason:        Tag written to the trade log.
+    """
+    _ensure_dir()
+    commands = _get_manual_commands()
+    commands.append({
+        "type": "manual_sell",
+        "token_address": token_address,
+        "chain": chain,
+        "symbol": symbol,
+        "sell_pct": float(sell_pct),
+        "reason": reason,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "processed": False,
+    })
+    _write_manual_commands(commands)
+
+
+def request_manual_close(
+    token_address: str,
+    chain: str,
+    symbol: str,
+    reason: str = "dashboard_force_close",
+) -> None:
+    """Queue a 100% force-close command for a position."""
+    request_manual_sell(
+        token_address=token_address,
+        chain=chain,
+        symbol=symbol,
+        sell_pct=100.0,
+        reason=reason,
+    )
+
+
+def request_manual_buy(
+    token_address: str,
+    chain: str,
+    symbol: str,
+    usd_amount: float,
+    wallet: str = "primary",
+    reason: str = "dashboard_manual_buy",
+) -> None:
+    """
+    Queue a manual buy command.  The bot will execute it at the top of the
+    next cycle, bypassing the score gate (but NOT safety/honeypot checks).
+
+    Args:
+        token_address: Contract address of the token to buy.
+        chain:         Chain name.
+        symbol:        Human-readable ticker.
+        usd_amount:    USD value to spend (converted to native at execution time).
+        wallet:        Wallet alias ("primary", "wallet_b", "wallet_c").
+        reason:        Tag written to the trade log.
+    """
+    _ensure_dir()
+    commands = _get_manual_commands()
+    commands.append({
+        "type": "manual_buy",
+        "token_address": token_address,
+        "chain": chain,
+        "symbol": symbol,
+        "usd_amount": float(usd_amount),
+        "wallet": wallet,
+        "reason": reason,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "processed": False,
+    })
+    _write_manual_commands(commands)
+
+
+def get_pending_manual_commands() -> list:
+    """Return all unprocessed manual commands."""
+    return [c for c in _get_manual_commands() if not c.get("processed")]
+
+
+def mark_manual_command_processed(requested_at: str, result: str = "ok") -> None:
+    """Mark a command as processed so it is not re-executed."""
+    commands = _get_manual_commands()
+    for cmd in commands:
+        if cmd.get("requested_at") == requested_at:
+            cmd["processed"] = True
+            cmd["processed_at"] = datetime.now(timezone.utc).isoformat()
+            cmd["result"] = result
+            break
+    # Keep only last 200 commands (processed + pending)
+    _write_manual_commands(commands[-200:])
+
+
+def clear_processed_manual_commands() -> None:
+    """Purge all processed commands older than 24 h (housekeeping)."""
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    commands = _get_manual_commands()
+    kept = []
+    for cmd in commands:
+        if not cmd.get("processed"):
+            kept.append(cmd)  # Always keep pending
+            continue
+        try:
+            ts = datetime.fromisoformat(cmd.get("processed_at", ""))
+            if ts.replace(tzinfo=timezone.utc) > cutoff:
+                kept.append(cmd)  # Keep recent processed
+        except (ValueError, TypeError):
+            pass
+    _write_manual_commands(kept)

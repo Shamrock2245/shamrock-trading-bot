@@ -103,7 +103,14 @@ from core.adaptive_mode import (
     log_mode_banner, get_mode_status,
     record_gem_trade, record_swing_trade,
 )
-from dashboard.state import BotStateWriter, get_force_scan_request, clear_force_scan_request
+from dashboard.state import (
+    BotStateWriter,
+    get_force_scan_request,
+    clear_force_scan_request,
+    get_pending_manual_commands,
+    mark_manual_command_processed,
+    clear_processed_manual_commands,
+)
 from core.daily_floor_guardian import DailyFloorGuardian
 from core.bluechip_anchor import BluechipAnchor
 
@@ -1119,6 +1126,187 @@ async def run_bot_loop():
                 _force_scan_this_cycle = True
             else:
                 _force_scan_this_cycle = False
+
+            # ── Manual Intervention Commands: process dashboard-queued buy/sell/close ──
+            # These bypass score gates but NEVER bypass safety/honeypot checks.
+            # Processed at the top of every cycle so response latency ≤ 1 cycle.
+            try:
+                _manual_cmds = get_pending_manual_commands()
+                if _manual_cmds:
+                    logger.info(f"🎮 MANUAL COMMANDS: {len(_manual_cmds)} pending — processing now")
+                    _positions_for_manual = load_positions()
+                    _positions_dirty = False
+
+                    for _cmd in _manual_cmds:
+                        _cmd_type = _cmd.get("type", "")
+                        _cmd_ts = _cmd.get("requested_at", "")
+                        _cmd_chain = _cmd.get("chain", "")
+                        _cmd_addr = _cmd.get("token_address", "").lower()
+                        _cmd_sym = _cmd.get("symbol", "?")
+
+                        try:
+                            if _cmd_type in ("manual_sell", "manual_close"):
+                                _sell_pct = float(_cmd.get("sell_pct", 100.0)) / 100.0
+                                # Find matching open position
+                                _target_pos = None
+                                for _p in _positions_for_manual:
+                                    if (
+                                        _p.get("token_address", "").lower() == _cmd_addr
+                                        and _p.get("chain", "") == _cmd_chain
+                                        and _p.get("status", "open") == "open"
+                                    ):
+                                        _target_pos = _p
+                                        break
+
+                                if not _target_pos:
+                                    logger.warning(
+                                        f"🎮 Manual sell: no open position found for "
+                                        f"{_cmd_sym} ({_cmd_addr[:10]}...) on {_cmd_chain}"
+                                    )
+                                    mark_manual_command_processed(_cmd_ts, result="no_position_found")
+                                    continue
+
+                                # Fetch current price from DexScreener
+                                try:
+                                    _ds_resp = requests.get(
+                                        f"https://api.dexscreener.com/latest/dex/tokens/{_cmd_addr}",
+                                        timeout=8,
+                                    )
+                                    _ds_data = _ds_resp.json()
+                                    _pairs = _ds_data.get("pairs") or []
+                                    _current_price = float(
+                                        _pairs[0].get("priceUsd", 0) if _pairs else 0
+                                    )
+                                except Exception:
+                                    _current_price = float(_target_pos.get("current_price", 0))
+
+                                if _current_price <= 0:
+                                    _current_price = float(_target_pos.get("entry_price", 0))
+
+                                from core.position_monitor import execute_sell
+                                _sell_action = {
+                                    "sell_pct": _sell_pct,
+                                    "reason": _cmd.get("reason", "manual_intervention"),
+                                    "urgency": "immediate",
+                                }
+                                _updated_pos = execute_sell(
+                                    _target_pos, _sell_action, _current_price, is_paper=is_paper
+                                )
+                                if _updated_pos is None:
+                                    # Fully closed
+                                    _positions_for_manual = [
+                                        _p for _p in _positions_for_manual
+                                        if _p.get("token_address", "").lower() != _cmd_addr
+                                        or _p.get("chain", "") != _cmd_chain
+                                    ]
+                                else:
+                                    for _i, _p in enumerate(_positions_for_manual):
+                                        if (
+                                            _p.get("token_address", "").lower() == _cmd_addr
+                                            and _p.get("chain", "") == _cmd_chain
+                                        ):
+                                            _positions_for_manual[_i] = _updated_pos
+                                            break
+                                _positions_dirty = True
+                                logger.info(
+                                    f"🎮 Manual sell executed: {_cmd_sym} "
+                                    f"{_sell_pct*100:.0f}% @ ${_current_price:.8f} "
+                                    f"chain={_cmd_chain} reason={_cmd.get('reason')}"
+                                )
+                                mark_manual_command_processed(_cmd_ts, result="executed")
+
+                            elif _cmd_type == "manual_buy":
+                                _usd_amount = float(_cmd.get("usd_amount", 0))
+                                _wallet_alias = _cmd.get("wallet", "primary")
+                                if _usd_amount <= 0:
+                                    logger.warning(f"🎮 Manual buy: invalid usd_amount={_usd_amount}")
+                                    mark_manual_command_processed(_cmd_ts, result="invalid_amount")
+                                    continue
+
+                                # Safety check first — NEVER bypass this
+                                _safety = check_token_safety(_cmd_addr, _cmd_chain)
+                                if not _safety.is_safe:
+                                    logger.warning(
+                                        f"🎮 Manual buy BLOCKED by safety: "
+                                        f"{_cmd_sym} — {_safety.block_reason}"
+                                    )
+                                    mark_manual_command_processed(
+                                        _cmd_ts, result=f"safety_blocked:{_safety.block_reason}"
+                                    )
+                                    continue
+
+                                _buy_wallet = WALLETS.get(_wallet_alias) or WALLETS.get("primary")
+                                if not _buy_wallet:
+                                    logger.error(f"🎮 Manual buy: wallet '{_wallet_alias}' not found")
+                                    mark_manual_command_processed(_cmd_ts, result="wallet_not_found")
+                                    continue
+
+                                _executed_buy = False
+                                _buy_tx = None
+                                try:
+                                    if _cmd_chain == "solana":
+                                        from core.solana_executor import execute_solana_buy
+                                        try:
+                                            _sol_price_r = requests.get(
+                                                "https://api.coingecko.com/api/v3/simple/price",
+                                                params={"ids": "solana", "vs_currencies": "usd"},
+                                                timeout=10,
+                                            )
+                                            _sol_price = _sol_price_r.json().get("solana", {}).get("usd", 0)
+                                        except Exception:
+                                            _sol_price = 0
+                                        if _sol_price > 0:
+                                            _sol_amt = _usd_amount / _sol_price
+                                            _buy_tx = execute_solana_buy(
+                                                token_mint=_cmd_addr,
+                                                sol_amount=_sol_amt,
+                                                wallet_public_key=_buy_wallet.solana_address or _buy_wallet.address,
+                                                wallet_private_key_env=_buy_wallet.solana_private_key_env or _buy_wallet.private_key_env,
+                                                slippage_bps=200,
+                                                is_paper=is_paper,
+                                            )
+                                            _executed_buy = _buy_tx is not None
+                                        else:
+                                            logger.error("🎮 Manual buy: cannot fetch SOL price")
+                                    else:
+                                        from core.executor import TradeExecutor, build_gem_snipe_params
+                                        _manual_executor = TradeExecutor(is_paper=is_paper)
+                                        _params = build_gem_snipe_params(
+                                            wallet=_buy_wallet,
+                                            chain=_cmd_chain,
+                                            token_address=_cmd_addr,
+                                            eth_amount=0.0,
+                                            use_usdc=True,
+                                            usdc_amount=_usd_amount,
+                                        )
+                                        _result = _manual_executor.execute_trade(_params)
+                                        _executed_buy = _result.success
+                                        _buy_tx = _result.tx_hash
+                                except Exception as _buy_err:
+                                    logger.error(f"🎮 Manual buy execution error: {_buy_err}")
+
+                                _result_str = f"executed:tx={_buy_tx}" if _executed_buy else "execution_failed"
+                                logger.info(
+                                    f"🎮 Manual buy {'SUCCESS' if _executed_buy else 'FAILED'}: "
+                                    f"{_cmd_sym} ${_usd_amount:.2f} on {_cmd_chain} "
+                                    f"wallet={_wallet_alias} tx={_buy_tx}"
+                                )
+                                mark_manual_command_processed(_cmd_ts, result=_result_str)
+
+                        except Exception as _cmd_err:
+                            logger.error(f"🎮 Manual command error ({_cmd_type}): {_cmd_err}", exc_info=True)
+                            mark_manual_command_processed(_cmd_ts, result=f"error:{_cmd_err}")
+
+                    if _positions_dirty:
+                        from core.position_monitor import save_positions
+                        save_positions(_positions_for_manual)
+
+                    # Housekeeping: purge old processed commands every 100 cycles
+                    if cycle % 100 == 0:
+                        clear_processed_manual_commands()
+
+            except Exception as _manual_err:
+                logger.error(f"Manual command processing error: {_manual_err}", exc_info=True)
 
             # 2. Scan for gems (adaptive: every cycle in NORMAL, every 3rd in RECOVERY)
             candidates = []
