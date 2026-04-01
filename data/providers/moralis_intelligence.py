@@ -1543,3 +1543,297 @@ def get_usage_stats() -> dict:
             "solana_holder_stats", "solana_holder_growth", "solana_score_timeseries",
         ],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. TOKEN SECURITY API (EVM) — Cross-validates GoPlus
+# GET /erc20/{address}/security?chain={chain}
+# Returns: is_honeypot, buy_tax, sell_tax, has_mint_function, is_proxy
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_security(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Fetch Moralis-native token security data for EVM tokens.
+    Used in safety.py as a cross-validation layer alongside GoPlus.
+    Returns None if key not set or token not found.
+    """
+    chain_hex = CHAIN_HEX.get(chain)
+    if not chain_hex:
+        return None
+    cache_key = f"token_security_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/erc20/{token_address}/security",
+            params={"chain": chain_hex},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "is_honeypot": bool(data.get("is_honeypot", False)),
+            "buy_tax": _safe_float(data.get("buy_tax", 0)),
+            "sell_tax": _safe_float(data.get("sell_tax", 0)),
+            "has_mint_function": bool(data.get("has_mint_function", False)),
+            "is_proxy": bool(data.get("is_proxy", False)),
+            "is_open_source": bool(data.get("is_open_source", True)),
+            "owner_address": data.get("owner_address", ""),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Token security error {chain}/{token_address[:8]}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. WALLET ENTITY LABELS — Know WHO is buying
+# GET /wallets/{address}/labels
+# Returns entity type: Whale, Bot, Exchange, Fund, Smart Money, etc.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_labels(address: str) -> Optional[dict]:
+    """
+    Fetch Moralis entity labels for a wallet address.
+    Used in sniper_discovery.py to filter bots and boost known whales.
+    Returns None if no labels found or key not set.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"wallet_labels_{address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{address}/labels",
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        labels = data.get("labels", []) if isinstance(data, dict) else []
+        if not labels:
+            return None
+        primary = labels[0] if labels else {}
+        result = {
+            "primary_label": primary.get("label", ""),
+            "entity_type": primary.get("entity_type", ""),
+            "confidence": _safe_float(primary.get("confidence", 0)),
+            "all_labels": [lb.get("label", "") for lb in labels],
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Wallet labels error {address[:8]}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. ENTITY SEARCH API — Deployer address identity check
+# GET /entities/search?query={address}
+# Returns: entity name, type, category for known protocols/funds/exchanges
+# ─────────────────────────────────────────────────────────────────────────────
+def get_entity_label(address: str) -> Optional[dict]:
+    """
+    Search Moralis Entity API for a known entity by address.
+    Used in safety.py to identify deployer wallets.
+    Returns None if address is not a known entity.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"entity_label_{address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/entities/search",
+            params={"query": address, "limit": 1},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 422, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("result", []) if isinstance(data, dict) else []
+        if not results:
+            return None
+        entity = results[0]
+        result = {
+            "name": entity.get("name", ""),
+            "type": entity.get("entity_type", ""),
+            "category": entity.get("category", ""),
+            "website": entity.get("website", ""),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Entity search error {address[:8]}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 18. MARKET METRICS API — Global crypto market data (replaces CoinGecko)
+# GET /market-data/global/market-cap
+# GET /market-data/top-cryptocurrencies-by-market-cap
+# ─────────────────────────────────────────────────────────────────────────────
+def get_global_market_metrics() -> Optional[dict]:
+    """
+    Fetch global crypto market metrics from Moralis Market Metrics API.
+    Used in macro_filter.py as a primary data source (replaces CoinGecko).
+    Returns total market cap, BTC dominance, 24h volume, and market cap change.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = "global_market_metrics"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/market-data/global/market-cap",
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "total_market_cap_usd": _safe_float(data.get("total_market_cap_usd", 0)),
+            "btc_dominance_pct": _safe_float(data.get("btc_dominance", 0)),
+            "market_cap_change_24h_pct": _safe_float(data.get("market_cap_change_24h_percentage", 0)),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis Market Metrics error: {e}")
+        return None
+
+
+def get_top_crypto_by_market_cap(limit: int = 10) -> list[dict]:
+    """
+    Fetch top cryptocurrencies by market cap from Moralis.
+    Used in macro_filter.py to check BTC/ETH/SOL price trends.
+    """
+    if not MORALIS_API_KEY:
+        return []
+    cache_key = f"top_crypto_mcap_{limit}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/market-data/top-cryptocurrencies-by-market-cap",
+            params={"top": limit},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        coins = data.get("result", []) if isinstance(data, dict) else []
+        result = [
+            {
+                "symbol": c.get("symbol", "").upper(),
+                "name": c.get("name", ""),
+                "price_usd": _safe_float(c.get("price_usd", 0)),
+                "market_cap_usd": _safe_float(c.get("market_cap_usd", 0)),
+                "price_change_24h_pct": _safe_float(c.get("price_24h_percent_change", 0)),
+                "price_change_7d_pct": _safe_float(c.get("price_7d_percent_change", 0)),
+            }
+            for c in coins
+        ]
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis top coins error: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 19. CORTEX AI — AI-powered on-chain analysis
+# POST /cortex/chat
+# Sends a natural language query grounded in Moralis on-chain data.
+# Returns an AI-generated analysis with on-chain evidence.
+# ─────────────────────────────────────────────────────────────────────────────
+def cortex_analyze_token(
+    token_address: str,
+    chain: str,
+    symbol: str = "",
+    question: str = "",
+) -> Optional[dict]:
+    """
+    Use Moralis Cortex AI to analyze a token with on-chain grounding.
+    Returns an AI analysis with sentiment score and key signals.
+
+    Used as a 3rd intelligence layer alongside Grok (X/Twitter) and
+    Perplexity (web search). Cortex is grounded in Moralis on-chain data.
+    Graceful no-op if endpoint not available on current plan tier.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    if not question:
+        question = (
+            f"Analyze the on-chain activity for token {symbol or token_address} "
+            f"on {chain}. Is there evidence of whale accumulation, smart money entry, "
+            f"or suspicious activity? What is the risk level and should a trader enter now?"
+        )
+    _rate_check()
+    try:
+        chain_hex = CHAIN_HEX.get(chain, chain)
+        resp = requests.post(
+            f"{BASE_URL}/cortex/chat",
+            json={
+                "messages": [{"role": "user", "content": question}],
+                "context": {
+                    "token_address": token_address,
+                    "chain": chain_hex,
+                },
+            },
+            headers=_json_headers(),
+            timeout=20,
+        )
+        if resp.status_code in (400, 404, 422, 501, 403):
+            return None  # Cortex not available on this plan tier — graceful skip
+        if resp.status_code == 429:
+            time.sleep(3)
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            return None
+        content_lower = content.lower()
+        bullish_words = ["accumulation", "bullish", "strong", "whale entry", "smart money", "buy signal", "uptrend"]
+        bearish_words = ["suspicious", "rug", "dump", "sell", "risky", "avoid", "danger", "red flag", "bearish"]
+        bull_hits = sum(1 for w in bullish_words if w in content_lower)
+        bear_hits = sum(1 for w in bearish_words if w in content_lower)
+        if bull_hits > bear_hits:
+            sentiment = "bullish"
+            score_delta = min(8.0, bull_hits * 2.0)
+        elif bear_hits > bull_hits:
+            sentiment = "bearish"
+            score_delta = -min(10.0, bear_hits * 2.5)
+        else:
+            sentiment = "neutral"
+            score_delta = 0.0
+        return {
+            "analysis": content,
+            "sentiment": sentiment,
+            "score_delta": score_delta,
+            "bull_signals": bull_hits,
+            "bear_signals": bear_hits,
+            "skipped": False,
+        }
+    except Exception as e:
+        logger.debug(f"Cortex AI analysis error for {token_address[:10]}: {e}")
+        return None

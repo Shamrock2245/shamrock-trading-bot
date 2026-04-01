@@ -161,7 +161,20 @@ def _fetch_fear_greed() -> tuple[int, str]:
 
 
 def _fetch_btc_dominance() -> float:
-    """Fetch BTC dominance % from CoinGecko global endpoint."""
+    """
+    Fetch BTC dominance % — Moralis Market Metrics API (primary, paid subscription)
+    with CoinGecko as fallback.
+    """
+    # ── Primary: Moralis Market Metrics (already paid, more reliable) ────────
+    try:
+        from data.providers.moralis_intelligence import get_global_market_metrics
+        metrics = get_global_market_metrics()
+        if metrics and metrics.get("btc_dominance_pct", 0) > 0:
+            logger.debug(f"MacroFilter: BTC dominance from Moralis: {metrics['btc_dominance_pct']:.1f}%")
+            return float(metrics["btc_dominance_pct"])
+    except Exception as _m_err:
+        logger.debug(f"MacroFilter: Moralis BTC dominance failed: {_m_err}")
+    # ── Fallback: CoinGecko free tier ─────────────────────────────────────────
     try:
         r = requests.get(
             "https://api.coingecko.com/api/v3/global",
@@ -171,8 +184,26 @@ def _fetch_btc_dominance() -> float:
         data = r.json()
         return float(data.get("data", {}).get("market_cap_percentage", {}).get("btc", 50.0))
     except Exception as e:
-        logger.warning(f"MacroFilter: BTC dominance fetch failed: {e}")
+        logger.warning(f"MacroFilter: BTC dominance fetch failed (both sources): {e}")
         return 50.0
+
+
+def _fetch_moralis_coin_prices() -> dict[str, float]:
+    """
+    Fetch current prices for BTC/ETH/SOL/BNB from Moralis Market Metrics API.
+    Returns {symbol: price_usd} dict. Used to cross-validate CoinGecko price data.
+    """
+    try:
+        from data.providers.moralis_intelligence import get_top_crypto_by_market_cap
+        coins = get_top_crypto_by_market_cap(limit=20)
+        return {
+            c["symbol"]: c["price_usd"]
+            for c in coins
+            if c["symbol"] in ("BTC", "ETH", "SOL", "BNB", "MATIC")
+        }
+    except Exception as e:
+        logger.debug(f"MacroFilter: Moralis coin prices failed: {e}")
+        return {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

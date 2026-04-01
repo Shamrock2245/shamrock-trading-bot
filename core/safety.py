@@ -547,9 +547,78 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 _set_cached(token_address, chain, result)
                 return result
     except Exception as _pplx_err:
-        logger.debug(f"Perplexity rug check skipped: {_pplx_err}")
+        logger.debug(f"Perplexity rug check skipped: {_pplx_err}")    # ── Step 8: Moralis Token Security API (EVM only) ──────────────────────
+    # Cross-validates GoPlus results with Moralis-native security data.
+    # Catches honeypots and high-tax tokens that GoPlus may miss.
+    # Graceful no-op on Solana (EVM-only endpoint) and if key not set.
+    if chain != "solana":
+        try:
+            from data.providers.moralis_intelligence import get_token_security
+            _msec = get_token_security(token_address, chain)
+            if _msec:
+                _msec_honeypot = _msec.get("is_honeypot", False)
+                _msec_buy_tax = float(_msec.get("buy_tax", 0) or 0)
+                _msec_sell_tax = float(_msec.get("sell_tax", 0) or 0)
+                _msec_mint_auth = _msec.get("has_mint_function", False)
+                _msec_proxy = _msec.get("is_proxy", False)
+                if _msec_honeypot:
+                    result.is_safe = False
+                    result.block_reason = "Moralis Security: confirmed honeypot (GoPlus cross-check)"
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+                if _msec_buy_tax > 0.15 or _msec_sell_tax > 0.15:
+                    result.is_safe = False
+                    result.block_reason = (
+                        f"Moralis Security: extreme tax "
+                        f"(buy={_msec_buy_tax:.1%} sell={_msec_sell_tax:.1%})"
+                    )
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+                result.moralis_security_flags = {   # type: ignore[attr-defined]
+                    "mint_authority": _msec_mint_auth,
+                    "is_proxy": _msec_proxy,
+                    "buy_tax": _msec_buy_tax,
+                    "sell_tax": _msec_sell_tax,
+                }
+        except Exception as _msec_err:
+            logger.debug(f"Moralis Token Security check skipped: {_msec_err}")
 
-    # ── All checks passed ─────────────────────────────────────────────
+    # ── Step 9: Moralis Entity API — deployer address label check ────────────
+    # Checks if the deployer/owner address is a known entity (exchange, protocol,
+    # VC, or verified team). Known good entities get a trust boost stored on the
+    # result. Unknown or suspicious entities get a mild penalty.
+    # Uses Moralis Entity Search API: GET /entities/search?query={address}
+    _deployer_addr = getattr(result, "owner_address", "") or ""
+    if _deployer_addr and _deployer_addr not in ("0x0000000000000000000000000000000000000000", ""):
+        try:
+            from data.providers.moralis_intelligence import get_entity_label
+            _entity = get_entity_label(_deployer_addr)
+            if _entity:
+                result.deployer_entity_name = _entity.get("name", "")   # type: ignore[attr-defined]
+                result.deployer_entity_type = _entity.get("type", "")   # type: ignore[attr-defined]
+                _etype = _entity.get("type", "").lower()
+                # Known good entity types: exchange, protocol, fund, verified
+                if _etype in ("exchange", "protocol", "fund", "verified", "defi"):
+                    result.deployer_trust_boost = 5.0   # type: ignore[attr-defined]
+                    logger.info(
+                        f"Entity API: deployer {_deployer_addr[:10]}... is "
+                        f"'{_entity.get('name')}' ({_etype}) — +5 trust boost"
+                    )
+                elif _etype in ("mixer", "scam", "hack", "darkweb"):
+                    result.is_safe = False
+                    result.block_reason = (
+                        f"Entity API: deployer is labeled '{_entity.get('name')}' "
+                        f"({_etype}) — high-risk entity"
+                    )
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+        except Exception as _ent_err:
+            logger.debug(f"Entity API deployer check skipped: {_ent_err}")
+
+    # ── All checks passed ─────────────────────────────────────────────────────
     result.is_safe = True
     safety_logger.info(
         f"SAFE | {token_address} | {chain} | "

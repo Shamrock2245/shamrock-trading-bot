@@ -502,6 +502,97 @@ class GemScanner:
             except Exception as e:
                 logger.warning(f"Binance Pulse discovery error: {e}")
 
+        # ── Source 10: Pump.fun NEW Tokens (Solana — earliest possible entry) ────
+        # Tokens just created on Pump.fun, still on the bonding curve.
+        # Filtered by age gate (≥2h) + safety + score floor.
+        # Gives us the earliest possible Solana entry before DexScreener lists them.
+        if "solana" in settings.ACTIVE_CHAINS:
+            try:
+                new_tokens = get_pumpfun_new_tokens(limit=25)
+                pumpfun_new_added = 0
+                for nt in new_tokens:
+                    token_addr = nt.get("address", "")
+                    if not token_addr or token_addr.lower() in seen_addresses:
+                        continue
+                    # Skip tokens with zero volume (pure noise)
+                    if nt.get("volume_24h", 0) < 500:
+                        continue
+                    signals = {
+                        "address": token_addr,
+                        "symbol": nt.get("symbol", ""),
+                        "name": nt.get("name", ""),
+                        "chain": "solana",
+                        "market_cap": nt.get("market_cap", 0),
+                        "volume_24h": nt.get("volume_24h", 0),
+                        "bonding_pct": nt.get("bonding_pct", 0),
+                        "is_boosted": False,
+                        "boost_amount": 0,
+                        "source": "pumpfun_new",
+                    }
+                    token_obj = self._signals_to_token(signals, "solana")
+                    if token_obj:
+                        candidate = self._score_token(token_obj, is_boosted=False)
+                        if candidate is None:
+                            continue
+                        candidate.strategy_tag = "pumpfun_new"
+                        # +3 bonus for being caught pre-graduation (early entry premium)
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
+                        if candidate.gem_score >= _macro_min_score:
+                            candidates.append(candidate)
+                            seen_addresses.add(token_addr.lower())
+                            pumpfun_new_added += 1
+                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_new")
+                if pumpfun_new_added:
+                    logger.info(f"🌱 Pump.fun NEW: {pumpfun_new_added} pre-graduation tokens passed scoring")
+            except Exception as e:
+                logger.warning(f"Pump.fun NEW discovery error: {e}")
+
+        # ── Source 11: Pump.fun BONDING Tokens (near-graduation, highest momentum) ─
+        # Tokens at 80%+ bonding curve progress — about to graduate to Raydium.
+        # These are the highest-momentum pre-graduation plays with whale confirmation.
+        if "solana" in settings.ACTIVE_CHAINS:
+            try:
+                bonding_tokens = get_pumpfun_bonding_tokens(limit=25)
+                pumpfun_bonding_added = 0
+                for bt in bonding_tokens:
+                    token_addr = bt.get("address", "")
+                    if not token_addr or token_addr.lower() in seen_addresses:
+                        continue
+                    # Only take tokens near graduation (≥80% bonding curve)
+                    if not bt.get("near_graduation", False):
+                        continue
+                    signals = {
+                        "address": token_addr,
+                        "symbol": bt.get("symbol", ""),
+                        "name": bt.get("name", ""),
+                        "chain": "solana",
+                        "market_cap": bt.get("market_cap", 0),
+                        "volume_24h": bt.get("volume_24h", 0),
+                        "bonding_pct": bt.get("bonding_pct", 0),
+                        "is_boosted": True,
+                        "boost_amount": 60,
+                        "source": "pumpfun_bonding",
+                    }
+                    token_obj = self._signals_to_token(signals, "solana")
+                    if token_obj:
+                        candidate = self._score_token(token_obj, is_boosted=True)
+                        if candidate is None:
+                            continue
+                        candidate.strategy_tag = "pumpfun_bonding"
+                        # +8 bonus for near-graduation — highest pre-grad signal
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+                        if candidate.gem_score >= _macro_min_score:
+                            candidates.append(candidate)
+                            seen_addresses.add(token_addr.lower())
+                            pumpfun_bonding_added += 1
+                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_bonding")
+                if pumpfun_bonding_added:
+                    logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
+            except Exception as e:
+                logger.warning(f"Pump.fun BONDING discovery error: {e}")
+
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
@@ -1068,6 +1159,33 @@ class GemScanner:
                 except Exception as e:
                     logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
+
+            # ── Moralis Cortex AI — on-chain grounded analysis (P6) ─────────
+            # Runs only if prelim_score >= 48 AND token is on EVM chain
+            # Cortex is grounded in Moralis data — different from Grok (X/Twitter)
+            # and Perplexity (web search). Score delta applied to grok_sentiment_score.
+            if token.chain != "solana" and prelim_score >= 48:
+                try:
+                    from data.providers.moralis_intelligence import cortex_analyze_token
+                    _cortex = cortex_analyze_token(
+                        token_address=token.address,
+                        chain=token.chain,
+                        symbol=token.symbol,
+                    )
+                    if _cortex and not _cortex.get("skipped"):
+                        # Blend Cortex delta into grok_sentiment_score (both are sentiment signals)
+                        # Cortex is on-chain grounded; Grok is social. Average them.
+                        cortex_adj = _cortex.get("score_delta", 0.0)
+                        candidate.grok_sentiment_score = min(
+                            100.0,
+                            max(0.0, candidate.grok_sentiment_score + cortex_adj * 0.5)
+                        )
+                        logger.debug(
+                            f"Cortex AI [{token.symbol}]: {_cortex['sentiment']} "
+                            f"delta={cortex_adj:+.1f} → grok_score={candidate.grok_sentiment_score:.1f}"
+                        )
+                except Exception as _cx_err:
+                    logger.debug(f"Cortex AI skipped for {token.symbol}: {_cx_err}")
 
         # ── Moralis Money Enrichment (PRIMARY source — 27% weight) ─────────────
         # ⚡ Now runs IN the parallel pool above. Results from enrichment_results.

@@ -397,7 +397,35 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
     # 3. Active chains
     active_chains = get_wallet_active_chains(address) if chain != "solana" else ["solana"]
 
-    # 4. Composite sniper score (0–100)
+    # 4. Moralis Wallet Entity Labels — know WHO is buying
+    # GET /wallets/{addr}/labels — returns labels like 'Whale', 'Bot', 'Exchange'
+    # Known MEV/sandwich bots are filtered out. Known whales get a score boost.
+    entity_label = ""
+    entity_type = ""
+    entity_boost = 0.0
+    try:
+        from data.providers.moralis_intelligence import get_wallet_labels
+        _labels = get_wallet_labels(address)
+        if _labels:
+            entity_label = _labels.get("primary_label", "")
+            entity_type = _labels.get("entity_type", "")
+            _etype = entity_type.lower()
+            # Filter out bot wallets — they front-run, not alpha
+            if _etype in ("mev_bot", "sandwich_bot", "arbitrage_bot", "flashbot"):
+                logger.debug(f"Skipping bot wallet {address[:10]}... ({entity_type})")
+                return None
+            # Known whales or smart money — strong signal
+            if _etype in ("whale", "fund", "smart_money", "vc", "defi_protocol"):
+                entity_boost = 8.0
+                logger.info(
+                    f"Entity label: {address[:10]}... is '{entity_label}' ({entity_type}) — +8 boost"
+                )
+            elif _etype in ("exchange", "cex", "market_maker"):
+                entity_boost = 3.0
+    except Exception as _lbl_err:
+        logger.debug(f"Wallet entity labels skipped: {_lbl_err}")
+
+    # 5. Composite sniper score (0–100) + entity boost
     sniper_score = _calculate_sniper_score(
         win_rate=win_rate,
         total_pnl=total_pnl,
@@ -406,11 +434,13 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
         microcap_focus=microcap_focus,
         multi_chain=len(active_chains) > 1,
     )
+    sniper_score = min(100.0, round(sniper_score + entity_boost, 2))
 
     now = datetime.now(timezone.utc).isoformat()
     return SniperWallet(
         address=address,
         chain=chain,
+        alias=entity_label or "",
         win_rate=win_rate,
         total_realized_pnl_usd=total_pnl,
         avg_roi_pct=avg_roi,
