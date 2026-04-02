@@ -329,8 +329,12 @@ def harvest_candidates_from_recent_gems(max_gems: int = 20) -> dict[str, list[st
         logger.warning(f"SniperDiscovery: Could not load gem history: {e}")
         return candidates
 
-    # Sort by score descending, take top N
-    gems = sorted(gems, key=lambda g: g.get("score", 0), reverse=True)[:max_gems]
+    # Sort by gem_score descending, take top N
+    # gem_history.json uses 'gem_score' key, fallback to 'score' for compat
+    gems = sorted(gems, key=lambda g: g.get("gem_score", g.get("score", 0)), reverse=True)[:max_gems]
+    if gems:
+        top_score = gems[0].get("gem_score", gems[0].get("score", 0))
+        logger.info(f"SniperDiscovery: Top gem score={top_score}, processing {len(gems)} gems")
 
     for gem in gems:
         token_address = gem.get("address", "")
@@ -342,11 +346,13 @@ def harvest_candidates_from_recent_gems(max_gems: int = 20) -> dict[str, list[st
             if chain == "solana":
                 wallets = harvest_solana_candidates_from_gem(token_address)
                 candidates["solana"].extend(wallets)
-                logger.debug(f"Harvested {len(wallets)} Solana candidates from {token_address[:8]}")
+                if wallets:
+                    logger.info(f"Harvested {len(wallets)} Solana candidates from {gem.get('symbol', token_address[:8])}")
             elif chain in CHAIN_HEX:
                 wallets = harvest_evm_candidates_from_gem(token_address, chain)
                 candidates[chain].extend(wallets)
-                logger.debug(f"Harvested {len(wallets)} EVM candidates from {token_address[:8]} on {chain}")
+                if wallets:
+                    logger.info(f"Harvested {len(wallets)} EVM candidates from {gem.get('symbol', token_address[:8])} on {chain}")
         except Exception as e:
             logger.debug(f"Harvest error for {token_address[:8]}: {e}")
 
@@ -592,6 +598,92 @@ def _log_discovery_event(event: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# DexScreener Boosted-Token Fallback (when gem history produces 0 candidates)
+# ─────────────────────────────────────────────────────────────────────────────
+_DEXSCREENER_CHAIN_MAP = {
+    "ethereum": "ethereum",
+    "base": "base",
+    "bsc": "bsc",
+    "solana": "solana",
+    "arbitrum": "arbitrum",
+    "polygon": "polygon",
+}
+
+
+def _harvest_from_dexscreener_boosted() -> dict[str, list[str]]:
+    """
+    Fallback candidate source: fetch trending boosted tokens from DexScreener,
+    then harvest top-traders from those via Moralis.
+    Used when gem_history is empty or produces 0 candidates.
+    """
+    candidates: dict[str, list[str]] = {c: [] for c in ACTIVE_CHAINS}
+    try:
+        r = requests.get(
+            "https://api.dexscreener.com/token-boosts/latest/v1",
+            timeout=10,
+        )
+        if r.status_code != 200:
+            logger.warning(f"DexScreener boosted fetch failed: {r.status_code}")
+            return candidates
+        boosts = r.json()
+        if not isinstance(boosts, list):
+            return candidates
+
+        # Take up to 30 unique tokens across our target chains
+        seen_tokens: set[str] = set()
+        token_list: list[dict] = []
+        for b in boosts:
+            chain_id = b.get("chainId", "").lower()
+            token_addr = b.get("tokenAddress", "")
+            if chain_id not in _DEXSCREENER_CHAIN_MAP or not token_addr:
+                continue
+            if token_addr in seen_tokens:
+                continue
+            seen_tokens.add(token_addr)
+            token_list.append({
+                "address": token_addr,
+                "chain": _DEXSCREENER_CHAIN_MAP[chain_id],
+                "symbol": b.get("description", token_addr[:8]),
+            })
+            if len(token_list) >= 30:
+                break
+
+        logger.info(f"SniperDiscovery: DexScreener fallback found {len(token_list)} boosted tokens")
+
+        for token in token_list:
+            address = token["address"]
+            chain = token["chain"]
+            try:
+                if chain == "solana":
+                    wallets = harvest_solana_candidates_from_gem(address)
+                    candidates["solana"].extend(wallets)
+                elif chain in CHAIN_HEX:
+                    wallets = harvest_evm_candidates_from_gem(address, chain)
+                    candidates[chain].extend(wallets)
+                else:
+                    continue
+                if wallets:
+                    logger.info(
+                        f"DexScreener fallback: {len(wallets)} candidates from "
+                        f"{token['symbol']} on {chain}"
+                    )
+            except Exception as e:
+                logger.debug(f"DexScreener harvest error {address[:8]}: {e}")
+
+        # Deduplicate
+        for chain in candidates:
+            candidates[chain] = list(dict.fromkeys(candidates[chain]))
+
+        total = sum(len(v) for v in candidates.values())
+        logger.info(f"SniperDiscovery: DexScreener fallback yielded {total} candidates")
+        return candidates
+
+    except Exception as e:
+        logger.warning(f"SniperDiscovery: DexScreener fallback error: {e}")
+        return candidates
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main Discovery Cycle
 # ─────────────────────────────────────────────────────────────────────────────
 def run_discovery_cycle() -> dict:
@@ -610,12 +702,18 @@ def run_discovery_cycle() -> dict:
     start_time = time.monotonic()
     logger.info("🔍 SniperDiscovery: Starting discovery cycle...")
 
-    # Step 1: Harvest candidates
+    # Step 1: Harvest candidates from gem history
     candidates = harvest_candidates_from_recent_gems(max_gems=25)
     total_candidates = sum(len(v) for v in candidates.values())
 
+    # Step 1b: Fallback — seed from DexScreener boosted tokens if gem harvest is dry
     if total_candidates == 0:
-        logger.info("SniperDiscovery: No candidates harvested — no gem history yet")
+        logger.info("SniperDiscovery: Gem harvest returned 0 — trying DexScreener boosted fallback")
+        candidates = _harvest_from_dexscreener_boosted()
+        total_candidates = sum(len(v) for v in candidates.values())
+
+    if total_candidates == 0:
+        logger.info("SniperDiscovery: No candidates from any source — will retry next cycle")
         return {"candidates_harvested": 0, "new_snipers": 0, "total_tracked": 0}
 
     # Step 2: Load existing leaderboard
