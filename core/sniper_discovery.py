@@ -276,23 +276,51 @@ def get_wallet_recent_history(address: str, limit: int = 30) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 def harvest_evm_candidates_from_gem(token_address: str, chain: str, limit: int = 20) -> list[str]:
     """
-    Extract top trader wallet addresses from a gem token.
-    These are candidates for sniper scoring.
+    Extract buyer wallet addresses from a gem token's recent transfers.
+    Uses /erc20/{token}/transfers (the top-traders endpoint is not available).
+    Filters out DEX routers and pools to get real trader wallets.
     """
     if chain not in CHAIN_HEX:
         return []
-    url = f"{BASE_URL}/erc20/{token_address}/top-traders"
-    data = _get(url, params={"chain": CHAIN_HEX[chain], "limit": limit})
+    # Known DEX router/pool address prefixes to exclude
+    EXCLUDE_PREFIXES = {"0x0000000", "0xdead000"}
+    EXCLUDE_ADDRESSES = {
+        "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad",  # Uniswap Universal Router
+        "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",  # Uniswap V2 Router
+        "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",  # Uniswap V3 Router
+        "0x1111111254eeb25477b68fb85ed929f73a960582",  # 1inch V5
+        "0x10ed43c718714eb63d5aa57b78b54704e256024e",  # PancakeSwap V2
+        "0x13f4ea83d0bd40e75c8222255bc855a974568dd4",  # PancakeSwap V3
+    }
+
+    url = f"{BASE_URL}/erc20/{token_address}/transfers"
+    data = _get(url, params={
+        "chain": CHAIN_HEX[chain],
+        "limit": 100,           # Get more transfers to find unique buyers
+        "order": "DESC",        # Most recent first
+    })
     if not data:
         return []
     result = data.get("result", []) if isinstance(data, dict) else []
+
+    # Extract unique buyer addresses (to_address = receiver = buyer)
     addresses = []
+    seen = set()
     for t in result:
-        addr = t.get("address", "")
-        if addr and len(addr) == 42 and addr.startswith("0x"):
-            # Only include profitable traders — not bots
-            if not t.get("is_bot", False) and float(t.get("realized_profit_usd", 0)) > 0:
-                addresses.append(addr.lower())
+        addr = (t.get("to_address") or "").lower()
+        if not addr or len(addr) != 42 or not addr.startswith("0x"):
+            continue
+        if addr in seen or addr in EXCLUDE_ADDRESSES:
+            continue
+        if any(addr.startswith(p) for p in EXCLUDE_PREFIXES):
+            continue
+        # Skip if from_address == to_address (self-transfer)
+        if addr == (t.get("from_address") or "").lower():
+            continue
+        seen.add(addr)
+        addresses.append(addr)
+        if len(addresses) >= limit:
+            break
     return addresses
 
 
@@ -711,6 +739,25 @@ def run_discovery_cycle() -> dict:
         logger.info("SniperDiscovery: Gem harvest returned 0 — trying DexScreener boosted fallback")
         candidates = _harvest_from_dexscreener_boosted()
         total_candidates = sum(len(v) for v in candidates.values())
+
+    # Step 1c: Last resort — seed from configured alpha wallets
+    if total_candidates == 0:
+        logger.info("SniperDiscovery: DexScreener fallback dry — seeding from alpha wallets")
+        try:
+            from config import settings as _cfg
+            alpha_evm = getattr(_cfg, "ALPHA_WALLETS_EVM", None) or getattr(_cfg, "SMART_MONEY_WALLETS", [])
+            alpha_sol = getattr(_cfg, "ALPHA_WALLETS_SOLANA", [])
+            for w in alpha_evm:
+                if w:
+                    # Assign to ethereum by default — scoring will determine actual chain
+                    candidates.setdefault("ethereum", []).append(w.lower())
+            for w in alpha_sol:
+                if w:
+                    candidates.setdefault("solana", []).append(w)
+            total_candidates = sum(len(v) for v in candidates.values())
+            logger.info(f"SniperDiscovery: Seeded {total_candidates} alpha wallets as candidates")
+        except Exception as e:
+            logger.warning(f"SniperDiscovery: Alpha wallet seed error: {e}")
 
     if total_candidates == 0:
         logger.info("SniperDiscovery: No candidates from any source — will retry next cycle")
