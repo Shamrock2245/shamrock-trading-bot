@@ -1,5 +1,5 @@
 """
-dashboard/app.py — ☘️ Shamrock Trading Bot — Command Center v4.0
+dashboard/app.py — ☘️ Shamrock Trading Bot — Command Center v4.5
 
 Fortune 50-grade dark-mode dashboard.
 Navigation card grid · Force Scan IPC · Daily Floor Guardian status ·
@@ -298,8 +298,8 @@ with st.sidebar:
     st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
     st.markdown(
         '<div style="color:#30363D;font-size:0.6rem;text-align:center;line-height:1.6;">'
-        'v4.1 · 29-Signal Engine · Full Moralis Suite<br>'
-        'Moralis Streams · Copy-Trade Fastlane · Manual Intervention<br>'
+        'v4.5 · Full Moralis Intelligence Suite<br>'
+        'Cortex AI · Sniper Defense · Copy-Trade Fastlane · Manual Intervention<br>'
         'Daily Floor Guardian · Blue-Chip Anchor · God Mode</div>',
         unsafe_allow_html=True,
     )
@@ -314,7 +314,7 @@ st.markdown(
     '<div>'
     '<h1>COMMAND CENTER</h1>'
     '<div class="subtitle">'
-    '29-signal AI pipeline · Moralis Streams · Copy-Trade Fastlane · Manual Intervention · Daily Floor Guardian'
+    'Full Moralis Intelligence Suite · Cortex AI · Sniper Defense · Copy-Trade Fastlane · Manual Intervention'
     '</div>'
     '</div>'
     '</div>'
@@ -502,9 +502,10 @@ express_count = len([g for g in latest_gems if g.get("express_lane")])
 pos_badge = f'<div class="nav-badge">{active_positions} open</div>' if active_positions > 0 else ""
 gem_badge = f'<div class="nav-badge">{latest_count} live</div>' if latest_count > 0 else ""
 
-nav_c1, nav_c2, nav_c3, nav_c4, nav_c5, nav_c6 = st.columns(6)
+nav_row1_c1, nav_row1_c2, nav_row1_c3, nav_row1_c4 = st.columns(4)
+nav_row2_c1, nav_row2_c2, nav_row2_c3, nav_row2_c4 = st.columns(4)
 
-with nav_c1:
+with nav_row1_c1:
     st.markdown(
         f'<a href="/Gem_Scanner" target="_self" class="nav-card">'
         f'{gem_badge}'
@@ -515,17 +516,7 @@ with nav_c1:
         unsafe_allow_html=True,
     )
 
-with nav_c2:
-    st.markdown(
-        f'<a href="/Analytics" target="_self" class="nav-card">'
-        f'<span class="nav-icon">📊</span>'
-        f'<div class="nav-title">Analytics</div>'
-        f'<div class="nav-desc">P&L curves · Win rate · Chain performance · Score trends</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-with nav_c3:
+with nav_row1_c2:
     st.markdown(
         f'<a href="/Positions" target="_self" class="nav-card">'
         f'{pos_badge}'
@@ -536,7 +527,17 @@ with nav_c3:
         unsafe_allow_html=True,
     )
 
-with nav_c4:
+with nav_row1_c3:
+    st.markdown(
+        f'<a href="/Analytics" target="_self" class="nav-card">'
+        f'<span class="nav-icon">📊</span>'
+        f'<div class="nav-title">Analytics</div>'
+        f'<div class="nav-desc">P&L curves · Win rate · Chain performance · Score trends</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_row1_c4:
     st.markdown(
         f'<a href="/System_Health" target="_self" class="nav-card">'
         f'<span class="nav-icon">🏥</span>'
@@ -546,7 +547,7 @@ with nav_c4:
         unsafe_allow_html=True,
     )
 
-with nav_c5:
+with nav_row2_c1:
     st.markdown(
         f'<a href="/Wallet_Overview" target="_self" class="nav-card">'
         f'<span class="nav-icon">👛</span>'
@@ -556,7 +557,7 @@ with nav_c5:
         unsafe_allow_html=True,
     )
 
-with nav_c6:
+with nav_row2_c2:
     copy_badge = f'<div class="nav-badge">{len([t for t in trades_data if "copy" in str(t.get("reason","")).lower()])} copied</div>' if trades_data else ""
     st.markdown(
         f'<a href="/Alpha_Wallets" target="_self" class="nav-card">'
@@ -564,6 +565,27 @@ with nav_c6:
         f'<span class="nav-icon">🤝</span>'
         f'<div class="nav-title">Alpha Wallets</div>'
         f'<div class="nav-desc">10 tracked wallets · Copy-trade status · Capital distribution</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_row2_c3:
+    st.markdown(
+        f'<a href="/Sniper_Wallets" target="_self" class="nav-card">'
+        f'<span class="nav-icon">🎯</span>'
+        f'<div class="nav-title">Sniper Wallets</div>'
+        f'<div class="nav-desc">High-PnL leaderboard · Capital compounding · Discovery daemon</div>'
+        f'</a>',
+        unsafe_allow_html=True,
+    )
+
+with nav_row2_c4:
+    st.markdown(
+        f'<a href="/" target="_self" class="nav-card" style="border-color:rgba(0,208,156,0.2);'
+        f'background:linear-gradient(145deg,rgba(0,208,156,0.03),rgba(13,17,23,0.98));">'
+        f'<span class="nav-icon">☘️</span>'
+        f'<div class="nav-title">Command Center</div>'
+        f'<div class="nav-desc">You are here · Overview · Macro regime · Activity feed</div>'
         f'</a>',
         unsafe_allow_html=True,
     )
