@@ -76,12 +76,12 @@ CHAIN_HEX = {
 DISCOVERY_INTERVAL_SECONDS = int(os.getenv("SNIPER_DISCOVERY_INTERVAL_S", str(6 * 3600)))
 
 # Scoring thresholds
-MIN_WIN_RATE = float(os.getenv("SNIPER_MIN_WIN_RATE", "0.55"))        # 55%
-MIN_TRADES = int(os.getenv("SNIPER_MIN_TRADES", "10"))
-MIN_REALIZED_PNL_USD = float(os.getenv("SNIPER_MIN_PNL_USD", "5000"))
-MIN_AVG_ROI_PCT = float(os.getenv("SNIPER_MIN_AVG_ROI_PCT", "30.0"))
-MAX_TRACKED_SNIPERS = int(os.getenv("SNIPER_MAX_TRACKED", "50"))
-AUTO_PROMOTE_THRESHOLD = float(os.getenv("SNIPER_AUTO_PROMOTE_SCORE", "70.0"))
+MIN_WIN_RATE = float(os.getenv("SNIPER_MIN_WIN_RATE", "0.40"))        # 40% — lowered for microcap volatility
+MIN_TRADES = int(os.getenv("SNIPER_MIN_TRADES", "5"))                 # 5 trades minimum
+MIN_REALIZED_PNL_USD = float(os.getenv("SNIPER_MIN_PNL_USD", "500"))  # $500 — microcap traders don't need $5k
+MIN_AVG_ROI_PCT = float(os.getenv("SNIPER_MIN_AVG_ROI_PCT", "15.0")) # 15% average ROI
+MAX_TRACKED_SNIPERS = int(os.getenv("SNIPER_MAX_TRACKED", "100"))     # Track more wallets
+AUTO_PROMOTE_THRESHOLD = float(os.getenv("SNIPER_AUTO_PROMOTE_SCORE", "35.0"))  # Lower bar for active pool
 
 # Microcap focus: prefer wallets that trade small-cap tokens
 MICROCAP_MCAP_THRESHOLD_USD = float(os.getenv("SNIPER_MICROCAP_MCAP_USD", "5_000_000"))
@@ -411,14 +411,18 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
     avg_roi = prof["avg_roi_pct"]
     total_trades = prof["total_trades"]
 
-    # Hard filters
+    # Hard filters — log rejections at debug level for tuning
     if win_rate < MIN_WIN_RATE:
+        logger.debug(f"Rejected {address[:10]}: win_rate={win_rate:.0%} < {MIN_WIN_RATE:.0%}")
         return None
     if total_trades < MIN_TRADES:
+        logger.debug(f"Rejected {address[:10]}: trades={total_trades} < {MIN_TRADES}")
         return None
     if total_pnl < MIN_REALIZED_PNL_USD:
+        logger.debug(f"Rejected {address[:10]}: pnl=${total_pnl:,.0f} < ${MIN_REALIZED_PNL_USD:,.0f}")
         return None
     if avg_roi < MIN_AVG_ROI_PCT:
+        logger.debug(f"Rejected {address[:10]}: roi={avg_roi:.0f}% < {MIN_AVG_ROI_PCT:.0f}%")
         return None
 
     # 2. Per-token breakdown — microcap focus detection
