@@ -422,6 +422,26 @@ async def run_bot_loop():
     fastlane_seen_lock = threading.Lock()
     fastlane_stop = threading.Event()
 
+    # ── Hyperliquid perps executor (zero-gas leveraged trading fallback) ───────
+    hl_executor = None
+    if settings.HYPERLIQUID_ENABLED:
+        try:
+            from core.hyperliquid_executor import HyperliquidExecutor
+            hl_executor = HyperliquidExecutor()
+            if hl_executor.is_available():
+                bal = hl_executor.get_balance()
+                logger.info(
+                    f"🟢 Hyperliquid ready | balance=${bal.get('account_value', 0):.2f} | "
+                    f"withdrawable=${bal.get('withdrawable', 0):.2f} | "
+                    f"leverage={hl_executor.default_leverage}x"
+                )
+            else:
+                logger.warning("Hyperliquid enabled but not available — check wallet/key config")
+                hl_executor = None
+        except Exception as e:
+            logger.warning(f"Hyperliquid init failed: {e}")
+            hl_executor = None
+
     def _latency_seconds(ts_start) -> float:
         return max(0.0, (datetime.now(timezone.utc) - ts_start).total_seconds())
 
@@ -465,6 +485,42 @@ async def run_bot_loop():
 
         allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score, is_express=True)
         if not allocation:
+            # ── Hyperliquid fallback: zero-gas leveraged perp ──────────────
+            if hl_executor and hl_executor.is_available() and hl_executor.has_perp(token.symbol):
+                copy_usd = float(getattr(candidate, "copy_trade_size_usd", 0.0)) or 25.0
+                logger.info(
+                    f"🔄 Fastlane → Hyperliquid fallback: {token.symbol} "
+                    f"(no on-chain route for {token.chain}) | ${copy_usd:.2f}"
+                )
+                hl_result = hl_executor.open_long(
+                    symbol=token.symbol,
+                    size_usd=copy_usd,
+                    gem_score=candidate.gem_score,
+                )
+                if hl_result:
+                    register_position(
+                        token_address=token.address,
+                        token_symbol=token.symbol,
+                        chain="hyperliquid",
+                        wallet="hyperliquid_perp",
+                        entry_price=hl_result["fill_price"],
+                        quantity=hl_result["size"],
+                        pair_address="",
+                        tx_hash="",
+                        gem_score=candidate.gem_score,
+                        is_paper=is_paper,
+                        entry_value_usd=hl_result["margin_usd"],
+                        strategy_profile="hyperliquid_perp",
+                    )
+                    logger.info(
+                        f"✅ Hyperliquid LONG: {token.symbol} | "
+                        f"${hl_result['margin_usd']:.2f} × {hl_result['leverage']}x | "
+                        f"fill=${hl_result['fill_price']:.4f} | "
+                        f"SL=${hl_result['stop_loss']:.4f} / TP=${hl_result['take_profit']:.4f}"
+                    )
+                    return
+                else:
+                    logger.info(f"Hyperliquid fallback skipped for {token.symbol}")
             logger.info(f"Fastlane skip {token.symbol}: no wallet route")
             return
         wallet = allocation.wallet
@@ -526,6 +582,38 @@ async def run_bot_loop():
             err = res.error
 
         if not success:
+            # ── On-chain failed → Hyperliquid second-chance ────────────────
+            if hl_executor and hl_executor.is_available() and hl_executor.has_perp(token.symbol):
+                copy_usd = position_usd or 25.0
+                logger.info(
+                    f"🔄 On-chain failed → Hyperliquid: {token.symbol} "
+                    f"(err={err}) | ${copy_usd:.2f}"
+                )
+                hl_result = hl_executor.open_long(
+                    symbol=token.symbol,
+                    size_usd=copy_usd,
+                    gem_score=candidate.gem_score,
+                )
+                if hl_result:
+                    register_position(
+                        token_address=token.address,
+                        token_symbol=token.symbol,
+                        chain="hyperliquid",
+                        wallet="hyperliquid_perp",
+                        entry_price=hl_result["fill_price"],
+                        quantity=hl_result["size"],
+                        pair_address="",
+                        tx_hash="",
+                        gem_score=candidate.gem_score,
+                        is_paper=is_paper,
+                        entry_value_usd=hl_result["margin_usd"],
+                        strategy_profile="hyperliquid_perp",
+                    )
+                    logger.info(
+                        f"✅ Hyperliquid rescue LONG: {token.symbol} | "
+                        f"${hl_result['margin_usd']:.2f} × {hl_result['leverage']}x"
+                    )
+                    return
             logger.warning(f"Fastlane trade failed {token.symbol}: {err}")
             return
 

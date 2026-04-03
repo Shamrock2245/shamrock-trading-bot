@@ -46,8 +46,19 @@ JUPITER_API_URL = os.getenv("JUPITER_API_URL", "https://api.jup.ag/swap/v1")
 JUPITER_LITE_URL = "https://lite-api.jup.ag/swap/v1"  # Free fallback — no key needed
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Data Provider API Keys
+# Hyperliquid (Perpetual Futures DEX — zero gas, leveraged trading)
+HYPERLIQUID_ENABLED = os.getenv("HYPERLIQUID_ENABLED", "false").lower() == "true"
+HYPERLIQUID_WALLET_ADDRESS = os.getenv("HYPERLIQUID_WALLET_ADDRESS", "")
+HYPERLIQUID_PRIVATE_KEY = os.getenv("HYPERLIQUID_PRIVATE_KEY", "")
+HYPERLIQUID_DEFAULT_LEVERAGE = int(os.getenv("HYPERLIQUID_DEFAULT_LEVERAGE", "3"))
+HYPERLIQUID_MAX_POSITION_USD = float(os.getenv("HYPERLIQUID_MAX_POSITION_USD", "50"))
+HYPERLIQUID_MAX_TOTAL_EXPOSURE = float(os.getenv("HYPERLIQUID_MAX_TOTAL_EXPOSURE", "300"))
+HYPERLIQUID_USE_TESTNET = os.getenv("HYPERLIQUID_USE_TESTNET", "false").lower() == "true"
+HYPERLIQUID_STOP_LOSS_PCT = float(os.getenv("HYPERLIQUID_STOP_LOSS_PCT", "5.0"))   # -5% SL
+HYPERLIQUID_TAKE_PROFIT_PCT = float(os.getenv("HYPERLIQUID_TAKE_PROFIT_PCT", "15.0"))  # +15% TP
+HYPERLIQUID_MAX_POSITIONS = int(os.getenv("HYPERLIQUID_MAX_POSITIONS", "5"))
+HYPERLIQUID_DAILY_LOSS_LIMIT = float(os.getenv("HYPERLIQUID_DAILY_LOSS_LIMIT", "50.0"))
+
 # ─────────────────────────────────────────────────────────────────────────────
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
