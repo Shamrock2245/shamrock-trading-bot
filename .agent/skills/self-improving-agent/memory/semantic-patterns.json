@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "last_updated": "2026-03-26T00:50:00Z",
+  "version": "1.2.0",
+  "last_updated": "2026-04-03T17:39:00Z",
   "patterns": {
     "indicator_neutral_fallback": {
       "id": "pat-2026-03-23-001",
@@ -276,6 +276,98 @@
         "Always test with at least 2 profile variants to catch hardcoded assumptions"
       ],
       "target_skills": ["position_mgmt", "trade_execution"]
+    },
+    "hyperliquid_symbol_normalization": {
+      "id": "pat-2026-04-03-001",
+      "name": "Hyperliquid Symbol Normalization",
+      "source": "ep-2026-04-03-001",
+      "confidence": 0.95,
+      "applications": 1,
+      "created": "2026-04-03",
+      "last_applied": "2026-04-03",
+      "category": "trade_execution",
+      "pattern": "Hyperliquid uses unwrapped symbols (ETH not WETH, BTC not WBTC). Must strip 'W' prefix before placing orders.",
+      "problem": "Submitting an order for 'WETH' or 'WBTC' on Hyperliquid fails silently — no matching perp market. The SDK returns an error but no assets are lost.",
+      "solution": {
+        "approach": "Build a normalization map: WETH→ETH, WBTC→BTC, WMATIC→MATIC, WAVAX→AVAX, etc. Apply before any order placement.",
+        "files": ["core/hyperliquid_executor.py"],
+        "key_insight": "CEX/DEX perp venues use different symbol conventions than on-chain DEXes"
+      },
+      "quality_rules": [
+        "Always normalize token symbols before sending to any perp venue",
+        "Maintain a lookup table of wrapped→unwrapped mappings",
+        "Log the normalized symbol so debugging is clear"
+      ],
+      "target_skills": ["trade_execution"]
+    },
+    "perp_capital_protection_layers": {
+      "id": "pat-2026-04-03-002",
+      "name": "Multi-Layer Capital Protection for Leveraged Perps",
+      "source": "ep-2026-04-03-001",
+      "confidence": 0.98,
+      "applications": 1,
+      "created": "2026-04-03",
+      "last_applied": "2026-04-03",
+      "category": "guardrails",
+      "pattern": "Leveraged perps require at least 6 independent protection layers to prevent capital loss",
+      "problem": "A single stop-loss is insufficient for leveraged trading. Adverse funding rates, daily drawdown spirals, and correlation risk all bypass simple TP/SL.",
+      "solution": {
+        "approach": "Implement: (1) per-trade % SL/TP, (2) per-trade account risk cap (10%), (3) daily loss circuit breaker, (4) funding rate safety check, (5) min gem score gate, (6) max concurrent positions + total exposure cap",
+        "files": ["core/hyperliquid_executor.py", "config/settings.py"],
+        "key_insight": "Each layer catches a different failure mode. Combined, they make capital loss require 6 simultaneous failures."
+      },
+      "quality_rules": [
+        "New execution venues MUST have at least: SL, TP, daily loss limit, per-trade risk cap",
+        "Always start with lowest reasonable leverage (2x) and scale up only with proven track record",
+        "Circuit breaker should halt ALL trading for the day, not just the venue"
+      ],
+      "target_skills": ["guardrails", "trade_execution"]
+    },
+    "erc8021_builder_code_attribution": {
+      "id": "pat-2026-04-03-003",
+      "name": "Base ERC-8021 Builder Code Attribution",
+      "source": "ep-2026-04-03-001",
+      "confidence": 0.95,
+      "applications": 1,
+      "created": "2026-04-03",
+      "last_applied": "2026-04-03",
+      "category": "trade_execution",
+      "pattern": "Register wallets with Base builder code API and append ERC-8021 data suffix to every Base chain transaction",
+      "problem": "Without builder code attribution, on-chain activity is invisible to Base's tracking system. No errors — just silent, permanent invisibility.",
+      "solution": {
+        "approach": "One-time registration via POST to api.base.dev. Encode builder code as UTF-8 hex + magic bytes + length. Append to tx data field only for chain=='base'.",
+        "files": ["config/builder_codes.py", "core/executor.py"],
+        "key_insight": "Zero gas overhead — the suffix is just extra calldata. Free to add, potentially valuable for builder incentive programs."
+      },
+      "quality_rules": [
+        "NEVER re-register a wallet — it generates a new code and breaks the old one",
+        "Builder codes are per-wallet, not per-chain or per-app",
+        "Attribution must be wired into ALL Base transaction paths (1inch, Flashbots, direct)"
+      ],
+      "target_skills": ["trade_execution", "deployment"]
+    },
+    "parallel_execution_venue_isolation": {
+      "id": "pat-2026-04-03-004",
+      "name": "Execution Venue Isolation Principle",
+      "source": "ep-2026-04-03-001",
+      "confidence": 0.90,
+      "applications": 1,
+      "created": "2026-04-03",
+      "last_applied": "2026-04-03",
+      "category": "trade_execution",
+      "pattern": "New execution venues must run as isolated parallel systems with their own wallets, risk limits, and circuit breakers",
+      "problem": "Sharing state (e.g. daily PnL, position counts) between on-chain and perp venues creates correlation risk and makes circuit breakers unreliable.",
+      "solution": {
+        "approach": "Each venue gets: its own wallet, its own daily PnL tracker, its own position counter, its own circuit breaker. Only share the signal pipeline.",
+        "files": ["core/hyperliquid_executor.py", "main.py"],
+        "key_insight": "Isolation means a bad day on-chain doesn't cascade to perps and vice versa"
+      },
+      "quality_rules": [
+        "New execution venues should be self-contained modules with no shared mutable state",
+        "Daily loss limits are per-venue, not global",
+        "Log venue name in all trade-related log messages for clear attribution"
+      ],
+      "target_skills": ["trade_execution", "guardrails"]
     },
     "todo_comments_are_blockers": {
       "id": "pat-2026-03-25-003",

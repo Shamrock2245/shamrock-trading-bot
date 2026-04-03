@@ -1,0 +1,83 @@
+{
+  "id": "ep-2026-04-03-001",
+  "date": "2026-04-03",
+  "title": "Hyperliquid Perps Integration + Base Builder Code Registration",
+  "category": ["trade_execution", "deployment", "data_pipeline"],
+  "trigger": "user_request",
+  "outcome": "success",
+  "severity": "high",
+
+  "what_happened": {
+    "task": "Integrate Hyperliquid perpetual futures as a zero-gas execution venue + register wallets with Base builder code API for ERC-8021 attribution",
+    "context": "User wanted to leverage Hyperliquid for capital-efficient trading parallel to on-chain strategies, and maximize Base chain integration",
+    "steps_taken": [
+      "Installed hyperliquid-python-sdk in Docker",
+      "Generated dedicated API wallet (non-custodial, no withdrawal perms)",
+      "Implemented HyperliquidExecutor with full capital protection suite",
+      "Integrated as fallback in fastlane_worker when on-chain execution fails",
+      "Registered both wallets with Base builder code API",
+      "Created config/builder_codes.py with ERC-8021 encoder",
+      "Wired attribution into executor.py 1inch + Flashbots paths"
+    ],
+    "files_modified": [
+      "core/hyperliquid_executor.py",
+      "config/settings.py",
+      "requirements.txt",
+      "main.py",
+      "config/builder_codes.py",
+      "core/executor.py"
+    ]
+  },
+
+  "key_insights": {
+    "what_went_well": [
+      "Hyperliquid SDK was straightforward to integrate",
+      "Capital preservation defaults (2x leverage, $25 max, 3% SL) are appropriately conservative",
+      "Symbol normalization (WETH→ETH, WBTC→BTC) prevented silent order failures",
+      "Base builder code registration was a simple one-time API call",
+      "ERC-8021 attribution is a zero-cost append to tx data — no gas overhead"
+    ],
+    "what_went_wrong": [
+      "SSH session timeout caused initial deploy delay",
+      "git push hung multiple times requiring patience (likely SSH key negotiation)"
+    ],
+    "root_cause": null
+  },
+
+  "patterns_extracted": [
+    {
+      "pattern_id": "hyperliquid_symbol_normalization",
+      "description": "Hyperliquid uses unwrapped symbols (ETH not WETH, BTC not WBTC). Must normalize before placing orders.",
+      "confidence": 0.95,
+      "category": "trade_execution"
+    },
+    {
+      "pattern_id": "perp_capital_protection_layers",
+      "description": "Leveraged perps require MULTI-LAYER protection: per-trade risk cap, daily loss circuit breaker, funding rate check, gem score gate, max exposure cap, max concurrent positions",
+      "confidence": 0.98,
+      "category": "guardrails"
+    },
+    {
+      "pattern_id": "erc8021_builder_attribution",
+      "description": "Base chain transactions should include ERC-8021 builder code suffix for attribution tracking. Register wallets once, then append data suffix to every Base tx's data field.",
+      "confidence": 0.95,
+      "category": "trade_execution"
+    },
+    {
+      "pattern_id": "parallel_execution_venues",
+      "description": "New execution venues (Hyperliquid, Solana, etc.) should run as isolated parallel systems with their own wallets, risk limits, and circuit breakers. Never share state with on-chain execution.",
+      "confidence": 0.90,
+      "category": "trade_execution"
+    }
+  ],
+
+  "user_feedback": {
+    "sentiment": "positive",
+    "key_directives": [
+      "PROTECT THE CAPITAL — never risk more than necessary",
+      "PICK ONLY WINNERS — 80+ gem score gate for Hyperliquid",
+      "Small incremental profits are fine — don't swing for home runs",
+      "Register Base builder codes for incentive eligibility"
+    ]
+  }
+}
