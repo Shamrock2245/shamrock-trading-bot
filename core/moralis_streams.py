@@ -370,15 +370,21 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
     for ev in events:
         tx_hash = (ev.get("transactionHash") or ev.get("transaction_hash") or "").lower()
 
-        # Moralis Streams uses 'contract' object (not top-level 'address')
-        # contract = {"address": "0x...", "decimals": "18", "name": "...", "symbol": "..."}
-        contract = ev.get("contract") or {}
-        token_address = (
-            contract.get("address")
-            or ev.get("address")
-            or ev.get("tokenAddress")
-            or ""
-        ).lower()
+        # Moralis 'contract' can be a string (address) or an object
+        contract_raw = ev.get("contract") or ""
+        if isinstance(contract_raw, dict):
+            token_address = (contract_raw.get("address") or "").lower()
+            contract_decimals = contract_raw.get("decimals")
+            contract_symbol = contract_raw.get("symbol")
+        else:
+            # contract is the token address string itself
+            token_address = str(contract_raw).lower()
+            contract_decimals = None
+            contract_symbol = None
+
+        # Fallbacks for token address
+        if not token_address:
+            token_address = (ev.get("address") or ev.get("tokenAddress") or "").lower()
 
         # Moralis uses 'from'/'to' (NOT 'fromAddress'/'toAddress') in streams
         from_addr = (ev.get("from") or ev.get("fromAddress") or ev.get("from_address") or "").lower()
@@ -393,7 +399,7 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         # Determine the wallet: prefer triggered_by (our tracked wallet),
         # fallback to toAddress (buyer receiving tokens)
         if triggered_by:
-            wallet = triggered_by[0]  # The address from our watch list
+            wallet = triggered_by[0]
         elif to_addr:
             wallet = to_addr
         elif from_addr:
@@ -417,7 +423,7 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
             value_raw = ev.get("value") or ev.get("valueWithDecimals") or "0"
             token_decimals = int(
                 ev.get("tokenDecimals")
-                or contract.get("decimals")
+                or contract_decimals
                 or 18
             )
             if isinstance(value_raw, str) and "." not in value_raw:
@@ -427,7 +433,7 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         except (ValueError, TypeError):
             value_with_decimals = 0.0
 
-        token_symbol = ev.get("tokenSymbol") or contract.get("symbol") or "UNKNOWN"
+        token_symbol = ev.get("tokenSymbol") or contract_symbol or "UNKNOWN"
 
         swap = {
             "tx_hash": tx_hash,
