@@ -463,10 +463,11 @@ async def run_bot_loop():
                 logger.info(f"Fastlane dedup skip {token.symbol}: already open")
                 return
 
-        wallet = route_trade(candidate.gem_score, token.chain, is_express=True)
-        if not wallet:
+        allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score, is_express=True)
+        if not allocation:
             logger.info(f"Fastlane skip {token.symbol}: no wallet route")
             return
+        wallet = allocation.wallet
 
         # Freshness/risk coupling
         delay_s = _latency_seconds(signal.timestamp)
@@ -475,22 +476,14 @@ async def run_bot_loop():
             logger.info(f"Fastlane reject {token.symbol}: stale signal ({delay_s:.1f}s)")
             return
 
-        # Small native balance snapshot for risk sizing
-        fetcher = BalanceFetcher()
-        chain_balances = fetcher.fetch_wallet_chain_balances(wallet, token.chain)
-        native_balance = 0.0
-        for token_data in chain_balances.get("tokens", []):
-            if token_data.get("is_native"):
-                native_balance = token_data.get("balance", 0.0)
-                break
-
-        base_position_native = max(0.0, native_balance * 0.02 * size_mult)
-        base_position_usd = float(getattr(candidate, "copy_trade_size_usd", 0.0)) * size_mult
+        # Use position size from allocation (already Kelly-sized), scaled by delay
+        position_native = allocation.position_size_native * size_mult
+        position_usd = max(allocation.position_size_usd, float(getattr(candidate, "copy_trade_size_usd", 0.0))) * size_mult
         risk = risk_manager.check_trade(
-            position_size_native=base_position_native,
-            position_size_usd=base_position_usd,
+            position_size_native=position_native,
+            position_size_usd=position_usd,
             wallet=wallet,
-            wallet_balance_native=native_balance,
+            wallet_balance_native=allocation.native_balance,
             token_address=token.address,
             chain=token.chain,
             usdc_balance=0.0,
@@ -506,10 +499,10 @@ async def run_bot_loop():
             sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
             tx_hash = execute_solana_buy(
                 token_mint=token.address,
-                sol_amount=max(risk.position_size_eth, base_position_native),
+                sol_amount=max(risk.position_size_eth, position_native),
                 wallet_public_key=sol_public_key,
                 wallet_private_key_env=sol_key_env,
-                slippage_bps=150,
+                slippage_bps=allocation.slippage_bps,
                 is_paper=is_paper,
             )
             success = tx_hash is not None
@@ -557,11 +550,12 @@ async def run_bot_loop():
             tx_hash=tx_hash or "",
             gem_score=candidate.gem_score,
             is_paper=is_paper,
-            entry_value_usd=float(getattr(candidate, "copy_trade_size_usd", 0.0)) * size_mult,
+            entry_value_usd=position_usd,
             strategy_profile=getattr(wallet.strategy_profile, "name", ""),
         )
         logger.info(
             f"✅ Fastlane copy trade: {token.symbol} [{token.chain}] tx={tx_hash} "
+            f"wallet={wallet.alias} size=${position_usd:.2f} "
             f"latency={total_latency:.1f}s source={getattr(signal, 'source', 'polling')}"
         )
 
@@ -1593,10 +1587,7 @@ async def run_bot_loop():
                     )
 
                 # ── Wallet routing (DUAL-WALLET: both Primary + Wallet B can fire) ──
-                logger.info(
-                    f"🔍 ROUTE DEBUG: {token.symbol} chain={token.chain!r} "
-                    f"gem_score={candidate.gem_score:.1f} is_copy={getattr(candidate, 'is_copy_trade', False)}"
-                )
+
                 allocations = route_trade_all(
                     chain=token.chain,
                     gem_score=candidate.gem_score,
