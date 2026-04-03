@@ -30,6 +30,7 @@ from eth_account import Account
 from config.chains import CHAINS, ChainConfig
 from config.wallets import WalletConfig
 from config import settings
+from config.builder_codes import append_attribution
 from core.safety import check_token_safety, SafetyResult
 from core.mev_protection import (
     execute_via_cow_live,
@@ -504,10 +505,15 @@ class TradeExecutor:
                         pass  # Use previous tx data
                     nonce = self._get_nonce(w3, account.address)
 
+                # Base ERC-8021: append builder code attribution
+                tx_data = append_attribution(
+                    tx["data"], account.address, params.chain
+                )
+
                 transaction = {
                     "from": account.address,
                     "to": Web3.to_checksum_address(tx["to"]),
-                    "data": tx["data"],
+                    "data": tx_data,
                     "value": int(tx.get("value", 0)),
                     "gas": int(int(tx.get("gas", 300000)) * gas_multiplier),
                     "gasPrice": int(base_gas_price * gas_multiplier),
@@ -631,12 +637,19 @@ class TradeExecutor:
                     execution_path="flashbots_paper",
                 )
 
+            # Base ERC-8021: append builder code attribution
+            fb_tx_data = append_attribution(
+                tx_data.get("data", "0x"),
+                Account.from_key(private_key).address,
+                params.chain,
+            )
+
             fb_result = execute_via_flashbots(
                 w3=w3,
                 private_key=private_key,
                 signing_key=signing_key,
                 to=tx_data.get("to", ""),
-                data=tx_data.get("data", "0x"),
+                data=fb_tx_data,
                 value=int(tx_data.get("value", 0)),
                 gas=int(int(tx_data.get("gas", 300_000)) * 1.15),
                 chain_id=chain_config.chain_id,
