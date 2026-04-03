@@ -277,6 +277,13 @@ def _verify_moralis_signature(raw_body: bytes, secret: str, provided_sig: str) -
             digest_raw = keccak(raw_body + secret_bytes).hex()
             if digest_raw == provided_clean:
                 return True
+        # DEBUG: Log mismatch for troubleshooting (TEMPORARY — change to debug after fix)
+        logger.warning(
+            f"Sig mismatch — provided={provided_clean[:16]}... "
+            f"compact_digest={digest[:16]}... "
+            f"body_len={len(raw_body)} compact_len={len(compact_body)} "
+            f"same_body={compact_body == raw_body}"
+        )
         return False
     except ImportError:
         pass
