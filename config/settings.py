@@ -141,11 +141,27 @@ COPYTRADE_LATENCY_SLO_SECONDS = float(os.getenv("COPYTRADE_LATENCY_SLO_SECONDS",
 COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "180"))
 COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "45"))
 
-# Moralis Streams webhook ingestion (optional, for push-based low-latency detection)
+# Moralis Streams webhook ingestion (push-based low-latency detection)
 MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "false").lower() == "true"
 MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
 MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
 MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
+# Public URL that Moralis will POST webhooks to (must be reachable from internet)
+MORALIS_STREAMS_WEBHOOK_URL = os.getenv("MORALIS_STREAMS_WEBHOOK_URL", "")  # e.g. http://5.161.126.32:8787
+
+# Streams Manager — auto-creates and syncs streams on Moralis
+MORALIS_STREAMS_AUTO_SYNC = os.getenv("MORALIS_STREAMS_AUTO_SYNC", "true").lower() == "true"
+MORALIS_STREAMS_HEALTH_INTERVAL = int(os.getenv("MORALIS_STREAMS_HEALTH_INTERVAL", "300"))  # 5 min
+
+# Whale detection stream — requires Moralis Business plan (allAddresses=true)
+MORALIS_STREAMS_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "false").lower() == "true"
+MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD", "50000"))  # $50K+ transfers
+
+# Liquidity event stream — monitors DEX factory contracts for new pools
+MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "false").lower() == "true"
+
+# Hybrid mode — when streams are active, extend poll interval as fallback
+MORALIS_STREAMS_FALLBACK_POLL_INTERVAL = int(os.getenv("MORALIS_STREAMS_FALLBACK_POLL_INTERVAL", "120"))  # 2 min
 # Solana alpha wallets (EVM wallets use ALPHA_WALLETS_EVM or SMART_MONEY_WALLETS)
 ALPHA_WALLETS_SOLANA: list[str] = [
     addr.strip() for addr in

@@ -547,6 +547,10 @@ class WalletMonitor:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
+        # Polling interval — can be adjusted at runtime via activate_hybrid_mode()
+        self._poll_interval = POLL_INTERVAL
+        self._streams_active = False  # True when Moralis Streams is providing primary signals
+
         # Build full wallet list
         self._evm_wallets = [w.lower() for w in _ALPHA_WALLETS_EVM if w]
         self._solana_wallets = [w for w in _ALPHA_WALLETS_SOLANA if w]
@@ -555,7 +559,7 @@ class WalletMonitor:
             f"WalletMonitor initialized: "
             f"{len(self._evm_wallets)} EVM wallets | "
             f"{len(self._solana_wallets)} Solana wallets | "
-            f"poll={POLL_INTERVAL}s | "
+            f"poll={self._poll_interval}s | "
             f"min_buy=${MIN_BUY_USD:.0f}"
         )
 
@@ -595,13 +599,40 @@ class WalletMonitor:
             "total_copy_trades_executed": self.state.total_copy_trades_executed,
             "processed_txs": len(self.state.processed_txs),
             "processed_keys": len(self.state.processed_keys),
+            "poll_interval": self._poll_interval,
+            "streams_active": self._streams_active,
         }
+
+    def activate_hybrid_mode(self) -> None:
+        """
+        Switch to hybrid mode: Moralis Streams provides primary detection,
+        polling becomes a fallback with extended interval (120s instead of 30s).
+        Reduces API usage by ~75% while maintaining coverage.
+        """
+        fallback_interval = int(getattr(settings, "MORALIS_STREAMS_FALLBACK_POLL_INTERVAL", 120))
+        old_interval = self._poll_interval
+        self._poll_interval = fallback_interval
+        self._streams_active = True
+        logger.info(
+            f"WalletMonitor: 🔄 Hybrid mode ACTIVATED — "
+            f"poll interval extended {old_interval}s → {fallback_interval}s "
+            f"(Moralis Streams is primary, polling is fallback)"
+        )
+
+    def deactivate_hybrid_mode(self) -> None:
+        """Revert to full polling mode (e.g. if Streams goes down)."""
+        self._poll_interval = POLL_INTERVAL
+        self._streams_active = False
+        logger.info(
+            f"WalletMonitor: 🔄 Hybrid mode DEACTIVATED — "
+            f"poll interval restored to {POLL_INTERVAL}s"
+        )
 
     # ── Internal loop ─────────────────────────────────────────────────────────
 
     def _monitor_loop(self) -> None:
-        """Main polling loop — runs every POLL_INTERVAL seconds."""
-        logger.info(f"WalletMonitor loop started (interval={POLL_INTERVAL}s)")
+        """Main polling loop — interval adjusts based on Streams hybrid mode."""
+        logger.info(f"WalletMonitor loop started (interval={self._poll_interval}s)")
 
         while not self._stop_event.is_set():
             try:
@@ -612,7 +643,8 @@ class WalletMonitor:
                 logger.error(f"WalletMonitor loop error: {e}", exc_info=True)
 
             # Sleep in small increments to allow clean shutdown
-            for _ in range(POLL_INTERVAL):
+            # Uses instance-level interval (may be extended in hybrid mode)
+            for _ in range(self._poll_interval):
                 if self._stop_event.is_set():
                     break
                 time.sleep(1)

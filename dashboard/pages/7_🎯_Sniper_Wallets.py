@@ -57,6 +57,13 @@ try:
 except Exception as _ce:
     _COMPOUNDER_AVAILABLE = False
 
+try:
+    from core.moralis_streams import MoralisStreamsServer
+    from core.moralis_streams_manager import MoralisStreamsManager
+    _STREAMS_AVAILABLE = True
+except Exception:
+    _STREAMS_AVAILABLE = False
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Styles
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,11 +130,12 @@ if auto_refresh:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tab layout
 # ─────────────────────────────────────────────────────────────────────────────
-tab_leaderboard, tab_compounder, tab_add, tab_moralis = st.tabs([
+tab_leaderboard, tab_compounder, tab_add, tab_moralis, tab_streams = st.tabs([
     "🏆 Leaderboard",
     "💰 Capital Compounder",
     "➕ Add / Remove Wallets",
     "📡 Moralis Utilization",
+    "⚡ Streams Health",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -603,3 +611,154 @@ with tab_moralis:
             })
     except Exception as e:
         st.warning(f"Could not get daemon status: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 5: STREAMS HEALTH
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_streams:
+    st.markdown("### ⚡ Moralis Streams Health Monitor")
+    st.markdown(
+        "Real-time status of the push-based event pipeline. "
+        "Streams provide **sub-second** copy-trade detection vs. 30s polling."
+    )
+
+    if not _STREAMS_AVAILABLE:
+        st.warning(
+            "Moralis Streams modules not loaded. "
+            "Set `MORALIS_STREAMS_ENABLED=true` in your `.env` to activate."
+        )
+    else:
+        # Get wallet monitor stats for hybrid mode info
+        try:
+            from core.wallet_monitor import get_monitor as _get_wm
+            wm_stats = _get_wm().get_stats()
+        except Exception:
+            wm_stats = {}
+
+        # Hybrid mode status
+        streams_active = wm_stats.get("streams_active", False)
+        poll_interval = wm_stats.get("poll_interval", 30)
+
+        st.markdown("#### 🔄 Detection Mode")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            mode_icon = "⚡" if streams_active else "🔄"
+            mode_label = "HYBRID (Streams Primary)" if streams_active else "POLLING ONLY"
+            mode_color = "#00ff88" if streams_active else "#ffd700"
+            st.markdown(
+                f'<div class="stat-box"><div style="font-size:1.5em;font-weight:bold;color:{mode_color};">{mode_icon} {mode_label}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col_m2:
+            st.markdown(
+                f'<div class="stat-box"><div style="font-size:1.8em;font-weight:bold;">{poll_interval}s</div><div>Poll Interval (fallback)</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col_m3:
+            latency_label = "<1s" if streams_active else f"{poll_interval}s"
+            latency_color = "#00ff88" if streams_active else "#ff6b6b"
+            st.markdown(
+                f'<div class="stat-box"><div style="font-size:1.8em;font-weight:bold;color:{latency_color};">{latency_label}</div><div>Signal Latency</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+
+        # Webhook metrics from file
+        st.markdown("#### 📊 Webhook Metrics")
+        metrics_file = _ROOT / "output" / "streams_metrics.json"
+        if metrics_file.exists():
+            try:
+                with open(metrics_file) as f:
+                    metrics = json.load(f)
+
+                col_w1, col_w2, col_w3, col_w4 = st.columns(4)
+                with col_w1:
+                    st.metric("Total Webhooks", metrics.get("total_webhooks", 0))
+                with col_w2:
+                    st.metric("Alpha Swap Events", metrics.get("alpha_events", 0))
+                with col_w3:
+                    st.metric("Whale Events", metrics.get("whale_events", 0))
+                with col_w4:
+                    avg_latency = metrics.get("avg_latency_ms", 0)
+                    st.metric("Avg Latency", f"{avg_latency:.0f}ms")
+
+                # Error rate
+                errors = metrics.get("errors", 0)
+                total = max(metrics.get("total_webhooks", 1), 1)
+                error_rate = errors / total * 100
+                if error_rate > 5:
+                    st.error(f"⚠️ High webhook error rate: {error_rate:.1f}% ({errors}/{total})")
+                elif error_rate > 0:
+                    st.warning(f"Webhook error rate: {error_rate:.1f}% ({errors}/{total})")
+                else:
+                    st.success("✅ Zero webhook errors")
+
+                # Recent events
+                recent = metrics.get("recent_events", [])
+                if recent:
+                    st.markdown("**Recent Events:**")
+                    for evt in reversed(recent[-10:]):
+                        ts = evt.get("timestamp", "")[:19]
+                        etype = evt.get("type", "unknown")
+                        badge_color = {
+                            "alpha_swap": "#00ff88",
+                            "whale_transfer": "#ffd700",
+                            "liquidity": "#85c1e9",
+                        }.get(etype, "#aaa")
+                        st.markdown(
+                            f'<div style="border-left:3px solid {badge_color}; padding:4px 12px; margin:2px 0;">'
+                            f'<code>{ts}</code> — <b style="color:{badge_color};">{etype}</b> | '
+                            f'{evt.get("summary", "")}'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+            except Exception as e:
+                st.warning(f"Could not read metrics: {e}")
+        else:
+            st.info(
+                "No webhook metrics yet. Metrics will appear once the Streams server "
+                "starts receiving events from Moralis."
+            )
+
+        st.divider()
+
+        # Stream configuration info
+        st.markdown("#### ⚙️ Stream Configuration")
+        try:
+            from config import settings as _s
+            config_items = {
+                "Webhook Port": getattr(_s, "MORALIS_STREAMS_PORT", 8787),
+                "Webhook URL": getattr(_s, "MORALIS_STREAMS_WEBHOOK_URL", "Not set"),
+                "Streams Enabled": getattr(_s, "MORALIS_STREAMS_ENABLED", False),
+                "Whale Detection": getattr(_s, "MORALIS_STREAMS_WHALE_ENABLED", False),
+                "Liquidity Detection": getattr(_s, "MORALIS_STREAMS_LIQUIDITY_ENABLED", False),
+                "Auto-Sync Wallets": getattr(_s, "MORALIS_STREAMS_AUTO_SYNC", True),
+                "Health Check Interval": f"{getattr(_s, 'MORALIS_STREAMS_HEALTH_CHECK_INTERVAL', 300)}s",
+                "Fallback Poll Interval": f"{getattr(_s, 'MORALIS_STREAMS_FALLBACK_POLL_INTERVAL', 120)}s",
+            }
+            for key, val in config_items.items():
+                is_bool = isinstance(val, bool)
+                color = "#00ff88" if val else "#ff6b6b" if is_bool else "#ccc"
+                display = ("✅ Enabled" if val else "❌ Disabled") if is_bool else str(val)
+                st.markdown(
+                    f'<div style="border-left:3px solid {color}; padding:4px 12px; margin:2px 0;">'
+                    f'<b>{key}:</b> <span style="color:{color};">{display}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        except Exception as e:
+            st.warning(f"Could not load streams config: {e}")
+
+        st.divider()
+
+        # Pro plan note
+        st.markdown("#### 💳 Moralis Plan")
+        st.info(
+            "**Pro Plan** — Streams supports custom streams for tracked wallets. "
+            "Whale detection (`allAddresses: true`) may require **Business plan**. "
+            "Verify your plan tier before enabling `MORALIS_STREAMS_WHALE_ENABLED`.\n\n"
+            "CU Budget: Check [admin.moralis.com](https://admin.moralis.com) for current usage."
+        )

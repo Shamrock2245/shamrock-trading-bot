@@ -812,6 +812,24 @@ def run_discovery_cycle() -> dict:
     save_leaderboard(all_wallets)
     save_active_snipers(all_wallets)
 
+    # Step 6: Auto-sync promoted EVM wallets to Moralis Streams (sub-second copy-trade detection)
+    if new_snipers and promoted > 0:
+        try:
+            from core.moralis_streams_manager import MoralisStreamsManager
+            active_evm = [w.address for w in all_wallets if w.is_active and w.chain != "solana"]
+            if active_evm:
+                # Use a short-lived manager instance to sync — the main instance lives in main.py
+                # but we need to push new wallets IMMEDIATELY, not wait for the health loop
+                mgr = MoralisStreamsManager()
+                mgr._discover_existing_streams()
+                mgr.sync_alpha_wallets(active_evm)
+                logger.info(
+                    f"⚡ SniperDiscovery → Streams: Auto-synced {len(active_evm)} "
+                    f"EVM wallets to Moralis Streams for sub-second monitoring"
+                )
+        except Exception as e:
+            logger.warning(f"SniperDiscovery: Streams auto-sync failed (non-critical): {e}")
+
     elapsed = time.monotonic() - start_time
     summary = {
         "candidates_harvested": total_candidates,

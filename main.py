@@ -613,18 +613,69 @@ async def run_bot_loop():
 
     # Optional Moralis Streams webhook server (push-based copy-detection source)
     streams_server = None
+    streams_manager = None
     try:
         if settings.MORALIS_STREAMS_ENABLED:
             from core.moralis_streams import MoralisStreamsServer
             from core.wallet_monitor import get_monitor as _get_wallet_monitor
             wm = _get_wallet_monitor()
+
+            # Whale event callback — evaluate large transfers as potential gems
+            def _on_whale_event(event: dict):
+                """Forward whale transfers to gem scanner for evaluation."""
+                try:
+                    token_addr = event.get("token_address", "")
+                    chain = event.get("chain", "")
+                    if token_addr and chain:
+                        logger.info(
+                            f"🐋 Whale transfer detected: {event.get('token_symbol', '?')} "
+                            f"on {chain} (tx: {event.get('tx_hash', '?')[:16]}...)"
+                        )
+                        # TODO: Wire to gem_scanner.evaluate_token() for scoring
+                except Exception as e:
+                    logger.debug(f"Whale event handler error: {e}")
+
+            # Liquidity event callback — new pool creation
+            def _on_liquidity_event(event: dict):
+                """Forward new pool creation to gem scanner."""
+                try:
+                    logger.info(
+                        f"💧 New pool detected: {event.get('token0', '?')[:10]}/"
+                        f"{event.get('token1', '?')[:10]} on {event.get('chain', '?')} "
+                        f"(factory: {event.get('factory', '?')[:10]}...)"
+                    )
+                    # TODO: Wire to gem_scanner.evaluate_token() for the non-WETH token
+                except Exception as e:
+                    logger.debug(f"Liquidity event handler error: {e}")
+
             streams_server = MoralisStreamsServer(
                 host=settings.MORALIS_STREAMS_HOST,
                 port=settings.MORALIS_STREAMS_PORT,
                 webhook_secret=settings.MORALIS_STREAMS_WEBHOOK_SECRET,
                 on_swap_event=wm.ingest_external_swap,
+                on_whale_event=_on_whale_event if settings.MORALIS_STREAMS_WHALE_ENABLED else None,
+                on_liquidity_event=_on_liquidity_event if settings.MORALIS_STREAMS_LIQUIDITY_ENABLED else None,
             )
             streams_server.start()
+
+            # Start the Streams Manager (auto-creates streams on Moralis, health checks)
+            try:
+                from core.moralis_streams_manager import MoralisStreamsManager
+                streams_manager = MoralisStreamsManager()
+                streams_manager.start()
+                logger.info(
+                    "✅ Moralis Streams fully activated — "
+                    f"webhook server on :{settings.MORALIS_STREAMS_PORT}, "
+                    f"manager syncing alpha wallets"
+                )
+            except Exception as mgr_err:
+                logger.warning(f"Moralis Streams Manager failed to start: {mgr_err}")
+
+            # Activate hybrid mode: extend poll interval since streams provide primary signals
+            try:
+                wm.activate_hybrid_mode()
+            except Exception:
+                pass  # hybrid mode is a nice-to-have, don't fail on it
     except Exception as stream_err:
         logger.warning(f"Moralis Streams server failed to start: {stream_err}")
 
