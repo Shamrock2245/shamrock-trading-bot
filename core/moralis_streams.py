@@ -164,22 +164,44 @@ class MoralisStreamsServer:
                 # ── Test Webhook (empty body on stream create) ────────────
                 # Moralis sends a test webhook when creating/updating a stream.
                 # We MUST return 200 or the stream won't activate.
-                if not payload.get("block") and not payload.get("txs") and not payload.get("logs"):
+                # IMPORTANT: Check ALL data arrays — erc20Transfers, nftTransfers,
+                # nativeTransfers, txs, logs — not just txs+logs!
+                has_erc20 = bool(payload.get("erc20Transfers"))
+                has_nft = bool(payload.get("nftTransfers"))
+                has_native = bool(payload.get("nativeTransfers"))
+                has_txs = bool(payload.get("txs"))
+                has_logs = bool(payload.get("logs"))
+                has_any_data = has_erc20 or has_nft or has_native or has_txs or has_logs
+
+                if not payload.get("block") and not has_any_data:
                     logger.info("MoralisStreams: Test webhook received — returning 200")
                     self.send_response(200)
                     self.end_headers()
                     self.wfile.write(b'{"ok": true, "test": true}')
                     return
 
-                # ── Skip unconfirmed webhooks ─────────────────────────────
-                # Moralis sends TWO webhooks per event: unconfirmed + confirmed.
-                # We only act on confirmed to avoid double-trading.
+                # ── Confirmed vs Unconfirmed ──────────────────────────────
+                # Moralis sends TWO webhooks: unconfirmed (instant) + confirmed.
+                # For copy-trading, we act on UNCONFIRMED for speed and
+                # skip the confirmed duplicate to avoid double-trading.
                 confirmed = payload.get("confirmed", True)
-                if not confirmed:
-                    logger.debug("MoralisStreams: Skipping unconfirmed webhook (waiting for confirmed)")
+                chain_id = str(payload.get("chainId") or "")
+                block_num = str(payload.get("block", {}).get("number", ""))
+
+                logger.info(
+                    f"MoralisStreams: 📨 Webhook received — chain={_chain_id_to_name(chain_id)} "
+                    f"block={block_num} confirmed={confirmed} "
+                    f"erc20={len(payload.get('erc20Transfers', []))} "
+                    f"txs={len(payload.get('txs', []))} "
+                    f"logs={len(payload.get('logs', []))}"
+                )
+
+                if confirmed:
+                    # Skip confirmed — we already processed unconfirmed
+                    logger.debug("MoralisStreams: Skipping confirmed webhook (already acted on unconfirmed)")
                     self.send_response(200)
                     self.end_headers()
-                    self.wfile.write(b'{"ok": true, "skipped": "unconfirmed"}')
+                    self.wfile.write(b'{"ok": true, "skipped": "confirmed_dup"}')
                     return
 
                 # ── Route by Tag ──────────────────────────────────────────
