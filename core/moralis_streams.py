@@ -604,6 +604,8 @@ def _chain_id_to_name(chain_id: str) -> str:
         "137": "polygon",
         "0x38": "bsc",
         "56": "bsc",
+        "0xa86a": "avalanche",
+        "43114": "avalanche",
         "0xa": "optimism",
         "10": "optimism",
-    }.get(cid, "ethereum")
+    }.get(cid, "unknown")

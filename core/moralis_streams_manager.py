@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.moralis-streams.com"
 
 # EVM chain IDs we care about (hex format — required by Moralis)
-CHAIN_IDS = ["0x1", "0x2105", "0xa4b1", "0x89", "0x38"]  # ETH, Base, Arb, Polygon, BSC
+CHAIN_IDS = ["0x1", "0x2105", "0xa4b1", "0x89", "0x38", "0xa86a"]  # ETH, Base, Arb, Polygon, BSC, Avalanche
 
 # Stream tags — used to identify our streams and route webhook events
 TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
