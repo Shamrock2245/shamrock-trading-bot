@@ -66,6 +66,23 @@ COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.3))   
 MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 100))        # cap at $100 for our capital level
 DEFAULT_COPY_USD = float(getattr(settings, "WALLET_MONITOR_DEFAULT_COPY_USD", 25))  # fallback when Streams has no USD value
 
+# Tokens to NEVER copy-trade (stablecoins, wrapped natives, common bridging tokens)
+IGNORED_SYMBOLS = {
+    "USDT", "USDC", "USDC.E", "DAI", "BUSD", "TUSD", "FRAX", "LUSD", "PYUSD",
+    "USDP", "GUSD", "SUSD", "MIM", "EUSD", "USDD", "FDUSD", "USDBC",
+    "WETH", "WBTC", "WBNB", "WMATIC", "WAVAX", "WFTM", "WSOL",
+    "STETH", "WSTETH", "RETH", "CBETH", "SETH2",  # Liquid staking derivatives
+}
+IGNORED_ADDRESSES = {
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # USDC
+    "0x6b175474e89094c44da98b954eedeac495271d0f",  # DAI
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",  # WETH
+    "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",  # WBTC
+    "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",  # stETH
+    "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",  # wstETH
+}
+
 # Moralis API key (required for EVM wallet monitoring)
 MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") or os.getenv("MORALIS_API_KEY", "")
 HELIUS_API_KEY = getattr(settings, "BUNDLE_HELIUS_API_KEY", "") or os.getenv("HELIUS_API_KEY", "")
@@ -697,7 +714,12 @@ class WalletMonitor:
         """Process a single swap transaction from an alpha wallet."""
         tx_hash = swap.get("tx_hash", "")
         token_address = swap.get("token_address", "").lower()
+        token_symbol = swap.get("token_symbol", "").upper()
         if not tx_hash or not token_address:
+            return
+
+        # Skip stablecoins, wrapped tokens, and common bridging assets
+        if token_symbol in IGNORED_SYMBOLS or token_address in IGNORED_ADDRESSES:
             return
         idem_key = f"{tx_hash.lower()}:{token_address}:{wallet_address.lower()}"
         if tx_hash in self.state.processed_txs or idem_key in self.state.processed_keys:
