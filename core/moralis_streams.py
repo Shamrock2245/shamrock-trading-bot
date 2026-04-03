@@ -344,22 +344,37 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
     txs = payload.get("txs", [])
     chain_id = str(payload.get("chainId") or "")
     block_ts = payload.get("block", {}).get("timestamp") or payload.get("blockTimestamp") or ""
+    chain_name = _chain_id_to_name(chain_id)
+
+    if not events:
+        logger.debug(f"MoralisStreams: Alpha handler — no erc20Transfers in payload (chain={chain_name})")
+        return 0
+
+    logger.info(
+        f"MoralisStreams: Alpha handler processing {len(events)} ERC20 transfers on {chain_name}"
+    )
 
     processed = 0
     for ev in events:
         tx_hash = (ev.get("transactionHash") or ev.get("transaction_hash") or "").lower()
         token_address = (ev.get("address") or ev.get("tokenAddress") or "").lower()
-        wallet = (ev.get("toAddress") or ev.get("to_address") or "").lower()
+        from_addr = (ev.get("fromAddress") or ev.get("from_address") or "").lower()
+        to_addr = (ev.get("toAddress") or ev.get("to_address") or "").lower()
 
-        if not tx_hash or not token_address or not wallet:
+        if not tx_hash or not token_address:
+            continue
+
+        # Determine which address is the tracked wallet (buyer or seller)
+        # toAddress = buyer (receiving tokens), fromAddress = seller
+        # For copy-trading we primarily care about buys
+        wallet = to_addr if to_addr else from_addr
+        if not wallet:
             continue
 
         # Best-effort USD estimate from tx list
         usd_value = 0.0
         for t in txs:
             if (t.get("hash") or "").lower() == tx_hash:
-                usd_value = float(t.get("receiptGasUsed", 0) or 0)  # placeholder
-                # Try decoded value
                 val_str = t.get("value", "0")
                 try:
                     usd_value = float(val_str) / 1e18  # native value — rough estimate
@@ -378,15 +393,17 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         except (ValueError, TypeError):
             value_with_decimals = 0.0
 
+        token_symbol = ev.get("tokenSymbol") or "UNKNOWN"
+
         swap = {
             "tx_hash": tx_hash,
             "token_address": token_address,
-            "token_symbol": ev.get("tokenSymbol") or "UNKNOWN",
+            "token_symbol": token_symbol,
             "token_name": ev.get("tokenName") or "",
             "buy_value_usd": usd_value,
             "value_with_decimals": value_with_decimals,
             "timestamp": block_ts,
-            "chain": _chain_id_to_name(chain_id),
+            "chain": chain_name,
             "seen_via": "moralis_streams",
             "stream_tag": TAG_ALPHA_WALLETS,
         }
@@ -395,11 +412,15 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
             server.on_swap_event(wallet, swap)
             processed += 1
         except Exception as e:
-            logger.error(f"MoralisStreams: Error processing alpha swap: {e}")
+            logger.error(f"MoralisStreams: Error processing alpha swap for {token_symbol}: {e}")
             server.metrics["errors"] += 1
 
     if processed:
-        logger.info(f"MoralisStreams: 🎯 {processed} alpha wallet swap(s) on {_chain_id_to_name(chain_id)}")
+        logger.info(
+            f"MoralisStreams: 🎯 {processed} alpha wallet swap(s) ingested on {chain_name}"
+        )
+    else:
+        logger.debug(f"MoralisStreams: Alpha handler — 0 swaps processed from {len(events)} transfers")
 
     return processed
 

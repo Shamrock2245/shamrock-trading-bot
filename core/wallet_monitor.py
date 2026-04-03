@@ -748,7 +748,7 @@ class WalletMonitor:
         try:
             self._process_swap(wallet_address, swap)
         except Exception as e:
-            logger.debug(f"External swap ingest failed: {e}")
+            logger.warning(f"External swap ingest failed for {wallet_address[:10]}...: {e}")
 
     def _process_signals(self) -> None:
         """Evaluate active signals and execute copy trades for qualifying ones."""
