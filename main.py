@@ -1593,6 +1593,10 @@ async def run_bot_loop():
                     )
 
                 # ── Wallet routing (DUAL-WALLET: both Primary + Wallet B can fire) ──
+                logger.info(
+                    f"🔍 ROUTE DEBUG: {token.symbol} chain={token.chain!r} "
+                    f"gem_score={candidate.gem_score:.1f} is_copy={getattr(candidate, 'is_copy_trade', False)}"
+                )
                 allocations = route_trade_all(
                     chain=token.chain,
                     gem_score=candidate.gem_score,
