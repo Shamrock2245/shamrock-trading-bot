@@ -69,6 +69,7 @@ class HyperliquidExecutor:
         self.stop_loss_pct = settings.HYPERLIQUID_STOP_LOSS_PCT
         self.take_profit_pct = settings.HYPERLIQUID_TAKE_PROFIT_PCT
         self.daily_loss_limit = settings.HYPERLIQUID_DAILY_LOSS_LIMIT
+        self.min_gem_score = getattr(settings, "HYPERLIQUID_MIN_GEM_SCORE", 80)
         self.use_testnet = settings.HYPERLIQUID_USE_TESTNET
 
         # State
@@ -311,16 +312,23 @@ class HyperliquidExecutor:
             logger.debug(f"Hyperliquid: {sym} has no perp listing — skip")
             return None
 
-        # Daily loss circuit breaker
+        # ── CAPITAL PROTECTION: gem score gate ─────────────────────────
+        if gem_score < self.min_gem_score:
+            logger.info(
+                f"Hyperliquid: {sym} gem_score={gem_score:.0f} below min {self.min_gem_score} — skip"
+            )
+            return None
+
+        # ── CAPITAL PROTECTION: daily loss circuit breaker ─────────────
         self._check_daily_reset()
         if self.daily_pnl <= -self.daily_loss_limit:
             logger.warning(
                 f"🛑 Hyperliquid CIRCUIT BREAKER: daily PnL ${self.daily_pnl:.2f} "
-                f"exceeded limit -${self.daily_loss_limit:.2f}"
+                f"exceeded limit -${self.daily_loss_limit:.2f} — ALL TRADING HALTED"
             )
             return None
 
-        # Max concurrent positions
+        # ── CAPITAL PROTECTION: max concurrent positions ───────────────
         if len(self.positions) >= self.max_positions:
             logger.warning(f"Hyperliquid: max positions ({self.max_positions}) reached — skip {sym}")
             return None
@@ -330,10 +338,10 @@ class HyperliquidExecutor:
             logger.info(f"Hyperliquid: already positioned in {sym} — skip")
             return None
 
-        # Cap position size
+        # ── CAPITAL PROTECTION: cap position size ──────────────────────
         actual_size_usd = min(size_usd, self.max_position_usd)
 
-        # Check total exposure
+        # ── CAPITAL PROTECTION: total exposure limit ───────────────────
         current_exposure = sum(p.size_usd * p.leverage for p in self.positions.values())
         lev = leverage or self.default_leverage
         new_exposure = actual_size_usd * lev
@@ -344,14 +352,29 @@ class HyperliquidExecutor:
             )
             return None
 
-        # Check balance
+        # ── CAPITAL PROTECTION: balance check ──────────────────────────
         balance = self.get_balance()
         withdrawable = balance.get("withdrawable", 0)
+        account_value = balance.get("account_value", 0)
         if withdrawable < actual_size_usd:
             logger.warning(
                 f"Hyperliquid: insufficient margin — need ${actual_size_usd:.2f}, "
                 f"available ${withdrawable:.2f}"
             )
+            return None
+
+        # ── CAPITAL PROTECTION: never risk >10% of account on one trade ─
+        if account_value > 0 and actual_size_usd > account_value * 0.10:
+            actual_size_usd = round(account_value * 0.10, 2)
+            logger.info(
+                f"Hyperliquid: position capped to 10% of account = ${actual_size_usd:.2f}"
+            )
+            if actual_size_usd < 5.0:
+                logger.warning(f"Hyperliquid: 10% cap too small (${actual_size_usd:.2f}) — skip")
+                return None
+
+        # ── CAPITAL PROTECTION: funding rate check ─────────────────────
+        if not self._check_funding_rate_safe(sym, side):
             return None
 
         # ── Execute ────────────────────────────────────────────────────────
@@ -527,6 +550,43 @@ class HyperliquidExecutor:
                 logger.info(f"Hyperliquid: daily PnL reset (was ${self.daily_pnl:+.2f})")
             self.daily_pnl = 0.0
             self.daily_pnl_reset_date = today
+
+    def _check_funding_rate_safe(self, coin: str, side: str) -> bool:
+        """
+        CAPITAL PROTECTION: Reject trades where funding rate works against us.
+        
+        - Going LONG with high positive funding = paying to hold = bad
+        - Going SHORT with very negative funding = paying to hold = bad
+        - Threshold: |funding| > 0.05% per 8h (annualized ~22%) = too expensive
+        """
+        try:
+            # Fetch current funding rates
+            meta = self._info.meta()
+            for asset in meta.get("universe", []):
+                if asset.get("name", "").upper() == coin:
+                    funding_rate = float(asset.get("funding", 0))
+                    
+                    # Threshold: 0.05% per 8h is expensive
+                    threshold = 0.0005
+                    
+                    if side == "buy" and funding_rate > threshold:
+                        logger.info(
+                            f"Hyperliquid: {coin} funding rate {funding_rate:.6f} too high "
+                            f"for LONG (>{threshold}) — skip (would pay to hold)"
+                        )
+                        return False
+                    elif side == "sell" and funding_rate < -threshold:
+                        logger.info(
+                            f"Hyperliquid: {coin} funding rate {funding_rate:.6f} too negative "
+                            f"for SHORT (<-{threshold}) — skip (would pay to hold)"
+                        )
+                        return False
+                    
+                    return True
+            return True  # Unknown coin — allow (will fail at order stage)
+        except Exception as e:
+            logger.warning(f"Hyperliquid: funding rate check failed for {coin}: {e}")
+            return True  # Allow on error — TP/SL still protect us
 
     def get_status(self) -> dict:
         """Comprehensive status for dashboard/logging."""

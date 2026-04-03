@@ -47,17 +47,19 @@ JUPITER_LITE_URL = "https://lite-api.jup.ag/swap/v1"  # Free fallback — no key
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
 # Hyperliquid (Perpetual Futures DEX — zero gas, leveraged trading)
+# ⚠️  CAPITAL PRESERVATION MODE — conservative defaults to protect seed capital
 HYPERLIQUID_ENABLED = os.getenv("HYPERLIQUID_ENABLED", "false").lower() == "true"
 HYPERLIQUID_WALLET_ADDRESS = os.getenv("HYPERLIQUID_WALLET_ADDRESS", "")
 HYPERLIQUID_PRIVATE_KEY = os.getenv("HYPERLIQUID_PRIVATE_KEY", "")
-HYPERLIQUID_DEFAULT_LEVERAGE = int(os.getenv("HYPERLIQUID_DEFAULT_LEVERAGE", "3"))
-HYPERLIQUID_MAX_POSITION_USD = float(os.getenv("HYPERLIQUID_MAX_POSITION_USD", "50"))
-HYPERLIQUID_MAX_TOTAL_EXPOSURE = float(os.getenv("HYPERLIQUID_MAX_TOTAL_EXPOSURE", "300"))
+HYPERLIQUID_DEFAULT_LEVERAGE = int(os.getenv("HYPERLIQUID_DEFAULT_LEVERAGE", "2"))
+HYPERLIQUID_MAX_POSITION_USD = float(os.getenv("HYPERLIQUID_MAX_POSITION_USD", "25"))
+HYPERLIQUID_MAX_TOTAL_EXPOSURE = float(os.getenv("HYPERLIQUID_MAX_TOTAL_EXPOSURE", "150"))
 HYPERLIQUID_USE_TESTNET = os.getenv("HYPERLIQUID_USE_TESTNET", "false").lower() == "true"
-HYPERLIQUID_STOP_LOSS_PCT = float(os.getenv("HYPERLIQUID_STOP_LOSS_PCT", "5.0"))   # -5% SL
-HYPERLIQUID_TAKE_PROFIT_PCT = float(os.getenv("HYPERLIQUID_TAKE_PROFIT_PCT", "15.0"))  # +15% TP
-HYPERLIQUID_MAX_POSITIONS = int(os.getenv("HYPERLIQUID_MAX_POSITIONS", "5"))
-HYPERLIQUID_DAILY_LOSS_LIMIT = float(os.getenv("HYPERLIQUID_DAILY_LOSS_LIMIT", "50.0"))
+HYPERLIQUID_STOP_LOSS_PCT = float(os.getenv("HYPERLIQUID_STOP_LOSS_PCT", "3.0"))     # Tight 3% SL
+HYPERLIQUID_TAKE_PROFIT_PCT = float(os.getenv("HYPERLIQUID_TAKE_PROFIT_PCT", "12.0"))  # 12% TP (4:1 R/R)
+HYPERLIQUID_MAX_POSITIONS = int(os.getenv("HYPERLIQUID_MAX_POSITIONS", "4"))
+HYPERLIQUID_DAILY_LOSS_LIMIT = float(os.getenv("HYPERLIQUID_DAILY_LOSS_LIMIT", "30.0"))  # Max $30/day loss
+HYPERLIQUID_MIN_GEM_SCORE = float(os.getenv("HYPERLIQUID_MIN_GEM_SCORE", "80"))  # Only highest-conviction
 
 # ─────────────────────────────────────────────────────────────────────────────
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")
