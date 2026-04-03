@@ -354,18 +354,6 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         f"MoralisStreams: Alpha handler processing {len(events)} ERC20 transfers on {chain_name}"
     )
 
-    # DIAGNOSTIC: dump first event structure to understand Moralis payload
-    if events:
-        ev0 = events[0]
-        logger.info(
-            f"MoralisStreams: DIAG event[0] keys={list(ev0.keys())} "
-            f"txHash={ev0.get('transactionHash', ev0.get('transaction_hash', 'MISSING'))} "
-            f"addr={ev0.get('address', ev0.get('tokenAddress', 'MISSING'))} "
-            f"from={ev0.get('fromAddress', ev0.get('from_address', 'MISSING'))[:12] if ev0.get('fromAddress') or ev0.get('from_address') else 'NONE'}... "
-            f"to={ev0.get('toAddress', ev0.get('to_address', 'MISSING'))[:12] if ev0.get('toAddress') or ev0.get('to_address') else 'NONE'}... "
-            f"sym={ev0.get('tokenSymbol', 'MISSING')}"
-        )
-
     processed = 0
     for ev in events:
         tx_hash = (ev.get("transactionHash") or ev.get("transaction_hash") or "").lower()

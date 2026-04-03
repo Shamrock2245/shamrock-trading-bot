@@ -64,6 +64,7 @@ TIER1_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER1_COUNT", 2))           
 TIER2_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER2_COUNT", 1))              # single alpha buy = express lane
 COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.3))      # 30% of alpha buy size
 MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 100))        # cap at $100 for our capital level
+DEFAULT_COPY_USD = float(getattr(settings, "WALLET_MONITOR_DEFAULT_COPY_USD", 25))  # fallback when Streams has no USD value
 
 # Moralis API key (required for EVM wallet monitoring)
 MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") or os.getenv("MORALIS_API_KEY", "")
@@ -460,12 +461,22 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     Returns:
         True if trade was submitted, False otherwise
     """
-    copy_size_usd = min(
-        signal.buy_value_usd * COPY_SIZE_PCT,
-        MAX_COPY_USD,
-    )
+    # Calculate copy size — if alpha buy value is unknown ($0 from Streams),
+    # use DEFAULT_COPY_USD as floor
+    if signal.buy_value_usd > 0:
+        copy_size_usd = min(
+            signal.buy_value_usd * COPY_SIZE_PCT,
+            MAX_COPY_USD,
+        )
+    else:
+        # Moralis Streams don't include USD values — use default
+        copy_size_usd = DEFAULT_COPY_USD
+        logger.info(
+            f"Copy trade using default size ${DEFAULT_COPY_USD:.0f} "
+            f"(alpha buy_value_usd=$0 from streams)"
+        )
 
-    if copy_size_usd < 10:
+    if copy_size_usd < 5:
         logger.debug(f"Copy trade too small: ${copy_size_usd:.2f} — skipping")
         return False
 
