@@ -369,18 +369,36 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
     processed = 0
     for ev in events:
         tx_hash = (ev.get("transactionHash") or ev.get("transaction_hash") or "").lower()
-        token_address = (ev.get("address") or ev.get("tokenAddress") or "").lower()
-        from_addr = (ev.get("fromAddress") or ev.get("from_address") or "").lower()
-        to_addr = (ev.get("toAddress") or ev.get("to_address") or "").lower()
+
+        # Moralis Streams uses 'contract' object (not top-level 'address')
+        # contract = {"address": "0x...", "decimals": "18", "name": "...", "symbol": "..."}
+        contract = ev.get("contract") or {}
+        token_address = (
+            contract.get("address")
+            or ev.get("address")
+            or ev.get("tokenAddress")
+            or ""
+        ).lower()
+
+        # Moralis uses 'from'/'to' (NOT 'fromAddress'/'toAddress') in streams
+        from_addr = (ev.get("from") or ev.get("fromAddress") or ev.get("from_address") or "").lower()
+        to_addr = (ev.get("to") or ev.get("toAddress") or ev.get("to_address") or "").lower()
+
+        # 'triggered_by' tells us WHICH of our tracked wallets triggered this event
+        triggered_by = [addr.lower() for addr in (ev.get("triggered_by") or [])]
 
         if not tx_hash or not token_address:
             continue
 
-        # Determine which address is the tracked wallet (buyer or seller)
-        # toAddress = buyer (receiving tokens), fromAddress = seller
-        # For copy-trading we primarily care about buys
-        wallet = to_addr if to_addr else from_addr
-        if not wallet:
+        # Determine the wallet: prefer triggered_by (our tracked wallet),
+        # fallback to toAddress (buyer receiving tokens)
+        if triggered_by:
+            wallet = triggered_by[0]  # The address from our watch list
+        elif to_addr:
+            wallet = to_addr
+        elif from_addr:
+            wallet = from_addr
+        else:
             continue
 
         # Best-effort USD estimate from tx list
@@ -397,7 +415,11 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         # Get value with decimals from the transfer event itself
         try:
             value_raw = ev.get("value") or ev.get("valueWithDecimals") or "0"
-            token_decimals = int(ev.get("tokenDecimals") or ev.get("contract", {}).get("decimals") or 18)
+            token_decimals = int(
+                ev.get("tokenDecimals")
+                or contract.get("decimals")
+                or 18
+            )
             if isinstance(value_raw, str) and "." not in value_raw:
                 value_with_decimals = int(value_raw) / (10 ** token_decimals)
             else:
@@ -405,7 +427,7 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
         except (ValueError, TypeError):
             value_with_decimals = 0.0
 
-        token_symbol = ev.get("tokenSymbol") or "UNKNOWN"
+        token_symbol = ev.get("tokenSymbol") or contract.get("symbol") or "UNKNOWN"
 
         swap = {
             "tx_hash": tx_hash,
