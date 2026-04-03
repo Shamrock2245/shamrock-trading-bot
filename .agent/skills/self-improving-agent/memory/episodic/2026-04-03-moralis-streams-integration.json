@@ -1,0 +1,63 @@
+{
+  "date": "2026-04-03",
+  "title": "Moralis Streams Integration — Sub-Second Copy-Trade Pipeline",
+  "category": "architecture_upgrade",
+  "severity": "high",
+  "context": "Transitioned from high-latency polling (30s) to push-based Moralis Streams webhooks for sub-second EVM event detection. Created closed-loop: discover → monitor → copy-trade.",
+  "problem": "The bot was polling Moralis every 30s for wallet transactions, creating a 30-60s latency gap. Smart money could move tokens significantly in that window. Additionally, sniper discovery and wallet monitoring were independent systems — newly discovered alpha wallets didn't get added to real-time monitoring.",
+  "solution": {
+    "moralis_streams_webhook": "core/moralis_streams.py — Secure webhook handler with sha3(body+secret) verification, NOT HMAC-SHA256. Routes events by stream tag (alpha/whale/liquidity).",
+    "streams_lifecycle_manager": "core/moralis_streams_manager.py — Auto-creates streams on Moralis, syncs wallet addresses, health-checks every 5 mins, auto-recreates terminated streams.",
+    "hybrid_mode": "wallet_monitor.py — When Streams active, polling extends to 120s as safety fallback, reducing API consumption by 75%.",
+    "discovery_to_streams": "sniper_discovery.py — After promoting new wallets, auto-syncs them to Moralis Streams manager for immediate sub-second monitoring.",
+    "infrastructure": "docker-compose.yml — Port 8787 exposed for webhook ingestion."
+  },
+  "key_patterns": {
+    "moralis_streams_create": "Use PUT (not POST) to create streams at api.moralis-streams.com/streams/evm",
+    "moralis_streams_signature": "Verify with sha3(body_bytes + secret_bytes), compare to x-signature header",
+    "moralis_webhook_path": "Moralis sends confirmed + unconfirmed webhooks, must handle both",
+    "streams_base_url": "https://api.moralis-streams.com (NOT deep-index.moralis.io)",
+    "chain_ids_hex": "Must use hex chain IDs: 0x1 (ETH), 0x2105 (Base), 0xa4b1 (Arb), 0x89 (Polygon), 0x38 (BSC)",
+    "address_add": "POST /streams/evm/{id}/address with body {\"address\": [...]}"
+  },
+  "moralis_pro_opportunities_identified": {
+    "covered": [
+      "getFilteredTokens, getTrendingTokens, getTopGainers (token discovery)",
+      "getTokenScore (safety scoring)",
+      "getHolderStats, getHolderGrowth (holder analysis)",
+      "getTopTraders (smart money detection)",
+      "getTokenSwaps (swap flow)",
+      "getWalletProfitabilitySummary (sniper scoring)",
+      "getVolumeStatsByChain (macro filter)",
+      "Moralis Streams (sub-second EVM events)"
+    ],
+    "remaining_gaps": [
+      "getSwapsByWalletAddress — validate sniper wallets actually make DEX swaps before promoting",
+      "searchEntities — identify exchange hot wallets for outflow detection",
+      "getTokenBondingStatus — check pump.fun graduation before buying Solana memes",
+      "getPairStats — per-pair buy/sell ratio analysis for entry timing"
+    ]
+  },
+  "files_changed": [
+    "core/moralis_streams.py",
+    "core/moralis_streams_manager.py (NEW)",
+    "core/sniper_discovery.py",
+    "core/wallet_monitor.py",
+    "config/settings.py",
+    "dashboard/pages/7_🎯_Sniper_Wallets.py",
+    "docker-compose.yml",
+    "main.py",
+    ".env"
+  ],
+  "commit": "7952b0a",
+  "learnings": [
+    "Moralis uses sha3 for webhook signature verification, NOT HMAC-SHA256",
+    "Moralis Streams API base URL is api.moralis-streams.com, separate from data API",
+    "Stream creation uses PUT method, not POST",
+    "allAddresses: true (whale detection) may require Business tier subscription",
+    "Hybrid polling is critical — Streams alone has no Solana support",
+    "Closed-loop architecture (discover → monitor → copy) maximizes reaction speed",
+    "Port 8787 must be exposed in Docker AND firewall on VPS"
+  ],
+  "next_deploy": "Run /sync-and-deploy to push to Hetzner VPS (5.161.126.32)"
+}
