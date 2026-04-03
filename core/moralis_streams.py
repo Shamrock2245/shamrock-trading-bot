@@ -237,26 +237,47 @@ class MoralisStreamsServer:
 
 def _verify_moralis_signature(raw_body: bytes, secret: str, provided_sig: str) -> bool:
     """
-    Moralis webhook signature: sha3(JSON.stringify(body) + secret)
+    Moralis webhook signature: web3.utils.sha3(JSON.stringify(body) + secret)
 
-    Since we receive raw bytes, we compute:
-      keccak256(raw_body_utf8 + secret_utf8)
+    Moralis parses the body and re-serializes with JSON.stringify() (compact,
+    no spaces) before computing the hash. We must replicate this exactly:
+    1. Parse raw body as JSON
+    2. Re-serialize with compact separators (no spaces) — matches JS JSON.stringify()
+    3. Compute keccak256(compact_json + secret)
 
-    Falls back to sha256 HMAC if sha3 libraries aren't available.
+    Falls back to raw bytes if JSON parse fails.
     """
     if not provided_sig:
         return False
 
+    # Normalize the provided signature
+    provided_clean = provided_sig.lower()
+    if provided_clean.startswith("0x"):
+        provided_clean = provided_clean[2:]
+
+    # Build the message body — try compact JSON first (matches JS JSON.stringify)
+    try:
+        parsed = json.loads(raw_body)
+        # Match JavaScript's JSON.stringify: compact, no spaces, sorted keys=False
+        compact_body = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    except (json.JSONDecodeError, Exception):
+        # Fallback to raw bytes if not valid JSON
+        compact_body = raw_body
+
+    secret_bytes = secret.encode("utf-8")
+
     try:
         # Try keccak-256 (Web3 sha3) first
         from eth_hash.auto import keccak
-        digest = keccak(raw_body + secret.encode("utf-8")).hex()
-        if digest.startswith("0x"):
-            digest = digest[2:]
-        provided_clean = provided_sig.lower()
-        if provided_clean.startswith("0x"):
-            provided_clean = provided_clean[2:]
-        return digest == provided_clean
+        digest = keccak(compact_body + secret_bytes).hex()
+        if digest == provided_clean:
+            return True
+        # Also try with raw bytes in case Moralis didn't re-serialize
+        if compact_body != raw_body:
+            digest_raw = keccak(raw_body + secret_bytes).hex()
+            if digest_raw == provided_clean:
+                return True
+        return False
     except ImportError:
         pass
 
@@ -264,11 +285,8 @@ def _verify_moralis_signature(raw_body: bytes, secret: str, provided_sig: str) -
         # Fallback: pysha3
         import sha3
         k = sha3.keccak_256()
-        k.update(raw_body + secret.encode("utf-8"))
+        k.update(compact_body + secret_bytes)
         digest = k.hexdigest()
-        provided_clean = provided_sig.lower()
-        if provided_clean.startswith("0x"):
-            provided_clean = provided_clean[2:]
         return digest == provided_clean
     except ImportError:
         pass
@@ -277,11 +295,11 @@ def _verify_moralis_signature(raw_body: bytes, secret: str, provided_sig: str) -
     # set via Moralis UI which sometimes uses sha256 in older SDK versions)
     import hmac as _hmac
     digest = _hmac.new(
-        secret.encode("utf-8"),
-        raw_body,
+        secret_bytes,
+        compact_body,
         hashlib.sha256,
     ).hexdigest()
-    return _hmac.compare_digest(provided_sig.lower(), digest.lower())
+    return _hmac.compare_digest(provided_clean, digest.lower())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
