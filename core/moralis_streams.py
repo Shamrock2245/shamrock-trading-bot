@@ -109,6 +109,36 @@ class MoralisStreamsServer:
                 parent.metrics["webhooks_received"] += 1
                 parent.metrics["last_webhook_at"] = recv_time
 
+                # ── Test Webhook Detection ─────────────────────────────────
+                # Moralis sends a test webhook on every stream create/update.
+                # Must return 200 or the stream won't start.
+                # Test webhooks have empty body, no txs/logs, or streamId only.
+                is_test_webhook = False
+                try:
+                    if not raw or raw.strip() in (b"", b"{}", b"[]"):
+                        is_test_webhook = True
+                    else:
+                        test_body = json.loads(raw)
+                        # Test webhooks typically have empty txs/logs arrays
+                        # and/or no "block" data
+                        if isinstance(test_body, dict):
+                            txs = test_body.get("txs", [])
+                            logs = test_body.get("logs", [])
+                            erc20 = test_body.get("erc20Transfers", [])
+                            has_data = bool(txs or logs or erc20)
+                            if not has_data:
+                                is_test_webhook = True
+                except (json.JSONDecodeError, Exception):
+                    pass  # Not JSON — treat as real webhook
+
+                if is_test_webhook:
+                    logger.info("MoralisStreams: ✅ Test/verification webhook received — returning 200")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"status":"ok"}')
+                    return
+
                 # ── Signature Verification ────────────────────────────────
                 # Moralis uses sha3(JSON.stringify(body) + secret), NOT HMAC
                 if parent.webhook_secret:
