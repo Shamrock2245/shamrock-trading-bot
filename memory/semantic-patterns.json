@@ -182,6 +182,62 @@
       "files": ["data/providers/moralis_money.py"],
       "source_episode": "ep-2026-04-04-001",
       "evolution_marker": "2026-04-04 | HIGH | Sprint 1 — eliminates DexScreener dependency for EVM"
+    },
+    {
+      "id": "ct-001",
+      "category": "copy_trading",
+      "name": "streams_events_never_contain_usd_value",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "Moralis Streams webhook events contain token transfer data but NO buy_value_usd. Code that defaults DEFAULT_COPY_USD to $25 when buy_value_usd=0 will fire garbage $25 trades on EVERY alpha wallet transfer event, including dust, fee payments, and swaps of unknown size. This burns real capital on noise.",
+      "rule": "DEFAULT_COPY_USD MUST be 0. When buy_value_usd=0 from a Streams event, SKIP the copy trade entirely. Wait for the polling cycle to confirm the buy size via Moralis Data API before executing.",
+      "anti_pattern": "DEFAULT_COPY_USD = 25 as a fallback for unknown signal sizes",
+      "files": ["core/wallet_monitor.py", "config/settings.py"],
+      "source_episode": "ep-2026-04-04-live-guardrails",
+      "evolution_marker": "2026-04-04 | CRITICAL | Live trading failure — $25 garbage trades from Streams events"
+    },
+    {
+      "id": "ct-002",
+      "category": "copy_trading",
+      "name": "copy_size_must_use_our_wallet_balance",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "Copy trade sizing MUST be based on OUR wallet's actual balance, not the alpha wallet's buy size. Alpha wallets may have $100K+ capital; copying 30% of their buy ($30K) would liquidate our entire account. Correct sizing: 5% of our wallet balance, capped at MAX_COPY_USD.",
+      "rule": "copy_size = min(our_wallet_balance_usd × COPY_SIZE_PCT, MAX_COPY_USD). COPY_SIZE_PCT=0.05 (5%). Never size off alpha's buy amount.",
+      "anti_pattern": "copy_size_usd = alpha_buy_usd * COPY_SIZE_PCT — scales with alpha's capital, not ours",
+      "files": ["core/wallet_monitor.py"],
+      "source_episode": "ep-2026-04-04-live-guardrails",
+      "evolution_marker": "2026-04-04 | CRITICAL | Prevents oversized copy trades relative to our capital"
+    },
+    {
+      "id": "rpc-001",
+      "category": "balance_fetching",
+      "name": "evm_balance_requires_checksum_address",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "Some EVM JSON-RPC nodes (especially load-balanced public RPCs) return 0x0 for non-checksummed addresses. ETH standard is EIP-55 checksum (mixed case). Lowercase addresses may silently return 0x0, causing the bot to believe a funded wallet has $0 balance and skipping all trades.",
+      "rule": "Always call Web3.to_checksum_address(wallet_address) before passing to eth_getBalance. Also add 2-attempt retry with 1s backoff per RPC endpoint before falling back.",
+      "anti_pattern": "Passing raw lowercase address from .env directly to eth_getBalance",
+      "files": ["core/wallet_router.py"],
+      "source_episode": "ep-2026-04-04-live-guardrails",
+      "evolution_marker": "2026-04-04 | HIGH | Silent 0.0 balance caused trade skipping on funded wallets"
+    },
+    {
+      "id": "ct-003",
+      "category": "copy_trading",
+      "name": "tier_count_defaults_must_be_in_both_files",
+      "priority": "high",
+      "confidence": 0.98,
+      "applications": 1,
+      "description": "wallet_monitor.py defines local constants (TIER1_COUNT, TIER2_COUNT) that override settings.py. If the local defaults are more aggressive than settings.py (e.g., TIER2_COUNT=1 in wallet_monitor vs TIER2_COUNT=2 in settings), the local value wins. ALWAYS ensure both files have matching safe defaults.",
+      "rule": "Check wallet_monitor.py local constants AND settings.py for ALL copy trade thresholds. The getattr() fallback in wallet_monitor.py local scope takes precedence — the settings.py value only wins if the local constant itself calls getattr(settings, ...).",
+      "anti_pattern": "Setting conservative values in settings.py while wallet_monitor.py local scope hardcodes aggressive fallbacks",
+      "files": ["core/wallet_monitor.py", "config/settings.py"],
+      "source_episode": "ep-2026-04-04-live-guardrails",
+      "evolution_marker": "2026-04-04 | HIGH | TIER2_COUNT=1 local override caused single-wallet copy trades"
     }
   ]
 }

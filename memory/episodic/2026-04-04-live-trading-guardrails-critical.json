@@ -1,0 +1,64 @@
+{
+  "episode_id": "ep-2026-04-04-live-guardrails",
+  "date": "2026-04-04",
+  "priority": "CRITICAL",
+  "category": "trade_execution",
+  "title": "Live Trading: Garbage Trades from Aggressive Copy-Trade Defaults",
+  "outcome": "failure",
+  "user_feedback": {
+    "rating": 2,
+    "comments": "Bot trading away real money erratically. $25 random buys. Analytics wrong. Balances not detected correctly. Need real metrics and real copycat trading."
+  },
+  "what_happened": {
+    "task": "Bot in MODE=live with real private keys executing trades on Base ($483), ETH ($246), Arbitrum ($45), BSC ($197 BNB)",
+    "symptoms": [
+      "Bot making $25 garbage copy trades on single-wallet signals with no confirmed buy size",
+      "Balance checks returning 0.0 due to RPC case-sensitivity (lowercase address vs EIP-55 checksum)",
+      "TIER2_COUNT was set to 1 in wallet_monitor.py local defaults, overriding the safe setting in settings.py",
+      "DEFAULT_COPY_USD=$25 fired for ALL Streams events (which never include USD values)",
+      "MIN_BUY_USD=50 meant any $50 alpha buy triggered a copy (noise, not conviction)"
+    ]
+  },
+  "root_causes": {
+    "primary": "wallet_monitor.py local constants overrode settings.py values with dangerously aggressive defaults (TIER2_COUNT=1, DEFAULT_COPY_USD=25, MIN_BUY_USD=50)",
+    "secondary": "_get_evm_balance sent lowercase addresses to JSON-RPC — some RPCs require EIP-55 checksum format, returning 0x0 for non-checksummed input",
+    "tertiary": "Moralis Streams events never include buy_value_usd — code should SKIP not DEFAULT to $25"
+  },
+  "files_modified": [
+    "core/wallet_monitor.py",
+    "config/settings.py",
+    "core/wallet_router.py"
+  ],
+  "fixes_applied": {
+    "wallet_monitor.py": [
+      "TIER1_COUNT: 2 → 3 (require 3 alpha wallets for instant execute)",
+      "TIER2_COUNT: 1 → 2 (require 2 wallets for express lane — not just 1)",
+      "MIN_BUY_USD: 50 → 500 (only copy meaningful $500+ alpha buys)",
+      "MAX_BUY_AGE_SECONDS: 300 → 120 (stale = miss, 5min window was too wide)",
+      "DEFAULT_COPY_USD: 25 → 0 (skip Streams events with no confirmed USD)",
+      "COPY_SIZE_PCT: 0.30 → 0.05 (5% of OUR wallet balance, not 30% of alpha buy)",
+      "MAX_COPY_USD: 100 → 250 (raise cap to match real capital)",
+      "_execute_copy_trade: added 3-gate validation (confirmed value, min size, wallet balance-based sizing)"
+    ],
+    "config/settings.py": [
+      "Aligned all WALLET_MONITOR_* defaults to match wallet_monitor.py fixes"
+    ],
+    "core/wallet_router.py": [
+      "_get_evm_balance: add Web3.to_checksum_address() normalization before RPC call",
+      "_get_evm_balance: add 2-attempt retry with 1s backoff per RPC endpoint",
+      "_get_evm_balance: check for RPC-level 'error' field (rate limits return error not 0x0)"
+    ]
+  },
+  "critical_rules_extracted": [
+    "NEVER use DEFAULT_COPY_USD > 0. Streams events have no USD. Default fires unbounded garbage.",
+    "ALWAYS checksum EVM addresses before sending to JSON-RPC (Web3.to_checksum_address)",
+    "TIER counts must be in settings.py AND wallet_monitor.py local defaults must match",
+    "Copy trade size = % of OUR balance, NOT % of alpha's buy (alpha may have 100x our capital)",
+    "MIN_BUY_USD >= $500: below this is noise from small wallets, not smart money conviction"
+  ],
+  "semantic_patterns_to_update": [
+    "trade_execution::copy_trade_quality_gates",
+    "trade_execution::balance_rpc_reliability",
+    "guardrails::live_mode_defaults_must_be_conservative"
+  ]
+}

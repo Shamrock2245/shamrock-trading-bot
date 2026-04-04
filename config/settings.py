@@ -142,12 +142,17 @@ DYNAMIC_WEIGHTS_PATH = os.getenv("DYNAMIC_WEIGHTS_PATH", "output/dynamic_weights
 # ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
 WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30"))      # seconds between polls
-WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "50"))        # ignore buys < $50 (lowered from $500 for our capital level)
-WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "300"))         # ignore txs older than 5 min (extended from 2 min)
-WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "2"))           # wallets for Tier 1 (lowered from 3 — easier to trigger)
-WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))           # safer default: require 2 wallets for express lane
-WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.3"))   # copy 30% of alpha buy size (conservative for our capital)
-WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "100"))     # cap copy trade at $100
+# ── Copy Trade Quality Gates ────────────────────────────────────────────────────────
+# MIN_BUY_USD=500: require alpha wallet to make a $500+ buy (conviction, not noise)
+# DEFAULT_COPY_USD=0: if Streams gives no buy_value, skip the trade entirely
+# TIER1=3, TIER2=2: require 3 wallets for instant execute, 2 for express lane
+WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "500"))      # skip buys < $500 (noise)
+WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "120"))        # 2 min max age
+WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "3"))          # 3+ wallets = immediate
+WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))          # 2 wallets = express lane
+WALLET_MONITOR_COPY_SIZE_PCT = float(os.getenv("WALLET_MONITOR_COPY_SIZE_PCT", "0.05"))  # 5% of our balance
+WALLET_MONITOR_MAX_COPY_USD = float(os.getenv("WALLET_MONITOR_MAX_COPY_USD", "250"))    # cap at $250
+WALLET_MONITOR_DEFAULT_COPY_USD = float(os.getenv("WALLET_MONITOR_DEFAULT_COPY_USD", "0"))  # 0 = skip unknown signals
 WALLET_MONITOR_FASTLANE_ENABLED = os.getenv("WALLET_MONITOR_FASTLANE_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_FASTLANE_QUEUE_MAX = int(os.getenv("WALLET_MONITOR_FASTLANE_QUEUE_MAX", "200"))
 COPYTRADE_LATENCY_SLO_SECONDS = float(os.getenv("COPYTRADE_LATENCY_SLO_SECONDS", "20"))

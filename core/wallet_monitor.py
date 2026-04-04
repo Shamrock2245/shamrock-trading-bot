@@ -58,13 +58,19 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 ENABLED = getattr(settings, "WALLET_MONITOR_ENABLED", True)
 POLL_INTERVAL = int(getattr(settings, "WALLET_MONITOR_POLL_INTERVAL", 30))
-MIN_BUY_USD = float(getattr(settings, "WALLET_MONITOR_MIN_BUY_USD", 50))        # lowered from 500 — matches our capital level
-MAX_BUY_AGE_SECONDS = int(getattr(settings, "WALLET_MONITOR_MAX_BUY_AGE", 300))    # extended from 120s to 5 min
-TIER1_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER1_COUNT", 2))              # lowered from 3 — easier to trigger
-TIER2_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER2_COUNT", 1))              # single alpha buy = express lane
-COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.3))      # 30% of alpha buy size
-MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 100))        # cap at $100 for our capital level
-DEFAULT_COPY_USD = float(getattr(settings, "WALLET_MONITOR_DEFAULT_COPY_USD", 25))  # fallback when Streams has no USD value
+# ── Quality Gates — raised to prevent garbage trades ──────────────────────────
+# MIN_BUY_USD: only copy alpha wallets making meaningful buys ($500+)
+# A $50 alpha buy is noise; a $500+ buy is conviction.
+MIN_BUY_USD = float(getattr(settings, "WALLET_MONITOR_MIN_BUY_USD", 500))
+MAX_BUY_AGE_SECONDS = int(getattr(settings, "WALLET_MONITOR_MAX_BUY_AGE", 120))  # 2 min max age — stale = miss
+# TIER counts: require 2 wallets for Tier2 (not 1 — single wallet is noise)
+TIER1_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER1_COUNT", 3))  # 3+ wallets = immediate execute
+TIER2_COUNT = int(getattr(settings, "WALLET_MONITOR_TIER2_COUNT", 2))  # 2 wallets = express lane
+COPY_SIZE_PCT = float(getattr(settings, "WALLET_MONITOR_COPY_SIZE_PCT", 0.05))   # 5% of OUR wallet balance per copy
+MAX_COPY_USD = float(getattr(settings, "WALLET_MONITOR_MAX_COPY_USD", 250))      # cap at $250 per copy trade
+# DEFAULT_COPY_USD=0: if Streams gives no buy_value_usd, DO NOT trade.
+# A $0 unknown signal fires garbage $25 trades — better to miss than to bleed.
+DEFAULT_COPY_USD = float(getattr(settings, "WALLET_MONITOR_DEFAULT_COPY_USD", 0))
 
 # Tokens to NEVER copy-trade (stablecoins, wrapped natives, common bridging tokens)
 IGNORED_SYMBOLS = {
@@ -468,8 +474,10 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     """
     Execute a copy trade based on an alpha wallet signal.
 
-    Copy size = min(alpha_buy_size × COPY_SIZE_PCT, MAX_COPY_USD)
-    Uses the express lane — bypasses the 65-score floor.
+    Sizing rules:
+      1. alpha_buy_usd must be known (> 0) — no speculative $25 defaults
+      2. copy_size = min(our_wallet_balance × COPY_SIZE_PCT, MAX_COPY_USD)
+      3. alpha buy must exceed MIN_BUY_USD ($500) — small buys are noise
 
     Args:
         signal: The enriched AlphaSignal to copy
@@ -478,23 +486,55 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     Returns:
         True if trade was submitted, False otherwise
     """
-    # Calculate copy size — if alpha buy value is unknown ($0 from Streams),
-    # use DEFAULT_COPY_USD as floor
-    if signal.buy_value_usd > 0:
-        copy_size_usd = min(
-            signal.buy_value_usd * COPY_SIZE_PCT,
-            MAX_COPY_USD,
-        )
-    else:
-        # Moralis Streams don't include USD values — use default
-        copy_size_usd = DEFAULT_COPY_USD
+    # ── Gate 1: Require confirmed buy value from Moralis ─────────────────────
+    # Streams-based signals don't include USD values. Without a confirmed
+    # buy size we cannot validate conviction — SKIP rather than default to $25.
+    if signal.buy_value_usd <= 0:
         logger.info(
-            f"Copy trade using default size ${DEFAULT_COPY_USD:.0f} "
-            f"(alpha buy_value_usd=$0 from streams)"
+            f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
+            f"buy_value_usd unknown (Streams event has no USD). "
+            f"Waiting for polling confirmation with confirmed size."
         )
+        return False
 
-    if copy_size_usd < 5:
-        logger.debug(f"Copy trade too small: ${copy_size_usd:.2f} — skipping")
+    # ── Gate 2: Alpha buy must be a meaningful position ──────────────────────
+    if signal.buy_value_usd < MIN_BUY_USD:
+        logger.info(
+            f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
+            f"alpha buy ${signal.buy_value_usd:.0f} < min ${MIN_BUY_USD:.0f} (noise filter)"
+        )
+        return False
+
+    # ── Gate 3: Size based on OUR wallet balance, not alpha's ────────────────
+    # Use wallet_router to get current balance of our primary wallet on this chain
+    try:
+        from core.wallet_router import get_native_balance, get_native_price_usd
+        from config.wallets import WALLETS
+        from config.chains import CHAINS
+        chain_cfg = CHAINS.get(signal.chain)
+        primary = WALLETS.get("primary")
+        if chain_cfg and primary:
+            addr = primary.solana_address if chain_cfg.is_solana else primary.address
+            bal = get_native_balance(addr, signal.chain)
+            price = get_native_price_usd(chain_cfg.native_token)
+            wallet_balance_usd = bal * price
+            if wallet_balance_usd < 10:
+                logger.warning(
+                    f"⛔ Copy trade skipped: {signal.token_symbol} — "
+                    f"primary wallet balance ${wallet_balance_usd:.2f} too low"
+                )
+                return False
+            # Size = 5% of our balance, capped at MAX_COPY_USD
+            copy_size_usd = min(wallet_balance_usd * COPY_SIZE_PCT, MAX_COPY_USD)
+        else:
+            # Fallback: 5% of alpha buy, capped
+            copy_size_usd = min(signal.buy_value_usd * COPY_SIZE_PCT, MAX_COPY_USD)
+    except Exception as e:
+        logger.warning(f"Balance fetch failed for copy sizing: {e} — using conservative fallback")
+        copy_size_usd = min(signal.buy_value_usd * 0.03, MAX_COPY_USD)  # 3% of alpha buy as safe fallback
+
+    if copy_size_usd < 10:
+        logger.info(f"⛔ Copy trade too small: ${copy_size_usd:.2f} < $10 minimum — skipping")
         return False
 
     logger.info(
