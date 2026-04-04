@@ -598,8 +598,14 @@ class WalletMonitor:
             return
 
         if not self._evm_wallets and not self._solana_wallets:
-            logger.warning("WalletMonitor: No alpha wallets configured — daemon not started")
-            return
+            logger.warning(
+                "WalletMonitor: No alpha wallets configured at startup — "
+                "daemon will start and attempt to load discovered snipers on first poll tick. "
+                "Set ALPHA_WALLETS_EVM / ALPHA_WALLETS_SOL in .env or "
+                "use the Sniper Discovery daemon to auto-populate sniper_wallets_active.json."
+            )
+            # Do NOT return here — discovered snipers are hot-loaded in _poll_all_wallets()
+            # and this daemon also needs to be running to receive copy-trade signals.
 
         self._stop_event.clear()
         self._thread = threading.Thread(

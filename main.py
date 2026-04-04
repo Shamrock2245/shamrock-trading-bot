@@ -702,31 +702,103 @@ async def run_bot_loop():
             from core.wallet_monitor import get_monitor as _get_wallet_monitor
             wm = _get_wallet_monitor()
 
-            # Whale event callback — evaluate large transfers as potential gems
+            # Stable/wrapped tokens that should never be treated as gem candidates
+            _STREAM_IGNORED_SYMBOLS = {
+                "WETH", "WBTC", "WBNB", "WMATIC", "WAVAX", "USDT", "USDC",
+                "USDC.E", "DAI", "BUSD", "USDBC", "STETH", "WSTETH",
+            }
+
+            def _stream_evaluate_token(token_address: str, chain: str, source_tag: str) -> None:
+                """
+                Fast-path gem evaluation triggered by a Moralis Streams event.
+                Runs scoring in a short-lived thread so it never blocks the webhook.
+                Token is injected into the normal signal pipeline if it scores well.
+                """
+                import threading as _threading
+
+                def _do_eval():
+                    try:
+                        from data.providers.dexscreener import get_token_pairs, extract_gem_signals
+                        pairs = get_token_pairs(token_address) or []
+                        if not pairs:
+                            logger.debug(f"Streams eval: no pairs found for {token_address[:10]}...")
+                            return
+                        pair = pairs[0]
+                        signals = extract_gem_signals(pair)
+                        signals["is_boosted"] = True
+                        signals["boost_amount"] = 150   # Stream event = strong real-money signal
+                        token_obj = _gem_scanner._signals_to_token(signals, chain)
+                        if not token_obj:
+                            return
+                        candidate = _gem_scanner._score_token(token_obj, is_boosted=True)
+                        if candidate is None:
+                            return
+                        candidate.strategy_tag = source_tag
+                        effective_min = float(getattr(settings, "MIN_GEM_SCORE", 65))
+                        if candidate.gem_score >= effective_min:
+                            logger.info(
+                                f"🚨 STREAM GEM: {token_obj.symbol} [{chain}] "
+                                f"scored {candidate.gem_score:.1f} from {source_tag} "
+                                f"| liq=${token_obj.liquidity_usd:,.0f}"
+                            )
+                            # Inject directly into the express queue used by the main loop
+                            if hasattr(_gem_scanner, "_stream_candidates"):
+                                _gem_scanner._stream_candidates.append(candidate)
+                        else:
+                            logger.debug(
+                                f"Streams eval: {token_obj.symbol} scored {candidate.gem_score:.1f} "
+                                f"(below {effective_min:.0f}) — skipped"
+                            )
+                    except Exception as _ev_err:
+                        logger.debug(f"Stream token eval error ({source_tag}): {_ev_err}")
+
+                _threading.Thread(target=_do_eval, name=f"StreamEval-{source_tag}", daemon=True).start()
+
+            # Whale event callback — forward large ERC-20 transfers to gem scorer
             def _on_whale_event(event: dict):
-                """Forward whale transfers to gem scanner for evaluation."""
+                """Evaluate whale-moved tokens as potential gem candidates."""
                 try:
                     token_addr = event.get("token_address", "")
                     chain = event.get("chain", "")
-                    if token_addr and chain:
-                        logger.info(
-                            f"🐋 Whale transfer detected: {event.get('token_symbol', '?')} "
-                            f"on {chain} (tx: {event.get('tx_hash', '?')[:16]}...)"
-                        )
-                        # TODO: Wire to gem_scanner.evaluate_token() for scoring
+                    token_symbol = (event.get("token_symbol") or "").upper()
+                    if not token_addr or not chain:
+                        return
+                    if token_symbol in _STREAM_IGNORED_SYMBOLS:
+                        return
+                    logger.info(
+                        f"🐋 Whale transfer detected: {token_symbol or token_addr[:10]} "
+                        f"on {chain} (tx: {event.get('tx_hash', '?')[:16]}...) "
+                        f"— evaluating as gem candidate"
+                    )
+                    _stream_evaluate_token(token_addr, chain, "whale_stream")
                 except Exception as e:
                     logger.debug(f"Whale event handler error: {e}")
 
-            # Liquidity event callback — new pool creation
+            # Liquidity event callback — new DEX pool creation (earliest possible alpha)
             def _on_liquidity_event(event: dict):
-                """Forward new pool creation to gem scanner."""
+                """Evaluate the non-WETH/USDC token in a new pool as a gem candidate."""
                 try:
+                    chain = event.get("chain", "")
+                    # Identify the new token (the non-native side of the pair)
+                    token0 = event.get("token0", "")
+                    token1 = event.get("token1", "")
+                    sym0 = (event.get("symbol0") or "").upper()
+                    sym1 = (event.get("symbol1") or "").upper()
+                    # The gem is whichever side is NOT a wrapped/stable base asset
+                    if sym0 in _STREAM_IGNORED_SYMBOLS and token1:
+                        gem_addr, gem_sym = token1, sym1
+                    elif sym1 in _STREAM_IGNORED_SYMBOLS and token0:
+                        gem_addr, gem_sym = token0, sym0
+                    elif token0:
+                        gem_addr, gem_sym = token0, sym0
+                    else:
+                        return
                     logger.info(
-                        f"💧 New pool detected: {event.get('token0', '?')[:10]}/"
-                        f"{event.get('token1', '?')[:10]} on {event.get('chain', '?')} "
-                        f"(factory: {event.get('factory', '?')[:10]}...)"
+                        f"💧 New pool: {sym0 or token0[:6]}/{sym1 or token1[:6]} on {chain} "
+                        f"(factory: {event.get('factory', '?')[:12]}...) "
+                        f"— evaluating {gem_sym or gem_addr[:8]} as gem candidate"
                     )
-                    # TODO: Wire to gem_scanner.evaluate_token() for the non-WETH token
+                    _stream_evaluate_token(gem_addr, chain, "new_pool_stream")
                 except Exception as e:
                     logger.debug(f"Liquidity event handler error: {e}")
 
@@ -1494,6 +1566,21 @@ async def run_bot_loop():
                 logger.info(
                     f"🔥 Injected {len(copy_candidates)} copy-trade candidate(s) "
                     f"from WalletMonitor into cycle {cycle}"
+                )
+
+            # Drain Moralis Streams real-time gem candidates (highest-conviction alpha —
+            # these arrived between scan cycles directly from whale & new-pool events).
+            if scanner._stream_candidates:
+                stream_batch = []
+                while scanner._stream_candidates:
+                    stream_batch.append(scanner._stream_candidates.popleft())
+                # Sort by score descending; prepend so they get priority processing
+                stream_batch.sort(key=lambda c: c.gem_score, reverse=True)
+                candidates = stream_batch + candidates
+                logger.info(
+                    f"⚡ Injected {len(stream_batch)} real-time stream candidate(s) "
+                    f"from Moralis Streams into cycle {cycle} "
+                    f"(top score: {stream_batch[0].gem_score:.1f} via {stream_batch[0].strategy_tag})"
                 )
 
             # 3. Process candidates (iterate all, but cap successful trades)

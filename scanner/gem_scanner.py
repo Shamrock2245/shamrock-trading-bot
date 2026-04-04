@@ -131,6 +131,11 @@ class GemScanner:
 
     def __init__(self):
         self.watchlist = GemWatchlist()
+        # Thread-safe queue for candidates injected by Moralis Streams callbacks.
+        # Moralis Streams daemon threads append here; the main scan loop drains it
+        # every cycle so real-time whale/pool events are processed immediately.
+        import collections as _collections
+        self._stream_candidates: _collections.deque = _collections.deque(maxlen=50)
         # Load ML-derived dynamic weights (refreshed every 6h from trades.json)
         # Falls back to static defaults when insufficient trade history exists.
         if _ML_WEIGHTS_AVAILABLE:
