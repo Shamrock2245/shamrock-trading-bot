@@ -25,6 +25,10 @@ Moralis Endpoints Used (all paid, previously unused for discovery):
   - GET /token/{network}/{token}/top-holders   ← Solana harvest
   - GET /wallets/{addr}/chains                 ← multi-chain activity check
   - GET /wallets/{addr}/history                ← recent tx pattern analysis
+
+  ── Sprint 2 additions ─────────────────────────────────────────────────────────
+  - GET /wallets/{addr}/swaps       ← DEX swap history → avg hold time + early-entry rate
+  - GET /wallets/{addr}/insights    ← Moralis smart-money classifier (pre-filter bots/fresh)
 """
 
 from __future__ import annotations
@@ -401,6 +405,50 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
     Score a candidate wallet using Moralis profitability endpoints.
     Returns a SniperWallet if it meets minimum thresholds, else None.
     """
+    # ───────────────────────────────────────────────────────────────────
+    # SPRINT 2 STEP 0: Moralis Insights pre-filter (cheapest gate, 30 CU)
+    #   Reject bots, fresh wallets, contracts, and suspicious actors BEFORE
+    #   spending 100+ CU on the full profitability/breakdown sequence.
+    # ───────────────────────────────────────────────────────────────────
+    wallet_insights: dict = {}
+    defi_score: float = 0.0
+    insights_category: str = ""
+    early_entry_rate: float = 0.0
+    avg_hold_hours: float = 0.0
+
+    if chain != "solana":
+        try:
+            from data.providers.moralis_wallet import (
+                get_wallet_insights as _get_insights,
+                get_wallet_swaps   as _get_swaps,
+            )
+            # Insights gate — fast 30 CU call
+            wallet_insights = _get_insights(address, chain)
+            if wallet_insights.get("is_contract"):
+                logger.debug(f"Skipping contract address {address[:10]}...")
+                return None
+            if wallet_insights.get("is_fresh_wallet"):
+                logger.debug(f"Skipping fresh wallet {address[:10]}... (age<30d)")
+                return None
+            if wallet_insights.get("is_suspicious"):
+                logger.debug(f"Skipping suspicious wallet {address[:10]}...")
+                return None
+            # Block obvious bots from insights category
+            insights_category = wallet_insights.get("category", "")
+            if insights_category in ("mev_bot", "sandwich_bot", "arbitrage_bot", "bot"):
+                logger.debug(f"Insights: skipping bot wallet {address[:10]}... ({insights_category})")
+                return None
+
+            defi_score = wallet_insights.get("defi_score", 0.0)
+
+            # Swap history — hold time + early-entry rate (50 CU)
+            swaps_data = _get_swaps(address, chain, limit=50)
+            avg_hold_hours  = swaps_data.get("avg_hold_time_hours", 0.0)
+            early_entry_rate = swaps_data.get("early_entry_rate", 0.0)
+
+        except Exception as _ins_err:
+            logger.debug(f"Sprint2 insights/swaps skipped for {address[:10]}...: {_ins_err}")
+
     # 1. Profitability summary — primary filter
     prof = get_wallet_profitability_summary(address)
     if not prof:
@@ -471,6 +519,9 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
         total_trades=total_trades,
         microcap_focus=microcap_focus,
         multi_chain=len(active_chains) > 1,
+        defi_score=defi_score,              # Sprint 2
+        avg_hold_hours=avg_hold_hours,      # Sprint 2
+        early_entry_rate=early_entry_rate,  # Sprint 2
     )
     sniper_score = min(100.0, round(sniper_score + entity_boost, 2))
 
@@ -484,6 +535,7 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
         avg_roi_pct=avg_roi,
         total_trades=total_trades,
         winning_trades=int(total_trades * win_rate),
+        avg_holding_time_hours=avg_hold_hours,  # Sprint 2 — previously always 0
         active_chains=active_chains,
         top_tokens=top_tokens,
         sniper_score=sniper_score,
@@ -521,36 +573,59 @@ def _calculate_sniper_score(
     total_trades: int,
     microcap_focus: float,
     multi_chain: bool,
+    # Sprint 2 — new signals (all optional, default to neutral)
+    defi_score: float = 0.0,
+    avg_hold_hours: float = 0.0,
+    early_entry_rate: float = 0.0,
 ) -> float:
     """
     Composite sniper score 0–100.
-    Weights:
-      - Win rate:       30%  (consistency is king)
-      - Avg ROI:        25%  (magnitude of wins)
-      - Total PnL:      20%  (absolute proof of profit)
-      - Microcap focus: 15%  (specialization in our target market)
-      - Trade volume:   5%   (experience)
-      - Multi-chain:    5%   (versatility)
+    Weights (Sprint 2 updated):
+      - Win rate:        27%  (consistency is king)
+      - Avg ROI:         22%  (magnitude of wins)
+      - Total PnL:       18%  (absolute proof of profit)
+      - Microcap focus:  13%  (specialization in our target market)
+      - Trade volume:     5%  (experience)
+      - Multi-chain:      5%  (versatility)
+      ── Sprint 2 NEW ──────────────────────────────────────────────
+      - DeFi experience: 5%  (Moralis defi_score 0–100)
+      - Early entry:     5%  (fraction of swaps within 60min of new token)
+      - Hold time:     bonus  (+3 pts if 0.5–12h avg — the sniper sweet spot)
     """
-    # Win rate: 55% = 0pts, 100% = 30pts
-    win_score = max(0, (win_rate - 0.55) / 0.45) * 30
+    # Win rate: 40% = 0pts, 100% = 27pts
+    win_score = max(0.0, (win_rate - 0.40) / 0.60) * 27
 
-    # Avg ROI: 30% = 0pts, 500%+ = 25pts
-    roi_score = min(25.0, (avg_roi / 500.0) * 25)
+    # Avg ROI: 15% = 0pts, 500%+ = 22pts
+    roi_score = min(22.0, (avg_roi / 500.0) * 22)
 
-    # Total PnL: $5k = 0pts, $500k+ = 20pts
-    pnl_score = min(20.0, (total_pnl / 500_000) * 20)
+    # Total PnL: $500 = 0pts, $500k+ = 18pts
+    pnl_score = min(18.0, (total_pnl / 500_000) * 18)
 
-    # Microcap focus: direct 0–15 pts
-    mc_score = (microcap_focus / 100.0) * 15
+    # Microcap focus: direct 0–13 pts
+    mc_score = (microcap_focus / 100.0) * 13
 
-    # Trade experience: 10 = 0pts, 200+ = 5pts
+    # Trade experience: 5 = 0pts, 200+ = 5pts
     trade_score = min(5.0, (total_trades / 200) * 5)
 
     # Multi-chain bonus
     chain_score = 5.0 if multi_chain else 0.0
 
-    total = win_score + roi_score + pnl_score + mc_score + trade_score + chain_score
+    # ── Sprint 2 signals ───────────────────────────────────────
+    # Moralis DeFi experience score (0-100 → 0-5 pts)
+    defi_exp_score = min(5.0, (defi_score / 100.0) * 5)
+
+    # Early entry rate (0–1.0 → 0–5 pts): snipers enter in first 60 min
+    early_score = min(5.0, early_entry_rate * 5)
+
+    # Hold-time sweet spot bonus: +3 pts if avg hold is 0.5h–12h
+    # Shorter = scalper/bot, longer = casual investor, sweet spot = sniper
+    hold_bonus = 3.0 if 0.5 <= avg_hold_hours <= 12.0 else 0.0
+
+    total = (
+        win_score + roi_score + pnl_score + mc_score +
+        trade_score + chain_score +
+        defi_exp_score + early_score + hold_bonus
+    )
     return round(min(100.0, total), 1)
 
 

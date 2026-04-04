@@ -3,13 +3,21 @@ data/providers/moralis_wallet.py — Moralis Pro Wallet Intelligence Provider.
 
 Portfolio-level intelligence:
 
-  1. get_wallet_net_worth(address, chains)     → Total USD value across chains (50 CU)
-  2. get_wallet_pnl(address, chain)            → Realized P&L per token (100 CU)
-  3. get_wallet_token_balances(address, chain)  → All ERC20 holdings with metadata (5 CU)
-  4. get_wallet_history(address, chain)         → Raw transaction history (5 CU)
+  1. get_wallet_net_worth(address, chains)       → Total USD value across chains (50 CU)
+  2. get_wallet_pnl(address, chain)              → Realized P&L per token (100 CU)
+  3. get_wallet_token_balances(address, chain)    → All ERC20 holdings with metadata (5 CU)
+  4. get_wallet_pnl_summary(address, chain)      → Light PnL summary: trades, vol, PnL (30 CU)
+  5. get_wallet_token_balances_v2(address, chain) → Enriched balances with USD prices (100 CU)
+  6. get_wallet_stats(address, chain)            → Quick tx/NFT/transfer counts (50 CU)
+  7. get_enhanced_token_metadata(addresses, chain) → Rich metadata incl. FDV/market cap (10 CU)
+
+  ── Sprint 2 additions ─────────────────────────────────────────────────────────
+  8. get_wallet_swaps(address, chain)            → DEX swap history + hold-time analysis (50 CU)
+  9. get_wallet_insights(address, chain)         → Moralis smart-money intelligence labels (30 CU)
 
 Usage:
   from data.providers.moralis_wallet import get_wallet_net_worth, get_wallet_pnl
+  from data.providers.moralis_wallet import get_wallet_swaps, get_wallet_insights
 
 Chain support: ethereum, base, arbitrum, polygon, bsc, avalanche
 Rate limited: 25 req/min with 10-minute cache for wallet data.
@@ -720,6 +728,398 @@ def get_enhanced_token_metadata(
     except Exception as e:
         logger.warning(f"Moralis metadata error on {chain}: {e}")
         return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Wallet Swaps  (GET /wallets/{address}/swaps)  — 50 CU            SPRINT 2
+#    DEX swap history with exact buy/sell timestamps — critical for:
+#      - Avg holding time (fast flippers vs long holders)
+#      - Early-entry detection (did they buy within <60min of token launch?)
+#      - Per-swap P&L context (pair address + amounts in/out)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_swaps(
+    wallet_address: str,
+    chain: str = "ethereum",
+    limit: int = 50,
+    order: str = "DESC",
+) -> dict:
+    """
+    Fetch recent DEX swaps for a wallet — used to profile sniper behaviour.
+
+    Args:
+        wallet_address: EVM wallet address
+        chain: Chain to query
+        limit: Max swaps to return (default 50, max 100)
+        order: 'DESC' (newest first) or 'ASC'
+
+    Returns:
+        {
+            "swaps": [
+                {
+                    "block_timestamp": str,
+                    "transaction_hash": str,
+                    "exchange_name":    str,  # e.g. "Uniswap v3"
+                    "exchange_address": str,
+                    "token_sold_address":   str,
+                    "token_sold_symbol":    str,
+                    "token_sold_amount":    float,
+                    "token_sold_usd":       float,
+                    "token_bought_address": str,
+                    "token_bought_symbol":  str,
+                    "token_bought_amount":  float,
+                    "token_bought_usd":     float,
+                    "pair_address":         str,
+                    "is_buy":               bool,   # True = buying a token
+                    "direction":            str,    # 'buy' | 'sell'
+                }
+            ],
+            "avg_hold_time_hours": float,   # Derived from matched buy/sell pairs
+            "early_entry_rate":    float,   # Fraction that entered <60min of pair creation
+            "total_swaps":         int,
+            "unique_tokens":       int,
+            "buy_count":           int,
+            "sell_count":          int,
+            "wallet_address":      str,
+            "chain":               str,
+        }
+
+    Cost: 50 Compute Units per call.
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return {
+            "swaps": [], "avg_hold_time_hours": 0.0, "early_entry_rate": 0.0,
+            "total_swaps": 0, "unique_tokens": 0, "buy_count": 0, "sell_count": 0,
+            "wallet_address": wallet_address, "chain": chain,
+        }
+
+    cache_key = f"swaps_{chain}_{wallet_address.lower()}_{limit}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{wallet_address}/swaps",
+            params={
+                "chain": CHAIN_HEX[chain],
+                "limit": min(limit, 100),
+                "order": order,
+            },
+            headers=_headers(),
+            timeout=12,
+        )
+        if resp.status_code in (400, 404):
+            logger.debug(f"Moralis swaps: no data for {wallet_address[:12]}...")
+            return {
+                "swaps": [], "avg_hold_time_hours": 0.0, "early_entry_rate": 0.0,
+                "total_swaps": 0, "unique_tokens": 0, "buy_count": 0, "sell_count": 0,
+                "wallet_address": wallet_address, "chain": chain,
+            }
+        if resp.status_code in (402, 403):
+            logger.debug("Moralis swaps: plan limitation")
+            return {
+                "swaps": [], "avg_hold_time_hours": 0.0, "early_entry_rate": 0.0,
+                "total_swaps": 0, "unique_tokens": 0, "buy_count": 0, "sell_count": 0,
+                "wallet_address": wallet_address, "chain": chain,
+            }
+        resp.raise_for_status()
+
+        data = resp.json()
+        raw_swaps = data.get("result", []) if isinstance(data, dict) else []
+
+        # Parse each swap
+        swaps: list[dict] = []
+        buy_ts: dict[str, list[float]] = {}   # token_addr → [buy_timestamps]
+        sell_ts: dict[str, list[float]] = {}  # token_addr → [sell_timestamps]
+        buy_count = 0
+        sell_count = 0
+
+        for s in raw_swaps:
+            ts_str = s.get("block_timestamp", "")
+            tx_hash = s.get("transaction_hash", "")
+            pair_addr = (s.get("pair_address") or "").lower()
+
+            # Moralis swap direction: if token_bought is NOT a stablecoin/WETH → it's a BUY
+            # We detect buy/sell by checking which token is the "quote" side.
+            # Moralis v2.2 returns token_sold / token_bought as the two legs.
+            sold_sym   = (s.get("token_sold",   {}) or {}).get("symbol",  "") or s.get("token_sold_symbol", "")
+            bought_sym = (s.get("token_bought", {}) or {}).get("symbol",  "") or s.get("token_bought_symbol", "")
+            sold_addr   = ((s.get("token_sold",   {}) or {}).get("address", "") or s.get("token_sold_address",   "")).lower()
+            bought_addr = ((s.get("token_bought", {}) or {}).get("address", "") or s.get("token_bought_address", "")).lower()
+
+            # Amount helpers — handle string amounts from API
+            def _amt(key_nested, key_flat) -> float:
+                v = (s.get(key_nested, {}) or {}).get("value", None)
+                if v is None:
+                    v = s.get(key_flat, 0)
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            sold_usd   = _amt("token_sold",   "token_sold_usd")
+            bought_usd = _amt("token_bought", "token_bought_usd")
+            sold_amt   = _amt("token_sold",   "token_sold_amount")
+            bought_amt = _amt("token_bought", "token_bought_amount")
+
+            _STABLE_SYMS = {"USDC", "USDT", "DAI", "BUSD", "FRAX", "LUSD", "WETH", "ETH", "WBNB", "BNB", "WMATIC", "MATIC", "WAVAX", "AVAX"}
+            # If we're spending stables/WETH to buy a non-stable → it's a BUY of that token
+            is_buy = sold_sym.upper() in _STABLE_SYMS and bought_sym.upper() not in _STABLE_SYMS
+            direction = "buy" if is_buy else "sell"
+
+            # Track timestamps per token for hold-time calculation
+            target_addr = bought_addr if is_buy else sold_addr
+            if ts_str and target_addr:
+                try:
+                    from datetime import timezone as _tz
+                    from datetime import datetime as _dt
+                    ts_epoch = _dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                    if is_buy:
+                        buy_ts.setdefault(target_addr, []).append(ts_epoch)
+                    else:
+                        sell_ts.setdefault(target_addr, []).append(ts_epoch)
+                except Exception:
+                    pass
+
+            if is_buy:
+                buy_count += 1
+            else:
+                sell_count += 1
+
+            exchange_info = s.get("exchange") or {}
+            swaps.append({
+                "block_timestamp":      ts_str,
+                "transaction_hash":     tx_hash,
+                "exchange_name":        exchange_info.get("exchange_name",    s.get("exchange_name",    "")),
+                "exchange_address":     exchange_info.get("exchange_address", s.get("exchange_address", "")),
+                "token_sold_address":   sold_addr,
+                "token_sold_symbol":    sold_sym,
+                "token_sold_amount":    sold_amt,
+                "token_sold_usd":       sold_usd,
+                "token_bought_address": bought_addr,
+                "token_bought_symbol":  bought_sym,
+                "token_bought_amount":  bought_amt,
+                "token_bought_usd":     bought_usd,
+                "pair_address":         pair_addr,
+                "is_buy":               is_buy,
+                "direction":            direction,
+            })
+
+        # Derive avg holding time from matched buy→sell pairs per token
+        hold_times: list[float] = []
+        for token_addr, buys in buy_ts.items():
+            sells = sell_ts.get(token_addr, [])
+            # Pair each earliest buy with the earliest sell that comes after it
+            buys_sorted = sorted(buys)
+            sells_sorted = sorted(sells)
+            for buy_time in buys_sorted:
+                for sell_time in sells_sorted:
+                    if sell_time > buy_time:
+                        hold_times.append((sell_time - buy_time) / 3600.0)  # → hours
+                        break
+
+        avg_hold_hours = round(sum(hold_times) / len(hold_times), 2) if hold_times else 0.0
+        unique_tokens = len(set(
+            s["token_bought_address"] for s in swaps if s["is_buy"]
+        ) | set(
+            s["token_sold_address"] for s in swaps if not s["is_buy"]
+        ) - {""})
+
+        # Early-entry rate: fraction of buy swaps within 60 min of token's first appearance
+        # We don't have pair creation time here, but we approximate:
+        # if the token was first seen in our swaps list at this timestamp, any buy
+        # within 3600s of the FIRST buy of that token = early entry.
+        early_entries = 0
+        for token_addr, buys in buy_ts.items():
+            if buys:
+                first_buy = min(buys)
+                early_buys = [b for b in buys if b - first_buy <= 3600]
+                early_entries += len(early_buys)
+        early_entry_rate = round(early_entries / max(buy_count, 1), 3)
+
+        result = {
+            "swaps":               swaps,
+            "avg_hold_time_hours": avg_hold_hours,
+            "early_entry_rate":    early_entry_rate,
+            "total_swaps":         len(swaps),
+            "unique_tokens":       unique_tokens,
+            "buy_count":           buy_count,
+            "sell_count":          sell_count,
+            "wallet_address":      wallet_address,
+            "chain":               chain,
+        }
+        _set_cache(cache_key, result)
+        logger.info(
+            f"Moralis swaps: {len(swaps)} swaps ({buy_count}B/{sell_count}S), "
+            f"avg_hold={avg_hold_hours:.1f}h, early_entry={early_entry_rate:.0%} "
+            f"for {wallet_address[:12]}... on {chain}"
+        )
+        return result
+
+    except Exception as e:
+        logger.warning(f"Moralis swaps error for {wallet_address[:12]}... on {chain}: {e}")
+        return {
+            "swaps": [], "avg_hold_time_hours": 0.0, "early_entry_rate": 0.0,
+            "total_swaps": 0, "unique_tokens": 0, "buy_count": 0, "sell_count": 0,
+            "wallet_address": wallet_address, "chain": chain,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Wallet Insights  (GET /wallets/{address}/insights)  — 30 CU       SPRINT 2
+#    Moralis smart-money intelligence classifier:
+#      - Classifies wallet as: fresh_wallet, rug_trader, sniper, etc.
+#      - Provides DeFi experience score (0-100)
+#      - Returns activity breakdown: last_seen_days_ago, preferred_dex
+#      - Particularly useful as a BOT / MEV filter before scoring
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_insights(
+    wallet_address: str,
+    chain: str = "ethereum",
+) -> dict:
+    """
+    Get Moralis smart-money insights for a wallet — their proprietary classifier.
+
+    Args:
+        wallet_address: EVM wallet address
+        chain: Chain to query
+
+    Returns:
+        {
+            "is_contract":           bool,
+            "is_fresh_wallet":       bool,   # < 30 days old
+            "is_suspicious":         bool,   # Flagged for rug/spam activity
+            "wallet_age_days":       int,
+            "last_active_days_ago":  int,
+            "defi_score":            float,  # 0–100, Moralis DeFi experience rating
+            "category":              str,    # 'sniper' | 'whale' | 'bot' | 'retail' | ...
+            "preferred_dex":         str,    # Which DEX they trade most
+            "activity_summary":      dict,   # Breakdown from Moralis
+            "wallet_address":        str,
+            "chain":                 str,
+        }
+
+    Cost: 30 Compute Units per call.
+    """
+    if not _available() or chain not in CHAIN_HEX:
+        return {
+            "is_contract": False, "is_fresh_wallet": False, "is_suspicious": False,
+            "wallet_age_days": 0, "last_active_days_ago": 0, "defi_score": 0.0,
+            "category": "", "preferred_dex": "", "activity_summary": {},
+            "wallet_address": wallet_address, "chain": chain,
+        }
+
+    cache_key = f"insights_{chain}_{wallet_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/wallets/{wallet_address}/insights",
+            params={"chain": CHAIN_HEX[chain]},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404):
+            return {
+                "is_contract": False, "is_fresh_wallet": False, "is_suspicious": False,
+                "wallet_age_days": 0, "last_active_days_ago": 0, "defi_score": 0.0,
+                "category": "", "preferred_dex": "", "activity_summary": {},
+                "wallet_address": wallet_address, "chain": chain,
+            }
+        if resp.status_code in (402, 403):
+            logger.debug("Moralis wallet insights: plan limitation")
+            return {
+                "is_contract": False, "is_fresh_wallet": False, "is_suspicious": False,
+                "wallet_age_days": 0, "last_active_days_ago": 0, "defi_score": 0.0,
+                "category": "", "preferred_dex": "", "activity_summary": {},
+                "wallet_address": wallet_address, "chain": chain,
+            }
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        # Moralis response shape varies — normalize defensively
+        # The API may wrap in a top-level key or return flat
+        payload = data if isinstance(data, dict) else {}
+
+        # DeFi score: may be nested under 'insights' or at top level
+        insights_block = payload.get("insights") or payload
+        defi_score = float(
+            insights_block.get("defi_score",
+                payload.get("defi_score", 0)) or 0
+        )
+
+        # Category / classification
+        category = (
+            insights_block.get("category") or
+            payload.get("category") or
+            payload.get("wallet_type") or
+            ""
+        ).lower()
+
+        # Freshness / age
+        wallet_age_days = int(
+            insights_block.get("wallet_age_days",
+                payload.get("wallet_age_days", 0)) or 0
+        )
+        last_active = int(
+            insights_block.get("last_active_days_ago",
+                payload.get("last_active_days_ago", 0)) or 0
+        )
+        is_fresh = wallet_age_days < 30 or bool(
+            insights_block.get("is_fresh_wallet", payload.get("is_fresh_wallet", False))
+        )
+        is_suspicious = bool(
+            insights_block.get("is_suspicious", payload.get("is_suspicious", False))
+        ) or category in ("rug_trader", "scammer", "spam")
+        is_contract = bool(
+            payload.get("is_contract", False)
+        )
+
+        # Preferred DEX
+        preferred_dex = (
+            insights_block.get("preferred_dex") or
+            payload.get("preferred_dex") or
+            ""
+        )
+
+        # Full activity breakdown — pass through for debugging
+        activity_summary = {
+            k: v for k, v in insights_block.items()
+            if isinstance(v, (int, float, str, bool))
+        }
+
+        result = {
+            "is_contract":          is_contract,
+            "is_fresh_wallet":      is_fresh,
+            "is_suspicious":        is_suspicious,
+            "wallet_age_days":      wallet_age_days,
+            "last_active_days_ago": last_active,
+            "defi_score":           defi_score,
+            "category":             category,
+            "preferred_dex":        preferred_dex,
+            "activity_summary":     activity_summary,
+            "wallet_address":       wallet_address,
+            "chain":                chain,
+        }
+        _set_cache(cache_key, result)
+        logger.info(
+            f"Moralis insights: category='{category}' defi_score={defi_score:.0f} "
+            f"age={wallet_age_days}d suspicious={is_suspicious} "
+            f"for {wallet_address[:12]}... on {chain}"
+        )
+        return result
+
+    except Exception as e:
+        logger.warning(f"Moralis insights error for {wallet_address[:12]}... on {chain}: {e}")
+        return {
+            "is_contract": False, "is_fresh_wallet": False, "is_suspicious": False,
+            "wallet_age_days": 0, "last_active_days_ago": 0, "defi_score": 0.0,
+            "category": "", "preferred_dex": "", "activity_summary": {},
+            "wallet_address": wallet_address, "chain": chain,
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
