@@ -1,0 +1,54 @@
+{
+  "id": "ep-2026-04-04-001",
+  "date": "2026-04-04",
+  "category": "data_pipeline",
+  "title": "Moralis API Audit & Sprint 1 Expansion",
+  "outcome": "success",
+  "what_happened": {
+    "task": "Full audit of Moralis API coverage followed by Sprint 1 implementation: graduated token feed, new token feed, native ERC-20 pair lookup, per-pair stats, and webhook signature verification hardening.",
+    "skill_used": "moralis-data-api",
+    "files_modified": [
+      "data/providers/moralis_money.py"
+    ]
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Only ~35% of available Moralis endpoints were being used — comprehensive audit revealed 12+ high-value gaps.",
+      "The graduated token feed (GET /discovery/tokens/graduated-by-exchange) is the single most time-sensitive EVM discovery signal — catches tokens within minutes of bonding-curve graduation.",
+      "Native GET /erc20/{address}/pairs completely replaces DexScreener for pair lookups — eliminates an external dependency and reduces latency.",
+      "GET /pairs/{pairAddress}/stats provides per-pair buy/sell velocity at 5m/1h/24h — more precise than the aggregated pair stats already wired in.",
+      "Moralis signature verification was already using the correct keccak256(compact_json + secret) spec — no security regression.",
+      "Response shape normalization pattern (_parse_tf inner function) handles both nested {field: {tf: val}} and flat {field_tf: val} formats — robust against API changes."
+    ],
+    "discovery_priority_order": [
+      "0. Buying Pressure — most time-sensitive (already first, confirmed correct)",
+      "1. Graduated Tokens — NEW: post-bonding-curve, highest-alpha",
+      "2. Filtered Tokens — experienced buyers × security (existing)",
+      "3. Whale Accumulation — smart money (existing)",
+      "4. Trending (existing)",
+      "5. Top Gainers 1h (existing)",
+      "6. Top Losers — mean-reversion flag (existing)",
+      "7. New Listings — NEW: earliest signal, extra scrutiny via new_listing=True flag"
+    ],
+    "architectural_decisions": {
+      "graduated_before_filtered": "Graduated tokens placed at priority #1 (after buying pressure) because post-graduation tokens are the alpha window — they're real, have DEX liquidity, and are not yet widely discovered.",
+      "new_listings_at_end": "New listings are lowest priority because they have no track record. Extra scrutiny applied via new_listing=True flag in scorer.",
+      "per_chain_exchange_map": "_CHAIN_EXCHANGE_MAP in discover_tokens maps each chain to its dominant DEX — aerodrome for base, camelot for arbitrum, pangolin for avalanche. This ensures correct exchange slug per chain.",
+      "native_pair_fallback": "If aggregated pair stats don't capture liquidity, the native pair lookup fills it in. Belt-and-suspenders approach.",
+      "top_pair_stats_override": "When analytics_data is absent, per-pair stats buy_pressure_1h is used as the buy pressure signal — prevents zero fallback."
+    },
+    "response_shape_normalization": "Moralis API returns inconsistent shapes across endpoints (nested vs. flat, snake_case vs. camelCase, wrapped vs. unwrapped). Pattern: always try all known key names with fallback to 0/empty. _parse_tf() handles the time-frame dimension of this problem."
+  },
+  "patterns_extracted": [
+    "moralis_graduation_signal_priority",
+    "moralis_response_shape_normalization",
+    "moralis_per_chain_exchange_mapping",
+    "moralis_rate_limit_25_per_min",
+    "moralis_native_pair_over_external_api"
+  ],
+  "sprint_roadmap": {
+    "sprint1": "DONE — graduated tokens, new tokens, native pair lookup, per-pair stats",
+    "sprint2": "NEXT — wallet swap history (get_wallet_swaps), wallet insights (get_wallet_insights), stream health monitoring",
+    "sprint3": "LATER — score-based gates (reject tokens below moralis_score threshold pre-enrichment), replay attack protection for webhooks"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "session": "2026-04-04",
+  "conversation_id": "9beef23b-a4eb-40b4-8c9f-0f558741b84c",
+  "focus": "Moralis API Sprint 1 expansion",
+  "status": "sprint1_complete",
+  "files_modified": [
+    "data/providers/moralis_money.py"
+  ],
+  "sprint1_done": [
+    "get_graduated_tokens_by_exchange — POST-bonding-curve feed, #1 alpha signal",
+    "get_new_tokens_by_exchange — earliest listing signal, lowest priority",
+    "get_erc20_pairs — native pair lookup replacing DexScreener for EVM",
+    "get_pair_stats — per-pair buyer/seller velocity at 5m/1h/24h",
+    "discover_tokens — updated to 8 sources with correct priority order",
+    "enrich_candidate — wired both new enrichment functions + 7 new output fields"
+  ],
+  "sprint2_todo": [
+    "get_wallet_swaps — per-wallet swap history for sniper intelligence",
+    "get_wallet_insights — advanced wallet profiling (win rate, avg hold time)",
+    "moralis_streams stream health monitoring"
+  ],
+  "sprint3_todo": [
+    "Score-based gate: reject tokens below moralis_score threshold BEFORE enrichment (saves rate limit budget)",
+    "Replay attack protection for webhook server (block number deduplication)"
+  ],
+  "open_questions": [
+    "Moralis graduated endpoint may be plan-gated (Pro tier) — graceful 402/403 handling is in place",
+    "Exchange slug correctness per chain — aerodrome for base, camelot for arbitrum: needs live verification"
+  ]
+}

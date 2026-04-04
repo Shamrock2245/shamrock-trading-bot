@@ -1,6 +1,6 @@
 {
-  "version": "1.0",
-  "last_updated": "2026-03-28",
+  "version": "1.1",
+  "last_updated": "2026-04-04",
   "patterns": [
     {
       "id": "pm-001",
@@ -85,8 +85,7 @@
       "files": ["core/offensive_guardrails.py", "main.py"],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | HIGH | NoneType hunt methodology"
-    }
-  ,
+    },
     {
       "id": "adapt-001",
       "category": "guardrails",
@@ -130,6 +129,59 @@
       "files": ["config/settings.py", "core/wallet_router.py"],
       "source_episode": "ep-2026-03-28-002",
       "evolution_marker": "2026-03-28 | HIGH | Capital efficiency improvement for small wallets"
+    },
+    {
+      "id": "dp-001",
+      "category": "data_pipeline",
+      "name": "moralis_graduation_signal_priority",
+      "priority": "high",
+      "confidence": 0.92,
+      "applications": 1,
+      "description": "The Moralis graduated token feed (GET /discovery/tokens/graduated-by-exchange) is the single most time-sensitive alpha signal for EVM chains. Tokens that just graduated from a bonding curve (pump.fun, moonshot) onto a real DEX are in a narrow alpha window — real liquidity, not yet widely discovered, explosive momentum potential. This should always run IMMEDIATELY after buying-pressure in discover_tokens.",
+      "rule": "Priority order in discover_tokens: 0=buying_pressure, 1=graduated, 2=filtered, 3=whale, 4=trending, 5=top_gainers, 6=top_losers, 7=new_listings. Never reorder graduated below filtered.",
+      "per_chain_exchange_map": {
+        "ethereum": "uniswap-v2",
+        "base": "aerodrome",
+        "arbitrum": "camelot",
+        "polygon": "quickswap-v2",
+        "bsc": "pancakeswap-v2",
+        "avalanche": "pangolin"
+      },
+      "flags": "Set graduated=True on normalized token dict — scorer should apply a bonus multiplier (e.g. +10 points) for post-graduation timing.",
+      "anti_pattern": "Running graduated feed after filtered/whale feeds (wastes the alpha window)",
+      "files": ["data/providers/moralis_money.py"],
+      "source_episode": "ep-2026-04-04-001",
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 Moralis audit — graduated is the top alpha signal"
+    },
+    {
+      "id": "dp-002",
+      "category": "data_pipeline",
+      "name": "moralis_response_shape_normalization",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "Moralis API returns inconsistent response shapes across endpoints and versions: nested vs. flat, snake_case vs. camelCase, wrapped in result[] vs. bare list, nested time-frames {field:{tf:val}} vs. flat field_tf. Always normalize with multiple fallback key checks. Never assume a single key name.",
+      "rule": "For any Moralis field: try snake_case first, then camelCase, then the nested version. For time-framed fields, build a _parse_tf(field, tf) inner function that tries nested dict then flat key (replacing 'm' suffix with 'min' for legacy endpoints).",
+      "pattern_code": "_parse_tf inner function: try stats.get(field, {}).get(tf) first, then stats.get(f'{field}_{tf.replace(\"m\",\"min\")}')",
+      "anti_pattern": "Hard-coding a single key name from one endpoint observation — breaks on API version changes",
+      "files": ["data/providers/moralis_money.py"],
+      "source_episode": "ep-2026-04-04-001",
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 — response normalization pattern for get_pair_stats"
+    },
+    {
+      "id": "dp-003",
+      "category": "data_pipeline",
+      "name": "moralis_native_pair_over_external_api",
+      "priority": "high",
+      "confidence": 0.93,
+      "applications": 1,
+      "description": "DexScreener is an external dependency in enrich_candidate(). Moralis GET /erc20/{address}/pairs provides equivalent or better data (liquidity, price, volume, pair address) with zero external dependency, same rate limit budget, and native 10-min cache. Always prefer native Moralis pair lookup over DexScreener for EVM chains.",
+      "rule": "In enrich_candidate(): call get_erc20_pairs(address, chain) first. If it returns pairs, use the top pair (sorted by liquidity descending). Only fall back to DexScreener if get_erc20_pairs returns empty. Solana is excluded — DexScreener still required for Solana.",
+      "secondary_pattern": "After getting the top pair address from get_erc20_pairs, call get_pair_stats(pair_address, chain) for precise per-DEX velocity (buyers_5m, buy_pressure_1h, etc.). This is more precise than aggregated pair stats.",
+      "anti_pattern": "Calling DexScreener for EVM tokens when moralis_top_pair_address already available",
+      "files": ["data/providers/moralis_money.py"],
+      "source_episode": "ep-2026-04-04-001",
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 — eliminates DexScreener dependency for EVM"
     }
   ]
 }

@@ -5,20 +5,32 @@ Moralis Money is one of the most powerful on-chain intelligence platforms availa
 This module wires in EVERY relevant Moralis endpoint as a first-class data source:
 
   Discovery (Pro):
-    POST /discovery/tokens              → Filtered Tokens (custom filters: buyers, volume, liquidity)
-    GET  /discovery/tokens/trending     → Trending tokens by chain
-    GET  /discovery/tokens/top-gainers  → Top price gainers with on-chain strength
-    GET  /discovery/tokens/top-losers   → Oversold tokens (mean-reversion candidates)
-    GET  /discovery/tokens/buying-pressure → Rising buy:sell ratio (momentum signal)
+    POST /discovery/tokens                       → Filtered Tokens (experienced buyers × liquidity × security)
+    GET  /discovery/tokens/trending              → Trending tokens by chain
+    GET  /discovery/tokens/top-gainers           → Top price gainers with on-chain strength
+    GET  /discovery/tokens/top-losers            → Oversold tokens (mean-reversion candidates)
+    GET  /discovery/tokens/buying-pressure       → Rising buy:sell ratio (momentum signal)
+    GET  /discovery/tokens/graduated-by-exchange → Post-bonding graduated tokens (NEW — Sprint 1)
+    GET  /discovery/tokens/new-by-exchange       → Brand-new token listings (NEW — Sprint 1)
 
   Intelligence (Pro):
-    GET  /tokens/{address}/score        → Moralis token score (0–100) with volume/tx/supply metrics
-    GET  /tokens/{address}/analytics    → Buy/sell volume, buyers, sellers, net buyers (5m–30d)
-    POST /tokens/analytics              → Batch analytics for up to 30 tokens at once
+    GET  /tokens/{address}/score                 → Moralis token score (0–100) with volume/tx/supply metrics
+    GET  /tokens/{address}/analytics             → Buy/sell volume, buyers, sellers, net buyers (5m–30d)
+    POST /tokens/analytics                       → Batch analytics for up to 30 tokens at once
+
+  Pair Data (Free / Pro):
+    GET  /erc20/{address}/pairs                  → Native DEX pair lookup — replaces DexScreener (NEW — Sprint 1)
+    GET  /pairs/{pairAddress}/stats              → Per-pair O/HLCV + buyer/seller velocity (NEW — Sprint 1)
 
   Enrichment (Free):
-    GET  /erc20/{address}/stats         → Transfer count (activity proxy)
-    GET  /erc20/{address}/owners        → Holder count
+    GET  /erc20/{address}/stats                  → Transfer count (activity proxy)
+    GET  /erc20/{address}/owners                 → Holder count
+
+Sprint 1 additions:
+  - Graduated token feed: catches tokens immediately post-DEX-graduation (full bonding-curve funnel).
+  - New token feed: earliest-possible discovery signal for brand-new listings.
+  - Native ERC-20 pair lookup: replaces external DexScreener dependency in enrich_candidate.
+  - Per-pair stats: per-DEX buyer/seller velocity — complements aggregated pair_stats.
 
 All discovery results feed directly into the gem scanner as high-priority candidates.
 Token Score and Analytics results enrich the gem scoring pipeline.
@@ -1140,25 +1152,363 @@ def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 14. Graduated Tokens  (GET /discovery/tokens/graduated-by-exchange)  — Pro
+#     Catches tokens the instant they graduate from a bonding curve (pump.fun,
+#     moonshot, etc.) onto a real DEX — the most time-sensitive discovery signal.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_graduated_tokens_by_exchange(
+    chain: str,
+    exchange: str = "uniswap-v2",
+    limit: int = 25,
+) -> list[dict]:
+    """
+    Fetch tokens that JUST graduated from a bonding curve onto a live DEX.
+    This is the highest-alpha discovery signal — catches tokens in the first
+    hour after liquidity is added, before the wider market discovers them.
+
+    Args:
+        chain: EVM chain name (ethereum, base, arbitrum, polygon, bsc, avalanche)
+        exchange: DEX slug — 'uniswap-v2', 'uniswap-v3', 'pancakeswap-v2',
+                  'aerodrome', 'camelot' — must match Moralis exchange slugs.
+        limit: Max tokens to return (default 25).
+
+    Returns list of normalized token dicts with source='moralis_graduated'.
+    Cost: ~5 Compute Units per call (very cheap!).
+    """
+    if not _available(chain) or chain == "solana":
+        return []
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"graduated_{chain}_{exchange}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/discovery/tokens/graduated-by-exchange",
+            params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (402, 403):
+            logger.debug(f"Moralis graduated tokens: plan limitation for {chain}/{exchange}")
+            return []
+        if resp.status_code == 404:
+            logger.debug(f"Moralis graduated tokens: endpoint not found for {chain}/{exchange}")
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("result", [])
+        result = []
+        for t in items:
+            normalized = _normalize_discovery_token(t, chain, "moralis_graduated")
+            if normalized:
+                normalized["graduated"] = True  # flag for scorer bonus
+                normalized["graduated_exchange"] = exchange
+                result.append(normalized)
+        _set_cache(cache_key, result)
+        logger.info(f"🎓 Moralis graduated tokens: {len(result)} fresh graduates on {chain}/{exchange}")
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis graduated tokens error for {chain}/{exchange}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. New Tokens by Exchange  (GET /discovery/tokens/new-by-exchange)  — Pro
+#     Brand-new token listings — the earliest-possible discovery signal.
+#     These are higher risk but highest potential reward.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_new_tokens_by_exchange(
+    chain: str,
+    exchange: str = "uniswap-v2",
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Fetch brand-new token listings on a DEX exchange — earliest possible signal.
+    Used as a low-priority discovery source: high risk, but maximum upside if
+    caught before wider market discovery.
+
+    Args:
+        chain: EVM chain name
+        exchange: DEX slug — same options as get_graduated_tokens_by_exchange
+        limit: Max tokens to return (default 20, intentionally lower than graduated)
+
+    Returns list of normalized token dicts with source='moralis_new_listing'.
+    Cost: ~5 Compute Units per call.
+    """
+    if not _available(chain) or chain == "solana":
+        return []
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"new_listing_{chain}_{exchange}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/discovery/tokens/new-by-exchange",
+            params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (402, 403):
+            logger.debug(f"Moralis new tokens: plan limitation for {chain}/{exchange}")
+            return []
+        if resp.status_code == 404:
+            logger.debug(f"Moralis new tokens: endpoint not found for {chain}/{exchange}")
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("result", [])
+        result = []
+        for t in items:
+            normalized = _normalize_discovery_token(t, chain, "moralis_new_listing")
+            if normalized:
+                normalized["new_listing"] = True  # flag: apply extra scrutiny in scorer
+                normalized["new_listing_exchange"] = exchange
+                result.append(normalized)
+        _set_cache(cache_key, result)
+        logger.info(f"🆕 Moralis new listings: {len(result)} new tokens on {chain}/{exchange}")
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis new tokens error for {chain}/{exchange}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. ERC-20 Token Pairs  (GET /erc20/{address}/pairs)  — replaces DexScreener
+#     Native Moralis pair lookup — no external dependency. Returns all DEX
+#     pairs for a token with liquidity, price, reserve data.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_erc20_pairs(
+    token_address: str,
+    chain: str,
+    limit: int = 10,
+    min_liquidity_usd: float = 10_000,
+) -> list[dict]:
+    """
+    Get all DEX trading pairs for a token via native Moralis endpoint.
+    Replaces the external DexScreener dependency in enrich_candidate().
+
+    Returns pairs sorted by liquidity descending, filtered by min_liquidity_usd.
+    The most liquid pair can be used for per-pair stats lookups.
+
+    Args:
+        token_address: ERC-20 contract address
+        chain: Chain name
+        limit: Max pairs to return
+        min_liquidity_usd: Minimum USD liquidity to include a pair
+
+    Returns:
+        list of {
+            "pair_address": str,
+            "exchange_name": str,
+            "exchange_address": str,
+            "token0_address": str,
+            "token1_address": str,
+            "liquidity_usd": float,
+            "price_usd": float,
+            "volume_24h_usd": float,
+        }
+    Cost: ~5 Compute Units.
+    """
+    if not _available(chain) or chain == "solana":
+        return []
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"erc20_pairs_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/erc20/{token_address}/pairs",
+            params={"chain": moralis_chain, "limit": limit},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 402, 403, 404):
+            logger.debug(
+                f"Moralis ERC-20 pairs: {resp.status_code} for {token_address[:10]}... on {chain}"
+            )
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("pairs", data) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            items = []
+
+        result = []
+        for p in items:
+            liq = _safe_float(
+                p.get("liquidity_usd", p.get("liquidityUsd", p.get("liquidity", {}).get("usd", 0)))
+            )
+            if liq < min_liquidity_usd:
+                continue
+            result.append({
+                "pair_address":    (p.get("pair_address", p.get("pairAddress", "")) or "").lower(),
+                "exchange_name":   p.get("exchange_name", p.get("exchangeName", p.get("exchange", ""))),
+                "exchange_address": (p.get("exchange_address", p.get("exchangeAddress", "")) or "").lower(),
+                "token0_address":  (p.get("token0", {}).get("address", "") or "").lower(),
+                "token1_address":  (p.get("token1", {}).get("address", "") or "").lower(),
+                "liquidity_usd":   liq,
+                "price_usd":       _safe_float(p.get("price_usd", p.get("priceUsd", 0))),
+                "volume_24h_usd":  _safe_float(
+                    p.get("volume_24h_usd", p.get("volume24h", p.get("volume", {}).get("h24", 0)))
+                ),
+                "chain": chain,
+            })
+
+        # Sort by liquidity — most liquid pair first
+        result.sort(key=lambda x: x["liquidity_usd"], reverse=True)
+        _set_cache(cache_key, result)
+        logger.debug(
+            f"Moralis ERC-20 pairs: {len(result)} pairs for {token_address[:10]}... on {chain} "
+            f"(top liq=${result[0]['liquidity_usd']:,.0f} on {result[0]['exchange_name']} if available)"
+            if result else
+            f"Moralis ERC-20 pairs: 0 pairs above threshold for {token_address[:10]}... on {chain}"
+        )
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis ERC-20 pairs error for {token_address[:10]}... on {chain}: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. Per-Pair Stats  (GET /pairs/{pairAddress}/stats)  — Sprint 1
+#     Buy/sell statistics and O/HLCV for a specific DEX trading pair.
+#     Provides per-DEX velocity complementing aggregated /erc20/{addr}/pairs/stats.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_pair_stats(
+    pair_address: str,
+    chain: str,
+) -> Optional[dict]:
+    """
+    Get per-pair trading statistics for a specific DEX pair.
+    Returns buyer/seller counts, volume, and liquidity across 5m/1h/6h/24h.
+
+    Use get_erc20_pairs() first to obtain the pair_address, then call this
+    function for the most liquid pair to get precise velocity signals.
+
+    Args:
+        pair_address: DEX pair contract address
+        chain: Chain name
+
+    Returns:
+        {
+            "buyers_5m": int, "sellers_5m": int,
+            "buyers_1h": int, "sellers_1h": int,
+            "buyers_24h": int, "sellers_24h": int,
+            "buy_volume_5m": float, "sell_volume_5m": float,
+            "buy_volume_1h": float, "sell_volume_1h": float,
+            "buy_volume_24h": float, "sell_volume_24h": float,
+            "total_liquidity_usd": float,
+            "price_usd": float,
+            "buy_pressure_1h": float,  # 0–1, derived
+            "buy_pressure_5m": float,  # 0–1, derived
+        }
+    Cost: ~5 Compute Units.
+    """
+    if not _available(chain) or chain == "solana" or not pair_address:
+        return None
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"pair_stats_v2_{chain}_{pair_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/pairs/{pair_address}/stats",
+            params={"chain": moralis_chain},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 402, 403, 404):
+            logger.debug(
+                f"Moralis pair stats: {resp.status_code} for pair {pair_address[:10]}... on {chain}"
+            )
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        # Handle both wrapped and unwrapped responses
+        stats = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
+
+        def _parse_tf(field: str, tf: str) -> float:
+            """Pull a time-framed field from various response shapes."""
+            # Shape 1: {"buyers": {"5m": 10, "1h": 50}}  (nested)
+            nested = stats.get(field, {})
+            if isinstance(nested, dict) and tf in nested:
+                return _safe_float(nested[tf])
+            # Shape 2: {"buyers_5min": 10, "buyers_1h": 50}  (flat legacy)
+            flat_key = f"{field}_{tf.replace('m', 'min')}" if tf.endswith("m") else f"{field}_{tf}"
+            return _safe_float(stats.get(flat_key, 0))
+
+        bv_5m  = _parse_tf("buy_volume", "5m")
+        sv_5m  = _parse_tf("sell_volume", "5m")
+        bv_1h  = _parse_tf("buy_volume", "1h")
+        sv_1h  = _parse_tf("sell_volume", "1h")
+        bv_24h = _parse_tf("buy_volume", "24h")
+        sv_24h = _parse_tf("sell_volume", "24h")
+
+        result = {
+            "buyers_5m":         _safe_int(_parse_tf("buyers", "5m")),
+            "sellers_5m":        _safe_int(_parse_tf("sellers", "5m")),
+            "buyers_1h":         _safe_int(_parse_tf("buyers", "1h")),
+            "sellers_1h":        _safe_int(_parse_tf("sellers", "1h")),
+            "buyers_24h":        _safe_int(_parse_tf("buyers", "24h")),
+            "sellers_24h":       _safe_int(_parse_tf("sellers", "24h")),
+            "buy_volume_5m":     bv_5m,
+            "sell_volume_5m":    sv_5m,
+            "buy_volume_1h":     bv_1h,
+            "sell_volume_1h":    sv_1h,
+            "buy_volume_24h":    bv_24h,
+            "sell_volume_24h":   sv_24h,
+            "total_liquidity_usd": _safe_float(
+                stats.get("total_liquidity_usd", stats.get("liquidityUsd", 0))
+            ),
+            "price_usd": _safe_float(stats.get("price_usd", stats.get("priceUsd", 0))),
+            # Derived buy-pressure ratios (saves scoring layer from recomputing)
+            "buy_pressure_5m":  bv_5m  / (bv_5m  + sv_5m)  if (bv_5m  + sv_5m)  > 0 else 0.5,
+            "buy_pressure_1h":  bv_1h  / (bv_1h  + sv_1h)  if (bv_1h  + sv_1h)  > 0 else 0.5,
+            "buy_pressure_24h": bv_24h / (bv_24h + sv_24h) if (bv_24h + sv_24h) > 0 else 0.5,
+            "pair_address": pair_address,
+            "chain": chain,
+        }
+        _set_cache(cache_key, result)
+        logger.debug(
+            f"Moralis pair stats: {pair_address[:10]}... on {chain} — "
+            f"bp_1h={result['buy_pressure_1h']:.2f} liq=${result['total_liquidity_usd']:,.0f}"
+        )
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis pair stats error for {pair_address[:10]}... on {chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Unified Discovery  — called by gem_scanner.py
 # ─────────────────────────────────────────────────────────────────────────────
 def discover_tokens(chains: list[str] = None) -> list[dict]:
     """
     PRIMARY DISCOVERY FUNCTION — called by GemScanner on every cycle.
 
-    Aggregates tokens from ALL six Moralis discovery endpoints in priority order:
-      0. Buying Pressure (FIRST — real-time rising buy:sell ratio, most time-sensitive)
-      1. Filtered Tokens (experienced buyers + liquidity + security filters)
-      2. Whale Accumulation (netExperiencedBuyers — strongest smart-money signal)
-      3. Trending Tokens (volume/social trending feed)
-      4. Top Gainers (1h breakout momentum)
-      5. Top Losers (mean-reversion candidates — Wallet B only)
+    Aggregates tokens from ALL eight Moralis discovery endpoints in priority order:
+      0. Buying Pressure     (FIRST — real-time rising buy:sell ratio, most time-sensitive)
+      1. Graduated Tokens    (post-bonding-curve graduates — highest alpha, Sprint 1)
+      2. Filtered Tokens     (experienced buyers + liquidity + security filters)
+      3. Whale Accumulation  (netExperiencedBuyers — strongest smart-money signal)
+      4. Trending Tokens     (volume/social trending feed)
+      5. Top Gainers         (1h breakout momentum)
+      6. Top Losers          (mean-reversion candidates — Wallet B only)
+      7. New Listings        (earliest discovery signal — low priority, high scrutiny)
 
     Deduplicates by address+chain. Tags each token with its source so the
     gem scorer can apply appropriate weight multipliers.
 
-    Returns a combined, deduplicated list ready for DexScreener pair lookup
-    and full gem scoring.
+    Returns a combined, deduplicated list ready for native pair lookup
+    (get_erc20_pairs) and full gem scoring.
     """
     if not MORALIS_API_KEY:
         logger.warning(
@@ -1174,31 +1524,54 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
     all_tokens: list[dict] = []
     seen: set[str] = set()
 
+    # DEX exchange slugs to poll for graduated/new token feeds.
+    # Keyed by chain — use the dominant DEX per chain.
+    _CHAIN_EXCHANGE_MAP: dict[str, str] = {
+        "ethereum": "uniswap-v2",
+        "base":     "aerodrome",
+        "arbitrum": "camelot",
+        "polygon":  "quickswap-v2",
+        "bsc":      "pancakeswap-v2",
+        "avalanche": "pangolin",
+    }
+
     for chain in chains:
         # 0. BUYING PRESSURE — real-time momentum (most time-sensitive signal FIRST)
         for t in get_buying_pressure_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 1. Filtered tokens — highest signal quality (experienced buyers + security)
+        # 1. GRADUATED TOKENS — post-bonding-curve (Sprint 1 — highest alpha)
+        #    Only for EVM chains with a known exchange mapping
+        if chain in _CHAIN_EXCHANGE_MAP:
+            for t in get_graduated_tokens_by_exchange(chain, exchange=_CHAIN_EXCHANGE_MAP[chain]):
+                _dedup_add(t, chain, seen, all_tokens)
+
+        # 2. Filtered tokens — highest signal quality (experienced buyers + security)
         for t in get_filtered_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 1b. Whale accumulation — strongest smart-money signal
+        # 3. Whale accumulation — strongest smart-money signal
         for t in get_whale_accumulation_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 2. Trending
+        # 4. Trending
         for t in get_trending_tokens(chain):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 3. Top gainers (1h momentum)
+        # 5. Top gainers (1h momentum)
         for t in get_top_gainers(chain, time_frame="1h"):
             _dedup_add(t, chain, seen, all_tokens)
 
-        # 4. Top losers — flag for Wallet B mean-reversion
+        # 6. Top losers — flag for Wallet B mean-reversion
         for t in get_top_losers(chain, time_frame="1h"):
             t["mean_reversion_candidate"] = True
             _dedup_add(t, chain, seen, all_tokens)
+
+        # 7. NEW LISTINGS — earliest discovery signal (Sprint 1 — lowest priority)
+        #    Apply extra scrutiny in scorer (new_listing=True flag)
+        if chain in _CHAIN_EXCHANGE_MAP:
+            for t in get_new_tokens_by_exchange(chain, exchange=_CHAIN_EXCHANGE_MAP[chain]):
+                _dedup_add(t, chain, seen, all_tokens)
 
     logger.info(
         f"🍀 Moralis Money (PRIMARY): {len(all_tokens)} unique tokens discovered "
@@ -1431,6 +1804,8 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
       - Bonding status (pre-graduation reject gate)
       - Aggregated pair stats (buyer/seller velocity across all pairs)
       - Entry timing intelligence (multi-timeframe trend detection)
+      - Native ERC-20 pair lookup (Sprint 1 — replaces DexScreener dependency)
+      - Per-pair stats for the most liquid pair (Sprint 1 — precise velocity)
 
     This is the PRIMARY enrichment function — replaces DefiLlama, LunarCrush,
     holder_analysis, and token_unlocks with native Moralis signals.
@@ -1440,6 +1815,13 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
     discovery_data = get_discovery_token_details(token_address, chain)
     bonding_data = get_bonding_status(token_address, chain)
     pair_stats_data = get_aggregated_pair_stats(token_address, chain)
+
+    # Sprint 1: native pair lookup + per-pair stats for the most liquid pair
+    pairs = get_erc20_pairs(token_address, chain)
+    top_pair = pairs[0] if pairs else {}
+    top_pair_stats: Optional[dict] = None
+    if top_pair.get("pair_address"):
+        top_pair_stats = get_pair_stats(top_pair["pair_address"], chain)
 
     enrichment = {
         "moralis_score":         0,
@@ -1464,7 +1846,7 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         # Bonding status — reject gate for pre-graduation tokens
         "moralis_is_bonding":        False,
         "moralis_bonding_exchange":   "",
-        # Aggregated pair stats — buyer/seller velocity
+        # Aggregated pair stats — buyer/seller velocity (agg across all pairs)
         "moralis_pair_buyers_5m":    0,
         "moralis_pair_sellers_5m":   0,
         "moralis_pair_buy_vol_1h":   0.0,
@@ -1472,6 +1854,18 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         "moralis_pair_buyers_24h":   0,
         "moralis_pair_sellers_24h":  0,
         "moralis_total_liquidity":   0.0,
+        # Sprint 1: native pair lookup — top pair metadata
+        "moralis_top_pair_address":  "",
+        "moralis_top_pair_exchange": "",
+        "moralis_top_pair_liq_usd":  0.0,
+        # Sprint 1: per-pair stats for most liquid pair
+        "moralis_pp_buy_pressure_5m":  0.5,
+        "moralis_pp_buy_pressure_1h":  0.5,
+        "moralis_pp_buy_pressure_24h": 0.5,
+        "moralis_pp_buy_vol_1h":       0.0,
+        "moralis_pp_sell_vol_1h":      0.0,
+        "moralis_pp_buyers_1h":        0,
+        "moralis_pp_sellers_1h":       0,
         # Entry timing signals (multi-timeframe)
         "timing_bp_trend":           "flat",
         "timing_bp_micro_ratio":     1.0,
@@ -1535,6 +1929,29 @@ def enrich_candidate(token_address: str, chain: str) -> dict:
         enrichment["moralis_pair_buyers_24h"]  = pair_stats_data.get("buyers_24h", 0)
         enrichment["moralis_pair_sellers_24h"] = pair_stats_data.get("sellers_24h", 0)
         enrichment["moralis_total_liquidity"]  = pair_stats_data.get("total_liquidity_usd", 0.0)
+
+    # Sprint 1: native pair lookup — populate top pair metadata
+    if top_pair:
+        enrichment["moralis_top_pair_address"]  = top_pair.get("pair_address", "")
+        enrichment["moralis_top_pair_exchange"] = top_pair.get("exchange_name", "")
+        enrichment["moralis_top_pair_liq_usd"]  = top_pair.get("liquidity_usd", 0.0)
+        # Use native pair liquidity if aggregated pair stats didn't capture it
+        if enrichment["moralis_total_liquidity"] == 0.0:
+            enrichment["moralis_total_liquidity"] = top_pair.get("liquidity_usd", 0.0)
+
+    # Sprint 1: per-pair stats for most liquid pair — precise velocity signal
+    if top_pair_stats:
+        enrichment["moralis_pp_buy_pressure_5m"]  = top_pair_stats.get("buy_pressure_5m", 0.5)
+        enrichment["moralis_pp_buy_pressure_1h"]  = top_pair_stats.get("buy_pressure_1h", 0.5)
+        enrichment["moralis_pp_buy_pressure_24h"] = top_pair_stats.get("buy_pressure_24h", 0.5)
+        enrichment["moralis_pp_buy_vol_1h"]        = top_pair_stats.get("buy_volume_1h", 0.0)
+        enrichment["moralis_pp_sell_vol_1h"]       = top_pair_stats.get("sell_volume_1h", 0.0)
+        enrichment["moralis_pp_buyers_1h"]         = top_pair_stats.get("buyers_1h", 0)
+        enrichment["moralis_pp_sellers_1h"]        = top_pair_stats.get("sellers_1h", 0)
+        # Override aggregated buy pressure with per-pair data for the top pair
+        # (more precise — single DEX signal vs. blended aggregate)
+        if not analytics_data:
+            enrichment["moralis_buy_pressure"] = top_pair_stats.get("buy_pressure_1h", 0.5)
 
     return enrichment
 
