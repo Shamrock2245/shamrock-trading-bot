@@ -1,0 +1,31 @@
+{
+  "updated_at": "2026-04-04T21:00:00+00:00",
+  "total_active": 10,
+  "_note": "Manually seeded with verified high-PNL wallets. The sniper discovery daemon appends to this file automatically.",
+  "evm": [
+    "0x1d014371800dd8c97c1fe682ca7b30dafb16ea9a",
+    "0x2f79978041392ebb7f1f741939e63e70c8e70100",
+    "0x4801ed37506183e80c51b38409874df46645bec1",
+    "0x08125a6c3f7dff75d856b9a07de36f4cf1795687",
+    "0x92348632a27b98151f16f6e4fa593280b082a12d",
+    "0x6a0820f00a3fc2f3c2bc8e54e7fe5f261825e049"
+  ],
+  "solana": [
+    "AVAZvHLR2PcWpDf8BXY4rVxNHYRBytycHkcB5z5QNXYm",
+    "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
+    "B6J251t6KbZhh7R6GhHJdwKQGj22dcck83AULtxNPSat",
+    "AMRsSeU5JpqwQWJGNLMpZzRCZSFEwYQYbMnms3dD4311"
+  ],
+  "wallets": [
+    {"address": "0x1d014371800dd8c97c1fe682ca7b30dafb16ea9a", "chain": "base", "label": "Base meme sniper 13k% ROI", "is_active": true, "score": 95, "source": "manual_seed"},
+    {"address": "0x2f79978041392ebb7f1f741939e63e70c8e70100", "chain": "base", "label": "Base DEGEN trader", "is_active": true, "score": 88, "source": "manual_seed"},
+    {"address": "0x4801ed37506183e80c51b38409874df46645bec1", "chain": "arbitrum", "label": "Arbitrum PNL whale (GMX perps)", "is_active": true, "score": 90, "source": "manual_seed"},
+    {"address": "0x08125a6c3f7dff75d856b9a07de36f4cf1795687", "chain": "arbitrum", "label": "Arbitrum gem sniper", "is_active": true, "score": 85, "source": "manual_seed"},
+    {"address": "0x92348632a27b98151f16f6e4fa593280b082a12d", "chain": "avalanche", "label": "Avax early entry hunter", "is_active": true, "score": 83, "source": "manual_seed"},
+    {"address": "0x6a0820f00a3fc2f3c2bc8e54e7fe5f261825e049", "chain": "avalanche", "label": "Avax DeFi/meme sniper", "is_active": true, "score": 82, "source": "manual_seed"},
+    {"address": "AVAZvHLR2PcWpDf8BXY4rVxNHYRBytycHkcB5z5QNXYm", "chain": "solana", "label": "Pump.fun high-PNL meme sniper", "is_active": true, "score": 92, "source": "manual_seed"},
+    {"address": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t", "chain": "solana", "label": "Verified profitable Solana buyer", "is_active": true, "score": 88, "source": "manual_seed"},
+    {"address": "B6J251t6KbZhh7R6GhHJdwKQGj22dcck83AULtxNPSat", "chain": "solana", "label": "Consistent Raydium early entry", "is_active": true, "score": 86, "source": "manual_seed"},
+    {"address": "AMRsSeU5JpqwQWJGNLMpZzRCZSFEwYQYbMnms3dD4311", "chain": "solana", "label": "Raydium gem hunter", "is_active": true, "score": 84, "source": "manual_seed"}
+  ]
+}
