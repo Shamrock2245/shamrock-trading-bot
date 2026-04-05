@@ -50,7 +50,14 @@ ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o Stric
 ## Notes
 - Deploy key is at `.shamrock_deploy_key` (gitignored — never committed)
 - All steps are `// turbo` — fully automated, no password prompts
-- To quick-restart without rebuilding: 
+
+> **⚠️ CRITICAL: `docker compose restart` does NOT pick up code changes.**
+> Source code (`core/`, `main.py`, `scanner/`, etc.) is baked into the Docker image at build time.
+> Only `logs/`, `data/`, and `output/` are volume-mounted at runtime.
+> **ALWAYS use `docker compose build --no-cache && docker compose up -d` after any code change.**
+> Using `restart` alone will run the OLD code and silently appear to work.
+
+- To quick-restart (state files / env changes only — NOT code changes): 
   ```bash
   ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose restart bot'
   ```
