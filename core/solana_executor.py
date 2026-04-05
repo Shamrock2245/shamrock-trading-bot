@@ -526,7 +526,7 @@ def execute_solana_sell(
     token_amount: int,  # In token's smallest unit
     wallet_public_key: str,
     wallet_private_key_env: str,
-    output_mint: str = USDC_MINT,  # Default: sell into USDC (stablecoin — lock profit)
+    output_mint: str = WSOL_MINT,  # Sell back to SOL (native base pair — feeds next buy directly)
     slippage_bps: int = 200,
     is_paper: bool = True,
 ) -> Optional[str]:
@@ -538,7 +538,8 @@ def execute_solana_sell(
         token_amount: Amount in token's smallest unit
         wallet_public_key: Wallet's public key
         wallet_private_key_env: Name of env var holding the private key
-        output_mint: Token to receive (default: USDC — profit locked as stablecoin)
+        output_mint: Token to receive (default: WSOL — SOL is native base pair, 1-hop on Jupiter,
+                     feeds directly back into execute_solana_buy(). Pass USDC_MINT to lock profit.)
         slippage_bps: Slippage tolerance (200 = 2%)
         is_paper: If True, simulate but don't broadcast
 
