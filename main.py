@@ -1598,6 +1598,21 @@ async def run_bot_loop():
                 candidates = []  # Block all entries
 
             for candidate in candidates:
+                # ── GUARD 0: Symbol pre-filter — NEVER trade wrapped natives, stables, LSDs ──
+                # Check before any expensive safety/TA calls.
+                _BLOCKED_SYMBOLS = {
+                    "USDT", "USDC", "USDC.E", "DAI", "BUSD", "TUSD", "FRAX", "LUSD", "PYUSD",
+                    "USDP", "GUSD", "SUSD", "MIM", "EUSD", "USDD", "FDUSD", "USDBC",
+                    "WETH", "WBTC", "WBNB", "WMATIC", "WAVAX", "WFTM", "WSOL", "ETH",
+                    "STETH", "WSTETH", "RETH", "CBETH", "SETH2",
+                    "BNB", "MATIC", "AVAX", "SOL", "BTC",
+                }
+                if candidate.token.symbol.upper() in _BLOCKED_SYMBOLS:
+                    logger.debug(
+                        f"🚫 Symbol pre-filter: {candidate.token.symbol} is a wrapped/native/stable — skipping"
+                    )
+                    continue
+
                 # ── Per-cycle trade cap (enforced on SUCCESSFUL trades) ────────
                 if trades_this_cycle >= settings.MAX_TRADES_PER_CYCLE:
                     logger.info(

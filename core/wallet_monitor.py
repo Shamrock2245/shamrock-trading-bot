@@ -929,7 +929,7 @@ class WalletMonitor:
                     timestamp=ts,
                     token_name=swap.get("token_name", ""),
                     confirming_wallets=[wallet_address],
-                    source=swap.get("seen_via", "polling"),
+                    source=swap.get("seen_via") or swap.get("source", "polling"),
                 )
                 self.state.active_signals[token_address] = signal
                 self.state.total_signals_detected += 1
