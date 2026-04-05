@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-05T23:36:30.449308+00:00",
+  "timestamp": "2026-04-05T23:44:05.269485+00:00",
   "git": {
-    "sha": "c86bc0d",
+    "sha": "59b78f6",
     "branch": "main",
-    "message": "feat: add get-it-right deploy loop (preflight + reviewer + rollback)"
+    "message": "fix: 5-deep ETH RPC pool \u2014 swap cloudflare-eth for publicnode as primary"
   },
   "checks": {
     "syntax": {

@@ -321,7 +321,7 @@ def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
 
     # Build the full pool: [env primary, env fallback] + extra tiers (deduplicated)
     env_rpcs = [u for u in [chain.rpc_url, chain.rpc_fallback] if u]
-    extra = [u for u in EXTRA_RPCS.get(chain.name, []) if u not in env_rpcs]
+    extra = [u for u in EXTRA_RPCS.get(chain.name.lower().split()[0], []) if u not in env_rpcs]
     rpc_pool = env_rpcs + extra
 
     payload = {
