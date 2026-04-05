@@ -434,28 +434,15 @@ LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "10.0"))   
 # Smart Money Tracking
 # ─────────────────────────────────────────────────────────────────────────────
 # Known smart money / whale wallet addresses to track across chains
+# SOURCE OF TRUTH: .env ALPHA_WALLETS_EVM — all wallets are Moralis on-chain
+# verified (audited 2026-04-05 via getWalletProfitabilitySummary).
+# NO hardcoded fallbacks — if the env var is empty, monitor is disabled by design.
 _ALPHA_EVM_ENV: list[str] = [
     addr.strip() for addr in
     os.getenv("ALPHA_WALLETS_EVM", "").split(",")
     if addr.strip()
 ]
-SMART_MONEY_WALLETS: list[str] = list(dict.fromkeys(_ALPHA_EVM_ENV + [
-    # ── Verified high-PNL alpha wallets (seeded 2026-04-04) ────────────────
-    # These are real on-chain performers — used as copy-trade seeds and smart
-    # money signal sources. .env ALPHA_WALLETS_EVM always takes priority.
-
-    # ── Base chain ─────────────────────────────────────────────────────────
-    "0x1d014371800dd8c97c1fe682ca7b30dafb16ea9a",  # Base meme sniper — 13,000%+ ROI
-    "0x2f79978041392ebb7f1f741939e63e70c8e70100",  # Base DEGEN early buyer
-
-    # ── Arbitrum ───────────────────────────────────────────────────────────
-    "0x4801ed37506183e80c51b38409874df46645bec1",  # Arbitrum PNL whale (GMX perps)
-    "0x08125a6c3f7dff75d856b9a07de36f4cf1795687",  # Arbitrum gem sniper
-
-    # ── Avalanche ──────────────────────────────────────────────────────────
-    "0x92348632a27b98151f16f6e4fa593280b082a12d",  # Avax early entry hunter
-    "0x6a0820f00a3fc2f3c2bc8e54e7fe5f261825e049",  # Avax sniper (DeFi/meme)
-]))
+SMART_MONEY_WALLETS: list[str] = list(dict.fromkeys(_ALPHA_EVM_ENV))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
