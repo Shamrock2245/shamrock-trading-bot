@@ -604,21 +604,16 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     Returns:
         True if trade was submitted, False otherwise
     """
-    # ── Gate 1: Require confirmed buy value OR a Streams-sourced signal ────────
-    # Streams webhooks don't carry USD values by design — that's fine because
-    # we size our copy off OUR wallet balance (Gate 3 below), not the alpha's.
-    # Polling-sourced signals still require buy_value_usd > 0 for conviction.
+    # ── Gate 1: Source logging only — no hard block on buy_value_usd=0 ─────────
+    # Moralis Streams AND polling both frequently return buy_value_usd=0.
+    # We size our copy off OUR wallet balance in Gate 3, not the alpha's buy size.
+    # Gate 2 below enforces conviction: if USD IS known, it must be ≥ MIN_BUY_USD.
     is_streams = "streams" in (signal.source or "")
-    if signal.buy_value_usd <= 0 and not is_streams:
-        logger.info(
-            f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
-            f"buy_value_usd unknown and not a Streams signal (source={signal.source}). "
-            f"Waiting for polling confirmation with confirmed size."
-        )
-        return False
 
-    # ── Gate 2: Alpha buy must be a meaningful position ──────────────────────
-    if signal.buy_value_usd < MIN_BUY_USD:
+    # ── Gate 2: Alpha buy must be a meaningful position (only when USD is known) ─
+    # If buy_value_usd is 0 (Moralis didn't return USD), skip this gate and
+    # let Gate 3 size the trade off our own wallet balance.
+    if signal.buy_value_usd > 0 and signal.buy_value_usd < MIN_BUY_USD:
         logger.info(
             f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
             f"alpha buy ${signal.buy_value_usd:.0f} < min ${MIN_BUY_USD:.0f} (noise filter)"
