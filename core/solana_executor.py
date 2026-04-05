@@ -526,7 +526,7 @@ def execute_solana_sell(
     token_amount: int,  # In token's smallest unit
     wallet_public_key: str,
     wallet_private_key_env: str,
-    output_mint: str = WSOL_MINT,  # Default: sell back to SOL
+    output_mint: str = USDC_MINT,  # Default: sell into USDC (stablecoin — lock profit)
     slippage_bps: int = 200,
     is_paper: bool = True,
 ) -> Optional[str]:
@@ -538,7 +538,7 @@ def execute_solana_sell(
         token_amount: Amount in token's smallest unit
         wallet_public_key: Wallet's public key
         wallet_private_key_env: Name of env var holding the private key
-        output_mint: Token to receive (default: WSOL)
+        output_mint: Token to receive (default: USDC — profit locked as stablecoin)
         slippage_bps: Slippage tolerance (200 = 2%)
         is_paper: If True, simulate but don't broadcast
 
@@ -563,8 +563,10 @@ def execute_solana_sell(
 
     out_amount = int(quote.get("outAmount", 0))
     price_impact = float(quote.get("priceImpactPct", 0))
+    out_label = "USDC" if output_mint == USDC_MINT else ("SOL" if output_mint == WSOL_MINT else output_mint[:8])
+    out_divisor = 1e6 if output_mint == USDC_MINT else 1e9
     logger.info(
-        f"Jupiter sell quote: {token_amount:,} tokens → {out_amount/1e9:.4f} SOL | "
+        f"Jupiter sell quote: {token_amount:,} tokens → {out_amount/out_divisor:.4f} {out_label} | "
         f"price impact: {price_impact:.3f}%"
     )
 
