@@ -59,3 +59,6 @@ protobuf>=4.25.0              # Protocol buffers for Cosmos TX signing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-mock>=3.11.0
+
+# ── GMGN.ai Ed25519 Auth ─────────────────────────────────────────────────────
+cryptography>=42.0.0
