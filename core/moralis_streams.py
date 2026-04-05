@@ -59,6 +59,14 @@ class MoralisStreamsServer:
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
+        # Replay-attack dedup: track (block_number:chain_id) tuples we've already processed.
+        # Moralis may re-deliver the same webhook on network hiccups. Without this gate,
+        # a re-delivery would fire a duplicate copy-trade for the same on-chain event.
+        # Bounded to 500 entries — at one block per ~12s that's ~100 minutes of history.
+        self._seen_webhooks: set[str] = set()
+        self._seen_webhooks_lock = threading.Lock()
+        self._SEEN_WEBHOOKS_MAX = 500
+
         # Metrics
         self.metrics = {
             "webhooks_received": 0,
@@ -203,6 +211,30 @@ class MoralisStreamsServer:
                     self.end_headers()
                     self.wfile.write(b'{"ok": true, "skipped": "confirmed_dup"}')
                     return
+
+                # ── Replay-Attack Dedup ───────────────────────────────────
+                # Moralis may re-deliver the same UNCONFIRMED webhook if we
+                # don't respond fast enough or their infra retries. A re-deliver
+                # on an alpha wallet event would fire a second copy-trade for
+                # the same on-chain tx → guaranteed loss. We gate on
+                # (block_number:chain_id) which is unique per block per chain.
+                _dedup_key = f"{block_num}:{chain_id}"
+                with parent._seen_webhooks_lock:
+                    if _dedup_key in parent._seen_webhooks:
+                        logger.debug(
+                            f"MoralisStreams: ⚠️ Replay detected — block={block_num} "
+                            f"chain={_chain_id_to_name(chain_id)} already processed, skipping"
+                        )
+                        self.send_response(200)
+                        self.end_headers()
+                        self.wfile.write(b'{"ok": true, "skipped": "replay_dup"}')
+                        return
+                    parent._seen_webhooks.add(_dedup_key)
+                    # Evict oldest half when set exceeds max size to bound memory
+                    if len(parent._seen_webhooks) > parent._SEEN_WEBHOOKS_MAX:
+                        evict_count = parent._SEEN_WEBHOOKS_MAX // 2
+                        for _evict_key in list(parent._seen_webhooks)[:evict_count]:
+                            parent._seen_webhooks.discard(_evict_key)
 
                 # ── Route by Tag ──────────────────────────────────────────
                 tag = payload.get("tag", "")

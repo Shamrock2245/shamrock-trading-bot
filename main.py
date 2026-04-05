@@ -923,6 +923,9 @@ async def run_bot_loop():
     floor_guardian = DailyFloorGuardian()
     # ── Blue-Chip Anchor — always hold % of capital in strongest blue chip ────
     bluechip_anchor = BluechipAnchor()
+    # ── Daily PnL Digest Timer — posts structured summary to Slack every 24h ──
+    import time as _time_module
+    _last_daily_digest_ts: float = _time_module.time()  # reset on bot start
 
     while True:
         cycle += 1
@@ -2244,6 +2247,40 @@ async def run_bot_loop():
                     f"Session summary: {trades_this_session} trades | "
                     f"{open_count} open positions"
                 )
+
+            # ── 24h Daily PnL Digest ── posts to Slack once every 24 hours ──
+            _now_ts = _time_module.time()
+            if _now_ts - _last_daily_digest_ts >= 86400:  # 24 × 3600 = 86400s
+                _last_daily_digest_ts = _now_ts
+                try:
+                    offensive_state = get_offensive_state()
+                    _ds = get_daily_summary(offensive_state)
+                    _pnl = _ds.get("realized_pnl_usd", 0)
+                    _wr = _ds.get("win_rate_pct", 0)
+                    _trades = _ds.get("trades", 0)
+                    _wins = _ds.get("wins", 0)
+                    _losses = _ds.get("losses", 0)
+                    _cw = _ds.get("consecutive_wins", 0)
+                    _cl = _ds.get("consecutive_losses", 0)
+                    _god = _ds.get("god_mode_active", False)
+                    _house = _ds.get("house_money_pool_usd", 0)
+                    _pnl_emoji = "🟢" if _pnl >= 0 else "🔴"
+                    _digest_msg = (
+                        f"*☘️ Shamrock Daily PnL Digest* | {_ds.get('date', 'unknown')}\n"
+                        f"{_pnl_emoji} *Realized PnL:* ${_pnl:+,.2f}\n"
+                        f"📊 *Trades:* {_trades} ({_wins}W / {_losses}L) | "
+                        f"*Win Rate:* {_wr:.0f}%\n"
+                        f"🔥 *Streak:* {_cw}W / {_cl}L consecutive\n"
+                        f"⚡ *God Mode:* {'ACTIVE' if _god else 'Standby'} | "
+                        f"💰 *House Money Pool:* ${_house:,.2f}\n"
+                        f"🤖 *Mode:* {settings.MODE} | "
+                        f"📈 *Positions open:* {len([p for p in load_positions() if p.get('status') == 'open'])}"
+                    )
+                    from notifications.slack import send_slack_message
+                    send_slack_message(_digest_msg)
+                    logger.info(f"📊 Daily PnL digest sent: PnL=${_pnl:+,.2f} | WR={_wr:.0f}% | {_trades} trades")
+                except Exception as _digest_err:
+                    logger.debug(f"Daily digest error: {_digest_err}")
 
                 # On-chain position reconciliation (Solana)
                 try:
