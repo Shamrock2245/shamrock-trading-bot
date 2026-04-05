@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-05T23:29:40.193642+00:00",
+  "timestamp": "2026-04-05T23:36:30.449308+00:00",
   "git": {
-    "sha": "ff15507",
+    "sha": "c86bc0d",
     "branch": "main",
-    "message": "docs: add critical warning \u2014 docker restart does NOT reload source code"
+    "message": "feat: add get-it-right deploy loop (preflight + reviewer + rollback)"
   },
   "checks": {
     "syntax": {

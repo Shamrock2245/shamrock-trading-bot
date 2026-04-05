@@ -273,51 +273,90 @@ def get_native_balance(wallet_address: str, chain: str) -> float:
 
 def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
     """Fetch ETH/BNB/MATIC balance via eth_getBalance JSON-RPC.
-    
-    Normalizes address to checksum format before querying (prevents silent 0x0
-    responses from case-sensitive RPCs). Retries twice on transient failures.
+
+    Uses a 5-deep RPC pool per chain so a single failing public node (e.g.
+    cloudflare-eth returning -32603) never hard-blocks a balance check.
+    Tries each RPC once — first success wins.
     """
     import time
+    import requests
+
     # Normalize to EIP-55 checksum address (prevents silent 0x0 from RPCs)
     try:
         from web3 import Web3
         wallet_address = Web3.to_checksum_address(wallet_address)
     except Exception:
-        pass  # If web3 isn't available, proceed with original address
+        pass
 
-    for rpc_url in [chain.rpc_url, chain.rpc_fallback]:
-        if not rpc_url:
-            continue
-        for attempt in range(2):  # 2 attempts per RPC before fallback
-            try:
-                import requests
-                payload = {
-                    "jsonrpc": "2.0",
-                    "method": "eth_getBalance",
-                    "params": [wallet_address, "latest"],
-                    "id": 1,
-                }
-                resp = requests.post(rpc_url, json=payload, timeout=10)
-                data = resp.json()
-                # Check for RPC-level error (e.g., rate limit, invalid address)
-                if "error" in data:
-                    logger.warning(f"RPC error from {rpc_url}: {data['error']}")
-                    break  # Try fallback RPC
-                result = data.get("result", "0x0")
-                if result and result != "0x":
-                    balance_wei = int(result, 16)
-                    balance = balance_wei / (10 ** chain.native_token_decimals)
-                    if balance > 0:
-                        logger.debug(f"Balance {wallet_address[:10]}... on {chain.name}: {balance:.6f} {chain.native_token}")
-                    return balance
-            except requests.exceptions.Timeout:
-                logger.debug(f"EVM balance timeout ({rpc_url}) attempt {attempt+1}")
-                if attempt == 0:
-                    time.sleep(1)  # Brief wait before retry
-            except Exception as e:
-                logger.debug(f"EVM balance fetch failed ({rpc_url}): {e}")
-                break
-    logger.warning(f"All RPCs failed for balance check: {wallet_address[:12]}... on {chain.name} — returning 0.0")
+    # Per-chain backup pool (public nodes, no API key required).
+    # Primary + fallback come from ENV; these are the last-resort tiers.
+    EXTRA_RPCS: dict[str, list[str]] = {
+        "ethereum": [
+            "https://eth.llamarpc.com",
+            "https://ethereum.publicnode.com",
+            "https://rpc.ankr.com/eth",
+            "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+        ],
+        "base": [
+            "https://base.publicnode.com",
+            "https://rpc.ankr.com/base",
+        ],
+        "arbitrum": [
+            "https://arbitrum.publicnode.com",
+            "https://rpc.ankr.com/arbitrum",
+        ],
+        "polygon": [
+            "https://polygon.publicnode.com",
+            "https://rpc.ankr.com/polygon",
+        ],
+        "bsc": [
+            "https://bsc.publicnode.com",
+            "https://rpc.ankr.com/bsc",
+        ],
+        "avalanche": [
+            "https://avalanche.publicnode.com",
+            "https://rpc.ankr.com/avalanche",
+        ],
+    }
+
+    # Build the full pool: [env primary, env fallback] + extra tiers (deduplicated)
+    env_rpcs = [u for u in [chain.rpc_url, chain.rpc_fallback] if u]
+    extra = [u for u in EXTRA_RPCS.get(chain.name, []) if u not in env_rpcs]
+    rpc_pool = env_rpcs + extra
+
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [wallet_address, "latest"],
+        "id": 1,
+    }
+
+    for rpc_url in rpc_pool:
+        try:
+            resp = requests.post(rpc_url, json=payload, timeout=6)
+            data = resp.json()
+            if "error" in data:
+                logger.debug(f"RPC error from {rpc_url}: {data['error']} — trying next")
+                continue
+            result = data.get("result", "0x0")
+            if result and result != "0x":
+                balance_wei = int(result, 16)
+                balance = balance_wei / (10 ** chain.native_token_decimals)
+                if balance > 0:
+                    logger.debug(
+                        f"Balance {wallet_address[:10]}... on {chain.name}: "
+                        f"{balance:.6f} {chain.native_token} (via {rpc_url})"
+                    )
+                return balance
+        except requests.exceptions.Timeout:
+            logger.debug(f"EVM balance timeout ({rpc_url})")
+        except Exception as e:
+            logger.debug(f"EVM balance fetch failed ({rpc_url}): {e}")
+
+    logger.warning(
+        f"All {len(rpc_pool)} RPCs failed for balance check: "
+        f"{wallet_address[:12]}... on {chain.name} — returning 0.0"
+    )
     return 0.0
 def _get_sol_balance(wallet_address: str) -> float:
     """Fetch SOL balance via Solana JSON-RPC with fallback endpoints."""
