@@ -1,0 +1,91 @@
+{
+  "id": "ep-2026-04-05-gmgn-integration",
+  "date": "2026-04-05",
+  "category": "data_pipeline",
+  "title": "GMGN.ai Solana Smart Money Integration",
+  "outcome": "success",
+  "priority": "high",
+  "task": "Integrate GMGN.ai API into wallet_monitor.py for real-time Solana Smart Money copy-trading, replacing raw Helius RPC polling with richer GMGN data",
+  "what_happened": {
+    "skill_used": "data_pipeline + copy_trading",
+    "initial_state": "wallet_monitor.py used raw Helius RPC (getSignaturesForAddress + getTransaction) for Solana polling — returned buy_value_usd=0.0 always (no USD pricing info), UNKNOWN symbol, required DexScreener enrichment pass",
+    "final_state": "GMGN-first polling with Helius fallback. GMGN returns token symbol, name, USD cost, and direction pre-parsed. No separate enrichment pass needed for USD value on GMGN-sourced signals.",
+    "files_modified": [
+      "core/gmgn_client.py",
+      "core/wallet_monitor.py",
+      "dashboard/pages/6_Alpha_Wallets.py",
+      ".env"
+    ]
+  },
+  "key_bugs_resolved": [
+    {
+      "bug": "GMGN gateway 403 Forbidden",
+      "root_cause": "Wrong base URL used: gmgn.ai (frontend CDN) instead of openapi.gmgn.ai (API gateway)",
+      "fix": "GMGN_BASE_URL = 'https://openapi.gmgn.ai'",
+      "pattern_id": "api-001",
+      "severity": "critical"
+    },
+    {
+      "bug": "GMGN API rejection from Hetzner VPS",
+      "root_cause": "Hetzner VPS resolves openapi.gmgn.ai to its IPv6 address. GMGN explicitly rejects IPv6 connections at the WAF level (returns 403/empty body).",
+      "fix": "Global urllib3 socket monkeypatch in GMGNClient.__init__: override socket.getaddrinfo to force AF_INET (IPv4) only. Applied before any requests are made.",
+      "code_pattern": "orig = socket.getaddrinfo; socket.getaddrinfo = lambda *a, **kw: [x for x in orig(*a, **kw) if x[0] == socket.AF_INET]",
+      "pattern_id": "api-002",
+      "severity": "critical",
+      "note": "This is a VPS-level networking quirk, not a code bug. Any future Hetzner VPS deployment should apply this patch for IPv6-hostile APIs."
+    },
+    {
+      "bug": "wallet_monitor.py Solana buy_value_usd always 0.0",
+      "root_cause": "Raw Helius RPC returns token balance deltas but no USD pricing. buy_value_usd was hard-coded to 0.0, requiring a separate DexScreener enrichment pass.",
+      "fix": "Replaced Helius-only logic with GMGN-first strategy. GMGN get_wallet_activity() returns cost_usd / value_usd per swap directly. Helius retained as fallback.",
+      "pattern_id": "ct-004",
+      "severity": "medium"
+    }
+  ],
+  "smart_money_audit_results": {
+    "wallets_audited": 4,
+    "wallets_removed": 1,
+    "removal_reason": "Wallet-3 had $0 PnL and 0% win rate — confirmed dead wallet",
+    "active_wallets": [
+      {
+        "address": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
+        "pnl_usd": 73848,
+        "win_rate_pct": 100.0,
+        "top_call": "WOJAK +535%"
+      },
+      {
+        "address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "pnl_usd": 389479,
+        "win_rate_pct": 100.0,
+        "top_call": "FWOG +114.5%"
+      },
+      {
+        "address": "DfMxre4cKmvogbLrPigxmibVTTQDuzjdXojWzjCXXhzj",
+        "pnl_usd": 38218,
+        "win_rate_pct": 100.0,
+        "top_call": "consistent 100-200%"
+      }
+    ]
+  },
+  "what_went_well": [
+    "GMGN Ed25519 signing (sub_path:sorted_qs:body:timestamp) worked correctly first try once gateway URL was fixed",
+    "IPv4 monkeypatch is clean — applies globally at client init, no per-request overhead",
+    "GMGNClient is lazy-loaded in wallet_monitor — no import cost if GMGN not configured",
+    "Live audit correctly identified dead wallet in under 60 seconds",
+    "Dashboard now shows real PnL/win-rate data from GMGN — no static placeholders"
+  ],
+  "what_went_wrong": [
+    "Initially pointed at gmgn.ai (frontend) instead of openapi.gmgn.ai (API) — 3 failed attempts before identifying correct gateway",
+    "IPv6 rejection was silent: GMGN returns 403 with empty body, easy to misdiagnose as auth failure"
+  ],
+  "env_vars_added": [
+    "GMGN_API_KEY",
+    "GMGN_PRIVATE_KEY (Ed25519, base64-encoded)",
+    "GMGN_CLIENT_ID"
+  ],
+  "deployment": {
+    "target": "Hetzner VPS (root@5.161.126.32)",
+    "method": "docker compose build --no-cache && docker compose up -d",
+    "verification": "docker exec shamrock-bot python3 -c '...' confirmed WR=100%, PnL=$389K live"
+  }
+}

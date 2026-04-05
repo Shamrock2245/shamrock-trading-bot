@@ -12,7 +12,9 @@
       "description": "Position monitor MUST have a trailing stop that activates BEFORE TP1 is hit. The standard trailing stop gates on tp1_hit=True, but TP1 may never be reached. Without pre-TP1 protection, positions that peak at +30-40% can reverse all the way to the hard stop, surrendering all unrealized gain.",
       "rule": "Add PRE_TP1_TRAILING_STOP_PCT (wider, e.g. 25%) that activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (e.g. 15%), independent of tp1_hit.",
       "anti_pattern": "Trailing stop gated exclusively on tp1_hit",
-      "files": ["core/position_monitor.py"],
+      "files": [
+        "core/position_monitor.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | CRITICAL | Added from missed-sell post-mortem"
     },
@@ -26,7 +28,9 @@
       "description": "Confluence gates that require multiple stored data fields (volume, buy pressure, liquidity) to block a sell are dangerous. When fields are absent, the bearish count stays at 0, permanently blocking the exit. ALWAYS pair any confluence gate with a hard price-action override (e.g., if dropped >X% from peak, sell regardless of signals).",
       "rule": "CONFLUENCE_HARD_REVERSAL_PCT (default 25%) must be checked BEFORE the signal gate. If crossed, sell unconditionally. Never let a data-absence cause a permanent hold.",
       "anti_pattern": "Pure data-signal confluence gate with no price-action fallback",
-      "files": ["core/position_monitor.py"],
+      "files": [
+        "core/position_monitor.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | CRITICAL | Added from missed-sell post-mortem"
     },
@@ -40,7 +44,9 @@
       "description": "When a special mode (God Mode, etc.) suppresses a sell action, it MUST still evaluate whether that action was supposed to set a state flag. Skipping tp1 sell without setting tp1_hit=True breaks all downstream logic that gates on that flag (trailing stop, TP2, etc.).",
       "rule": "When God Mode skips TP1 sell: pos['tp1_hit'] = True. The sell is skipped, but the state transition still happens.",
       "anti_pattern": "sell_action = None without preserving the state flag the sell would have set",
-      "files": ["core/position_monitor.py"],
+      "files": [
+        "core/position_monitor.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | CRITICAL | Added from God Mode trailing stop gap"
     },
@@ -55,7 +61,9 @@
       "rule": "After writing any function that returns a tuple: verify the return statement exists at ALL code paths. Pay special attention to functions that log and then fall through (logging is often the last visible action).",
       "anti_pattern": "Function ends with a logger.info() call with no return statement below it",
       "detection": "AST scan: find functions with tuple return annotations, verify return statement at every path exit",
-      "files": ["core/offensive_guardrails.py"],
+      "files": [
+        "core/offensive_guardrails.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | CRITICAL | Root cause of NoneType unpack crash loop"
     },
@@ -69,7 +77,9 @@
       "description": "When a live sell fails, silently logging and continuing leaves the position open at a loss with no retry mechanism. After N consecutive failures, escalate to CRITICAL log + Slack + wider slippage flag. Silent sell failures are invisible in production and result in held losing positions.",
       "rule": "Track pos['sell_failure_count']. At >= 3: CRITICAL log + Slack alert + pos['force_max_slippage']=True",
       "anti_pattern": "except Exception as e: logger.error(...) and move on",
-      "files": ["core/position_monitor.py"],
+      "files": [
+        "core/position_monitor.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | HIGH | Added from sell failure audit"
     },
@@ -80,9 +90,12 @@
       "priority": "high",
       "confidence": 0.95,
       "applications": 1,
-      "description": "TypeError: cannot unpack non-iterable NoneType object always shows the caller line, not the function that returned None. When hunting this error: find the unpack call site, trace to the function definition, verify return statement exists on ALL code paths — especially after logging calls at the end of a function.",
+      "description": "TypeError: cannot unpack non-iterable NoneType object always shows the caller line, not the function that returned None. When hunting this error: find the unpack call site, trace to the function definition, verify return statement exists on ALL code paths \u2014 especially after logging calls at the end of a function.",
       "rule": "To find missing return: grep for all tuple unpack sites (a, b = func()), find the function, check for return at the very end.",
-      "files": ["core/offensive_guardrails.py", "main.py"],
+      "files": [
+        "core/offensive_guardrails.py",
+        "main.py"
+      ],
       "source_episode": "ep-2026-03-28-001",
       "evolution_marker": "2026-03-28 | HIGH | NoneType hunt methodology"
     },
@@ -93,11 +106,13 @@
       "priority": "critical",
       "confidence": 0.99,
       "applications": 1,
-      "description": "When a wallet suffers a major drawdown (e.g. 80%+), the HWM becomes mathematically impossible to reach. Recovery Mode requires reaching 90% of HWM, but if HWM=$696 and capital=$94, that requires a 566% gain — an impossible threshold. The bot runs permanently throttled at half capacity.",
+      "description": "When a wallet suffers a major drawdown (e.g. 80%+), the HWM becomes mathematically impossible to reach. Recovery Mode requires reaching 90% of HWM, but if HWM=$696 and capital=$94, that requires a 566% gain \u2014 an impossible threshold. The bot runs permanently throttled at half capacity.",
       "rule": "Add ADAPTIVE_FORCE_NORMAL=true env var to immediately reset HWM to current capital and force NORMAL mode. Also add auto-reset: if drawdown > ADAPTIVE_HWM_RESET_DRAWDOWN_PCT for > ADAPTIVE_HWM_RESET_DAYS, auto-reset HWM. Check HWM vs capital ratio on every evaluate_mode() call.",
       "detection": "Log the gap between current capital and 90% of HWM. If gap > 3x current capital, flag as 'stale HWM lockout'.",
       "anti_pattern": "Hard-coded HWM with no reset mechanism and no stale detection",
-      "files": ["core/adaptive_mode.py"],
+      "files": [
+        "core/adaptive_mode.py"
+      ],
       "source_episode": "ep-2026-03-28-002",
       "evolution_marker": "2026-03-28 | CRITICAL | Bot throttled for unknown duration due to impossible HWM target"
     },
@@ -112,7 +127,9 @@
       "rule": "Set up SSH key authentication for password-free access. Run: ssh-keygen then ssh-copy-id root@5.161.126.32. After key setup, all deploy commands can run as: ssh root@IP 'cmd1 && cmd2' without any password prompt.",
       "workaround": "User must manually paste the deploy commands into their own local terminal with the SSH session. Do NOT try to automate VNC console input.",
       "anti_pattern": "Attempting to type SSH password via browser VNC automation",
-      "files": [".agents/workflows/sync-and-deploy.md"],
+      "files": [
+        ".agents/workflows/sync-and-deploy.md"
+      ],
       "source_episode": "ep-2026-03-28-002",
       "evolution_marker": "2026-03-28 | HIGH | Two failed automated deploy attempts via Hetzner VNC"
     },
@@ -126,7 +143,10 @@
       "description": "For wallets under $200, Ethereum mainnet is unusable for gem trading. Gas fees ($5-30 per tx) consume 3-15% of position value on entry alone, and an equal amount on exit. A round trip costs 6-30% before any price movement. The bot's gas guard catches this, but wastes API calls scanning ETH tokens.",
       "rule": "Set ACTIVE_CHAINS=base,bsc,avalanche,solana for wallets under $500. Ethereum should only be enabled when position size > $150 AND gas < 1% of position. This is governed by wallet_router.py gas guard.",
       "anti_pattern": "Including 'ethereum' in ACTIVE_CHAINS for small-capital wallets",
-      "files": ["config/settings.py", "core/wallet_router.py"],
+      "files": [
+        "config/settings.py",
+        "core/wallet_router.py"
+      ],
       "source_episode": "ep-2026-03-28-002",
       "evolution_marker": "2026-03-28 | HIGH | Capital efficiency improvement for small wallets"
     },
@@ -137,7 +157,7 @@
       "priority": "high",
       "confidence": 0.92,
       "applications": 1,
-      "description": "The Moralis graduated token feed (GET /discovery/tokens/graduated-by-exchange) is the single most time-sensitive alpha signal for EVM chains. Tokens that just graduated from a bonding curve (pump.fun, moonshot) onto a real DEX are in a narrow alpha window — real liquidity, not yet widely discovered, explosive momentum potential. This should always run IMMEDIATELY after buying-pressure in discover_tokens.",
+      "description": "The Moralis graduated token feed (GET /discovery/tokens/graduated-by-exchange) is the single most time-sensitive alpha signal for EVM chains. Tokens that just graduated from a bonding curve (pump.fun, moonshot) onto a real DEX are in a narrow alpha window \u2014 real liquidity, not yet widely discovered, explosive momentum potential. This should always run IMMEDIATELY after buying-pressure in discover_tokens.",
       "rule": "Priority order in discover_tokens: 0=buying_pressure, 1=graduated, 2=filtered, 3=whale, 4=trending, 5=top_gainers, 6=top_losers, 7=new_listings. Never reorder graduated below filtered.",
       "per_chain_exchange_map": {
         "ethereum": "uniswap-v2",
@@ -147,11 +167,13 @@
         "bsc": "pancakeswap-v2",
         "avalanche": "pangolin"
       },
-      "flags": "Set graduated=True on normalized token dict — scorer should apply a bonus multiplier (e.g. +10 points) for post-graduation timing.",
+      "flags": "Set graduated=True on normalized token dict \u2014 scorer should apply a bonus multiplier (e.g. +10 points) for post-graduation timing.",
       "anti_pattern": "Running graduated feed after filtered/whale feeds (wastes the alpha window)",
-      "files": ["data/providers/moralis_money.py"],
+      "files": [
+        "data/providers/moralis_money.py"
+      ],
       "source_episode": "ep-2026-04-04-001",
-      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 Moralis audit — graduated is the top alpha signal"
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 Moralis audit \u2014 graduated is the top alpha signal"
     },
     {
       "id": "dp-002",
@@ -163,10 +185,12 @@
       "description": "Moralis API returns inconsistent response shapes across endpoints and versions: nested vs. flat, snake_case vs. camelCase, wrapped in result[] vs. bare list, nested time-frames {field:{tf:val}} vs. flat field_tf. Always normalize with multiple fallback key checks. Never assume a single key name.",
       "rule": "For any Moralis field: try snake_case first, then camelCase, then the nested version. For time-framed fields, build a _parse_tf(field, tf) inner function that tries nested dict then flat key (replacing 'm' suffix with 'min' for legacy endpoints).",
       "pattern_code": "_parse_tf inner function: try stats.get(field, {}).get(tf) first, then stats.get(f'{field}_{tf.replace(\"m\",\"min\")}')",
-      "anti_pattern": "Hard-coding a single key name from one endpoint observation — breaks on API version changes",
-      "files": ["data/providers/moralis_money.py"],
+      "anti_pattern": "Hard-coding a single key name from one endpoint observation \u2014 breaks on API version changes",
+      "files": [
+        "data/providers/moralis_money.py"
+      ],
       "source_episode": "ep-2026-04-04-001",
-      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 — response normalization pattern for get_pair_stats"
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 \u2014 response normalization pattern for get_pair_stats"
     },
     {
       "id": "dp-003",
@@ -176,12 +200,14 @@
       "confidence": 0.93,
       "applications": 1,
       "description": "DexScreener is an external dependency in enrich_candidate(). Moralis GET /erc20/{address}/pairs provides equivalent or better data (liquidity, price, volume, pair address) with zero external dependency, same rate limit budget, and native 10-min cache. Always prefer native Moralis pair lookup over DexScreener for EVM chains.",
-      "rule": "In enrich_candidate(): call get_erc20_pairs(address, chain) first. If it returns pairs, use the top pair (sorted by liquidity descending). Only fall back to DexScreener if get_erc20_pairs returns empty. Solana is excluded — DexScreener still required for Solana.",
+      "rule": "In enrich_candidate(): call get_erc20_pairs(address, chain) first. If it returns pairs, use the top pair (sorted by liquidity descending). Only fall back to DexScreener if get_erc20_pairs returns empty. Solana is excluded \u2014 DexScreener still required for Solana.",
       "secondary_pattern": "After getting the top pair address from get_erc20_pairs, call get_pair_stats(pair_address, chain) for precise per-DEX velocity (buyers_5m, buy_pressure_1h, etc.). This is more precise than aggregated pair stats.",
       "anti_pattern": "Calling DexScreener for EVM tokens when moralis_top_pair_address already available",
-      "files": ["data/providers/moralis_money.py"],
+      "files": [
+        "data/providers/moralis_money.py"
+      ],
       "source_episode": "ep-2026-04-04-001",
-      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 — eliminates DexScreener dependency for EVM"
+      "evolution_marker": "2026-04-04 | HIGH | Sprint 1 \u2014 eliminates DexScreener dependency for EVM"
     },
     {
       "id": "ct-001",
@@ -193,9 +219,12 @@
       "description": "Moralis Streams webhook events contain token transfer data but NO buy_value_usd. Code that defaults DEFAULT_COPY_USD to $25 when buy_value_usd=0 will fire garbage $25 trades on EVERY alpha wallet transfer event, including dust, fee payments, and swaps of unknown size. This burns real capital on noise.",
       "rule": "DEFAULT_COPY_USD MUST be 0. When buy_value_usd=0 from a Streams event, SKIP the copy trade entirely. Wait for the polling cycle to confirm the buy size via Moralis Data API before executing.",
       "anti_pattern": "DEFAULT_COPY_USD = 25 as a fallback for unknown signal sizes",
-      "files": ["core/wallet_monitor.py", "config/settings.py"],
+      "files": [
+        "core/wallet_monitor.py",
+        "config/settings.py"
+      ],
       "source_episode": "ep-2026-04-04-live-guardrails",
-      "evolution_marker": "2026-04-04 | CRITICAL | Live trading failure — $25 garbage trades from Streams events"
+      "evolution_marker": "2026-04-04 | CRITICAL | Live trading failure \u2014 $25 garbage trades from Streams events"
     },
     {
       "id": "ct-002",
@@ -205,9 +234,11 @@
       "confidence": 0.99,
       "applications": 1,
       "description": "Copy trade sizing MUST be based on OUR wallet's actual balance, not the alpha wallet's buy size. Alpha wallets may have $100K+ capital; copying 30% of their buy ($30K) would liquidate our entire account. Correct sizing: 5% of our wallet balance, capped at MAX_COPY_USD.",
-      "rule": "copy_size = min(our_wallet_balance_usd × COPY_SIZE_PCT, MAX_COPY_USD). COPY_SIZE_PCT=0.05 (5%). Never size off alpha's buy amount.",
-      "anti_pattern": "copy_size_usd = alpha_buy_usd * COPY_SIZE_PCT — scales with alpha's capital, not ours",
-      "files": ["core/wallet_monitor.py"],
+      "rule": "copy_size = min(our_wallet_balance_usd \u00d7 COPY_SIZE_PCT, MAX_COPY_USD). COPY_SIZE_PCT=0.05 (5%). Never size off alpha's buy amount.",
+      "anti_pattern": "copy_size_usd = alpha_buy_usd * COPY_SIZE_PCT \u2014 scales with alpha's capital, not ours",
+      "files": [
+        "core/wallet_monitor.py"
+      ],
       "source_episode": "ep-2026-04-04-live-guardrails",
       "evolution_marker": "2026-04-04 | CRITICAL | Prevents oversized copy trades relative to our capital"
     },
@@ -221,7 +252,9 @@
       "description": "Some EVM JSON-RPC nodes (especially load-balanced public RPCs) return 0x0 for non-checksummed addresses. ETH standard is EIP-55 checksum (mixed case). Lowercase addresses may silently return 0x0, causing the bot to believe a funded wallet has $0 balance and skipping all trades.",
       "rule": "Always call Web3.to_checksum_address(wallet_address) before passing to eth_getBalance. Also add 2-attempt retry with 1s backoff per RPC endpoint before falling back.",
       "anti_pattern": "Passing raw lowercase address from .env directly to eth_getBalance",
-      "files": ["core/wallet_router.py"],
+      "files": [
+        "core/wallet_router.py"
+      ],
       "source_episode": "ep-2026-04-04-live-guardrails",
       "evolution_marker": "2026-04-04 | HIGH | Silent 0.0 balance caused trade skipping on funded wallets"
     },
@@ -233,11 +266,66 @@
       "confidence": 0.98,
       "applications": 1,
       "description": "wallet_monitor.py defines local constants (TIER1_COUNT, TIER2_COUNT) that override settings.py. If the local defaults are more aggressive than settings.py (e.g., TIER2_COUNT=1 in wallet_monitor vs TIER2_COUNT=2 in settings), the local value wins. ALWAYS ensure both files have matching safe defaults.",
-      "rule": "Check wallet_monitor.py local constants AND settings.py for ALL copy trade thresholds. The getattr() fallback in wallet_monitor.py local scope takes precedence — the settings.py value only wins if the local constant itself calls getattr(settings, ...).",
+      "rule": "Check wallet_monitor.py local constants AND settings.py for ALL copy trade thresholds. The getattr() fallback in wallet_monitor.py local scope takes precedence \u2014 the settings.py value only wins if the local constant itself calls getattr(settings, ...).",
       "anti_pattern": "Setting conservative values in settings.py while wallet_monitor.py local scope hardcodes aggressive fallbacks",
-      "files": ["core/wallet_monitor.py", "config/settings.py"],
+      "files": [
+        "core/wallet_monitor.py",
+        "config/settings.py"
+      ],
       "source_episode": "ep-2026-04-04-live-guardrails",
       "evolution_marker": "2026-04-04 | HIGH | TIER2_COUNT=1 local override caused single-wallet copy trades"
+    },
+    {
+      "id": "api-001",
+      "category": "data_pipeline",
+      "name": "gmgn_gateway_url",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "GMGN.ai has two distinct URLs: gmgn.ai (frontend CDN, returns HTML, cannot be used as API) and openapi.gmgn.ai (the actual OpenAPI gateway). All API calls MUST target openapi.gmgn.ai. Using gmgn.ai returns 403/HTML and is easy to misread as an auth failure.",
+      "rule": "GMGN_BASE_URL = 'https://openapi.gmgn.ai'. Never use 'https://gmgn.ai' or any subdomain of gmgn.ai directly.",
+      "anti_pattern": "Pointing GMGNClient at https://gmgn.ai \u2014 returns frontend HTML with 200 status, not API data",
+      "files": [
+        "core/gmgn_client.py"
+      ],
+      "source_episode": "ep-2026-04-05-gmgn-integration",
+      "evolution_marker": "2026-04-05 | CRITICAL | GMGN gateway URL \u2014 3 failed attempts before correct URL identified"
+    },
+    {
+      "id": "api-002",
+      "category": "deployment",
+      "name": "hetzner_ipv6_api_rejection",
+      "priority": "critical",
+      "confidence": 0.99,
+      "applications": 1,
+      "description": "Hetzner VPS instances resolve external hostnames to IPv6 addresses by default. Some APIs (notably GMGN.ai) explicitly block IPv6 at their WAF, returning silent 403 errors with empty bodies. This is easy to misdiagnose as an authentication failure because the rejection happens before auth headers are evaluated.",
+      "rule": "For any API that is known to reject IPv6 (GMGN.ai, some geo-fenced APIs), apply a global urllib3 socket monkeypatch that forces AF_INET: override socket.getaddrinfo in the client __init__ to filter out non-AF_INET results. Apply once at client instantiation.",
+      "code_pattern": "orig_getaddrinfo = socket.getaddrinfo\ndef _force_ipv4(*args, **kwargs):\n    return [x for x in orig_getaddrinfo(*args, **kwargs) if x[0] == socket.AF_INET]\nsocket.getaddrinfo = _force_ipv4",
+      "anti_pattern": "Adding per-request timeout tuning when a 403 occurs \u2014 the issue is IPv6 resolution, not timeout",
+      "diagnostic_tell": "API returns 403 with empty body from Hetzner VPS but works from local machine (MacOS defaults to IPv4 for most APIs)",
+      "files": [
+        "core/gmgn_client.py"
+      ],
+      "source_episode": "ep-2026-04-05-gmgn-integration",
+      "evolution_marker": "2026-04-05 | CRITICAL | Hetzner IPv6 \u2192 GMGN WAF 403 \u2014 fix: urllib3 socket AF_INET monkeypatch"
+    },
+    {
+      "id": "ct-004",
+      "category": "copy_trading",
+      "name": "gmgn_over_helius_for_solana_signals",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "Raw Helius RPC (getSignaturesForAddress + getTransaction) returns token balance deltas with buy_value_usd=0.0 always \u2014 USD pricing requires a separate enrichment pass (DexScreener API call per token). GMGN get_wallet_activity() returns cost_usd, token_symbol, token_name, and direction pre-parsed. This eliminates the DexScreener enrichment call entirely for Solana Smart Money signals.",
+      "rule": "In wallet_monitor.py Solana polling: try GMGNClient.get_wallet_activity() first. Only fall back to Helius raw RPC if GMGN is unavailable. This guarantees buy_value_usd is non-zero for GMGN-sourced signals, enabling MIN_BUY_USD gate to work correctly.",
+      "secondary_effect": "Source field ('gmgn'|'helius') on each swap dict allows downstream code to know whether USD value is reliable or needs enrichment",
+      "anti_pattern": "Polling Solana wallets via Helius-only when GMGN credentials are available \u2014 wastes an API enrichment round-trip",
+      "files": [
+        "core/wallet_monitor.py",
+        "core/gmgn_client.py"
+      ],
+      "source_episode": "ep-2026-04-05-gmgn-integration",
+      "evolution_marker": "2026-04-05 | HIGH | GMGN-first Solana polling eliminates DexScreener enrichment for Smart Money signals"
     }
   ]
 }

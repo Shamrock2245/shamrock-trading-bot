@@ -302,16 +302,121 @@ def _get_evm_recent_swaps(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Solana Transaction Fetching (Helius)
+# Solana Transaction Fetching — GMGN Primary, Helius Fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_solana_recent_swaps(
+# Lazy-loaded GMGN client (avoids import overhead when GMGN not configured)
+_gmgn_client = None
+_gmgn_client_failed: bool = False
+
+
+def _get_gmgn_client():
+    """Return cached GMGNClient instance, or None if not configured/fails."""
+    global _gmgn_client, _gmgn_client_failed
+    if _gmgn_client_failed:
+        return None
+    if _gmgn_client is not None:
+        return _gmgn_client
+    try:
+        from core.gmgn_client import GMGNClient
+        _gmgn_client = GMGNClient()
+        logger.info("WalletMonitor: GMGN client initialized — using GMGN for Solana polling")
+        return _gmgn_client
+    except Exception as e:
+        _gmgn_client_failed = True
+        logger.warning(f"WalletMonitor: GMGN client unavailable, falling back to Helius: {e}")
+        return None
+
+
+def _get_solana_recent_swaps_gmgn(
     wallet_address: str,
     since_seconds: int = MAX_BUY_AGE_SECONDS,
 ) -> list[dict]:
     """
-    Fetch recent DEX swap transactions for a Solana wallet via Helius.
-    Uses the getSignaturesForAddress + getTransaction approach.
+    Fetch recent Solana DEX buys via GMGNClient.get_wallet_activity().
+
+    GMGN advantages over raw Helius RPC:
+    - Returns token symbol/name directly (no separate enrichment needed)
+    - Returns USD value per swap (from GMGN's pricing oracle)
+    - Returns DEX name, pair address, and direction (buy/sell) pre-parsed
+    - Respects the 3 Smart Money wallets audited with $500K+ proven PnL
+    """
+    client = _get_gmgn_client()
+    if not client:
+        return []
+
+    cutoff_ts = time.time() - since_seconds
+    recent_buys = []
+
+    try:
+        activity = client.get_wallet_activity(wallet_address, limit=20)
+        for tx in activity:
+            # GMGN activity items: {timestamp, token_address, token_symbol,
+            #   token_name, side, amount, price_usd, realized_profit, tx_hash}
+            side = str(tx.get("side", "")).lower()
+            if side not in ("buy", "1", "long"):
+                continue  # Only copy buys
+
+            ts_raw = tx.get("timestamp") or tx.get("block_time") or 0
+            # ts_raw may be ISO string or unix int
+            if isinstance(ts_raw, str):
+                try:
+                    from datetime import datetime as _dt
+                    ts_unix = _dt.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    ts_unix = 0.0
+            else:
+                ts_unix = float(ts_raw or 0)
+
+            if ts_unix and ts_unix < cutoff_ts:
+                continue  # Too old
+
+            token_addr = tx.get("token_address", "") or tx.get("token", "")
+            if not token_addr:
+                continue
+
+            # USD value: from GMGN price oracle (much more accurate than Helius 0.0)
+            amount = float(tx.get("amount") or 0)
+            price_usd = float(tx.get("price_usd") or 0)
+            buy_usd = float(tx.get("cost_usd") or tx.get("value_usd") or 0)
+            if buy_usd == 0 and amount and price_usd:
+                buy_usd = amount * price_usd
+
+            ts_iso = (
+                datetime.fromtimestamp(ts_unix, tz=timezone.utc).isoformat()
+                if ts_unix else datetime.now(tz=timezone.utc).isoformat()
+            )
+
+            recent_buys.append({
+                "token_address": token_addr,
+                "token_symbol": tx.get("token_symbol") or tx.get("symbol") or "UNKNOWN",
+                "token_name": tx.get("token_name") or tx.get("name") or "",
+                "buy_value_usd": buy_usd,
+                "tx_hash": tx.get("tx_hash") or tx.get("signature") or "",
+                "timestamp": ts_iso,
+                "chain": "solana",
+                "source": "gmgn",
+            })
+
+        if recent_buys:
+            logger.info(
+                f"GMGN: {len(recent_buys)} recent buy(s) for {wallet_address[:8]}..."
+            )
+        return recent_buys
+
+    except Exception as e:
+        logger.debug(f"GMGN Solana swap fetch error for {wallet_address[:8]}...: {e}")
+        return []
+
+
+def _get_solana_recent_swaps_helius(
+    wallet_address: str,
+    since_seconds: int = MAX_BUY_AGE_SECONDS,
+) -> list[dict]:
+    """
+    Fallback: Fetch recent Solana DEX swap transactions via raw Helius RPC.
+    Used when GMGN client is not available or fails.
+    Note: buy_value_usd will be 0.0 — enriched via DexScreener later.
     """
     if not HELIUS_API_KEY:
         return []
@@ -345,7 +450,6 @@ def _get_solana_recent_swaps(
             if not sig:
                 continue
 
-            # Step 2: Fetch full transaction
             try:
                 tx_payload = {
                     "jsonrpc": "2.0",
@@ -361,11 +465,9 @@ def _get_solana_recent_swaps(
                 if not tx_data:
                     continue
 
-                # Parse token balance changes to detect buys
                 pre_balances = tx_data.get("meta", {}).get("preTokenBalances", [])
                 post_balances = tx_data.get("meta", {}).get("postTokenBalances", [])
 
-                # Find tokens where wallet's balance INCREASED (= buy)
                 pre_map = {
                     b["mint"]: float(b.get("uiTokenAmount", {}).get("uiAmount") or 0)
                     for b in pre_balances
@@ -379,18 +481,17 @@ def _get_solana_recent_swaps(
                     pre_amount = pre_map.get(mint, 0)
 
                     if post_amount <= pre_amount:
-                        continue  # Balance decreased or unchanged — not a buy
+                        continue  # Not a buy
 
-                    # This is a buy — estimate USD value from SOL fee proxy
-                    # (Full USD value requires price lookup — use 0 as placeholder)
                     recent_buys.append({
                         "token_address": mint,
-                        "token_symbol": "UNKNOWN",  # Will be enriched
+                        "token_symbol": "UNKNOWN",
                         "token_name": "",
                         "buy_value_usd": 0.0,  # Enriched via DexScreener
                         "tx_hash": sig,
                         "timestamp": datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat(),
                         "chain": "solana",
+                        "source": "helius",
                     })
 
             except Exception as e:
@@ -400,8 +501,25 @@ def _get_solana_recent_swaps(
         return recent_buys
 
     except Exception as e:
-        logger.debug(f"Solana swap fetch error for {wallet_address[:8]}...: {e}")
+        logger.debug(f"Helius Solana swap fetch error for {wallet_address[:8]}...: {e}")
         return []
+
+
+def _get_solana_recent_swaps(
+    wallet_address: str,
+    since_seconds: int = MAX_BUY_AGE_SECONDS,
+) -> list[dict]:
+    """
+    Public entry point for Solana swap detection.
+    Strategy: GMGN first (rich data + USD values), Helius fallback (raw RPC).
+    """
+    # Try GMGN first — returns richer data with USD values and token metadata
+    gmgn_results = _get_solana_recent_swaps_gmgn(wallet_address, since_seconds)
+    if gmgn_results:
+        return gmgn_results
+
+    # Fall back to Helius raw RPC
+    return _get_solana_recent_swaps_helius(wallet_address, since_seconds)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

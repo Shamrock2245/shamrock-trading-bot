@@ -344,6 +344,160 @@ st.markdown(
 # ─────────────────────────────────────────────────────────────────────────────
 # Alpha Wallet Cards
 # ─────────────────────────────────────────────────────────────────────────────
+st.markdown("### 🧠 GMGN Smart Money — Solana Copy-Trading Pool")
+
+# ── GMGN Solana Smart Money (live audit) ───────────────────────────────────
+_GMGN_SOL_WALLETS = [
+    {
+        "address": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
+        "label": "Smart Money Alpha #1",
+        "tier": 1,
+        "notes": "100% win rate • Confirmed $73K+ realized PnL • WOJAK +535%, PONKE +200%+",
+    },
+    {
+        "address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "label": "Smart Money Alpha #2",
+        "tier": 1,
+        "notes": "100% win rate • $389K+ realized PnL • FWOG +115%, FTP +755%",
+    },
+    {
+        "address": "DfMxre4cKmvogbLrPigxmibVTTQDuzjdXojWzjCXXhzj",
+        "label": "Smart Money Alpha #4",
+        "tier": 1,
+        "notes": "100% win rate • $38K+ realized PnL • Consistent 100–200%+ returners",
+    },
+]
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_gmgn_audit():
+    """Load live GMGN audit data for all Smart Money wallets. Cached 5 min."""
+    results = {}
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from core.gmgn_client import GMGNClient
+        client = GMGNClient()
+        for w in _GMGN_SOL_WALLETS:
+            try:
+                audit = client.audit_wallet(w["address"])
+                results[w["address"]] = audit
+            except Exception:
+                results[w["address"]] = {}
+    except Exception:
+        pass
+    return results
+
+_gmgn_audit = _load_gmgn_audit()
+
+# Summary KPIs
+total_pnl = sum(
+    _gmgn_audit.get(w["address"], {}).get("total_realized_pnl_usd", 0)
+    for w in _GMGN_SOL_WALLETS
+)
+avg_wr = (
+    sum(
+        _gmgn_audit.get(w["address"], {}).get("win_rate_pct", 0)
+        for w in _GMGN_SOL_WALLETS
+        if _gmgn_audit.get(w["address"])
+    ) / max(1, sum(1 for w in _GMGN_SOL_WALLETS if _gmgn_audit.get(w["address"])))
+)
+
+gkpi1, gkpi2, gkpi3, gkpi4 = st.columns(4)
+with gkpi1:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">🧠</div>'
+        f'<div class="stat-label">Smart Money Wallets</div>'
+        f'<div class="stat-value">{len(_GMGN_SOL_WALLETS)}</div>'
+        f'<div class="stat-delta positive">All Tier 1</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with gkpi2:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">💰</div>'
+        f'<div class="stat-label">Combined PnL</div>'
+        f'<div class="stat-value">${total_pnl:,.0f}</div>'
+        f'<div class="stat-delta positive">Verified on-chain</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with gkpi3:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">🎯</div>'
+        f'<div class="stat-label">Avg Win Rate</div>'
+        f'<div class="stat-value">{avg_wr:.0f}%</div>'
+        f'<div class="stat-delta positive">GMGN verified</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+with gkpi4:
+    st.markdown(
+        f'<div class="stat-card">'
+        f'<div class="stat-icon">⚡</div>'
+        f'<div class="stat-label">Data Source</div>'
+        f'<div class="stat-value">GMGN</div>'
+        f'<div class="stat-delta positive">openapi.gmgn.ai</div>'
+        f'</div>', unsafe_allow_html=True,
+    )
+
+st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
+
+# Smart Money wallet cards
+sol_left, sol_right = st.columns(2)
+for i, sw in enumerate(_GMGN_SOL_WALLETS):
+    col = sol_left if i % 2 == 0 else sol_right
+    addr = sw["address"]
+    short = addr[:8] + "..." + addr[-6:]
+    audit = _gmgn_audit.get(addr, {})
+    pnl = audit.get("total_realized_pnl_usd", 0)
+    wr = audit.get("win_rate_pct", 0)
+    top_winners = audit.get("top_winners", [])
+    top = top_winners[0] if top_winners else {}
+    live = bool(audit)
+
+    with col:
+        st.markdown(
+            f'<div class="alpha-card {"active" if live else ""}">'
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+            f'<div>'
+            f'<div class="wallet-label">🟢 {sw["label"]}</div>'
+            f'<div class="wallet-addr">◎ {short}</div>'
+            f'</div>'
+            f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'
+            f'<span class="tier-badge tier-1">Tier 1 — GMGN</span>'
+            f'<span style="color:#58A6FF;font-size:0.65rem;">◎ Solana</span>'
+            f'</div>'
+            f'</div>'
+            f'<div style="color:#484F58;font-size:0.7rem;line-height:1.5;margin-bottom:10px;">{sw["notes"]}</div>'
+            + (
+                f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">'
+                f'<div style="background:rgba(0,208,156,0.06);border-radius:6px;padding:6px 8px;">'
+                f'<div style="color:#484F58;font-size:0.58rem;text-transform:uppercase;letter-spacing:0.06em;">Realized PnL</div>'
+                f'<div style="color:#00D09C;font-size:0.82rem;font-weight:700;font-family:monospace;">${pnl:,.0f}</div>'
+                f'</div>'
+                f'<div style="background:rgba(88,166,255,0.06);border-radius:6px;padding:6px 8px;">'
+                f'<div style="color:#484F58;font-size:0.58rem;text-transform:uppercase;letter-spacing:0.06em;">Win Rate</div>'
+                f'<div style="color:#58A6FF;font-size:0.82rem;font-weight:700;font-family:monospace;">{wr:.0f}%</div>'
+                f'</div>'
+                f'<div style="background:rgba(255,184,77,0.06);border-radius:6px;padding:6px 8px;">'
+                f'<div style="color:#484F58;font-size:0.58rem;text-transform:uppercase;letter-spacing:0.06em;">Best Call</div>'
+                f'<div style="color:#FFB84D;font-size:0.75rem;font-weight:700;">'
+                f'{top.get("symbol","—")} +{top.get("pnl_pct",0):.0f}%</div>'
+                f'</div>'
+                f'</div>'
+                if live else
+                f'<div style="color:#484F58;font-size:0.7rem;font-style:italic;margin-bottom:10px;">⏳ Loading GMGN data...</div>'
+            )
+            + f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+            f'<span class="status-pill pill-monitoring">● GMGN Active</span>'
+            f'<a href="https://gmgn.ai/sol/address/{addr}" target="_blank" '
+            f'style="color:#484F58;font-size:0.65rem;text-decoration:none;">View on GMGN →</a>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+st.markdown('<div style="height:24px;"></div>', unsafe_allow_html=True)
 st.markdown("### 👁️ Tracked Alpha Wallets")
 
 # Find any copy trades from history
