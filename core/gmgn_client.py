@@ -13,19 +13,44 @@ Scope: Read-only wallet intelligence (no trading execution).
 """
 
 import base64
-import hashlib
 import logging
 import os
+import socket
 import time
 import uuid
 
 import requests
+import urllib3.util.connection as _uconn
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
 
 logger = logging.getLogger(__name__)
 
-GMGN_BASE_URL = "https://gmgn.ai"
+# ── Correct API gateway (not gmgn.ai frontend) ──────────────────────────────
+GMGN_BASE_URL = "https://openapi.gmgn.ai"
+
+# ── Force IPv4 globally — GMGN API rejects IPv6 connections ─────────────────
+# The Hetzner VPS resolves openapi.gmgn.ai to an IPv6 address by default,
+# but GMGN's Cloudflare-fronted API returns 403 "does not support IPv6".
+# Monkey-patch urllib3 to always prefer AF_INET.
+_orig_create_connection = _uconn.create_connection
+
+
+def _ipv4_only_create_connection(address, *args, **kwargs):
+    host, port = address
+    try:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        for (af, stype, proto, _cn, sa) in infos:
+            sock = socket.socket(af, stype, proto)
+            sock.connect(sa)
+            return sock
+    except socket.gaierror:
+        pass
+    # Fallback to original if IPv4 unavailable
+    return _orig_create_connection(address, *args, **kwargs)
+
+
+_uconn.create_connection = _ipv4_only_create_connection
 
 
 class GMGNClient:
