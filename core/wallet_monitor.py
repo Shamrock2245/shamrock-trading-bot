@@ -604,13 +604,15 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     Returns:
         True if trade was submitted, False otherwise
     """
-    # ── Gate 1: Require confirmed buy value from Moralis ─────────────────────
-    # Streams-based signals don't include USD values. Without a confirmed
-    # buy size we cannot validate conviction — SKIP rather than default to $25.
-    if signal.buy_value_usd <= 0:
+    # ── Gate 1: Require confirmed buy value OR a Streams-sourced signal ────────
+    # Streams webhooks don't carry USD values by design — that's fine because
+    # we size our copy off OUR wallet balance (Gate 3 below), not the alpha's.
+    # Polling-sourced signals still require buy_value_usd > 0 for conviction.
+    is_streams = "streams" in (signal.source or "")
+    if signal.buy_value_usd <= 0 and not is_streams:
         logger.info(
             f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
-            f"buy_value_usd unknown (Streams event has no USD). "
+            f"buy_value_usd unknown and not a Streams signal (source={signal.source}). "
             f"Waiting for polling confirmation with confirmed size."
         )
         return False
@@ -963,8 +965,12 @@ class WalletMonitor:
             else:
                 signal.tier = 3
 
-            # Only act on Tier 1 and Tier 2
-            if signal.tier > 2:
+            # Tier gate: Tier 1 & 2 always proceed.
+            # Tier 3 (single wallet) only proceeds if it came from Streams — real-time
+            # events are high fidelity (on-chain confirmed) and we size off OUR balance
+            # not the alpha buy amount. Single-wallet Streams signals are not noise.
+            is_streams_signal = "streams" in (signal.source or "")
+            if signal.tier > 2 and not is_streams_signal:
                 continue
 
             # Enrich with market data
