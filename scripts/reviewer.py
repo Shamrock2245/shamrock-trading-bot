@@ -195,17 +195,38 @@ def check_bot_logs(tail_lines: int = 80) -> dict:
     found_warnings = []
     found_healthy  = []
 
+    import re as _re
     for line in lines:
         ll = line.lower()
-        for p in CRITICAL_PATTERNS:
-            if p.lower() in ll:
-                found_critical.append(line.strip()[:200])
-                break
+
+        # Detect log-level field (e.g. "| CRITICAL |" or "| WARNING |")
+        lm = _re.search(r'\|\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\|', line, _re.IGNORECASE)
+        log_level = lm.group(1).upper() if lm else None
+
+        # Positional criticals — hard failures regardless of message position
+        POSITIONAL_CRITICALS = [
+            "Traceback (most recent call last)",
+            "SystemExit",
+            "ModuleNotFoundError",
+            "ImportError",
+            "SyntaxError",
+            "KeyboardInterrupt",
+            "Address already in use",
+            "docker: Error",
+            "container exited",
+            "OOMKilled",
+        ]
+
+        is_critical = (log_level == "CRITICAL") or any(p in line for p in POSITIONAL_CRITICALS)
+        if is_critical:
+            found_critical.append(line.strip()[:200])
         else:
-            for p in WARN_PATTERNS:
-                if p.lower() in ll:
-                    found_warnings.append(line.strip()[:200])
-                    break
+            WARN_KEYWORDS = ["failed to fetch", "rate limit", "timeout", "retrying",
+                             "connection refused", "ssl.SSLCertVerificationError"]
+            is_warn = (log_level in ("WARNING", "ERROR")) or any(k in ll for k in WARN_KEYWORDS)
+            if is_warn:
+                found_warnings.append(line.strip()[:200])
+
         for p in HEALTHY_PATTERNS:
             if p.lower() in ll:
                 found_healthy.append(line.strip()[:200])

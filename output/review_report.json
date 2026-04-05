@@ -1,0 +1,71 @@
+{
+  "grade": "warn",
+  "strategy": "monitor",
+  "exit_code": 1,
+  "timestamp": "2026-04-05T23:51:40.380661+00:00",
+  "feedback": "[bot_logs] WARNINGS: 9 warning(s)\n  - shamrock-bot  | 2026-04-05 23:50:49,164 | WARNING  | safety | BLOCKED | 0x5a98fcbea516cf06857215779fd812ca3bef1b32 | ethereum | Owner can change balances (drain risk)\n  - shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GzCBKNLu...: Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper\n  - shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: CT [solana] rejected \u2014 Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+  "checks": {
+    "containers": {
+      "name": "containers",
+      "passed": true,
+      "containers": [
+        {
+          "name": "shamrock-bot",
+          "state": "running",
+          "health": "healthy",
+          "up": true
+        },
+        {
+          "name": "shamrock-dashboard",
+          "state": "running",
+          "health": "healthy",
+          "up": true
+        },
+        {
+          "name": "shamrock-db",
+          "state": "running",
+          "health": "",
+          "up": true
+        },
+        {
+          "name": "shamrock-health",
+          "state": "running",
+          "health": "healthy",
+          "up": true
+        }
+      ],
+      "issues": [],
+      "summary": "All containers running"
+    },
+    "bot_logs": {
+      "name": "bot_logs",
+      "passed": true,
+      "has_warnings": true,
+      "critical_lines": [],
+      "warning_lines": [
+        "shamrock-bot  | 2026-04-05 23:50:49,164 | WARNING  | safety | BLOCKED | 0x5a98fcbea516cf06857215779fd812ca3bef1b32 | ethereum | Owner can change balances (drain risk)",
+        "shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GzCBKNLu...: Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: CT [solana] rejected \u2014 Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:26,781 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED 5LLik1wP...: Top holder controls 25.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:26,782 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: FINDER [solana] rejected \u2014 Top holder controls 25.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:27,831 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED CGWuCRBL...: Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:27,831 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: AWON [solana] rejected \u2014 Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:38,834 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED CGWuCRBL...: Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-05 23:51:38,835 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: AWON [solana] rejected \u2014 Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
+      ],
+      "healthy_signals": [],
+      "log_lines": 83,
+      "summary": "All clear (with warnings)"
+    },
+    "git_state": {
+      "name": "git_state",
+      "passed": true,
+      "local_sha": "4b58c0e",
+      "server_sha": "4b58c0e",
+      "local_message": "fix: EXTRA_RPCS lookup \u2014 use chain.name.lower() (was 'Ethereum' vs 'ethereum')",
+      "server_message": "fix: EXTRA_RPCS lookup \u2014 use chain.name.lower() (was 'Ethereum' vs 'ethereum')",
+      "summary": "In sync"
+    }
+  },
+  "preflight_sha": "59b78f6"
+}
