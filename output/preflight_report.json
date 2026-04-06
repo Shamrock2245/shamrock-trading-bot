@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-05T23:44:05.269485+00:00",
+  "timestamp": "2026-04-06T00:04:43.265357+00:00",
   "git": {
-    "sha": "59b78f6",
+    "sha": "7cb5474",
     "branch": "main",
-    "message": "fix: 5-deep ETH RPC pool \u2014 swap cloudflare-eth for publicnode as primary"
+    "message": "fix: reviewer \u2014 match | CRITICAL | log-level only, not word 'critical' in message"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 90,
+      "files_checked": 91,
       "errors": [],
-      "summary": "90/90 files clean"
+      "summary": "91/91 files clean"
     },
     "tests": {
       "name": "tests",

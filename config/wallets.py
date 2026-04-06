@@ -82,8 +82,8 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     trailing_stop_pct=20.0,  # FIX: was 15%, project spec Tier 1 trailing = 20%
     trailing_tighten={2.5: 15.0, 5.0: 10.0},  # At TP2 → 15% trail, at TP3 → 10%
     # Sizing
-    max_position_pct=5.0,
-    kelly_clamp_max=0.20,
+    max_position_pct=20.0,    # SEED STAGE: concentrate bets — 20% per trade (~$50-100 per signal)
+    kelly_clamp_max=0.30,
     max_position_usd=5_000.0,
     max_concurrent=5,
     # Fast fail
@@ -94,8 +94,8 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=82.0,   # FIX: POSITION_SIZING.md spec — Wallet B requires express-lane quality (82+)
-    express_lane_score=82.0,  # FIX: was 78 — nuclear entry IS express lane entry
+    min_gem_score=72.0,   # UNLOCKED: lowered 82→72 — most quality signals score 72-80, nuclear now fires
+    express_lane_score=80.0,  # Express lane at 80+ (instant market buy, no limit)
     # TP: 5x sell 20%, 12x sell 25%, 30x sell 20% (ride 35% with trail)
     # TUNED: tp1_sell_pct 15% → 20% — take more off at 5x to bank gains
     tp1_mult=5.0,
@@ -246,7 +246,7 @@ WALLETS: dict[str, WalletConfig] = {
         solana_address=os.getenv("SOLANA_ADDRESS_B", ""),
         role="Nuclear predator — aggressive momentum + explosive compounding",
         strategies=["gem_snipe", "momentum", "breakout", "nuclear"],
-        chains=["base", "bsc", "avalanche", "polygon", "arbitrum", "solana"],
+        chains=["ethereum", "base", "bsc", "avalanche", "polygon", "arbitrum", "solana"],  # ADDED ethereum
         max_position_size_pct=60.0,
         max_concurrent_positions=3,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "2.0")),

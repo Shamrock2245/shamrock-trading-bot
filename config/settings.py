@@ -538,6 +538,6 @@ def validate_settings() -> list[str]:
         warnings_list.append("BASESCAN_API_KEY not set — contract verification on Base limited to 5 req/sec")
 
     if MIN_GEM_SCORE < 55.0:
-        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile min=82.0, conservative min=65.0)")
+        warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile min=72.0, conservative min=58.0)")
 
     return warnings_list

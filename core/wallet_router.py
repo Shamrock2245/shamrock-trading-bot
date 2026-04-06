@@ -726,7 +726,7 @@ def route_trade(
         # Solana lowered to $0.50 (was $1.00): recovery wallets at $9 with 15% sizing
         # produce $1.35 positions — keeping floor at $0.50 gives headroom for Kelly variance.
         CHAIN_MIN_TRADE_USD = {
-            "ethereum": 100.0,   # ~$15 gas → need sizeable position
+            "ethereum": 15.0,    # LOWERED: gas=$2-5 now, $15 = 3-7x gas coverage (was $100, too conservative)
             "solana": 0.50,      # ~$0.01 gas → near-free (lowered from $1.00 for recovery)
             "base": 5.0,         # ~$0.10 gas → L2 cheap
             "arbitrum": 5.0,     # ~$0.25 gas → L2 cheap
