@@ -127,7 +127,7 @@ def check_output_files() -> dict:
     """Check that critical output files exist."""
     result = {"ok": True, "message": "All output files present", "missing": []}
     critical_files = [
-        Path("/app/output/bot_status.json"),
+        BOT_STATUS_FILE,        # env-driven — same path as check_bot_cycle reads
         Path("/app/logs/bot.log"),
     ]
     missing = [str(f) for f in critical_files if not f.exists()]
