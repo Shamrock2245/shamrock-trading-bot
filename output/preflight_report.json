@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-06T00:10:51.589599+00:00",
+  "timestamp": "2026-04-06T00:29:58.313814+00:00",
   "git": {
-    "sha": "2c4da79",
+    "sha": "cb5cc8a",
     "branch": "main",
-    "message": "trade: unlock capital gates \u2014 ETH min 00\u21925, nuclear threshold 82\u219272, Primary pos_pct 5\u219220%, Wallet B + ETH chain, HL min 80\u219272, copy min_buy 00\u219200"
+    "message": "trade: fix gas guard \u2014 ETH gas $15\u2192$6, ratio 5x\u21922x, copy size 30\u219250%, min_buy $100\u2192$25, max_age 300\u2192600s"
   },
   "checks": {
     "syntax": {

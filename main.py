@@ -2249,6 +2249,56 @@ async def run_bot_loop():
             except Exception as state_err:
                 logger.debug(f"Dashboard state write failed: {state_err}")
 
+            # ── Bot heartbeat + outcome self-monitor ─────────────────────────
+            # Writes bot_status.json every cycle so the health check knows we
+            # are alive AND so we can answer "are we making money?"
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _all_positions = load_positions()
+                _open_pos  = [p for p in _all_positions if p.get("status") == "open"]
+                _closed_pos = [p for p in _all_positions if p.get("status") == "closed"]
+                _wins   = [p for p in _closed_pos if float(p.get("pnl_usd", 0)) > 0]
+                _losses = [p for p in _closed_pos if float(p.get("pnl_usd", 0)) <= 0]
+                _total_realized = sum(float(p.get("pnl_usd", 0)) for p in _closed_pos)
+                _win_rate = (len(_wins) / len(_closed_pos) * 100) if _closed_pos else 0.0
+                _os = get_offensive_state()
+
+                _status = {
+                    "last_cycle_at": _time_module.strftime("%Y-%m-%dT%H:%M:%SZ", _time_module.gmtime()),
+                    "cycle": cycle,
+                    "mode": settings.MODE,
+                    "open_positions": len(_open_pos),
+                    "closed_positions": len(_closed_pos),
+                    "wins": len(_wins),
+                    "losses": len(_losses),
+                    "win_rate_pct": round(_win_rate, 1),
+                    "realized_pnl_usd": round(_total_realized, 2),
+                    "trades_this_session": trades_this_session,
+                    "consecutive_wins": _os.consecutive_wins,
+                    "consecutive_losses": _os.consecutive_losses,
+                    "god_mode_active": getattr(_os, "god_mode_active", False),
+                    "capital_phase": getattr(_os, "capital_phase", 0),
+                }
+                _status_path = _Path(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json"))
+                _status_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(_status_path, "w") as _sf:
+                    _json.dump(_status, _sf, indent=2)
+
+                # Self-review: log outcome summary every 5 cycles
+                if cycle % 5 == 0:
+                    _pnl_emoji = "🟢" if _total_realized >= 0 else "🔴"
+                    logger.info(
+                        f"📊 SELF-REVIEW | cycle={cycle} | "
+                        f"{_pnl_emoji} PnL=${_total_realized:+.2f} | "
+                        f"WR={_win_rate:.0f}% ({len(_wins)}W/{len(_losses)}L) | "
+                        f"open={len(_open_pos)} | session_trades={trades_this_session} | "
+                        f"streak={_os.consecutive_wins}W/{_os.consecutive_losses}L"
+                    )
+            except Exception as _hb_err:
+                logger.debug(f"Heartbeat write failed: {_hb_err}")
+
+
             # Periodic cycle summary (every 10 cycles)
             if cycle % 10 == 0:
                 open_count = len([p for p in load_positions() if p.get("status") == "open"])
