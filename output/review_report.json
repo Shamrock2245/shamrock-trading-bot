@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-05T23:51:40.380661+00:00",
-  "feedback": "[bot_logs] WARNINGS: 9 warning(s)\n  - shamrock-bot  | 2026-04-05 23:50:49,164 | WARNING  | safety | BLOCKED | 0x5a98fcbea516cf06857215779fd812ca3bef1b32 | ethereum | Owner can change balances (drain risk)\n  - shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GzCBKNLu...: Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper\n  - shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: CT [solana] rejected \u2014 Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+  "timestamp": "2026-04-06T00:09:11.957377+00:00",
+  "feedback": "[bot_logs] WARNINGS: 8 warning(s)\n  - shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA CLUSTER DETECTED F9wPd7sG...: Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)\n  - shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: MAULCOIN [solana] rejected \u2014 Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)\n  - shamrock-bot  | 2026-04-06 00:09:27,276 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT 003: 7 snipers ($97 sniped) \u2014 risk=high",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,29 +43,30 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-05 23:50:49,164 | WARNING  | safety | BLOCKED | 0x5a98fcbea516cf06857215779fd812ca3bef1b32 | ethereum | Owner can change balances (drain risk)",
-        "shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GzCBKNLu...: Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:50:52,811 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: CT [solana] rejected \u2014 Top holder controls 31.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:26,781 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED 5LLik1wP...: Top holder controls 25.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:26,782 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: FINDER [solana] rejected \u2014 Top holder controls 25.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:27,831 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED CGWuCRBL...: Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:27,831 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: AWON [solana] rejected \u2014 Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:38,834 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED CGWuCRBL...: Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-05 23:51:38,835 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: AWON [solana] rejected \u2014 Top holder controls 29.0% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
+        "shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA CLUSTER DETECTED F9wPd7sG...: Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)",
+        "shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: MAULCOIN [solana] rejected \u2014 Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)",
+        "shamrock-bot  | 2026-04-06 00:09:27,276 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT 003: 7 snipers ($97 sniped) \u2014 risk=high",
+        "shamrock-bot  | 2026-04-06 00:09:31,038 | WARNING  | notifications.slack | Slack webhook error: 429",
+        "shamrock-bot  | 2026-04-06 00:09:31,956 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
+        "shamrock-bot  | 2026-04-06 00:09:33,414 | WARNING  | core.wallet_router | Gas guard: $42.90 position < $150.00 min (5.0x round-trip gas $30.00) on ethereum \u2014 skipping",
+        "shamrock-bot  | 2026-04-06 00:09:34,062 | WARNING  | core.wallet_router | Wallet Wallet B balance too low on ethereum: 0.0000 <= 0.05 ETH",
+        "shamrock-bot  | 2026-04-06 00:09:34,063 | WARNING  | core.wallet_router | No eligible wallet found for ethereum trade (score=77)"
       ],
-      "healthy_signals": [],
+      "healthy_signals": [
+        "shamrock-bot  | 2026-04-06 00:09:25,192 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+      ],
       "log_lines": 83,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "4b58c0e",
-      "server_sha": "4b58c0e",
-      "local_message": "fix: EXTRA_RPCS lookup \u2014 use chain.name.lower() (was 'Ethereum' vs 'ethereum')",
-      "server_message": "fix: EXTRA_RPCS lookup \u2014 use chain.name.lower() (was 'Ethereum' vs 'ethereum')",
+      "local_sha": "2c4da79",
+      "server_sha": "2c4da79",
+      "local_message": "trade: unlock capital gates \u2014 ETH min 00\u21925, nuclear threshold 82\u219272, Primary pos_pct 5\u219220%, Wallet B + ETH chain, HL min 80\u219272, copy min_buy 00\u219200",
+      "server_message": "trade: unlock capital gates \u2014 ETH min 00\u21925, nuclear threshold 82\u219272, Primary pos_pct 5\u219220%, Wallet B + ETH chain, HL min 80\u219272, copy min_buy 00\u219200",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "59b78f6"
+  "preflight_sha": "7cb5474"
 }

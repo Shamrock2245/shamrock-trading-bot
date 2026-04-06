@@ -76,7 +76,7 @@ def increment_daily_trade_count() -> int:
 # Estimated Gas Costs (USD) per chain — for gas-vs-size guard
 # ─────────────────────────────────────────────────────────────────────────────
 ESTIMATED_GAS_COST_USD = {
-    "ethereum": 15.0,   # ~$15 per swap on ETH mainnet
+    "ethereum": 6.0,    # ~$2-6 per swap on ETH mainnet (April 2026 conditions)
     "base": 0.10,       # Base L2 is very cheap
     "arbitrum": 0.25,   # Arbitrum L2
     "polygon": 0.05,    # Polygon is very cheap
