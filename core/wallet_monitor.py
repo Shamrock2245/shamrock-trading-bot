@@ -280,7 +280,39 @@ def _get_evm_recent_swaps(
                 continue
 
             # Estimate buy value in USD
+            # Primary: use Moralis-provided usdValue
             buy_value = float(swap.get("usdValue") or swap.get("value_usd") or 0)
+
+            # Fallback: derive from tokenIn (what was spent) — Moralis often returns
+            # usdValue=0 for new/micro-cap tokens even though the trade was real.
+            if buy_value == 0:
+                try:
+                    # tokenIn = the token spent by the alpha wallet (e.g. USDC or ETH)
+                    ti_price = float(token_in.get("usdPrice") or token_in.get("price_usd") or 0)
+                    ti_amount = float(
+                        token_in.get("amount") or
+                        token_in.get("value") or
+                        token_in.get("amount_decimal") or 0
+                    )
+                    if ti_price > 0 and ti_amount > 0:
+                        buy_value = ti_price * ti_amount
+                except Exception:
+                    pass
+
+            # Still zero? Try reading usd from tokenOut value (some endpoints)
+            if buy_value == 0:
+                try:
+                    to_price = float(token_out.get("usdPrice") or token_out.get("price_usd") or 0)
+                    to_amount = float(
+                        token_out.get("amount") or
+                        token_out.get("value") or
+                        token_out.get("amount_decimal") or 0
+                    )
+                    if to_price > 0 and to_amount > 0:
+                        buy_value = to_price * to_amount
+                except Exception:
+                    pass
+
             if buy_value < MIN_BUY_USD:
                 continue
 
@@ -558,9 +590,10 @@ def _validate_signal(signal: AlphaSignal) -> tuple[bool, str]:
     Run the signal through hard gates before acting on it.
     Returns (is_valid, reason_if_rejected).
     """
-    # Gate 1: Minimum liquidity ($25k for copy trades — lower than scanner threshold)
-    if signal.liquidity_usd > 0 and signal.liquidity_usd < 25_000:
-        return False, f"Liquidity too low: ${signal.liquidity_usd:,.0f} < $25k"
+    # Gate 1: Minimum liquidity — alpha wallets trade real tokens; $10k floor
+    # ($25k was blocking confirmed signals like BLUR with $11k liq)
+    if signal.liquidity_usd > 0 and signal.liquidity_usd < 10_000:
+        return False, f"Liquidity too low: ${signal.liquidity_usd:,.0f} < $10k"
 
     # Gate 2: Bundle detection
     try:
@@ -683,6 +716,10 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
         candidate.copy_trade_tier = signal.tier
         candidate.copy_trade_wallets = signal.confirming_wallets
         candidate.copy_trade_size_usd = copy_size_usd
+        # Mark as express lane — alpha wallet conviction IS the TA.
+        # This bypasses the TA/signal-engine gate in main.py so the
+        # trade actually executes instead of being killed by RSI/MACD.
+        candidate.express_lane = True
 
         # Inject into express lane via callback
         if on_trade_callback:

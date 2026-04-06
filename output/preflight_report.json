@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-06T00:34:35.618391+00:00",
+  "timestamp": "2026-04-06T13:05:36.516985+00:00",
   "git": {
-    "sha": "c50dc6a",
+    "sha": "7aac96c",
     "branch": "main",
-    "message": "monitor: add per-cycle bot_status.json heartbeat + outcome self-review loop"
+    "message": "fix: health_check.py check_output_files uses BOT_STATUS_FILE env var (was hardcoded to wrong /output/ path)"
   },
   "checks": {
     "syntax": {
