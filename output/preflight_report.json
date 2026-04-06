@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-06T00:29:58.313814+00:00",
+  "timestamp": "2026-04-06T00:34:35.618391+00:00",
   "git": {
-    "sha": "cb5cc8a",
+    "sha": "c50dc6a",
     "branch": "main",
-    "message": "trade: fix gas guard \u2014 ETH gas $15\u2192$6, ratio 5x\u21922x, copy size 30\u219250%, min_buy $100\u2192$25, max_age 300\u2192600s"
+    "message": "monitor: add per-cycle bot_status.json heartbeat + outcome self-review loop"
   },
   "checks": {
     "syntax": {

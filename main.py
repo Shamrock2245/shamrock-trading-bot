@@ -927,6 +927,27 @@ async def run_bot_loop():
     import time as _time_module
     _last_daily_digest_ts: float = _time_module.time()  # reset on bot start
 
+    # ── Startup heartbeat — write immediately so health check knows we booted ──
+    try:
+        import json as _json_boot
+        from pathlib import Path as _Path_boot
+        _boot_path = _Path_boot(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json"))
+        _boot_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(_boot_path, "w") as _bf:
+            _json_boot.dump({
+                "last_cycle_at": _time_module.strftime("%Y-%m-%dT%H:%M:%SZ", _time_module.gmtime()),
+                "cycle": 0,
+                "mode": settings.MODE,
+                "status": "starting",
+                "open_positions": 0,
+                "closed_positions": 0,
+                "realized_pnl_usd": 0.0,
+                "trades_this_session": 0,
+            }, _bf, indent=2)
+        logger.info("✅ Startup heartbeat written — health check armed")
+    except Exception as _boot_err:
+        logger.warning(f"Startup heartbeat failed: {_boot_err}")
+
     while True:
         cycle += 1
         trades_this_cycle = 0
