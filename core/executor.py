@@ -217,7 +217,11 @@ class TradeExecutor:
             return False
 
     def _get_web3(self, chain: ChainConfig) -> Optional[Web3]:
-        """Get Web3 connection, with PoA middleware for Polygon/BSC."""
+        """Get Web3 connection, with PoA middleware for Polygon/BSC.
+
+        Note: is_connected() is insufficient — some RPCs (Cloudflare, LlamaRPC)
+        return True but fail on eth_gasPrice. We do a probe call to validate.
+        """
         if chain.name in self._web3_cache:
             return self._web3_cache[chain.name]
 
@@ -226,14 +230,28 @@ class TradeExecutor:
                 continue
             try:
                 w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
-                if w3.is_connected():
-                    # PoA chains need extra middleware
-                    if chain.chain_id in (137, 56, 43114):  # Polygon, BSC, Avalanche
-                        w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
-                    self._web3_cache[chain.name] = w3
-                    return w3
+                if not w3.is_connected():
+                    continue
+                # Probe gas price — catches RPCs that connect but return HTML/errors
+                try:
+                    gas_gwei = float(Web3.from_wei(w3.eth.gas_price, "gwei"))
+                    if gas_gwei <= 0 or gas_gwei > 500:
+                        logger.warning(
+                            f"RPC {rpc_url[:40]} returned suspicious gas={gas_gwei:.1f} gwei — trying next"
+                        )
+                        continue
+                except Exception as probe_err:
+                    logger.warning(f"RPC {rpc_url[:40]} gas probe failed: {probe_err} — trying next")
+                    continue
+                # PoA chains need extra middleware
+                if chain.chain_id in (137, 56, 43114):  # Polygon, BSC, Avalanche
+                    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                logger.info(f"✅ Web3 connected: {rpc_url[:40]} | chain={chain.name} | gas={gas_gwei:.1f} gwei")
+                self._web3_cache[chain.name] = w3
+                return w3
             except Exception as e:
-                logger.warning(f"RPC {rpc_url} failed: {e}")
+                logger.warning(f"RPC {rpc_url[:40]} failed: {e}")
+        logger.error(f"❌ No working RPC for {chain.name} — tried {chain.rpc_url}, {chain.rpc_fallback}")
         return None
 
     def _get_current_gas_gwei(self, w3: Web3) -> float:
