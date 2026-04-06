@@ -24,6 +24,7 @@ services:
     environment:
       # Align bot_status.json write path with health check and dashboard readers
       - DASHBOARD_STATE_DIR=/app/data/dashboard
+      - BOT_STATUS_FILE=/app/data/dashboard/bot_status.json
     ports:
       - "8787:8787"    # Moralis Streams webhook ingestion
     volumes:
