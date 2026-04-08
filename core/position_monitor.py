@@ -36,6 +36,7 @@ from typing import Optional
 import requests
 
 from config import settings
+from data.providers.moralis_money import get_token_analytics_fresh
 from config.wallets import CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE
 from data.models import Position, Trade
 from core.offensive_guardrails import (
@@ -357,6 +358,88 @@ def evaluate_profit_sell_confluence(pos: dict, current_price: float) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Moralis Analytics — Dynamic TP Scaling Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _should_delay_tp1(pos: dict) -> bool:
+    """
+    Determine whether to DELAY the TP1 sell based on Moralis analytics.
+
+    Returns True (delay sell) if ALL conditions are met:
+      - net_buyers_1h >= ANALYTICS_NET_BUYERS_MIN (default 3) — sustained buying
+      - net_buyers_5m >= 1 — recent buying activity confirms the trend
+      - buy_volume_1h >= ANALYTICS_BUY_VOL_MIN_USD (default $5K) — meaningful volume
+      - buy_pressure_ratio_1h >= 0.55 — more buy volume than sell
+
+    When True, the caller sets tp1_hit=True and engages a tighter trailing stop
+    instead of selling 40% at TP1.
+    """
+    if not settings.ANALYTICS_TP_DELAY_ENABLED:
+        return False
+
+    net_buyers_1h = int(pos.get("moralis_net_buyers_1h", 0))
+    net_buyers_5m = int(pos.get("moralis_net_buyers_5m", 0))
+    buy_vol_1h = float(pos.get("moralis_buy_volume_1h", 0))
+    buy_pressure = float(pos.get("moralis_buy_pressure_1h", 0.5))
+
+    min_net = settings.ANALYTICS_NET_BUYERS_MIN
+    min_vol = settings.ANALYTICS_BUY_VOL_MIN_USD
+
+    if (net_buyers_1h >= min_net
+            and net_buyers_5m >= 1
+            and buy_vol_1h >= min_vol
+            and buy_pressure >= 0.55):
+        logger.info(
+            f"📊 Analytics TP1 delay conditions MET for {pos.get('token_symbol')}: "
+            f"netBuyers_1h={net_buyers_1h} (min {min_net}), "
+            f"netBuyers_5m={net_buyers_5m}, "
+            f"buyVol_1h=${buy_vol_1h:,.0f} (min ${min_vol:,.0f}), "
+            f"buyPressure={buy_pressure:.2f}"
+        )
+        return True
+
+    return False
+
+
+def _should_emergency_exit(pos: dict) -> Optional[dict]:
+    """
+    Check if Moralis analytics demand an emergency full exit.
+
+    Returns a sell action dict if ALL conditions are met:
+      - net_buyers_1h < 0 — sellers outnumber buyers (1h window)
+      - net_buyers_5m <= 0 — recent activity confirms sell pressure
+      - buy_pressure_ratio_1h < 0.35 — heavy sell volume (65%+ of total)
+
+    This fires BEFORE TP1 evaluation, catching dumps early.
+    Returns None if no emergency exit is needed.
+    """
+    if not settings.ANALYTICS_EMERGENCY_EXIT_ENABLED:
+        return None
+
+    net_buyers_1h = int(pos.get("moralis_net_buyers_1h", 0))
+    net_buyers_5m = int(pos.get("moralis_net_buyers_5m", 0))
+    buy_pressure = float(pos.get("moralis_buy_pressure_1h", 0.5))
+
+    # Only trigger if we have analytics data (buy_pressure != default 0.5)
+    has_analytics = pos.get("moralis_buy_volume_1h") is not None
+
+    if has_analytics and net_buyers_1h < 0 and net_buyers_5m <= 0 and buy_pressure < 0.35:
+        logger.warning(
+            f"🚨 Analytics Emergency Exit: {pos.get('token_symbol')} — "
+            f"SELLERS DOMINATING! netBuyers_1h={net_buyers_1h}, "
+            f"netBuyers_5m={net_buyers_5m}, buyPressure={buy_pressure:.2f} "
+            f"— dumping full position NOW"
+        )
+        return {
+            "reason": f"analytics_emergency_exit (netBuyers={net_buyers_1h}, pressure={buy_pressure:.2f})",
+            "sell_pct": 1.0,
+            "urgency": "immediate",
+        }
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Take-Profit / Stop-Loss Evaluation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -505,9 +588,23 @@ def evaluate_position(pos: dict, current_price: float,
                 }
 
     # ── Take-profit tiers ─────────────────────────────────────────────────────
-    # TP1
+    # TP1 — with dynamic analytics-driven delay
     tp1_gain = (tp1_mult - 1) * 100
     if not tp1_hit and gain_pct >= tp1_gain:
+        # Check if Moralis analytics says "let it run"
+        if settings.ANALYTICS_TP_DELAY_ENABLED and _should_delay_tp1(pos):
+            logger.info(
+                f"📊 Analytics TP1 Delay: {pos.get('token_symbol')} hit TP1 "
+                f"({gain_pct:.1f}%) but netBuyers is strong — DELAYING sell, "
+                f"engaging {settings.ANALYTICS_TIGHT_TRAIL_PCT:.0f}% tight trail"
+            )
+            # Return a special sentinel so the caller knows to delay
+            return {
+                "reason": f"tp1_analytics_delay [{profile_name}]",
+                "sell_pct": 0.0,           # 0% = don't sell
+                "urgency": "analytics_delay",
+                "analytics_delay": True,
+            }
         return {
             "reason": f"tp1_{tp1_mult:.0f}x [{profile_name}]",
             "sell_pct": tp1_sell,
@@ -996,31 +1093,31 @@ class PositionMonitor:
                     pos["last_check_price"] = float(prev_check)
 
                 pos["current_price"] = current_price
-                # ── Refresh Moralis Buy Pressure ──
-
+                # ── Refresh Moralis Token Analytics (dynamic TP scaling) ──
                 try:
-
-                    from data.providers.moralis_money import get_aggregated_pair_stats
-
-                    stats = get_aggregated_pair_stats(pos.get("token_address", ""), pos.get("chain", ""))
-
-                    if stats and stats.get("buy_volume_1h", 0) > 0:
-
-                        buy_vol = stats["buy_volume_1h"]
-
-                        sell_vol = stats["sell_volume_1h"]
-
-                        total_vol = buy_vol + sell_vol
-
-                        if total_vol > 0:
-
-                            pos["moralis_buy_pressure"] = buy_vol / total_vol
-
-                            pos["buy_pressure_ratio"] = pos["moralis_buy_pressure"]
-
+                    analytics = get_token_analytics_fresh(
+                        pos.get("token_address", ""),
+                        pos.get("chain", ""),
+                    )
+                    if analytics:
+                        # Store analytics fields on position for evaluate_position
+                        pos["moralis_net_buyers_1h"] = analytics.get("net_buyers_1h", 0)
+                        pos["moralis_net_buyers_5m"] = analytics.get("net_buyers_5m", 0)
+                        pos["moralis_buy_volume_1h"] = analytics.get("buy_volume_1h", 0)
+                        pos["moralis_buy_pressure_1h"] = analytics.get("buy_pressure_ratio_1h", 0.5)
+                        # Backward compat: keep existing buy_pressure_ratio field
+                        pos["buy_pressure_ratio"] = pos["moralis_buy_pressure_1h"]
+                        pos["moralis_buy_pressure"] = pos["moralis_buy_pressure_1h"]
                 except Exception as e:
+                    logger.debug(f"Failed to refresh Moralis analytics for {pos.get('token_symbol')}: {e}")
 
-                    logger.debug(f"Failed to refresh Moralis buy pressure for {pos.get('token_symbol')}: {e}")
+                # ── Analytics Emergency Exit: sellers dominating → dump NOW ──
+                emergency_exit = _should_emergency_exit(pos)
+                if emergency_exit:
+                    pos = execute_sell(pos, emergency_exit, current_price, self.is_paper)
+                    sells_triggered += 1
+                    updated_positions.append(pos)
+                    continue
 
                 entry_price = float(pos.get("entry_price", 0))
                 if entry_price > 0:
@@ -1048,7 +1145,15 @@ class PositionMonitor:
                 # (which requires tp1_hit) NEVER activates on God Mode positions.
                 # A 10x position could then reverse all the way back to the hard stop.
                 if sell_action and sell_action.get("reason", "").startswith("tp1_"):
-                    if should_skip_tp1(offensive_state):
+                    # Analytics delay: strong netBuyers → skip TP1 sell, tight trail
+                    if sell_action.get("analytics_delay"):
+                        pos["tp1_hit"] = True
+                        pos["tp1_delayed_by_analytics"] = True
+                        pos["analytics_tight_trail_active"] = True
+                        # Override trailing stop to tight analytics trail
+                        pos["_dynamic_trailing_stop_pct"] = settings.ANALYTICS_TIGHT_TRAIL_PCT
+                        sell_action = None  # Don't sell
+                    elif should_skip_tp1(offensive_state):
                         logger.info(
                             f"⚡ God Mode: skipping TP1 sell on {pos.get('token_symbol')} — "
                             f"holding for 5x+ | trailing stop now ACTIVE at {settings.STOP_LOSS_PERCENT:.0f}%"

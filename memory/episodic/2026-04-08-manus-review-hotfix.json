@@ -1,0 +1,108 @@
+{
+  "id": "ep-2026-04-08-001",
+  "date": "2026-04-08",
+  "title": "Post-Manus Code Review — 5 Bugs Fixed",
+  "category": "manus_integration",
+  "severity": "critical",
+  "task": "Review and fix Manus commits before deploying to production",
+  "outcome": "success",
+  "commits_reviewed": [
+    "10a0901 — feat: optimize profitability thresholds and execution parameters",
+    "d7a1150 — feat: wire unwired Moralis endpoints for max ROI"
+  ],
+  "fix_commit": "65fcfc2 — fix: IndentationError, weight rebalance, duplicate block, NameError",
+  "bugs_found": [
+    {
+      "id": 1,
+      "severity": "critical",
+      "type": "IndentationError",
+      "file": "scanner/gem_scanner.py",
+      "line": 431,
+      "description": "Pumpfun graduated net-buyers filter indented one level too deep (inside try block at wrong level)",
+      "impact": "Bot crashes on startup — total outage",
+      "fix": "Aligned filter list comprehension to correct indent level (16 spaces, same as preceding line)"
+    },
+    {
+      "id": 2,
+      "severity": "high",
+      "type": "scoring_integrity",
+      "file": "scanner/gem_scanner.py",
+      "lines": "1401-1418",
+      "description": "Scoring weights summed to 1.05 (105%) after moralis_enrichment bumped 0.27→0.32 without rebalancing",
+      "impact": "All gem scores inflated by 5%, distorting ranking and entry decisions",
+      "fix": "Reduced buy_pressure 0.08→0.06, contract 0.06→0.05, tax 0.06→0.05, smart_money 0.03→0.02 = total 1.00"
+    },
+    {
+      "id": 3,
+      "severity": "high",
+      "type": "duplicate_code",
+      "file": "scanner/gem_scanner.py",
+      "lines": "597-663",
+      "description": "Manus' second commit added a duplicate pumpfun_graduated discovery block that duplicated Source 8 (lines 425-469) but was inferior: no DexScreener enrichment, no min liquidity check, no net-buyers filter, no +5 score bonus",
+      "impact": "Double-discovery of same tokens, wasted API calls, inconsistent scoring",
+      "fix": "Removed duplicate block, kept original Source 8 which has full DexScreener enrichment pipeline"
+    },
+    {
+      "id": 4,
+      "severity": "medium",
+      "type": "NameError",
+      "file": "core/position_monitor.py",
+      "line": 1023,
+      "description": "Used bare variable `token_symbol` instead of string key `\"token_symbol\"` in f-string inside exception handler",
+      "impact": "Exception handler itself would throw NameError, masking the original error — silent failure in buy pressure refresh",
+      "fix": "Changed pos.get(token_symbol) to pos.get('token_symbol')"
+    },
+    {
+      "id": 5,
+      "severity": "low",
+      "type": "stale_comments",
+      "files": ["config/settings.py", "core/solana_executor.py"],
+      "description": "Comments referencing old parameter values (20% stop loss, 25% trailing, old Jito tip dollar amounts)",
+      "impact": "Developer confusion, misleading documentation",
+      "fix": "Updated all comments to reflect actual current values"
+    }
+  ],
+  "patterns_extracted": [
+    {
+      "pattern": "manus_always_review_weights",
+      "description": "When Manus changes a weight in a weighted-sum scoring system, always verify the total sums to exactly 1.00",
+      "confidence": 0.95,
+      "category": "scoring_engine"
+    },
+    {
+      "pattern": "manus_duplicate_block_check",
+      "description": "When Manus adds new discovery sources in gem_scanner, check if the same source already exists earlier in the scan loop",
+      "confidence": 0.90,
+      "category": "manus_integration"
+    },
+    {
+      "pattern": "manus_string_vs_variable_in_dict_get",
+      "description": "Manus frequently uses bare variable names instead of quoted string keys in dict.get() calls inside f-strings. Always grep for pos.get(word) without quotes after Manus edits.",
+      "confidence": 0.85,
+      "category": "manus_integration"
+    },
+    {
+      "pattern": "manus_indentation_in_nested_blocks",
+      "description": "Manus occasionally introduces indentation errors in deeply nested try/except blocks. Always run AST parse check on all modified files.",
+      "confidence": 0.90,
+      "category": "manus_integration"
+    },
+    {
+      "pattern": "deploy_service_name_is_bot",
+      "description": "Docker Compose service name is 'bot', not 'shamrock-bot'. The container_name is 'shamrock-bot' but docker compose commands use the service name.",
+      "confidence": 1.0,
+      "category": "deployment"
+    },
+    {
+      "pattern": "git_pat_expiry_causes_hangs",
+      "description": "When git push/commit hangs with no output, the PAT embedded in the remote URL is likely expired. The osxkeychain credential helper may pop a hidden prompt. Fix: get new PAT and update remote URL.",
+      "confidence": 0.95,
+      "category": "deployment"
+    }
+  ],
+  "deployment_notes": {
+    "ssh_auth": "Password 113014 did NOT work for root@5.161.126.32. SSH key auth preferred.",
+    "git_pat": "Updated PAT in remote URL — old one was expired causing silent hangs",
+    "docker_service": "Service name is 'bot', container name is 'shamrock-bot'"
+  }
+}

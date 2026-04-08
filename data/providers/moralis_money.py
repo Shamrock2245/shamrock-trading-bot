@@ -772,6 +772,32 @@ def get_token_analytics(token_address: str, chain: str) -> Optional[dict]:
         return None
 
 
+def get_token_analytics_fresh(
+    token_address: str,
+    chain: str,
+    max_age_seconds: int = 25,
+) -> Optional[dict]:
+    """
+    Near-real-time token analytics for the position monitor.
+
+    Thin wrapper around ``get_token_analytics()`` that invalidates the cache
+    entry when it's older than *max_age_seconds* (default 25 s — shorter than
+    the global 10-min CACHE_TTL).  This lets the position monitor get fresh
+    netBuyers / buyVolumeUsd every ~30 s monitoring cycle without affecting the
+    longer cache TTL used by the gem scanner.
+    """
+    cache_key = f"analytics_{chain}_{token_address.lower()}"
+    entry = _cache.get(cache_key)
+    if entry:
+        age = time.time() - entry.get("ts", 0)
+        if age > max_age_seconds:
+            # Expire the stale entry so get_token_analytics() makes a fresh call
+            _cache.pop(cache_key, None)
+    return get_token_analytics(token_address, chain)
+
+
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 7b. Entry Timing Intelligence  (derived from analytics — NO extra API calls)
 #     Turns raw multi-timeframe analytics into actionable entry signals.

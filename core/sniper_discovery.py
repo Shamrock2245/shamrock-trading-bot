@@ -791,6 +791,238 @@ def _harvest_from_dexscreener_boosted() -> dict[str, list[str]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Solana Top-10 Alpha Wallet Discovery (Copy-Trade Engine)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def discover_top_solana_alpha_wallets(max_wallets: int = 10) -> list[SniperWallet]:
+    """
+    Proactively discover the top N most profitable Solana wallets by 30-day PnL.
+
+    Sources:
+      1. DexScreener trending Solana pairs → top holders via Moralis
+      2. GMGN.ai wallet audit for richer Solana-specific PnL data
+      3. Existing ALPHA_WALLETS_SOLANA seeds from settings
+      4. Existing sniper leaderboard (re-score Solana entries)
+
+    Each candidate is scored via Moralis profitability/summary endpoint
+    AND optionally enriched with GMGN audit data. Top N by total realized
+    PnL are promoted to active tracking pool for copy-trade monitoring.
+
+    Returns:
+        List of top N SniperWallet objects, sorted by PnL descending.
+    """
+    logger.info(f"🔍 Solana Alpha Discovery: Searching for top {max_wallets} wallets...")
+    candidates: set[str] = set()
+
+    # ── Source 1: DexScreener trending Solana pairs → top holders ─────────
+    try:
+        r = requests.get(
+            "https://api.dexscreener.com/token-boosts/latest/v1",
+            timeout=10,
+        )
+        if r.status_code == 200:
+            boosts = r.json() if isinstance(r.json(), list) else []
+            sol_tokens = []
+            for b in boosts:
+                chain_id = b.get("chainId", "").lower()
+                token_addr = b.get("tokenAddress", "")
+                if chain_id == "solana" and token_addr:
+                    sol_tokens.append(token_addr)
+                if len(sol_tokens) >= 15:
+                    break
+
+            logger.info(f"Solana Alpha Discovery: {len(sol_tokens)} trending Solana tokens from DexScreener")
+
+            for token_addr in sol_tokens:
+                try:
+                    holders = harvest_solana_candidates_from_gem(token_addr, limit=10)
+                    candidates.update(holders)
+                except Exception as e:
+                    logger.debug(f"Holder harvest error for {token_addr[:8]}: {e}")
+
+            logger.info(f"Solana Alpha Discovery: {len(candidates)} candidates from DexScreener holders")
+    except Exception as e:
+        logger.warning(f"Solana Alpha Discovery: DexScreener fetch failed: {e}")
+
+    # ── Source 2: Existing ALPHA_WALLETS_SOLANA seeds ─────────────────────
+    try:
+        from config import settings as _cfg
+        seeds = getattr(_cfg, "ALPHA_WALLETS_SOLANA", [])
+        for w in seeds:
+            if w and w.strip():
+                candidates.add(w.strip())
+        logger.info(f"Solana Alpha Discovery: Added {len(seeds)} seeds → {len(candidates)} total candidates")
+    except Exception:
+        pass
+
+    # ── Source 3: Existing leaderboard Solana entries ─────────────────────
+    existing_lb = load_leaderboard()
+    for w in existing_lb:
+        if w.chain == "solana" and w.address:
+            candidates.add(w.address)
+
+    if not candidates:
+        logger.info("Solana Alpha Discovery: No candidates found from any source")
+        return []
+
+    logger.info(f"Solana Alpha Discovery: Scoring {len(candidates)} unique candidates...")
+
+    # ── Score all candidates ──────────────────────────────────────────────
+    scored_wallets: list[SniperWallet] = []
+    gmgn_available = False
+    gmgn_client = None
+
+    # Try GMGN for richer Solana-specific data
+    try:
+        from core.gmgn_client import GMGNClient
+        gmgn_client = GMGNClient()
+        gmgn_available = True
+        logger.info("Solana Alpha Discovery: GMGN client available for enrichment")
+    except Exception as e:
+        logger.info(f"Solana Alpha Discovery: GMGN unavailable ({e}) — using Moralis only")
+
+    for address in candidates:
+        try:
+            # Primary scoring via Moralis profitability
+            wallet = _score_wallet(
+                address=address,
+                chain="solana",
+                discovery_source="solana_top10_pnl",
+            )
+
+            if wallet is None:
+                # Moralis didn't return profitability — try GMGN as fallback
+                if gmgn_available and gmgn_client:
+                    try:
+                        audit = gmgn_client.audit_wallet(address, chain="sol")
+                        if audit and audit.get("total_realized_pnl_usd", 0) > MIN_REALIZED_PNL_USD:
+                            now = datetime.now(timezone.utc).isoformat()
+                            wallet = SniperWallet(
+                                address=address,
+                                chain="solana",
+                                alias="",
+                                win_rate=audit.get("win_rate_pct", 0) / 100.0,
+                                total_realized_pnl_usd=audit.get("total_realized_pnl_usd", 0),
+                                avg_roi_pct=0.0,  # GMGN doesn't provide avg ROI directly
+                                total_trades=audit.get("total_trades", 0),
+                                winning_trades=audit.get("profitable_positions", 0),
+                                active_chains=["solana"],
+                                top_tokens=[
+                                    w.get("symbol", "?")
+                                    for w in audit.get("top_winners", [])[:5]
+                                ],
+                                sniper_score=0.0,  # Will be calculated below
+                                microcap_focus_score=50.0,
+                                discovery_source="solana_top10_pnl_gmgn",
+                                first_seen=now,
+                                last_updated=now,
+                                is_active=True,
+                            )
+                            # Calculate sniper score from GMGN data
+                            wallet.sniper_score = _calculate_sniper_score(
+                                win_rate=wallet.win_rate,
+                                total_pnl=wallet.total_realized_pnl_usd,
+                                avg_roi=wallet.avg_roi_pct,
+                                total_trades=wallet.total_trades,
+                                microcap_focus=wallet.microcap_focus_score,
+                                multi_chain=False,
+                            )
+                    except Exception as gmgn_err:
+                        logger.debug(f"GMGN fallback failed for {address[:10]}: {gmgn_err}")
+
+            # GMGN enrichment for Moralis-scored wallets
+            if wallet and gmgn_available and gmgn_client:
+                try:
+                    audit = gmgn_client.audit_wallet(address, chain="sol")
+                    if audit:
+                        gmgn_pnl = audit.get("total_realized_pnl_usd", 0)
+                        # Use GMGN PnL if significantly higher (Moralis may undercount Solana)
+                        if gmgn_pnl > wallet.total_realized_pnl_usd * 1.5:
+                            wallet.total_realized_pnl_usd = gmgn_pnl
+                            wallet.win_rate = max(
+                                wallet.win_rate,
+                                audit.get("win_rate_pct", 0) / 100.0,
+                            )
+                        # Add top winners from GMGN if richer
+                        gmgn_winners = [
+                            w.get("symbol", "?")
+                            for w in audit.get("top_winners", [])[:5]
+                        ]
+                        if len(gmgn_winners) > len(wallet.top_tokens):
+                            wallet.top_tokens = gmgn_winners
+                except Exception:
+                    pass  # Enrichment is best-effort
+
+            if wallet:
+                wallet.is_active = True  # All top-10 candidates are active
+                scored_wallets.append(wallet)
+
+        except Exception as e:
+            logger.debug(f"Solana scoring error for {address[:10]}: {e}")
+
+    if not scored_wallets:
+        logger.info("Solana Alpha Discovery: No wallets passed scoring thresholds")
+        return []
+
+    # ── Rank by realized PnL and take top N ───────────────────────────────
+    scored_wallets.sort(key=lambda w: w.total_realized_pnl_usd, reverse=True)
+    top_wallets = scored_wallets[:max_wallets]
+
+    # ── Log discovery results ─────────────────────────────────────────────
+    logger.info(f"\n{'='*70}")
+    logger.info(f"  🏆 SOLANA TOP-{max_wallets} ALPHA WALLETS (by 30-day PnL)")
+    logger.info(f"{'='*70}")
+    for i, w in enumerate(top_wallets, 1):
+        logger.info(
+            f"  #{i}  {w.address[:16]}... | "
+            f"PnL: ${w.total_realized_pnl_usd:>12,.0f} | "
+            f"WR: {w.win_rate*100:.0f}% | "
+            f"Score: {w.sniper_score:.1f} | "
+            f"Trades: {w.total_trades} | "
+            f"Source: {w.discovery_source}"
+        )
+    logger.info(f"{'='*70}\n")
+
+    # ── Merge into leaderboard and save active snipers ────────────────────
+    existing = load_leaderboard()
+    existing_addrs = {w.address.lower() for w in existing}
+
+    for wallet in top_wallets:
+        if wallet.address.lower() in existing_addrs:
+            # Update existing entry
+            for i, ex in enumerate(existing):
+                if ex.address.lower() == wallet.address.lower():
+                    wallet.first_seen = ex.first_seen or wallet.first_seen
+                    wallet.copy_signals_generated = ex.copy_signals_generated
+                    wallet.copy_signals_profitable = ex.copy_signals_profitable
+                    existing[i] = wallet
+                    break
+        else:
+            existing.append(wallet)
+
+    existing.sort(key=lambda w: w.sniper_score, reverse=True)
+    existing = existing[:MAX_TRACKED_SNIPERS]
+    save_leaderboard(existing)
+    save_active_snipers(existing)
+
+    _log_discovery_event({
+        "type": "solana_top10_discovery",
+        "wallets_found": len(top_wallets),
+        "candidates_scored": len(scored_wallets),
+        "total_candidates": len(candidates),
+        "top_pnl": top_wallets[0].total_realized_pnl_usd if top_wallets else 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info(
+        f"✅ Solana Alpha Discovery complete: "
+        f"{len(candidates)} candidates → {len(scored_wallets)} scored → "
+        f"top {len(top_wallets)} promoted to active tracking"
+    )
+    return top_wallets
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main Discovery Cycle
 # ─────────────────────────────────────────────────────────────────────────────
 def run_discovery_cycle() -> dict:
@@ -808,6 +1040,20 @@ def run_discovery_cycle() -> dict:
 
     start_time = time.monotonic()
     logger.info("🔍 SniperDiscovery: Starting discovery cycle...")
+
+    # Step 0: Solana-focused top-10 alpha wallet discovery
+    # Runs its own candidate pipeline (DexScreener + GMGN + seeds)
+    # and promotes the best wallets to active tracking independently.
+    solana_top10: list[SniperWallet] = []
+    if "solana" in ACTIVE_CHAINS:
+        try:
+            solana_top10 = discover_top_solana_alpha_wallets(max_wallets=10)
+            logger.info(
+                f"SniperDiscovery Step 0: Solana top-10 discovery found "
+                f"{len(solana_top10)} wallets"
+            )
+        except Exception as e:
+            logger.warning(f"SniperDiscovery Step 0: Solana discovery error: {e}")
 
     # Step 1: Harvest candidates from gem history
     candidates = harvest_candidates_from_recent_gems(max_gems=25)

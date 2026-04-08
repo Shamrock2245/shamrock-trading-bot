@@ -326,6 +326,76 @@
       ],
       "source_episode": "ep-2026-04-05-gmgn-integration",
       "evolution_marker": "2026-04-05 | HIGH | GMGN-first Solana polling eliminates DexScreener enrichment for Smart Money signals"
+    },
+    {
+      "id": "mi-001",
+      "category": "manus_integration",
+      "name": "manus_always_verify_weight_sums",
+      "priority": "critical",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "When Manus modifies any weight in a weighted-sum scoring system (e.g., gem_scanner._score_token), always verify the total of all weights sums to exactly 1.00. Manus bumped moralis_enrichment 0.27→0.32 without reducing other weights, inflating all scores by 5%.",
+      "rule": "After any Manus commit touching _score_token weights: sum all fixed weights + default values of _w.get() calls. Must equal 1.00 ± 0.001.",
+      "anti_pattern": "Increasing one weight without compensating decrease elsewhere",
+      "files": ["scanner/gem_scanner.py"],
+      "source_episode": "ep-2026-04-08-001",
+      "evolution_marker": "2026-04-08 | CRITICAL | Weight sum was 1.05 after Manus bump"
+    },
+    {
+      "id": "mi-002",
+      "category": "manus_integration",
+      "name": "manus_check_duplicate_discovery_blocks",
+      "priority": "high",
+      "confidence": 0.90,
+      "applications": 1,
+      "description": "Manus sometimes adds a new discovery source block in gem_scanner.scan() that duplicates an existing source. The duplicate may use different variable names but call the same upstream function. Always grep for duplicate function calls (e.g., get_pumpfun_graduated) across the scan loop after Manus edits.",
+      "rule": "After Manus edits to gem_scanner.py: grep for all discovery source function calls and ensure each appears only once in the scan loop.",
+      "anti_pattern": "Two blocks calling get_pumpfun_graduated — one with DexScreener enrichment, one without",
+      "files": ["scanner/gem_scanner.py"],
+      "source_episode": "ep-2026-04-08-001",
+      "evolution_marker": "2026-04-08 | HIGH | Duplicate pumpfun_graduated block found in Manus commit d7a1150"
+    },
+    {
+      "id": "mi-003",
+      "category": "manus_integration",
+      "name": "manus_bare_variable_in_dict_get",
+      "priority": "medium",
+      "confidence": 0.85,
+      "applications": 1,
+      "description": "Manus uses bare variable names instead of quoted string keys in dict.get() calls inside f-strings: e.g., pos.get(token_symbol) instead of pos.get('token_symbol'). This causes NameError at runtime, especially dangerous inside exception handlers where it masks the original error.",
+      "rule": "After Manus edits: grep -n 'pos.get([a-z_]*)' (without quotes) to catch bare variable references in dict.get() calls.",
+      "anti_pattern": "pos.get(token_symbol) — bare variable, will throw NameError",
+      "files": ["core/position_monitor.py"],
+      "source_episode": "ep-2026-04-08-001",
+      "evolution_marker": "2026-04-08 | MEDIUM | NameError in exception handler masked real error"
+    },
+    {
+      "id": "dp-005",
+      "category": "deployment",
+      "name": "docker_service_name_is_bot",
+      "priority": "high",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "Docker Compose service name is 'bot', NOT 'shamrock-bot'. The container_name is 'shamrock-bot' but docker compose commands (build, up, restart) require the service name.",
+      "rule": "Always use 'docker compose build bot' and 'docker compose up -d bot', never 'docker compose build shamrock-bot'.",
+      "anti_pattern": "Using container_name in docker compose commands",
+      "files": ["docker-compose.yml"],
+      "source_episode": "ep-2026-04-08-001",
+      "evolution_marker": "2026-04-08 | HIGH | Deploy failed with 'no such service: shamrock-bot'"
+    },
+    {
+      "id": "dp-006",
+      "category": "deployment",
+      "name": "git_pat_expiry_causes_silent_hangs",
+      "priority": "high",
+      "confidence": 0.95,
+      "applications": 1,
+      "description": "When git push/commit hangs with no output, the PAT embedded in the remote URL is likely expired. The macOS osxkeychain credential helper may pop a hidden Keychain prompt that CLI tools can't interact with. Symptoms: 'failed to store: -60005' errors, commands hanging indefinitely.",
+      "rule": "If git operations hang: (1) check remote URL for embedded PAT, (2) get fresh PAT from user, (3) git remote set-url origin with new PAT, (4) use GIT_TERMINAL_PROMPT=0 to prevent hidden prompts.",
+      "anti_pattern": "Repeatedly retrying git commands without checking credential state",
+      "files": [],
+      "source_episode": "ep-2026-04-08-001",
+      "evolution_marker": "2026-04-08 | HIGH | Old PAT caused 5+ minutes of wasted time with hung commands"
     }
   ]
 }

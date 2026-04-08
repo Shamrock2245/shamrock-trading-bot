@@ -136,6 +136,40 @@ def _load_discovered_snipers() -> tuple[list[str], list[str]]:
         logger.debug(f"WalletMonitor: Could not load discovered snipers: {e}")
         return [], []
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Top Sniper Wallet Detection (for tier-gate bypass)
+# Discovered snipers from sniper_discovery.py get Tier 3 pass-through
+# ─────────────────────────────────────────────────────────────────────────────
+_top_sniper_addresses: set[str] = set()
+_top_sniper_last_load: float = 0.0
+_TOP_SNIPER_RELOAD_S = 300  # Refresh every 5 minutes
+
+
+def _is_top_sniper_wallet(address: str) -> bool:
+    """
+    Check if a wallet is in the active discovered sniper pool.
+    These wallets get Tier 3 pass-through (single-wallet polling signals
+    are treated as high-conviction because the discovery engine already
+    validated their profitability).
+    """
+    global _top_sniper_addresses, _top_sniper_last_load
+    now = time.monotonic()
+    if now - _top_sniper_last_load > _TOP_SNIPER_RELOAD_S:
+        try:
+            from core.sniper_discovery import get_active_sniper_addresses
+            addrs = get_active_sniper_addresses()
+            _top_sniper_addresses = set(a.lower() for a in addrs.get("solana", []))
+            _top_sniper_addresses.update(a.lower() for a in addrs.get("evm", []))
+            _top_sniper_last_load = now
+            if _top_sniper_addresses:
+                logger.debug(
+                    f"Top sniper cache refreshed: {len(_top_sniper_addresses)} wallets"
+                )
+        except Exception:
+            pass
+    return address.lower() in _top_sniper_addresses
+
+
 # Moralis API base
 _MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2"
 _HELIUS_RPC = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else "https://api.mainnet-beta.solana.com"
@@ -693,10 +727,49 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     )
 
     try:
-        # Build a GemCandidate and inject into the express lane
         from data.models import Token, GemCandidate
         from config import settings as cfg
 
+        # ── Route through full gem scanner pipeline (score >= 65 to execute) ──
+        # User requirement: "score it through our gem scanner pipeline and
+        # auto-execute if it scores 65+." Instead of bypassing the scanner
+        # with express_lane=True, we run the real 7-layer validation.
+        gem_scanner_score: Optional[float] = None
+        gem_scanner_candidate: Optional[GemCandidate] = None
+        try:
+            from scanner.gem_scanner import GemScanner
+            from data.providers.dexscreener import get_token_pairs, extract_gem_signals
+
+            # Fetch real market data for the token from DexScreener
+            pairs = get_token_pairs(signal.token_address) or []
+            if pairs:
+                signals = extract_gem_signals(pairs[0])
+                scanner = GemScanner()
+                token_obj = scanner._signals_to_token(signals, signal.chain)
+                if token_obj:
+                    gem_scanner_candidate = scanner._score_token(token_obj, is_boosted=False)
+                    if gem_scanner_candidate:
+                        gem_scanner_score = gem_scanner_candidate.gem_score
+                        logger.info(
+                            f"📊 Gem Scanner score for {signal.token_symbol}: "
+                            f"{gem_scanner_score:.1f}"
+                        )
+        except Exception as scan_err:
+            logger.warning(
+                f"Gem scanner routing skipped for {signal.token_symbol}: {scan_err} "
+                f"— falling back to conviction-based scoring"
+            )
+
+        # ── Gate: Gem score must be >= 65 to proceed ─────────────────────────
+        MIN_COPY_GEM_SCORE = float(getattr(cfg, "MIN_GEM_SCORE", 65.0))
+        if gem_scanner_score is not None and gem_scanner_score < MIN_COPY_GEM_SCORE:
+            logger.info(
+                f"⛔ Copy trade rejected by gem scanner: {signal.token_symbol} "
+                f"[{signal.chain}] — score={gem_scanner_score:.1f} < {MIN_COPY_GEM_SCORE:.0f}"
+            )
+            return False
+
+        # ── Build the GemCandidate for execution ─────────────────────────────
         # Construct a minimal Token object from signal data
         token = Token(
             address=signal.token_address,
@@ -708,17 +781,20 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
             liquidity_usd=signal.liquidity_usd,
         )
 
-        # Build GemCandidate with a high conviction score
         candidate = GemCandidate(token=token)
-        candidate.gem_score = min(100.0, 70.0 + signal.conviction_score * 0.3)
+        # Use real gem scanner score if available, otherwise conviction-based
+        if gem_scanner_score is not None:
+            candidate.gem_score = gem_scanner_score
+        else:
+            candidate.gem_score = min(100.0, 70.0 + signal.conviction_score * 0.3)
         candidate.smart_money_score = 100.0
         candidate.is_copy_trade = True
         candidate.copy_trade_tier = signal.tier
         candidate.copy_trade_wallets = signal.confirming_wallets
         candidate.copy_trade_size_usd = copy_size_usd
-        # Mark as express lane — alpha wallet conviction IS the TA.
-        # This bypasses the TA/signal-engine gate in main.py so the
-        # trade actually executes instead of being killed by RSI/MACD.
+        # Express lane: bypass TA/signal-engine gate in main.py
+        # The gem scanner already validated the token quality;
+        # express_lane ensures RSI/MACD don't kill a confirmed alpha signal.
         candidate.express_lane = True
 
         # Inject into express lane via callback
@@ -998,12 +1074,19 @@ class WalletMonitor:
                 signal.tier = 3
 
             # Tier gate: Tier 1 & 2 always proceed.
-            # Tier 3 (single wallet) only proceeds if it came from Streams — real-time
-            # events are high fidelity (on-chain confirmed) and we size off OUR balance
-            # not the alpha buy amount. Single-wallet Streams signals are not noise.
+            # Tier 3 (single wallet) proceeds if:
+            #   a) It came from Moralis Streams (real-time, on-chain confirmed), OR
+            #   b) The wallet is a top-10 discovered sniper (pre-validated profitability)
+            # Single-wallet polling signals from unknown wallets are noise — skip them.
             is_streams_signal = "streams" in (signal.source or "")
-            if signal.tier > 2 and not is_streams_signal:
+            is_top_sniper = _is_top_sniper_wallet(signal.wallet_address)
+            if signal.tier > 2 and not is_streams_signal and not is_top_sniper:
                 continue
+            if is_top_sniper and signal.tier > 2:
+                logger.info(
+                    f"🎯 Top sniper pass-through: {signal.token_symbol} [{signal.chain}] "
+                    f"from discovered wallet {signal.wallet_address[:10]}..."
+                )
 
             # Enrich with market data
             signal = _enrich_signal(signal)

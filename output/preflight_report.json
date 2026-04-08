@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-08T18:20:33.883078+00:00",
+  "timestamp": "2026-04-08T18:46:36.616905+00:00",
   "git": {
-    "sha": "c0864b9",
+    "sha": "65fcfc2",
     "branch": "main",
-    "message": "fix: IndentationError in pumpfun filter + rebalance scoring weights (1.05\u21921.00) + stale comments \u2014 post-Manus review"
+    "message": "fix: IndentationError, weight rebalance (1.05\u21921.00), duplicate pumpfun block, NameError in position_monitor \u2014 post-Manus review"
   },
   "checks": {
     "syntax": {

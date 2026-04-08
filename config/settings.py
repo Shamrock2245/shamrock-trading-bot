@@ -246,6 +246,19 @@ POSITION_CHECK_INTERVAL_SECONDS = int(os.getenv("POSITION_CHECK_INTERVAL_SECONDS
 POSITIONS_FILE = os.getenv("POSITIONS_FILE", "output/positions.json")
 TRADES_FILE = os.getenv("TRADES_FILE", "output/trades.json")
 
+# ── Moralis Analytics Dynamic TP Scaling ──────────────────────────────────
+# When enabled, the position monitor queries real-time Moralis token analytics
+# (netBuyers, buyVolumeUsd) every 30s on each open position.
+# At TP1: if netBuyers is strongly positive, the sell is DELAYED and a tighter
+# trailing stop is engaged instead ("let winners run with protection").
+# Pre-TP1: if netBuyers goes negative, the full position is dumped immediately
+# ("sellers dominating = dump incoming, get out NOW").
+ANALYTICS_TP_DELAY_ENABLED = os.getenv("ANALYTICS_TP_DELAY_ENABLED", "true").lower() == "true"
+ANALYTICS_NET_BUYERS_MIN = int(os.getenv("ANALYTICS_NET_BUYERS_MIN", "3"))           # Min net_buyers_1h to delay TP1
+ANALYTICS_BUY_VOL_MIN_USD = float(os.getenv("ANALYTICS_BUY_VOL_MIN_USD", "5000"))    # Min buy volume USD (1h) to delay TP1
+ANALYTICS_TIGHT_TRAIL_PCT = float(os.getenv("ANALYTICS_TIGHT_TRAIL_PCT", "8.0"))      # Trailing % when TP1 is delayed by analytics
+ANALYTICS_EMERGENCY_EXIT_ENABLED = os.getenv("ANALYTICS_EMERGENCY_EXIT_ENABLED", "true").lower() == "true"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Trade Loop Guardrails (Defensive)
 # ─────────────────────────────────────────────────────────────────────────────
