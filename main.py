@@ -484,7 +484,7 @@ async def run_bot_loop():
                 return
 
         allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}), is_express=True)
+                        is_express=True)
         if not allocation:
             # ── Hyperliquid fallback: zero-gas leveraged perp ──────────────
             if hl_executor and hl_executor.is_available() and hl_executor.has_perp(token.symbol):
@@ -497,7 +497,6 @@ async def run_bot_loop():
                     symbol=token.symbol,
                     size_usd=copy_usd,
                     gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                 )
                 if hl_result:
                     register_position(
@@ -596,7 +595,6 @@ async def run_bot_loop():
                     symbol=token.symbol,
                     size_usd=copy_usd,
                     gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                 )
                 if hl_result:
                     register_position(
@@ -642,7 +640,7 @@ async def run_bot_loop():
             pair_address=token.pair_address,
             tx_hash=tx_hash or "",
             gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
+            signal_scores=getattr(candidate, "signal_scores", {}),
             is_paper=is_paper,
             entry_value_usd=position_usd,
             strategy_profile=getattr(wallet.strategy_profile, "name", ""),
@@ -1757,7 +1755,6 @@ async def run_bot_loop():
                         chain=token.chain,
                         pair_address=token.pair_address,
                         gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                         price_change_1h=token.price_change_1h,
                         price_change_24h=token.price_change_24h,
                         volume_1h=token.volume_1h,
@@ -1812,7 +1809,6 @@ async def run_bot_loop():
                 allocations = route_trade_all(
                     chain=token.chain,
                     gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                     strategy="gem_snipe",
                     is_express=is_express,
                 )
@@ -1834,7 +1830,6 @@ async def run_bot_loop():
                     final_position_usd, sizing_reason = calculate_offensive_position_size(
                         base_position_usd=base_position_usd,
                         gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                         is_express=is_express,
                         state=offensive_state,
                         is_momentum_reentry=is_momentum_reentry,
@@ -1852,7 +1847,6 @@ async def run_bot_loop():
                         _macro_r = _get_regime()
                         _rl_mult, _rl_reason = _rl_size(
                             gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
                             macro_regime=_macro_r.regime,
                             win_streak=offensive_state.consecutive_wins,
                             loss_streak=offensive_state.consecutive_losses,
@@ -2012,7 +2006,7 @@ async def run_bot_loop():
                             pair_address=token.pair_address,
                             tx_hash=tx_hash or "",
                             gem_score=candidate.gem_score,
-                        signal_scores=getattr(candidate, "signal_scores", {}),
+                            signal_scores=getattr(candidate, "signal_scores", {}),
                             is_paper=is_paper,
                             entry_value_usd=allocation.position_size_usd,
                             strategy_profile=_reg_profile,

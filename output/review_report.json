@@ -1,9 +1,9 @@
 {
-  "grade": "warn",
-  "strategy": "monitor",
-  "exit_code": 1,
-  "timestamp": "2026-04-08T18:53:51.279176+00:00",
-  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-08 18:54:08,199 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa\n  - shamrock-bot  | 2026-04-08 18:54:10,020 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for KTALK: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/resp",
+  "grade": "pass",
+  "strategy": "continue",
+  "exit_code": 0,
+  "timestamp": "2026-04-08T20:12:59.106510+00:00",
+  "feedback": "No issues found.",
   "checks": {
     "containers": {
       "name": "containers",
@@ -40,30 +40,27 @@
     "bot_logs": {
       "name": "bot_logs",
       "passed": true,
-      "has_warnings": true,
+      "has_warnings": false,
       "critical_lines": [],
-      "warning_lines": [
-        "shamrock-bot  | 2026-04-08 18:54:08,199 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
-        "shamrock-bot  | 2026-04-08 18:54:10,020 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for KTALK: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/resp"
-      ],
+      "warning_lines": [],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-08 18:53:59,156 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
-        "shamrock-bot  | 2026-04-08 18:54:05,651 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
-        "shamrock-bot  | 2026-04-08 18:54:05,651 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
-        "shamrock-bot  | 2026-04-08 18:54:10,033 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+        "shamrock-bot  | 2026-04-08 20:13:08,690 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-08 20:13:15,042 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-08 20:13:15,042 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-08 20:13:20,801 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
       "log_lines": 103,
-      "summary": "All clear (with warnings)"
+      "summary": "Clean \u2014 bot looks healthy"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "c573af9",
-      "server_sha": "c573af9",
-      "local_message": "deploy: 2026-04-08 14:46 \u2014 Solana copy-trade engine + gem scanner routing",
-      "server_message": "deploy: 2026-04-08 14:46 \u2014 Solana copy-trade engine + gem scanner routing",
+      "local_sha": "03fdb43",
+      "server_sha": "03fdb43",
+      "local_message": "deploy: 2026-04-08 16:09 \u2014 post-preflight",
+      "server_message": "deploy: 2026-04-08 16:09 \u2014 post-preflight",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "65fcfc2"
+  "preflight_sha": "db6430f"
 }

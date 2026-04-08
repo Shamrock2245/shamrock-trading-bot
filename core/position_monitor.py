@@ -1024,40 +1024,24 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             if compound_result.get("sweep_amount_usd", 0) > 0:
                 logger.info(
                     f"💰 PROFIT SWEEP: ${compound_result['sweep_amount_usd']:.2f} → Wallet C cold storage"
-                # Execute on-chain transfer to Wallet C
-
-                try:
-
-                    from core.executor import TradeExecutor
-
-                    from config.wallets import get_wallet
-
-                    wallet_c = get_wallet("wallet_c")
-
-                    if wallet_c and wallet_c.address:
-
-                        executor = TradeExecutor()
-
-                        tx_hash = executor.transfer_native(
-
-                            chain=pos.get("chain", "base"),
-
-                            from_wallet_alias=pos.get("wallet", "primary"),
-
-                            to_address=wallet_c.address,
-
-                            amount_usd=compound_result["sweep_amount_usd"]
-
-                        )
-
-                        if tx_hash:
-
-                            logger.info(f"✅ Paycheck transfer confirmed: {tx_hash}")
-
-                except Exception as e:
-
-                    logger.error(f"Failed to execute paycheck transfer: {e}")
                 )
+                # Execute on-chain transfer to Wallet C
+                try:
+                    from core.executor import TradeExecutor
+                    from config.wallets import get_wallet
+                    wallet_c = get_wallet("wallet_c")
+                    if wallet_c and wallet_c.address:
+                        sweep_executor = TradeExecutor()
+                        tx_hash = sweep_executor.transfer_native(
+                            chain=pos.get("chain", "base"),
+                            from_wallet_alias=pos.get("wallet", "primary"),
+                            to_address=wallet_c.address,
+                            amount_usd=compound_result["sweep_amount_usd"],
+                        )
+                        if tx_hash:
+                            logger.info(f"✅ Paycheck transfer confirmed: {tx_hash}")
+                except Exception as e:
+                    logger.error(f"Failed to execute paycheck transfer: {e}")
         except Exception as _ce:
             logger.debug(f"Capital compounder record error: {_ce}")
 

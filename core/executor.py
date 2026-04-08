@@ -160,7 +160,7 @@ class TradeExecutor:
 
         from config.wallets import get_wallet
 
-        from core.balance_fetcher import get_native_price_usd
+        from core.wallet_router import get_native_price_usd
 
         
 
@@ -176,7 +176,12 @@ class TradeExecutor:
 
                 
 
-            w3 = self._get_web3(chain)
+            chain_config = CHAINS.get(chain.lower())
+            if not chain_config:
+                logger.error(f"Cannot transfer: Unknown chain {chain}")
+                return None
+
+            w3 = self._get_web3(chain_config)
 
             if not w3:
 
@@ -185,8 +190,12 @@ class TradeExecutor:
                 
 
             # Convert USD to native token amount
+            # get_native_price_usd expects token symbol (ETH, SOL, BNB) not chain name
+            chain_to_native = {"ethereum": "ETH", "base": "ETH", "arbitrum": "ETH",
+                               "polygon": "MATIC", "bsc": "BNB", "avalanche": "AVAX"}
+            native_symbol = chain_to_native.get(chain.lower(), "ETH")
 
-            native_price = get_native_price_usd(chain)
+            native_price = get_native_price_usd(native_symbol)
 
             if native_price <= 0:
 
