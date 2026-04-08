@@ -82,7 +82,7 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     trailing_stop_pct=20.0,  # FIX: was 15%, project spec Tier 1 trailing = 20%
     trailing_tighten={2.5: 15.0, 5.0: 10.0},  # At TP2 → 15% trail, at TP3 → 10%
     # Sizing
-    max_position_pct=20.0,    # SEED STAGE: concentrate bets — 20% per trade (~$50-100 per signal)
+    max_position_pct=10.0,    # SEED STAGE: concentrate bets — 10% per trade (~$50-100 per signal)
     kelly_clamp_max=0.30,
     max_position_usd=5_000.0,
     max_concurrent=5,
@@ -109,7 +109,7 @@ NUCLEAR_PROFILE = StrategyProfile(
     trailing_stop_pct=28.0,  # TUNED: was 30% — slightly tighter to protect nuclear gains
     trailing_tighten={10: 15.0, 20: 7.0},  # TUNED: tighter at 10x/20x milestones
     # Sizing — the missile
-    max_position_pct=60.0,
+    max_position_pct=25.0,
     kelly_clamp_max=0.70,
     max_position_usd=0.0,  # No hard cap
     max_concurrent=3,

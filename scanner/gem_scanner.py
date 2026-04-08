@@ -428,6 +428,7 @@ class GemScanner:
         if "solana" in settings.ACTIVE_CHAINS:
             try:
                 graduated = get_pumpfun_graduated(limit=20)
+                    graduated = [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
                 pumpfun_added = 0
                 for grad in graduated:
                     token_addr = grad.get("token_address", "")
@@ -1402,7 +1403,7 @@ class GemScanner:
             + candidate.volume_score         * _w.get("volume", 0.07)
             + candidate.liquidity_score      * _w.get("liquidity", 0.07)
             + candidate.buy_pressure_score   * 0.08   # Fixed: buy pressure is always critical
-            + candidate.moralis_enrichment_score * 0.27  # Fixed: Moralis dominant signal
+            + candidate.moralis_enrichment_score * 0.32  # Fixed: Moralis dominant signal
             + candidate.sniper_score         * 0.04   # Fixed: Solana sniper detection
             + candidate.contract_score       * 0.06   # Fixed: safety signal
             + candidate.holder_score         * _w.get("whale_holder", 0.05)

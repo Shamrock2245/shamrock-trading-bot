@@ -82,7 +82,7 @@ MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
-HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "20.0"))  # Tightened: cut losers at 20%
+HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # Tightened: cut losers at 20%
 
 # ── Take-Profit Tiers (Profit Machine Playbook) ─────────────────────────────
 # TP1 at 1.5x: sell 40% → captures micro-cap gains before reversals
@@ -104,7 +104,7 @@ TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # M
 # If a position builds gains but never hits TP1, we still protect those gains.
 # Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
 # Uses a WIDER stop than the post-TP1 trailing (25% vs 15%) to give room to run.
-PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "25.0"))  # 25% trail before TP1
+PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "15.0"))  # 25% trail before TP1
 PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "15.0"))  # Activate when up 15%+
 
 # ── Confluence Gate Override ─────────────────────────────────────────────────
@@ -306,7 +306,7 @@ VOLUME_SURGE_SELL_PCT = float(os.getenv("VOLUME_SURGE_SELL_PCT", "0.25"))  # Sel
 
 # Underperformer rotation: close flat positions to free capital
 UNDERPERFORMER_EXIT_ENABLED = os.getenv("UNDERPERFORMER_EXIT_ENABLED", "true").lower() == "true"
-UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "4.0"))   # FIX: project spec = 4h (was 12h — dead capital held too long)
+UNDERPERFORMER_FLAT_HOURS = float(os.getenv("UNDERPERFORMER_FLAT_HOURS", "2.0"))   # FIX: project spec = 4h (was 12h — dead capital held too long)
 UNDERPERFORMER_FLAT_PCT = float(os.getenv("UNDERPERFORMER_FLAT_PCT", "2.5"))    # FIX: project spec = ±2.5% (was ±5% — too lenient)
 
 # ─────────────────────────────────────────────────────────────────────────────
