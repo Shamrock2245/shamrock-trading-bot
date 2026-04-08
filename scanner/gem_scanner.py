@@ -1,19 +1,26 @@
 """
 scanner/gem_scanner.py — Multi-chain gem discovery and scoring engine.
 
-Scans DexScreener + Moralis for new/boosted/trending tokens across Ethereum,
-Base, Arbitrum, Polygon, BSC, Avalanche, and Solana. Scores each candidate
-0–100 using weighted criteria and returns a ranked list of GemCandidates
-ready for safety checks and execution.
+Scans DexScreener + Moralis + Grok for new/boosted/trending tokens across
+Ethereum, Base, Arbitrum, Polygon, BSC, Avalanche, and Solana. Scores each
+candidate 0–100 using weighted criteria and returns a ranked list of
+GemCandidates ready for safety checks and execution.
 
-Data sources:
-  1. DexScreener latest token profiles
-  2. DexScreener latest boosts
-  3. DexScreener top boosts
-  4. DexScreener community takeovers (CTO Revival)
-  5. DexScreener ads
-  6. Moralis trending tokens + buying pressure (Pro plan)
-  7. Gem Watchlist re-evaluation (near-miss tokens from prior cycles)
+Data sources (17 total):
+  1.  DexScreener latest token profiles
+  2.  DexScreener latest boosts
+  3.  DexScreener top boosts
+  4.  DexScreener community takeovers (CTO Revival)
+  5.  DexScreener ads
+  6.  Moralis trending tokens + buying pressure (Pro plan)
+  7.  Gem Watchlist re-evaluation (near-miss tokens from prior cycles)
+  8.  Pump.fun Graduated Tokens (Solana)
+  9.  Binance Pulse Trending (Multi-chain)
+  10. Pump.fun NEW Tokens (Solana — earliest entry)
+  11. Pump.fun BONDING Tokens (near-graduation)
+  12. Moralis Sniper Convergence (≥3 snipers → express lane)
+  13. DexScreener New Pairs (Base + Solana, ≤10m old)
+  14. Grok CT Trending (top 5 X/Twitter discussed tokens)
 
 Scoring weights (rebalanced, 14 signals, sum = 100%):
   - Token age:                12%
@@ -599,6 +606,143 @@ class GemScanner:
                     logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
             except Exception as e:
                 logger.warning(f"Pump.fun BONDING discovery error: {e}")
+
+        # ── Source 12: Moralis Sniper Convergence (≥3 snipers → express lane) ──
+        # When ≥3 known profitable sniper wallets buy the same token within
+        # 5 minutes, that convergence is the strongest possible signal.
+        # These get a +10 bonus and are flagged as express-lane candidates.
+        try:
+            from data.providers.moralis_sniper_detection import discover_sniper_convergence
+            convergence_tokens = discover_sniper_convergence()
+            sniper_conv_added = 0
+            for conv in convergence_tokens:
+                token_addr = conv.get("token_address", "")
+                chain = conv.get("chain", "")
+                if not token_addr or not chain:
+                    continue
+                if chain not in settings.ACTIVE_CHAINS:
+                    continue
+                if token_addr.lower() in seen_addresses:
+                    continue
+                pairs = get_token_pairs(token_addr) or []
+                for pair in pairs:
+                    signals = extract_gem_signals(pair)
+                    signals["is_boosted"] = True
+                    signals["boost_amount"] = 120  # Strong sniper convergence signal
+                    token = self._signals_to_token(signals, chain)
+                    if token:
+                        candidate = self._score_token(token, is_boosted=True)
+                        if candidate is None:
+                            break
+                        # +10 bonus for multi-sniper convergence
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 10.0, 2))
+                        candidate.strategy_tag = "sniper_convergence"
+                        candidate.express_lane = conv.get("express_lane", True)
+                        if candidate.gem_score >= _macro_min_score:
+                            candidates.append(candidate)
+                            seen_addresses.add(token_addr.lower())
+                            sniper_conv_added += 1
+                            logger.info(
+                                f"🎯 SNIPER CONVERGENCE HIT: {token.symbol} — "
+                                f"{conv['sniper_count']} snipers, "
+                                f"${conv.get('total_usd_value', 0):,.0f} total, "
+                                f"score={candidate.gem_score:.1f} → EXPRESS LANE"
+                            )
+                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                            self.add_near_miss(token, candidate.gem_score, "sniper_convergence")
+                        break
+            if sniper_conv_added:
+                logger.info(f"🎯 Sniper convergence: {sniper_conv_added} tokens passed scoring")
+        except Exception as e:
+            logger.warning(f"Sniper convergence discovery error: {e}")
+
+        # ── Source 13: DexScreener New Pairs (Base + Solana, ≤10m old) ─────────
+        # Brand-new pairs just created — earliest possible entry before any
+        # other scanner discovers them. +3 early-discovery bonus.
+        try:
+            from data.providers.dexscreener_new_pairs import discover_new_pairs
+            new_pairs = discover_new_pairs()
+            new_pairs_added = 0
+            for np_signals in new_pairs:
+                token_addr = np_signals.get("base_token_address", "")
+                chain_id = np_signals.get("chain_id", "")
+                chain = self._dexscreener_to_chain(chain_id)
+                if not chain or not token_addr:
+                    continue
+                if chain not in settings.ACTIVE_CHAINS:
+                    continue
+                if token_addr.lower() in seen_addresses:
+                    continue
+                token = self._signals_to_token(np_signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        continue
+                    # +3 early-discovery bonus for ultra-fresh pairs
+                    candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
+                    candidate.strategy_tag = "new_pair_snipe"
+                    pair_age = np_signals.get("pair_age_minutes", 0)
+                    if candidate.gem_score >= _macro_min_score:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                        new_pairs_added += 1
+                        logger.info(
+                            f"🆕 NEW PAIR ADDED: {token.symbol} on {chain} — "
+                            f"{pair_age:.1f}m old, score={candidate.gem_score:.1f}"
+                        )
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "new_pair")
+            if new_pairs_added:
+                logger.info(f"🆕 New pairs: {new_pairs_added} ultra-fresh tokens passed scoring")
+        except Exception as e:
+            logger.warning(f"New pairs discovery error: {e}")
+
+        # ── Source 14: Grok CT Trending (top 5 X/Twitter discussed tokens) ─────
+        # Social narrative precedes price action in meme/micro-cap markets.
+        # Grok identifies the hottest CT discussions and we check if those
+        # tokens are tradeable. +5 social momentum bonus.
+        try:
+            from data.providers.grok_trending_scan import discover_grok_trending
+            grok_trending = discover_grok_trending()
+            grok_added = 0
+            for gt_signals in grok_trending:
+                token_addr = gt_signals.get("base_token_address", "")
+                chain_id = gt_signals.get("chain_id", "")
+                chain = self._dexscreener_to_chain(chain_id)
+                if not chain or not token_addr:
+                    continue
+                if chain not in settings.ACTIVE_CHAINS:
+                    continue
+                if token_addr.lower() in seen_addresses:
+                    continue
+                token = self._signals_to_token(gt_signals, chain)
+                if token:
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        continue
+                    # +5 social momentum bonus for CT trending
+                    candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                    candidate.strategy_tag = "grok_trending"
+                    buzz = gt_signals.get("grok_buzz_level", "?")
+                    narrative = gt_signals.get("grok_narrative", "")[:50]
+                    # Viral buzz gets extra +5 (total +10)
+                    if buzz == "viral":
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                    if candidate.gem_score >= _macro_min_score:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                        grok_added += 1
+                        logger.info(
+                            f"🐦 GROK TRENDING: {token.symbol} on {chain} — "
+                            f"buzz={buzz}, score={candidate.gem_score:.1f}, "
+                            f"narrative=\"{narrative}...\""
+                        )
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "grok_trending")
+            if grok_added:
+                logger.info(f"🐦 Grok trending: {grok_added} CT-hot tokens passed scoring")
+        except Exception as e:
+            logger.warning(f"Grok trending discovery error: {e}")
 
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)

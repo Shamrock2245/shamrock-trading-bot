@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-06T00:09:11.957377+00:00",
-  "feedback": "[bot_logs] WARNINGS: 8 warning(s)\n  - shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA CLUSTER DETECTED F9wPd7sG...: Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)\n  - shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: MAULCOIN [solana] rejected \u2014 Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)\n  - shamrock-bot  | 2026-04-06 00:09:27,276 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT 003: 7 snipers ($97 sniped) \u2014 risk=high",
+  "timestamp": "2026-04-08T18:53:51.279176+00:00",
+  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-08 18:54:08,199 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa\n  - shamrock-bot  | 2026-04-08 18:54:10,020 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for KTALK: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/resp",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,30 +43,27 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA CLUSTER DETECTED F9wPd7sG...: Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)",
-        "shamrock-bot  | 2026-04-06 00:09:21,144 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: MAULCOIN [solana] rejected \u2014 Top-5 holder cluster controls 46.1% of supply (threshold: 35.0%)",
-        "shamrock-bot  | 2026-04-06 00:09:27,276 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT 003: 7 snipers ($97 sniped) \u2014 risk=high",
-        "shamrock-bot  | 2026-04-06 00:09:31,038 | WARNING  | notifications.slack | Slack webhook error: 429",
-        "shamrock-bot  | 2026-04-06 00:09:31,956 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
-        "shamrock-bot  | 2026-04-06 00:09:33,414 | WARNING  | core.wallet_router | Gas guard: $42.90 position < $150.00 min (5.0x round-trip gas $30.00) on ethereum \u2014 skipping",
-        "shamrock-bot  | 2026-04-06 00:09:34,062 | WARNING  | core.wallet_router | Wallet Wallet B balance too low on ethereum: 0.0000 <= 0.05 ETH",
-        "shamrock-bot  | 2026-04-06 00:09:34,063 | WARNING  | core.wallet_router | No eligible wallet found for ethereum trade (score=77)"
+        "shamrock-bot  | 2026-04-08 18:54:08,199 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
+        "shamrock-bot  | 2026-04-08 18:54:10,020 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for KTALK: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/resp"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-06 00:09:25,192 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+        "shamrock-bot  | 2026-04-08 18:53:59,156 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-08 18:54:05,651 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-08 18:54:05,651 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-08 18:54:10,033 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
-      "log_lines": 83,
+      "log_lines": 103,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "2c4da79",
-      "server_sha": "2c4da79",
-      "local_message": "trade: unlock capital gates \u2014 ETH min 00\u21925, nuclear threshold 82\u219272, Primary pos_pct 5\u219220%, Wallet B + ETH chain, HL min 80\u219272, copy min_buy 00\u219200",
-      "server_message": "trade: unlock capital gates \u2014 ETH min 00\u21925, nuclear threshold 82\u219272, Primary pos_pct 5\u219220%, Wallet B + ETH chain, HL min 80\u219272, copy min_buy 00\u219200",
+      "local_sha": "c573af9",
+      "server_sha": "c573af9",
+      "local_message": "deploy: 2026-04-08 14:46 \u2014 Solana copy-trade engine + gem scanner routing",
+      "server_message": "deploy: 2026-04-08 14:46 \u2014 Solana copy-trade engine + gem scanner routing",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "7cb5474"
+  "preflight_sha": "65fcfc2"
 }
