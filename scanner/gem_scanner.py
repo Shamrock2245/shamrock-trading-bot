@@ -594,6 +594,74 @@ class GemScanner:
                             pumpfun_bonding_added += 1
                         elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
                             self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_bonding")
+                # ── Pump.fun Graduated (Highest Alpha) ──
+
+                graduated_tokens = get_pumpfun_graduated(limit=25)
+
+                pumpfun_graduated_added = 0
+
+                for t in graduated_tokens:
+
+                    addr = t.get("token_address")
+
+                    if not addr or addr in seen_addresses:
+
+                        continue
+
+                    seen_addresses.add(addr)
+
+                    token_obj = Token(
+
+                        address=addr,
+
+                        symbol=t.get("token_symbol", "UNKNOWN"),
+
+                        name=t.get("token_name", ""),
+
+                        chain="solana",
+
+                        decimals=t.get("decimals", 6),
+
+                        pair_address=t.get("pair_address", ""),
+
+                        liquidity_usd=t.get("liquidity_usd", 0.0),
+
+                        price_usd=t.get("price_usd", 0.0),
+
+                        volume_24h=t.get("volume_24h", 0.0),
+
+                        age_hours=t.get("age_hours", 0.0),
+
+                        discovery_metadata={
+
+                            "source": "pumpfun_graduated",
+
+                            "graduated_at": t.get("graduated_at", ""),
+
+                        }
+
+                    )
+
+                    candidate = self._score_token(token_obj)
+
+                    if candidate:
+
+                        candidate.strategy_tag = "pumpfun_graduated"
+
+                        if candidate.gem_score >= min_score:
+
+                            candidates.append(candidate)
+
+                            pumpfun_graduated_added += 1
+
+                        else:
+
+                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_graduated")
+
+                if pumpfun_graduated_added:
+
+                    logger.info(f"🎓 Pump.fun GRADUATED: {pumpfun_graduated_added} newly graduated tokens passed scoring")
+
                 if pumpfun_bonding_added:
                     logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
             except Exception as e:

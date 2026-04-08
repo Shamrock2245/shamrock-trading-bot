@@ -335,7 +335,7 @@ def get_whale_accumulation_tokens(
       - netVolumeUsd > threshold over 1 day (positive buy pressure)
       - totalLiquidityUsd > threshold (not illiquid)
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []  # getFilteredTokens is EVM-only for now
     moralis_chain = CHAIN_MAP[chain]
     chain_hex = CHAIN_HEX.get(moralis_chain, "0x1")
@@ -511,7 +511,7 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
     Fetch top-gaining tokens. Use time_frame='1h' for short-term momentum,
     '1d' for swing trades, '1w' for position trades.
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"gainers_{chain}_{time_frame}"
@@ -575,7 +575,7 @@ def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
     Fetch top-losing tokens. Used by Wallet B (DCA / mean-reversion strategy).
     Tokens with strong fundamentals but short-term price drops are prime dip buys.
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"losers_{chain}_{time_frame}"
@@ -930,7 +930,7 @@ def get_batch_analytics(tokens: list[dict]) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 def get_token_stats(token_address: str, chain: str) -> Optional[dict]:
     """Transfer count stats — activity proxy. Free tier endpoint."""
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return None
     moralis_chain = CHAIN_MAP[chain]
     _rate_check()
@@ -952,7 +952,7 @@ def get_token_stats(token_address: str, chain: str) -> Optional[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 def get_holder_count(token_address: str, chain: str) -> int:
     """Approximate holder count. Free tier endpoint."""
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return 0
     moralis_chain = CHAIN_MAP[chain]
     _rate_check()
@@ -1175,7 +1175,7 @@ def get_graduated_tokens_by_exchange(
     Returns list of normalized token dicts with source='moralis_graduated'.
     Cost: ~5 Compute Units per call (very cheap!).
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"graduated_{chain}_{exchange}"
@@ -1237,7 +1237,7 @@ def get_new_tokens_by_exchange(
     Returns list of normalized token dicts with source='moralis_new_listing'.
     Cost: ~5 Compute Units per call.
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"new_listing_{chain}_{exchange}"
@@ -1313,7 +1313,7 @@ def get_erc20_pairs(
         }
     Cost: ~5 Compute Units.
     """
-    if not _available(chain) or chain == "solana":
+    if not _available(chain):
         return []
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"erc20_pairs_{chain}_{token_address.lower()}"
@@ -1533,6 +1533,7 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
         "polygon":  "quickswap-v2",
         "bsc":      "pancakeswap-v2",
         "avalanche": "pangolin",
+        "solana":   "raydium",  # Solana: Raydium is the dominant DEX for graduated tokens
     }
 
     for chain in chains:

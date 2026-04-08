@@ -996,6 +996,32 @@ class PositionMonitor:
                     pos["last_check_price"] = float(prev_check)
 
                 pos["current_price"] = current_price
+                # ── Refresh Moralis Buy Pressure ──
+
+                try:
+
+                    from data.providers.moralis_money import get_aggregated_pair_stats
+
+                    stats = get_aggregated_pair_stats(pos.get("token_address", ""), pos.get("chain", ""))
+
+                    if stats and stats.get("buy_volume_1h", 0) > 0:
+
+                        buy_vol = stats["buy_volume_1h"]
+
+                        sell_vol = stats["sell_volume_1h"]
+
+                        total_vol = buy_vol + sell_vol
+
+                        if total_vol > 0:
+
+                            pos["moralis_buy_pressure"] = buy_vol / total_vol
+
+                            pos["buy_pressure_ratio"] = pos["moralis_buy_pressure"]
+
+                except Exception as e:
+
+                    logger.debug(f"Failed to refresh Moralis buy pressure for {pos.get(token_symbol)}: {e}")
+
                 entry_price = float(pos.get("entry_price", 0))
                 if entry_price > 0:
                     pos["unrealized_pnl_pct"] = ((current_price - entry_price) / entry_price) * 100
