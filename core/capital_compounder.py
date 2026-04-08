@@ -389,15 +389,15 @@ def record_trade_pnl(
         state.daily_sweeps_usd = 0.0
         state.daily_trades = 0
         state.daily_wins = 0
-                state.consecutive_wins = 0
+        state.consecutive_wins = 0
 
     state.daily_pnl_usd += pnl_usd
     state.daily_trades += 1
     if pnl_usd > 0:
+        state.daily_wins += 1
         state.consecutive_wins += 1
     else:
         state.consecutive_wins = 0
-        state.daily_wins += 1
 
     # Calculate sweep
     sweep_amount = calculate_sweep_amount(state, pnl_usd)
