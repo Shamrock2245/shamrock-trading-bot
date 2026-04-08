@@ -136,6 +136,154 @@ class TradeExecutor:
     ]
     MAX_UINT256 = 2**256 - 1
 
+    def transfer_native(
+
+        self, chain: str, from_wallet_alias: str, to_address: str, amount_usd: float
+
+    ) -> Optional[str]:
+
+        """
+
+        Transfer native token (ETH/BNB/MATIC/SOL) from a trading wallet to cold storage.
+
+        Returns the transaction hash if successful, None if failed.
+
+        """
+
+        if chain.lower() == "solana":
+
+            logger.warning("Solana native transfer not yet implemented in EVM executor")
+
+            return None
+
+            
+
+        from config.wallets import get_wallet
+
+        from core.balance_fetcher import get_native_price_usd
+
+        
+
+        try:
+
+            wallet = get_wallet(from_wallet_alias)
+
+            if not wallet.has_private_key:
+
+                logger.error(f"Cannot transfer from {from_wallet_alias}: No private key")
+
+                return None
+
+                
+
+            w3 = self._get_web3(chain)
+
+            if not w3:
+
+                return None
+
+                
+
+            # Convert USD to native token amount
+
+            native_price = get_native_price_usd(chain)
+
+            if native_price <= 0:
+
+                logger.error(f"Cannot transfer: Invalid native price for {chain}")
+
+                return None
+
+                
+
+            amount_native = amount_usd / native_price
+
+            amount_wei = int(amount_native * 10**18)
+
+            
+
+            # Build transaction
+
+            nonce = self._get_nonce(w3, wallet.address)
+
+            
+
+            # Get dynamic gas
+
+            try:
+
+                base_fee = w3.eth.get_block("latest")["baseFeePerGas"]
+
+                max_priority_fee = w3.eth.max_priority_fee
+
+                max_fee = int((base_fee * 1.5) + max_priority_fee)
+
+            except Exception:
+
+                # Fallback for chains without EIP-1559
+
+                max_fee = int(w3.eth.gas_price * 1.2)
+
+                max_priority_fee = max_fee
+
+                
+
+            tx = {
+
+                "nonce": nonce,
+
+                "to": w3.to_checksum_address(to_address),
+
+                "value": amount_wei,
+
+                "gas": 21000,
+
+                "chainId": w3.eth.chain_id,
+
+            }
+
+            
+
+            # Add EIP-1559 fields if supported, else legacy gasPrice
+
+            try:
+
+                tx["maxFeePerGas"] = max_fee
+
+                tx["maxPriorityFeePerGas"] = max_priority_fee
+
+            except Exception:
+
+                tx["gasPrice"] = max_fee
+
+                
+
+            # Sign and send
+
+            signed_tx = w3.eth.account.sign_transaction(tx, wallet.private_key)
+
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+            
+
+            logger.info(f"💸 PAYCHECK TRANSFER: Sent {amount_native:.4f} native (${amount_usd:.2f}) to {to_address} on {chain}")
+
+            logger.info(f"Tx Hash: {tx_hash.hex()}")
+
+            
+
+            return tx_hash.hex()
+
+            
+
+        except Exception as e:
+
+            logger.error(f"Transfer failed: {e}")
+
+            self._release_nonce(wallet.address)
+
+            return None
+
     def _ensure_token_approval(
         self, w3: Web3, chain_id: int, token_address: str,
         wallet_address: str, private_key: str, amount: int,

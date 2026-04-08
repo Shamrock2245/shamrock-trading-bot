@@ -164,6 +164,7 @@ class CompoundState:
     daily_trades: int = 0
     daily_wins: int = 0
     consecutive_wins: int = 0
+    paycheck_accumulator_usd: float = 0.0
 
     # Sweep log
     sweep_log: list[dict] = field(default_factory=list)
@@ -276,6 +277,27 @@ def _check_milestones(state: CompoundState) -> list[float]:
 # Profit Sweep Logic
 # ─────────────────────────────────────────────────────────────────────────────
 def calculate_sweep_amount(state: CompoundState, pnl_usd: float) -> float:
+    """
+    Calculate how much of a profit to sweep to Wallet C cold storage.
+    Uses the Paycheck Threshold model: Sweep 50% of profits every time realized PnL hits $500.
+    """
+    PAYCHECK_THRESHOLD_USD = 500.0
+    PAYCHECK_SWEEP_PCT = 0.50
+    
+    if pnl_usd <= 0:
+        return 0.0
+        
+    # Add to a running paycheck accumulator
+    state.paycheck_accumulator_usd = getattr(state, "paycheck_accumulator_usd", 0.0) + pnl_usd
+    
+    if state.paycheck_accumulator_usd >= PAYCHECK_THRESHOLD_USD:
+        sweep_amount = round(state.paycheck_accumulator_usd * PAYCHECK_SWEEP_PCT, 2)
+        state.paycheck_accumulator_usd = 0.0  # Reset after sweep
+        return sweep_amount
+        
+    return 0.0
+
+def _old_calculate_sweep_amount(state: CompoundState, pnl_usd: float) -> float:
     """
     Calculate how much of a profit to sweep to Wallet C cold storage.
     Returns USD amount to sweep (0 if no sweep needed).
