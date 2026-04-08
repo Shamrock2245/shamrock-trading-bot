@@ -163,6 +163,7 @@ class CompoundState:
     daily_sweeps_usd: float = 0.0
     daily_trades: int = 0
     daily_wins: int = 0
+    consecutive_wins: int = 0
 
     # Sweep log
     sweep_log: list[dict] = field(default_factory=list)
@@ -197,6 +198,7 @@ def load_compound_state() -> CompoundState:
                 state.daily_sweeps_usd = 0.0
                 state.daily_trades = 0
                 state.daily_wins = 0
+                state.consecutive_wins = 0
             return state
         except Exception as e:
             logger.warning(f"CompoundState: Could not load state: {e}")
@@ -287,6 +289,11 @@ def calculate_sweep_amount(state: CompoundState, pnl_usd: float) -> float:
     new_milestones = [m for m in MILESTONES_USD
                       if m not in state.milestones_hit
                       and state.current_capital_usd + pnl_usd >= m]
+    # Consecutive wins sweep (Sweep 20% after 3 wins in a row)
+    if state.consecutive_wins >= 3:
+        state.consecutive_wins = 0  # Reset counter after sweep
+        return round(pnl_usd * 0.20, 2)
+
     if new_milestones:
         # Sweep 50% on milestone crossing
         return round(pnl_usd * 0.50, 2)
@@ -382,10 +389,14 @@ def record_trade_pnl(
         state.daily_sweeps_usd = 0.0
         state.daily_trades = 0
         state.daily_wins = 0
+                state.consecutive_wins = 0
 
     state.daily_pnl_usd += pnl_usd
     state.daily_trades += 1
     if pnl_usd > 0:
+        state.consecutive_wins += 1
+    else:
+        state.consecutive_wins = 0
         state.daily_wins += 1
 
     # Calculate sweep

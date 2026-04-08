@@ -648,6 +648,27 @@ def evaluate_position(pos: dict, current_price: float,
 
     # ── Liquidity drain emergency exit ────────────────────────────────────────
     if settings.LIQUIDITY_DRAIN_EXIT_ENABLED:
+        # ── Per-Cycle Liquidity Drain (Front-run dumps) ──
+
+        prev_liq = float(pos.get("prev_liquidity_usd", entry_liq))
+
+        if prev_liq > 0 and current_liq > 0:
+
+            cycle_drop_pct = ((prev_liq - current_liq) / prev_liq) * 100
+
+            if cycle_drop_pct >= 15.0:  # >15% drop in a single 30s cycle = rug/dump incoming
+
+                return {
+
+                    "reason": f"liquidity_drain_fast ({cycle_drop_pct:.0f}% pool drop in 30s) [{profile_name}]",
+
+                    "sell_pct": 1.0,
+
+                    "urgency": "immediate",
+
+                }
+
+        # ── Total Liquidity Drain (from entry) ──
         entry_liq = float(pos.get("entry_liquidity_usd", 0))
         current_liq = float(pos.get("current_liquidity_usd", 0))
         if entry_liq > 0 and current_liq > 0:
@@ -843,6 +864,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         "pnl_pct": pnl_pct,
         "is_paper": is_paper,
         "tx_hash": None,  # Set by live executor
+        "signal_scores": pos.get("signal_scores", {}),
     }
 
     if not is_paper:
@@ -1082,6 +1104,7 @@ class PositionMonitor:
 
                 # Capture liquidity data (for liquidity drain exit)
                 if pv["liquidity_usd"] is not None and pv["liquidity_usd"] > 0:
+                    pos["prev_liquidity_usd"] = pos.get("current_liquidity_usd", pv["liquidity_usd"])
                     pos["current_liquidity_usd"] = pv["liquidity_usd"]
                     # First capture = entry liquidity (for drain comparison)
                     if "entry_liquidity_usd" not in pos:
@@ -1331,6 +1354,7 @@ def register_position(
     entry_value_usd: float = 0.0,
     token_decimals: int = 0,  # 0 = auto-detect: 6 for Solana, 18 for EVM
     strategy_profile: str = "",  # e.g. "nuclear", "conservative"
+    signal_scores: dict = None,  # ML attribution features
 ) -> dict:
     """
     Register a new open position after a buy is executed.
@@ -1366,6 +1390,7 @@ def register_position(
         # Auto-detect: Solana SPL = 6, EVM ERC-20 = 18
         "token_decimals": token_decimals if token_decimals > 0 else (6 if chain == "solana" else 18),
         "strategy_profile": strategy_profile,
+        "signal_scores": signal_scores or {},
     }
 
     positions = load_positions()

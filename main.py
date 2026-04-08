@@ -483,7 +483,8 @@ async def run_bot_loop():
                 logger.info(f"Fastlane dedup skip {token.symbol}: already open")
                 return
 
-        allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score, is_express=True)
+        allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}), is_express=True)
         if not allocation:
             # ── Hyperliquid fallback: zero-gas leveraged perp ──────────────
             if hl_executor and hl_executor.is_available() and hl_executor.has_perp(token.symbol):
@@ -496,6 +497,7 @@ async def run_bot_loop():
                     symbol=token.symbol,
                     size_usd=copy_usd,
                     gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                 )
                 if hl_result:
                     register_position(
@@ -508,6 +510,7 @@ async def run_bot_loop():
                         pair_address="",
                         tx_hash="",
                         gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                         is_paper=is_paper,
                         entry_value_usd=hl_result["margin_usd"],
                         strategy_profile="hyperliquid_perp",
@@ -593,6 +596,7 @@ async def run_bot_loop():
                     symbol=token.symbol,
                     size_usd=copy_usd,
                     gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                 )
                 if hl_result:
                     register_position(
@@ -605,6 +609,7 @@ async def run_bot_loop():
                         pair_address="",
                         tx_hash="",
                         gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                         is_paper=is_paper,
                         entry_value_usd=hl_result["margin_usd"],
                         strategy_profile="hyperliquid_perp",
@@ -637,6 +642,7 @@ async def run_bot_loop():
             pair_address=token.pair_address,
             tx_hash=tx_hash or "",
             gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
             is_paper=is_paper,
             entry_value_usd=position_usd,
             strategy_profile=getattr(wallet.strategy_profile, "name", ""),
@@ -1008,7 +1014,7 @@ async def run_bot_loop():
             # ── Circuit breaker check ─────────────────────────────────────────
             if risk_manager.is_circuit_breaker_tripped:
                 logger.warning("🚨 Circuit breaker is tripped — skipping cycle")
-                await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                await asyncio.sleep(get_dynamic_scan_interval())
                 continue
 
             # ── Global drawdown sleep check (−20% portfolio → 48h halt) ─────────
@@ -1017,7 +1023,7 @@ async def run_bot_loop():
                     f"💤 GLOBAL DRAWDOWN SLEEP ACTIVE — skipping cycle. "
                     f"Reason: {risk_manager.global_sleep_reason}"
                 )
-                await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                await asyncio.sleep(get_dynamic_scan_interval())
                 continue
 
             # Check portfolio drawdown from open positions
@@ -1102,7 +1108,7 @@ async def run_bot_loop():
                             f"All trading halted. Manual reset required.",
                             level="critical",
                         )
-                        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                        await asyncio.sleep(get_dynamic_scan_interval())
                         continue
                     # Global drawdown sleep: −20% → 48h halt on new entries
                     if risk_manager.check_global_drawdown_sleep(portfolio_change_pct):
@@ -1115,7 +1121,7 @@ async def run_bot_loop():
                             f"Existing positions continue to be monitored.",
                             level="critical",
                         )
-                        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                        await asyncio.sleep(get_dynamic_scan_interval())
                         continue
                 elif total_entry > 10 and total_current == 0:
                     logger.debug(
@@ -1751,6 +1757,7 @@ async def run_bot_loop():
                         chain=token.chain,
                         pair_address=token.pair_address,
                         gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                         price_change_1h=token.price_change_1h,
                         price_change_24h=token.price_change_24h,
                         volume_1h=token.volume_1h,
@@ -1805,6 +1812,7 @@ async def run_bot_loop():
                 allocations = route_trade_all(
                     chain=token.chain,
                     gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                     strategy="gem_snipe",
                     is_express=is_express,
                 )
@@ -1826,6 +1834,7 @@ async def run_bot_loop():
                     final_position_usd, sizing_reason = calculate_offensive_position_size(
                         base_position_usd=base_position_usd,
                         gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                         is_express=is_express,
                         state=offensive_state,
                         is_momentum_reentry=is_momentum_reentry,
@@ -1843,6 +1852,7 @@ async def run_bot_loop():
                         _macro_r = _get_regime()
                         _rl_mult, _rl_reason = _rl_size(
                             gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                             macro_regime=_macro_r.regime,
                             win_streak=offensive_state.consecutive_wins,
                             loss_streak=offensive_state.consecutive_losses,
@@ -2002,6 +2012,7 @@ async def run_bot_loop():
                             pair_address=token.pair_address,
                             tx_hash=tx_hash or "",
                             gem_score=candidate.gem_score,
+                        signal_scores=getattr(candidate, "signal_scores", {}),
                             is_paper=is_paper,
                             entry_value_usd=allocation.position_size_usd,
                             strategy_profile=_reg_profile,
@@ -2418,13 +2429,63 @@ async def run_bot_loop():
             except Exception:
                 pass
 
-        logger.info(f"Cycle {cycle} complete. Sleeping {settings.SCAN_INTERVAL_SECONDS}s...")
-        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+        logger.info(f"Cycle {cycle} complete. Sleeping {get_dynamic_scan_interval()}s...")
+        await asyncio.sleep(get_dynamic_scan_interval())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── Dynamic Scan Scheduler ───────────────────────────────────────────────────
+
+def get_dynamic_scan_interval() -> int:
+
+    """
+
+    Returns a dynamic scan interval based on current UTC time and chain peak hours.
+
+    Base/Solana peak: 18:00 - 02:00 UTC (2pm - 10pm EST)
+
+    BSC peak: 02:00 - 10:00 UTC (Asian hours)
+
+    During peak hours, scan every 15s. Off-peak, scan every 60s to save API calls.
+
+    """
+
+    from datetime import datetime, timezone
+
+    now_utc = datetime.now(timezone.utc)
+
+    hour = now_utc.hour
+
+    
+
+    # Check if we are in a peak window for any active chain
+
+    is_peak = False
+
+    if "solana" in settings.ACTIVE_CHAINS or "base" in settings.ACTIVE_CHAINS:
+
+        if hour >= 18 or hour < 2:  # 18:00 to 01:59 UTC
+
+            is_peak = True
+
+    if "bsc" in settings.ACTIVE_CHAINS:
+
+        if 2 <= hour < 10:  # 02:00 to 09:59 UTC
+
+            is_peak = True
+
+            
+
+    if is_peak:
+
+        return max(15, settings.SCAN_INTERVAL_SECONDS // 2)  # Faster scans during peak
+
+    else:
+
+        return min(60, settings.SCAN_INTERVAL_SECONDS * 2)   # Slower scans off-peak
 
 def main():
     print(BANNER)
