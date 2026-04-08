@@ -428,7 +428,7 @@ class GemScanner:
         if "solana" in settings.ACTIVE_CHAINS:
             try:
                 graduated = get_pumpfun_graduated(limit=20)
-                    graduated = [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
+                graduated = [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
                 pumpfun_added = 0
                 for grad in graduated:
                     token_addr = grad.get("token_address", "")
@@ -594,73 +594,6 @@ class GemScanner:
                             pumpfun_bonding_added += 1
                         elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
                             self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_bonding")
-                # ── Pump.fun Graduated (Highest Alpha) ──
-
-                graduated_tokens = get_pumpfun_graduated(limit=25)
-
-                pumpfun_graduated_added = 0
-
-                for t in graduated_tokens:
-
-                    addr = t.get("token_address")
-
-                    if not addr or addr in seen_addresses:
-
-                        continue
-
-                    seen_addresses.add(addr)
-
-                    token_obj = Token(
-
-                        address=addr,
-
-                        symbol=t.get("token_symbol", "UNKNOWN"),
-
-                        name=t.get("token_name", ""),
-
-                        chain="solana",
-
-                        decimals=t.get("decimals", 6),
-
-                        pair_address=t.get("pair_address", ""),
-
-                        liquidity_usd=t.get("liquidity_usd", 0.0),
-
-                        price_usd=t.get("price_usd", 0.0),
-
-                        volume_24h=t.get("volume_24h", 0.0),
-
-                        age_hours=t.get("age_hours", 0.0),
-
-                        discovery_metadata={
-
-                            "source": "pumpfun_graduated",
-
-                            "graduated_at": t.get("graduated_at", ""),
-
-                        }
-
-                    )
-
-                    candidate = self._score_token(token_obj)
-
-                    if candidate:
-
-                        candidate.strategy_tag = "pumpfun_graduated"
-
-                        if candidate.gem_score >= min_score:
-
-                            candidates.append(candidate)
-
-                            pumpfun_graduated_added += 1
-
-                        else:
-
-                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_graduated")
-
-                if pumpfun_graduated_added:
-
-                    logger.info(f"🎓 Pump.fun GRADUATED: {pumpfun_graduated_added} newly graduated tokens passed scoring")
 
                 if pumpfun_bonding_added:
                     logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
@@ -1470,15 +1403,15 @@ class GemScanner:
             candidate.age_score              * _w.get("age", 0.04)
             + candidate.volume_score         * _w.get("volume", 0.07)
             + candidate.liquidity_score      * _w.get("liquidity", 0.07)
-            + candidate.buy_pressure_score   * 0.08   # Fixed: buy pressure is always critical
+            + candidate.buy_pressure_score   * 0.06   # Fixed: buy pressure (was 0.08, rebalanced for Moralis)
             + candidate.moralis_enrichment_score * 0.32  # Fixed: Moralis dominant signal
             + candidate.sniper_score         * 0.04   # Fixed: Solana sniper detection
-            + candidate.contract_score       * 0.06   # Fixed: safety signal
+            + candidate.contract_score       * 0.05   # Fixed: safety signal (was 0.06, rebalanced)
             + candidate.holder_score         * _w.get("whale_holder", 0.05)
-            + candidate.tax_score            * 0.06   # Fixed: safety signal
+            + candidate.tax_score            * 0.05   # Fixed: safety signal (was 0.06, rebalanced)
             + candidate.social_score         * _w.get("social", 0.05)
             + candidate.boost_score          * _w.get("boost_cto", 0.04)
-            + candidate.smart_money_score    * 0.03   # Fixed: smart money baseline
+            + candidate.smart_money_score    * 0.02   # Fixed: smart money baseline (was 0.03, rebalanced)
             + candidate.grok_sentiment_score * _w.get("grok_sentiment", 0.05)
             + candidate.dev_wallet_score     * 0.04   # Fixed: rug protection
             + candidate.copycat_score        * 0.05,  # Fixed: rug protection

@@ -1020,7 +1020,7 @@ class PositionMonitor:
 
                 except Exception as e:
 
-                    logger.debug(f"Failed to refresh Moralis buy pressure for {pos.get(token_symbol)}: {e}")
+                    logger.debug(f"Failed to refresh Moralis buy pressure for {pos.get('token_symbol')}: {e}")
 
                 entry_price = float(pos.get("entry_price", 0))
                 if entry_price > 0:

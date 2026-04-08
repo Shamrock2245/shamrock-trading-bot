@@ -52,9 +52,9 @@ from core.mev_protection import execute_solana_via_jito
 logger = logging.getLogger(__name__)
 
 # Jito tip tiers (lamports) — scales with urgency and price impact
-JITO_TIP_STANDARD = 50_000        # ~$0.001 — routine gem trade
-JITO_TIP_HIGH_CONVICTION = 250_000  # ~$0.005 — score 80+ or God Signal
-JITO_TIP_SNIPE = 500_000           # ~$0.015 — new launch / congested block
+JITO_TIP_STANDARD = 50_000        # ~$0.007 — routine gem trade
+JITO_TIP_HIGH_CONVICTION = 250_000  # ~$0.035 — score 80+ or God Signal
+JITO_TIP_SNIPE = 500_000           # ~$0.070 — new launch / congested block
 
 # Jupiter API endpoints — primary (keyed) and lite (free fallback)
 _JUPITER_PRIMARY_URL = settings.JUPITER_API_URL          # https://api.jup.ag/swap/v1
