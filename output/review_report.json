@@ -1,9 +1,9 @@
 {
-  "grade": "pass",
-  "strategy": "continue",
-  "exit_code": 0,
-  "timestamp": "2026-04-08T20:12:59.106510+00:00",
-  "feedback": "No issues found.",
+  "grade": "warn",
+  "strategy": "monitor",
+  "exit_code": 1,
+  "timestamp": "2026-04-08T20:57:19.164343+00:00",
+  "feedback": "[bot_logs] WARNINGS: 6 warning(s)\n  - shamrock-bot  | 2026-04-08 20:57:17,684 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED\n  - shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | ============================================================",
   "checks": {
     "containers": {
       "name": "containers",
@@ -40,27 +40,35 @@
     "bot_logs": {
       "name": "bot_logs",
       "passed": true,
-      "has_warnings": false,
+      "has_warnings": true,
       "critical_lines": [],
-      "warning_lines": [],
+      "warning_lines": [
+        "shamrock-bot  | 2026-04-08 20:57:17,684 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+        "shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-08 20:57:17,691 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $0 | HWM: $291 | Drawdown: 100.0% | Swing wins: 0",
+        "shamrock-bot  | 2026-04-08 20:57:23,798 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT POPTRUMP: 6 snipers ($268 sniped) \u2014 risk=high",
+        "shamrock-bot  | 2026-04-08 20:57:27,168 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
+      ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-08 20:13:08,690 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
-        "shamrock-bot  | 2026-04-08 20:13:15,042 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
-        "shamrock-bot  | 2026-04-08 20:13:15,042 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
-        "shamrock-bot  | 2026-04-08 20:13:20,801 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+        "shamrock-bot  | 2026-04-08 20:57:17,545 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + ",
+        "shamrock-bot  | 2026-04-08 20:57:17,546 | INFO     | __main__ | \u2705 RL Position Sizer daemon started \u2014 trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)",
+        "shamrock-bot  | 2026-04-08 20:57:17,690 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
+        "shamrock-bot  | 2026-04-08 20:57:26,947 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-08 20:57:33,293 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)"
       ],
       "log_lines": 103,
-      "summary": "Clean \u2014 bot looks healthy"
+      "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "03fdb43",
-      "server_sha": "03fdb43",
-      "local_message": "deploy: 2026-04-08 16:09 \u2014 post-preflight",
-      "server_message": "deploy: 2026-04-08 16:09 \u2014 post-preflight",
+      "local_sha": "f19c06d",
+      "server_sha": "f19c06d",
+      "local_message": "fix: patch 6 critical code gaps in Manus profitability upgrades",
+      "server_message": "fix: patch 6 critical code gaps in Manus profitability upgrades",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "db6430f"
+  "preflight_sha": "f19c06d"
 }

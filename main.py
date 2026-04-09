@@ -625,15 +625,12 @@ async def run_bot_loop():
         total_latency = _latency_seconds(signal.timestamp)
         if total_latency > settings.COPYTRADE_LATENCY_SLO_SECONDS:
             notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
+                "⚠️ Copy-trade latency SLO breached",
+                f"{token.symbol} {token.chain} latency={total_latency:.1f}s "
+                f"(SLO={settings.COPYTRADE_LATENCY_SLO_SECONDS:.1f}s)",
+                level="warning",
+            )
+            tg_notify_alert(
                 "⚠️ Copy-trade latency SLO breached",
                 f"{token.symbol} {token.chain} latency={total_latency:.1f}s "
                 f"(SLO={settings.COPYTRADE_LATENCY_SLO_SECONDS:.1f}s)",
@@ -691,15 +688,13 @@ async def run_bot_loop():
             )
             try:
                 notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
+                    f"🔥 Copy Trade Signal: {signal.token_symbol}",
+                    f"Chain: {signal.chain} | Tier {signal.tier} | "
+                    f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
+                    f"Alpha buy: ${signal.buy_value_usd:.0f}",
+                    level="info",
+                )
+                tg_notify_alert(
                     f"🔥 Copy Trade Signal: {signal.token_symbol}",
                     f"Chain: {signal.chain} | Tier {signal.tier} | "
                     f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
@@ -920,7 +915,6 @@ async def run_bot_loop():
 
     # Startup notification
     notify_alert(
-    tg_notify_alert(
         "Shamrock Bot Started",
         "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
             settings.MODE.upper(),
@@ -929,6 +923,7 @@ async def run_bot_loop():
         ),
         level="info",
     )
+    tg_notify_alert(
         "Shamrock Bot Started",
         "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
             settings.MODE.upper(),
@@ -1102,15 +1097,13 @@ async def run_bot_loop():
 
                 if _floor_result["entered_preservation"]:
                     notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
+                        "🛡️ CAPITAL PRESERVATION MODE ACTIVATED",
+                        f"Portfolio ${_portfolio_usd:,.2f} breached daily floor "
+                        f"${_floor_result['floor_usd']:,.2f} by {_floor_result['breach_pct']:.1f}%. "
+                        f"New entries BLOCKED. Rotating to blue-chip anchor.",
+                        level="warning",
+                    )
+                    tg_notify_alert(
                         "🛡️ CAPITAL PRESERVATION MODE ACTIVATED",
                         f"Portfolio ${_portfolio_usd:,.2f} breached daily floor "
                         f"${_floor_result['floor_usd']:,.2f} by {_floor_result['breach_pct']:.1f}%. "
@@ -1125,15 +1118,12 @@ async def run_bot_loop():
 
                 elif _floor_result["exited_preservation"]:
                     notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
+                        "✅ Capital Preservation Mode Deactivated",
+                        f"Portfolio ${_portfolio_usd:,.2f} recovered above floor "
+                        f"${_floor_result['floor_usd']:,.2f}. Normal trading resumed.",
+                        level="info",
+                    )
+                    tg_notify_alert(
                         "✅ Capital Preservation Mode Deactivated",
                         f"Portfolio ${_portfolio_usd:,.2f} recovered above floor "
                         f"${_floor_result['floor_usd']:,.2f}. Normal trading resumed.",
@@ -1165,35 +1155,24 @@ async def run_bot_loop():
                     portfolio_change_pct = ((total_current - total_entry) / total_entry) * 100
                     if risk_manager.check_circuit_breaker(portfolio_change_pct):
                         notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
                             "🚨 CIRCUIT BREAKER TRIPPED",
                             f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
                             f"(threshold: {settings.CIRCUIT_BREAKER_PERCENT}%). "
                             f"All trading halted. Manual reset required.",
                             level="critical",
                         )
+                        tg_notify_alert(
+                            "🚨 CIRCUIT BREAKER TRIPPED",
+                            f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                            f"(threshold: {settings.CIRCUIT_BREAKER_PERCENT}%). "
+                            f"All trading halted. Manual reset required.",
+                            level="error",
+                        )
                         await asyncio.sleep(get_dynamic_scan_interval())
                         continue
                     # Global drawdown sleep: −20% → 48h halt on new entries
                     if risk_manager.check_global_drawdown_sleep(portfolio_change_pct):
                         notify_alert(
-    tg_notify_alert(
-        "Shamrock Bot Started",
-        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
-            settings.MODE.upper(),
-            ", ".join(settings.ACTIVE_CHAINS),
-            settings.SCAN_INTERVAL_SECONDS,
-        ),
-        level="info",
-    )
                             "💤 GLOBAL DRAWDOWN SLEEP ENGAGED",
                             f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
                             f"(threshold: {risk_manager.GLOBAL_DRAWDOWN_SLEEP_PCT}%). "
@@ -1201,6 +1180,15 @@ async def run_bot_loop():
                             f"{risk_manager.GLOBAL_DRAWDOWN_SLEEP_HOURS:.0f}h. "
                             f"Existing positions continue to be monitored.",
                             level="critical",
+                        )
+                        tg_notify_alert(
+                            "💤 GLOBAL DRAWDOWN SLEEP ENGAGED",
+                            f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                            f"(threshold: {risk_manager.GLOBAL_DRAWDOWN_SLEEP_PCT}%). "
+                            f"All new entries halted for "
+                            f"{risk_manager.GLOBAL_DRAWDOWN_SLEEP_HOURS:.0f}h. "
+                            f"Existing positions continue to be monitored.",
+                            level="error",
                         )
                         await asyncio.sleep(get_dynamic_scan_interval())
                         continue
