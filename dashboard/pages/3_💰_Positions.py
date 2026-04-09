@@ -133,6 +133,124 @@ with col3:
 with col4:
     st.metric("Avg Unrealized", f"{avg_unrealized:+.1f}%")
 
+# ── Win/Loss Analytics ───────────────────────────────────────────────────────
+if sell_trades:
+    _wins = [t for t in sell_trades if (t.get("amount_out", 0) - t.get("amount_in", 0)) > 0]
+    _losses = [t for t in sell_trades if (t.get("amount_out", 0) - t.get("amount_in", 0)) <= 0]
+    _win_pnls = [(t.get("amount_out", 0) - t.get("amount_in", 0)) for t in _wins]
+    _loss_pnls = [abs(t.get("amount_out", 0) - t.get("amount_in", 0)) for t in _losses]
+    _win_rate = (len(_wins) / max(len(sell_trades), 1)) * 100
+    _total_gains = sum(_win_pnls)
+    _total_losses = sum(_loss_pnls)
+    _profit_factor = _total_gains / max(_total_losses, 0.0001)
+    _avg_win = sum(_win_pnls) / max(len(_wins), 1)
+    _avg_loss = sum(_loss_pnls) / max(len(_losses), 1)
+
+    # Best and worst trade
+    _all_pnls = [(t, t.get("amount_out", 0) - t.get("amount_in", 0)) for t in sell_trades]
+    _best = max(_all_pnls, key=lambda x: x[1])
+    _worst = min(_all_pnls, key=lambda x: x[1])
+
+    # Performance by chain
+    _chain_perf: dict = {}
+    for t in sell_trades:
+        ch = t.get("chain", "unknown")
+        pnl = t.get("amount_out", 0) - t.get("amount_in", 0)
+        if ch not in _chain_perf:
+            _chain_perf[ch] = {"pnl": 0, "wins": 0, "total": 0}
+        _chain_perf[ch]["pnl"] += pnl
+        _chain_perf[ch]["total"] += 1
+        if pnl > 0:
+            _chain_perf[ch]["wins"] += 1
+
+    st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+
+    # Analytics cards row
+    st.markdown(
+        '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;">',
+        unsafe_allow_html=True,
+    )
+    _pf_color = "#00D09C" if _profit_factor >= 1.0 else "#FF4757"
+    _wr_color = "#00D09C" if _win_rate >= 50 else ("#FFB84D" if _win_rate >= 35 else "#FF4757")
+    _cards_html = (
+        f'<div class="glass-card" style="padding:12px 14px;text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Win Rate</div>'
+        f'<div style="color:{_wr_color};font-size:1.3rem;font-weight:800;font-family:monospace;">{_win_rate:.0f}%</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">{len(_wins)}W / {len(_losses)}L</div>'
+        f'</div>'
+        f'<div class="glass-card" style="padding:12px 14px;text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Profit Factor</div>'
+        f'<div style="color:{_pf_color};font-size:1.3rem;font-weight:800;font-family:monospace;">{_profit_factor:.2f}×</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">{"System profitable" if _profit_factor >= 1.0 else "Needs improvement"}</div>'
+        f'</div>'
+        f'<div class="glass-card" style="padding:12px 14px;text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Avg Win</div>'
+        f'<div style="color:#00D09C;font-size:1.3rem;font-weight:800;font-family:monospace;">+{_avg_win:.4f}</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">ETH per winner</div>'
+        f'</div>'
+        f'<div class="glass-card" style="padding:12px 14px;text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Avg Loss</div>'
+        f'<div style="color:#FF4757;font-size:1.3rem;font-weight:800;font-family:monospace;">-{_avg_loss:.4f}</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">ETH per loser</div>'
+        f'</div>'
+        f'<div class="glass-card" style="padding:12px 14px;text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;">Edge Ratio</div>'
+        f'<div style="color:#58A6FF;font-size:1.3rem;font-weight:800;font-family:monospace;">{_avg_win/max(_avg_loss,0.0001):.2f}×</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">Avg win ÷ avg loss</div>'
+        f'</div>'
+    )
+    st.markdown(_cards_html, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Best & Worst trade + Chain Performance
+    _bw_c1, _bw_c2, _bw_c3 = st.columns([1, 1, 1])
+    with _bw_c1:
+        _b_sym = _best[0].get("symbol", "?")
+        _b_pnl = _best[1]
+        _b_pct = _best[0].get("pnl_pct", 0)
+        st.markdown(
+            f'<div class="glass-card" style="padding:14px;border-color:rgba(0,208,156,0.25);">'
+            f'<div style="color:#00D09C;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;">🏆 Best Trade</div>'
+            f'<div style="color:#E6EDF3;font-size:1.1rem;font-weight:800;margin-top:4px;">{_b_sym}</div>'
+            f'<div style="color:#00D09C;font-size:0.9rem;font-weight:700;font-family:monospace;">+{_b_pnl:.4f} ETH ({_b_pct:+.1f}%)</div>'
+            f'<div style="color:#484F58;font-size:0.65rem;margin-top:4px;">{_best[0].get("chain","").capitalize()} · {_best[0].get("timestamp","")[:16]}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _bw_c2:
+        _w_sym = _worst[0].get("symbol", "?")
+        _w_pnl = _worst[1]
+        _w_pct = _worst[0].get("pnl_pct", 0)
+        st.markdown(
+            f'<div class="glass-card" style="padding:14px;border-color:rgba(255,71,87,0.25);">'
+            f'<div style="color:#FF4757;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;">💀 Worst Trade</div>'
+            f'<div style="color:#E6EDF3;font-size:1.1rem;font-weight:800;margin-top:4px;">{_w_sym}</div>'
+            f'<div style="color:#FF4757;font-size:0.9rem;font-weight:700;font-family:monospace;">{_w_pnl:+.4f} ETH ({_w_pct:+.1f}%)</div>'
+            f'<div style="color:#484F58;font-size:0.65rem;margin-top:4px;">{_worst[0].get("chain","").capitalize()} · {_worst[0].get("timestamp","")[:16]}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _bw_c3:
+        _chain_html = (
+            '<div class="glass-card" style="padding:14px;">'
+            '<div style="color:#58A6FF;font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;">📊 Performance by Chain</div>'
+        )
+        for ch, cp in sorted(_chain_perf.items(), key=lambda x: x[1]["pnl"], reverse=True):
+            _ch_emoji = {"ethereum": "⟠", "base": "🔵", "arbitrum": "🔷", "polygon": "🟣",
+                         "bsc": "🟡", "solana": "◎", "avalanche": "🔺"}.get(ch, "⬡")
+            _ch_wr = (cp["wins"] / max(cp["total"], 1)) * 100
+            _ch_color = "#00D09C" if cp["pnl"] >= 0 else "#FF4757"
+            _chain_html += (
+                f'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);">'
+                f'<span style="color:#E6EDF3;font-size:0.72rem;">{_ch_emoji} {ch.capitalize()}</span>'
+                f'<span style="color:{_ch_color};font-size:0.72rem;font-family:monospace;font-weight:700;">'
+                f'{cp["pnl"]:+.4f} ETH ({_ch_wr:.0f}% WR)</span>'
+                f'</div>'
+            )
+        _chain_html += '</div>'
+        st.markdown(_chain_html, unsafe_allow_html=True)
+
 st.markdown("<div style='height:24px;'></div>", unsafe_allow_html=True)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────

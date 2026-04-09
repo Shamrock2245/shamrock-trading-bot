@@ -426,6 +426,22 @@ class GemScanner:
                         f"(score {promo['initial_score']:.1f} → {promo['score']:.1f}) "
                         f"after {promo['checks']} checks"
                     )
+                    # ── Telegram threshold breach alert ─────────────────────
+                    try:
+                        from notifications.telegram import notify_threshold_breach
+                        notify_threshold_breach(
+                            symbol=promo['symbol'],
+                            chain=promo['chain'],
+                            old_score=promo['initial_score'],
+                            new_score=promo['score'],
+                            timing=getattr(candidate, 'timing_bp_trend', 'flat') or 'flat',
+                            liquidity_usd=getattr(candidate.token, 'liquidity_usd', 0) or 0,
+                            volume_1h=getattr(candidate.token, 'volume_1h', 0) or 0,
+                            buy_pressure=getattr(candidate, 'moralis_buy_pressure', 0) or 0,
+                            source="watchlist_promotion",
+                        )
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Watchlist re-evaluation error: {e}")
 
@@ -753,6 +769,24 @@ class GemScanner:
             f"({express_count} express lane) "
             f"| watchlist: {self.watchlist.size} tokens watched"
         )
+
+        # ── Telegram conviction alerts for exceptional gems (80+) ─────────────
+        for c in candidates:
+            if c.gem_score >= 80.0:
+                try:
+                    from notifications.telegram import notify_conviction_alert
+                    notify_conviction_alert(
+                        symbol=c.token.symbol,
+                        chain=c.token.chain,
+                        score=c.gem_score,
+                        strategy_tag=c.strategy_tag or '',
+                        price_usd=c.token.price_usd or 0,
+                        market_cap=c.token.market_cap or 0,
+                        liquidity_usd=c.token.liquidity_usd or 0,
+                    )
+                except Exception:
+                    pass
+
         return candidates
 
     def _watchlist_score_fn(self, token_address: str, chain: str, signals: dict) -> float:

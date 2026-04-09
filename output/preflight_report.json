@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-09T18:00:59.846947+00:00",
+  "timestamp": "2026-04-09T18:35:13.631222+00:00",
   "git": {
-    "sha": "27d4e3e",
+    "sha": "75a0c20",
     "branch": "main",
-    "message": "fix: dashboard showing OFFLINE \u2014 heartbeat was overwriting is_running flag from BotStateWriter, now merges instead"
+    "message": "fix: token holdings empty (v1 API has no USD prices, switched to v2) + position_monitor entry_liq UnboundLocalError"
   },
   "checks": {
     "syntax": {

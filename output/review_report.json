@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-09T14:53:18.431736+00:00",
-  "feedback": "[bot_logs] WARNINGS: 7 warning(s)\n  - shamrock-bot  | 2026-04-09 14:53:19,058 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-09 14:53:19,059 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED\n  - shamrock-bot  | 2026-04-09 14:53:19,059 | WARNING  | __main__ | ============================================================",
+  "timestamp": "2026-04-09T18:04:08.336321+00:00",
+  "feedback": "[bot_logs] WARNINGS: 1 warning(s)\n  - shamrock-bot  | 2026-04-09 18:04:29,713 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,33 +43,25 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-09 14:53:19,058 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-09 14:53:19,059 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
-        "shamrock-bot  | 2026-04-09 14:53:19,059 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-09 14:53:19,063 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $8 | HWM: $549 | Drawdown: 98.5% | Swing wins: 0",
-        "shamrock-bot  | 2026-04-09 14:53:29,333 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT Doraemon: 7 snipers ($239 sniped) \u2014 risk=high",
-        "shamrock-bot  | 2026-04-09 14:53:32,951 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
-        "shamrock-bot  | 2026-04-09 14:53:40,090 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for \u706b\u70ac: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respons"
+        "shamrock-bot  | 2026-04-09 18:04:29,713 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-09 14:53:19,062 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
-        "shamrock-bot  | 2026-04-09 14:53:27,033 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
-        "shamrock-bot  | 2026-04-09 14:53:33,811 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
-        "shamrock-bot  | 2026-04-09 14:53:33,811 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
-        "shamrock-bot  | 2026-04-09 14:53:39,616 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+        "shamrock-bot  | 2026-04-09 18:04:24,716 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-09 18:04:24,716 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-09 18:04:27,323 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
-      "log_lines": 103,
+      "log_lines": 53,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "27d4e3e",
-      "server_sha": "27d4e3e",
-      "local_message": "fix: dashboard showing OFFLINE \u2014 heartbeat was overwriting is_running flag from BotStateWriter, now merges instead",
-      "server_message": "fix: dashboard showing OFFLINE \u2014 heartbeat was overwriting is_running flag from BotStateWriter, now merges instead",
+      "local_sha": "75a0c20",
+      "server_sha": "75a0c20",
+      "local_message": "fix: token holdings empty (v1 API has no USD prices, switched to v2) + position_monitor entry_liq UnboundLocalError",
+      "server_message": "fix: token holdings empty (v1 API has no USD prices, switched to v2) + position_monitor entry_liq UnboundLocalError",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "c1a58fd"
+  "preflight_sha": "27d4e3e"
 }

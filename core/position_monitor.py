@@ -869,6 +869,42 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
     }
 
     if not is_paper:
+        # ── Honeypot re-check before live sell ────────────────────────────
+        # Some scam tokens modify their contract AFTER you buy — enabling
+        # sell tax or making the token unsellable. Re-check before selling.
+        try:
+            from data.providers.goplus import check_token_safety
+            _safety = check_token_safety(pos.get("token_address", ""), pos.get("chain", ""))
+            if isinstance(_safety, dict):
+                _is_hp = _safety.get("is_honeypot", False)
+                _sell_tax = float(_safety.get("sell_tax", 0) or 0)
+                if _is_hp:
+                    logger.critical(
+                        f"🚨 HONEYPOT DETECTED on sell: {pos.get('token_symbol')} "
+                        f"is now a honeypot! Skipping sell — manual intervention required."
+                    )
+                    try:
+                        from notifications.telegram import notify_alert
+                        notify_alert(
+                            "🚨 HONEYPOT — SELL BLOCKED",
+                            f"{pos.get('token_symbol')} on {pos.get('chain')} is now a honeypot.\n"
+                            f"GoPlus flagged it AFTER your buy.\n"
+                            f"Manual intervention required — the token may be unsellable.",
+                            level="error",
+                        )
+                    except Exception:
+                        pass
+                    pos["honeypot_detected"] = True
+                    return pos  # Abort sell — don't lose gas on a guaranteed revert
+                elif _sell_tax > 0.15:
+                    logger.warning(
+                        f"⚠️ Sell tax increased: {pos.get('token_symbol')} "
+                        f"sell tax is now {_sell_tax*100:.1f}% — widening slippage"
+                    )
+                    pos["_sell_tax_override"] = _sell_tax
+        except Exception as _hp_err:
+            logger.debug(f"Honeypot re-check failed (non-blocking): {_hp_err}")
+
         # Live execution — delegate to executor (EVM or Solana)
         try:
             chain = pos.get("chain", "")

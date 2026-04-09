@@ -70,3 +70,66 @@ def notify_alert(title: str, message: str, level: str = "info") -> bool:
         
     msg = f"{emoji} <b>{title}</b>\n\n{message}"
     return send_telegram_message(msg)
+
+
+def notify_threshold_breach(
+    symbol: str,
+    chain: str,
+    old_score: float,
+    new_score: float,
+    timing: str = "flat",
+    liquidity_usd: float = 0,
+    volume_1h: float = 0,
+    buy_pressure: float = 0,
+    source: str = "",
+) -> bool:
+    """
+    Alert when a watchlisted token's score crosses above the entry threshold.
+    This is the most valuable signal — the moment a near-miss becomes actionable.
+    """
+    timing_icon = {"accelerating": "🚀", "decelerating": "📉", "flat": "➡️"}.get(timing, "➡️")
+    smart_money = "🐋 Confirmed" if buy_pressure >= 0.55 else "📊 Normal"
+
+    msg = (
+        f"🚨 <b>THRESHOLD BREACH: ${symbol}</b> ({chain.upper()})\n"
+        f"Score: {old_score:.0f} → <b>{new_score:.0f}</b>\n\n"
+        f"Timing: {timing_icon} {timing.upper()}\n"
+        f"Liquidity: ${liquidity_usd:,.0f}\n"
+        f"Volume 1h: ${volume_1h:,.0f}\n"
+        f"Buy Pressure: {smart_money} ({buy_pressure:.2f})\n"
+    )
+    if source:
+        msg += f"Source: {source}\n"
+    msg += "\n→ Bot will auto-enter next cycle"
+
+    return send_telegram_message(msg)
+
+
+def notify_conviction_alert(
+    symbol: str,
+    chain: str,
+    score: float,
+    strategy_tag: str = "",
+    price_usd: float = 0,
+    market_cap: float = 0,
+    liquidity_usd: float = 0,
+) -> bool:
+    """
+    Special alert for exceptional gems (score 80+).
+    These are the highest-conviction setups the scanner finds.
+    """
+    price_str = f"${price_usd:.8f}" if price_usd < 0.001 else (
+        f"${price_usd:.4f}" if price_usd < 1 else f"${price_usd:,.2f}"
+    )
+    msg = (
+        f"🏆 <b>CONVICTION ALERT: ${symbol}</b> ({chain.upper()})\n"
+        f"Score: <b>{score:.0f}/100</b> — EXCEPTIONAL\n\n"
+        f"Price: {price_str}\n"
+        f"MCap: ${market_cap:,.0f}\n"
+        f"Liquidity: ${liquidity_usd:,.0f}\n"
+    )
+    if strategy_tag:
+        msg += f"Strategy: {strategy_tag}\n"
+    msg += "\n🔥 Full conviction entry — express lane active"
+
+    return send_telegram_message(msg)

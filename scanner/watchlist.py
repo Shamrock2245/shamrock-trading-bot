@@ -37,6 +37,10 @@ WATCHLIST_FILE = os.getenv("WATCHLIST_FILE", "output/watchlist.json")
 # Minimum score improvement to log a momentum shift
 _MOMENTUM_SHIFT_THRESHOLD = 5.0
 
+# EMA smoothing factor (higher = more weight on recent scores)
+_EMA_ALPHA = 0.4
+_EMA_MIN_CHECKS = 3  # Need at least N checks before using EMA
+
 
 @dataclass
 class WatchlistEntry:
@@ -63,6 +67,18 @@ class WatchlistEntry:
     @property
     def is_expired(self) -> bool:
         return self.age_hours > WATCHLIST_MAX_AGE_HOURS
+
+    @property
+    def ema_score(self) -> float:
+        """EMA-smoothed score to prevent threshold-bouncing.
+        Uses raw score if fewer than _EMA_MIN_CHECKS data points."""
+        scores = [s for _, s in self.score_history]
+        if len(scores) < _EMA_MIN_CHECKS:
+            return self.current_score
+        ema = scores[0]
+        for s in scores[1:]:
+            ema = _EMA_ALPHA * s + (1 - _EMA_ALPHA) * ema
+        return ema
 
     @property
     def momentum(self) -> str:
@@ -254,8 +270,10 @@ class GemWatchlist:
                         f"{old_score:.1f} → {new_score:.1f} (+{diff:.1f})"
                     )
 
-                # PROMOTED! Token crossed the threshold
-                if new_score >= settings.MIN_GEM_SCORE:
+                # PROMOTED! Use EMA-smoothed score for promotion decision
+                # to prevent threshold-bouncing on noisy data.
+                effective_score = entry.ema_score
+                if effective_score >= settings.MIN_GEM_SCORE:
                     entry.promoted = True
                     promoted.append({
                         "token_address": entry.token_address,
