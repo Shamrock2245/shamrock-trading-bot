@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-08T20:57:19.164343+00:00",
-  "feedback": "[bot_logs] WARNINGS: 6 warning(s)\n  - shamrock-bot  | 2026-04-08 20:57:17,684 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED\n  - shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | ============================================================",
+  "timestamp": "2026-04-09T00:25:47.053482+00:00",
+  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-09 00:26:03,784 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa\n  - shamrock-bot  | 2026-04-09 00:26:05,261 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for LIQ: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,19 +43,14 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-08 20:57:17,684 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
-        "shamrock-bot  | 2026-04-08 20:57:17,685 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-08 20:57:17,691 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $0 | HWM: $291 | Drawdown: 100.0% | Swing wins: 0",
-        "shamrock-bot  | 2026-04-08 20:57:23,798 | WARNING  | scanner.gem_scanner | \ud83c\udfaf SNIPER ALERT POPTRUMP: 6 snipers ($268 sniped) \u2014 risk=high",
-        "shamrock-bot  | 2026-04-08 20:57:27,168 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
+        "shamrock-bot  | 2026-04-09 00:26:03,784 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
+        "shamrock-bot  | 2026-04-09 00:26:05,261 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for LIQ: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-08 20:57:17,545 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + ",
-        "shamrock-bot  | 2026-04-08 20:57:17,546 | INFO     | __main__ | \u2705 RL Position Sizer daemon started \u2014 trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)",
-        "shamrock-bot  | 2026-04-08 20:57:17,690 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
-        "shamrock-bot  | 2026-04-08 20:57:26,947 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
-        "shamrock-bot  | 2026-04-08 20:57:33,293 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)"
+        "shamrock-bot  | 2026-04-09 00:25:58,074 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-09 00:26:03,991 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-09 00:26:03,992 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-09 00:26:08,091 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
@@ -63,12 +58,12 @@
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "f19c06d",
-      "server_sha": "f19c06d",
-      "local_message": "fix: patch 6 critical code gaps in Manus profitability upgrades",
-      "server_message": "fix: patch 6 critical code gaps in Manus profitability upgrades",
+      "local_sha": "a6bc412",
+      "server_sha": "a6bc412",
+      "local_message": "fix: repair 7 broken tg_notify_alert insertions in main.py \u2014 Manus placed Telegram calls inside notify_alert() args with wrong messages",
+      "server_message": "fix: repair 7 broken tg_notify_alert insertions in main.py \u2014 Manus placed Telegram calls inside notify_alert() args with wrong messages",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "f19c06d"
+  "preflight_sha": "81e6b30"
 }
