@@ -178,7 +178,7 @@ class TestProfileConfig:
         assert NUCLEAR_PROFILE.tp3_sell_pct == 0.20
         assert NUCLEAR_PROFILE.hard_stop_pct == 8.0
         assert NUCLEAR_PROFILE.trailing_tighten == {10: 15.0, 20: 7.0}
-        assert NUCLEAR_PROFILE.max_position_pct == 60.0
+        assert NUCLEAR_PROFILE.max_position_pct == 25.0
         assert NUCLEAR_PROFILE.kelly_clamp_max == 0.70
         assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
 
