@@ -32,6 +32,7 @@ from pathlib import Path
 import requests
 
 from notifications.slack import notify_trade, notify_alert, notify_cycle_summary
+from notifications.telegram import notify_alert as tg_notify_alert, notify_trade as tg_notify_trade
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging setup — must happen before any other imports
@@ -624,6 +625,15 @@ async def run_bot_loop():
         total_latency = _latency_seconds(signal.timestamp)
         if total_latency > settings.COPYTRADE_LATENCY_SLO_SECONDS:
             notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                 "⚠️ Copy-trade latency SLO breached",
                 f"{token.symbol} {token.chain} latency={total_latency:.1f}s "
                 f"(SLO={settings.COPYTRADE_LATENCY_SLO_SECONDS:.1f}s)",
@@ -681,6 +691,15 @@ async def run_bot_loop():
             )
             try:
                 notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                     f"🔥 Copy Trade Signal: {signal.token_symbol}",
                     f"Chain: {signal.chain} | Tier {signal.tier} | "
                     f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
@@ -870,6 +889,25 @@ async def run_bot_loop():
         "trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)"
     )
 
+    # ── XGBoost Weight Optimizer: background training daemon ────────────────────────────────────────────────────────────────────────────────
+    def _xgboost_training_daemon():
+        """Background thread: trains XGBoost weight optimizer every 6h."""
+        import time as _time
+        _time.sleep(120)  # Wait 120s for bot to fully initialize
+        while True:
+            try:
+                from ml.weight_optimizer import run_training_cycle
+                run_training_cycle()
+            except Exception as _xgb_daemon_err:
+                logger.debug(f"XGBoost training daemon cycle error: {_xgb_daemon_err}")
+            _time.sleep(21600)  # Check every 6 hours (6 * 3600)
+    _xgb_thread = threading.Thread(target=_xgboost_training_daemon, daemon=True, name="xgboost-optimizer")
+    _xgb_thread.start()
+    logger.info(
+        "✅ XGBoost Weight Optimizer daemon started — "
+        "retrains scoring weights on completed trades every 6h"
+    )
+
     # ── Check for Base USDC deployment plan ─────────────────────────────────────────────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):
@@ -882,6 +920,15 @@ async def run_bot_loop():
 
     # Startup notification
     notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
         "Shamrock Bot Started",
         "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
             settings.MODE.upper(),
@@ -1055,6 +1102,15 @@ async def run_bot_loop():
 
                 if _floor_result["entered_preservation"]:
                     notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                         "🛡️ CAPITAL PRESERVATION MODE ACTIVATED",
                         f"Portfolio ${_portfolio_usd:,.2f} breached daily floor "
                         f"${_floor_result['floor_usd']:,.2f} by {_floor_result['breach_pct']:.1f}%. "
@@ -1069,6 +1125,15 @@ async def run_bot_loop():
 
                 elif _floor_result["exited_preservation"]:
                     notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                         "✅ Capital Preservation Mode Deactivated",
                         f"Portfolio ${_portfolio_usd:,.2f} recovered above floor "
                         f"${_floor_result['floor_usd']:,.2f}. Normal trading resumed.",
@@ -1100,6 +1165,15 @@ async def run_bot_loop():
                     portfolio_change_pct = ((total_current - total_entry) / total_entry) * 100
                     if risk_manager.check_circuit_breaker(portfolio_change_pct):
                         notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                             "🚨 CIRCUIT BREAKER TRIPPED",
                             f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
                             f"(threshold: {settings.CIRCUIT_BREAKER_PERCENT}%). "
@@ -1111,6 +1185,15 @@ async def run_bot_loop():
                     # Global drawdown sleep: −20% → 48h halt on new entries
                     if risk_manager.check_global_drawdown_sleep(portfolio_change_pct):
                         notify_alert(
+    tg_notify_alert(
+        "Shamrock Bot Started",
+        "Mode: {} | Chains: {} | Interval: {}s | PositionMonitor: ON".format(
+            settings.MODE.upper(),
+            ", ".join(settings.ACTIVE_CHAINS),
+            settings.SCAN_INTERVAL_SECONDS,
+        ),
+        level="info",
+    )
                             "💤 GLOBAL DRAWDOWN SLEEP ENGAGED",
                             f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
                             f"(threshold: {risk_manager.GLOBAL_DRAWDOWN_SLEEP_PCT}%). "

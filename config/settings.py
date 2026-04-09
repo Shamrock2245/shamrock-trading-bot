@@ -48,7 +48,7 @@ JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
 # Hyperliquid (Perpetual Futures DEX — zero gas, leveraged trading)
 # ⚠️  CAPITAL PRESERVATION MODE — conservative defaults to protect seed capital
-HYPERLIQUID_ENABLED = os.getenv("HYPERLIQUID_ENABLED", "false").lower() == "true"
+HYPERLIQUID_ENABLED = os.getenv("HYPERLIQUID_ENABLED", "true").lower() == "true"
 HYPERLIQUID_WALLET_ADDRESS = os.getenv("HYPERLIQUID_WALLET_ADDRESS", "")
 HYPERLIQUID_PRIVATE_KEY = os.getenv("HYPERLIQUID_PRIVATE_KEY", "")
 HYPERLIQUID_DEFAULT_LEVERAGE = int(os.getenv("HYPERLIQUID_DEFAULT_LEVERAGE", "2"))

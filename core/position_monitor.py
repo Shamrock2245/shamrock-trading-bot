@@ -968,6 +968,20 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         )
 
     append_trade(trade_record)
+    # u2500u2500 Telegram notification on every sell u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+    try:
+        from notifications.telegram import notify_trade as tg_notify_trade
+        tg_notify_trade(
+            action="SELL",
+            token_symbol=pos.get("token_symbol", "???"),
+            chain=pos.get("chain", "???"),
+            price=current_price,
+            amount_usd=sell_qty * current_price,
+            pnl_pct=pnl_pct,
+            tx_hash=trade_record.get("tx_hash", ""),
+        )
+    except Exception:
+        pass
 
     # Update position
     new_remaining = remaining_qty - sell_qty
