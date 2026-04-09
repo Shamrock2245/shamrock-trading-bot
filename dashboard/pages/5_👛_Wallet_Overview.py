@@ -399,7 +399,7 @@ if chain_totals:
                 tickprefix="$",
             ),
         )
-        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False}, key="wallet_bar")
 
     with chain_col2:
         # Donut chart
@@ -422,7 +422,7 @@ if chain_totals:
                 showarrow=False,
             )],
         )
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False}, key="wallet_donut")
 else:
     st.markdown(
         '<div class="glass-card" style="text-align:center;padding:2.5rem;">'

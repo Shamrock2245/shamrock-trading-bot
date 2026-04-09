@@ -86,7 +86,7 @@ with tab1:
 
     # Use PLOTLY_LAYOUT_HLEGEND to avoid duplicate legend kwargs
     fig_freq.update_layout(**PLOTLY_LAYOUT_HLEGEND, height=350)
-    st.plotly_chart(fig_freq, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_freq, use_container_width=True, config={"displayModeBar": False}, key="analytics_freq")
 
 with tab2:
     # Cumulative gem count
@@ -111,7 +111,7 @@ with tab2:
             **PLOTLY_LAYOUT, height=350,
             yaxis_title="Total Gems Discovered",
         )
-        st.plotly_chart(fig_cum, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_cum, use_container_width=True, config={"displayModeBar": False}, key="analytics_cumulative")
 
 # ── Chain & Score Analysis ───────────────────────────────────────────────────
 st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
@@ -141,7 +141,7 @@ with analysis_col1:
         ))
 
         fig_bar.update_layout(**{**PLOTLY_LAYOUT, "showlegend": False}, height=300)
-        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False}, key="analytics_chain_bar")
 
 with analysis_col2:
     st.markdown("## 🎯 Score Heatmap")
@@ -166,7 +166,7 @@ with analysis_col2:
         ))
 
         fig_scores.update_layout(**{**PLOTLY_LAYOUT, "showlegend": False}, height=300)
-        st.plotly_chart(fig_scores, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_scores, use_container_width=True, config={"displayModeBar": False}, key="analytics_scores")
 
 # ── Fibonacci Zone Distribution ──────────────────────────────────────────────
 fib_zones = [g.get("signal", {}).get("fib_zone", "") for g in gems if g.get("signal")]
@@ -211,7 +211,7 @@ if fib_zones:
             showarrow=False,
         )],
     )
-    st.plotly_chart(fig_fib, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_fib, use_container_width=True, config={"displayModeBar": False}, key="analytics_fib")
 
 # ── Key Metrics Summary ─────────────────────────────────────────────────────
 st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)

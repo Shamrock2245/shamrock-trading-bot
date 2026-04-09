@@ -334,7 +334,7 @@ if filtered:
                         plot_bgcolor="rgba(0,0,0,0)",
                         font=dict(family="Inter, sans-serif", color="#E6EDF3"),
                     )
-                    st.plotly_chart(fig_r, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(fig_r, use_container_width=True, config={"displayModeBar": False}, key=f"radar_{i}")
                 else:
                     st.markdown(
                         '<div style="text-align:center;padding:2rem;color:#484F58;font-size:0.8rem;">'
@@ -504,4 +504,4 @@ if history:
             **PLOTLY_LAYOUT, height=240,
             xaxis_title="Gem Score", yaxis_title="Count", bargap=0.05,
         )
-        st.plotly_chart(fig_hist, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_hist, use_container_width=True, config={"displayModeBar": False}, key="score_histogram")

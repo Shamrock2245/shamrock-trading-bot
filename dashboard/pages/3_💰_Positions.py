@@ -373,7 +373,7 @@ with tab_pos:
                 **{**PLOTLY_LAYOUT, "showlegend": False},
                 height=300, yaxis_title="Unrealized P&L %",
             )
-            st.plotly_chart(fig_waterfall, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig_waterfall, use_container_width=True, config={"displayModeBar": False}, key="pos_waterfall")
 
     else:
         st.markdown(
@@ -580,7 +580,7 @@ with tab_trades_tab:
             ))
 
         fig_vol.update_layout(**PLOTLY_LAYOUT, height=300)
-        st.plotly_chart(fig_vol, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_vol, use_container_width=True, config={"displayModeBar": False}, key="pos_volume")
     else:
         st.markdown(
             '<div class="glass-card" style="text-align:center;padding:3rem;">'
@@ -621,7 +621,7 @@ with tab_perf:
         ))
         fig_pnl.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.1)")
         fig_pnl.update_layout(**PLOTLY_LAYOUT, height=350, yaxis_title="Cumulative P&L (ETH)")
-        st.plotly_chart(fig_pnl, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_pnl, use_container_width=True, config={"displayModeBar": False}, key="pos_pnl")
 
         # Win rate
         st.markdown("### 🎯 Trade Statistics")

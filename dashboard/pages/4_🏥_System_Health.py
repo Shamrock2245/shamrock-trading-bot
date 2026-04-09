@@ -191,7 +191,7 @@ with error_col1:
             height=280,
             yaxis_title="Errors",
         )
-        st.plotly_chart(fig_errors, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_errors, use_container_width=True, config={"displayModeBar": False}, key="health_errors")
     else:
         st.markdown(
             '<div class="glass-card" style="text-align:center;padding:2rem;">'
