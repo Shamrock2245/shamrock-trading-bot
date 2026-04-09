@@ -42,7 +42,7 @@ st.markdown("---")
 
 # Progress Bar
 st.subheader("Next Paycheck Progress")
-st.progress(progress_pct / 100.0)
+st.progress(max(0.0, min(1.0, progress_pct / 100.0)))
 st.caption(f"${accumulator:,.2f} / ${threshold:,.2f} accumulated")
 
 st.markdown("---")

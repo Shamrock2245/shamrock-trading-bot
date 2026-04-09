@@ -216,13 +216,13 @@ with tab_pos:
             )
             mode_badge = (
                 '<span style="background:rgba(255,184,77,0.12);color:#FFB84D;font-size:0.62rem;'
-                'font-weight:700;padding:2px 8px;border-radius:20px;margin-left:4px;">\ud83d\udcc4 PAPER</span>'
+                'font-weight:700;padding:2px 8px;border-radius:20px;margin-left:4px;">📄 PAPER</span>'
                 if is_paper else
                 '<span style="background:rgba(0,208,156,0.12);color:#00D09C;font-size:0.62rem;'
-                'font-weight:700;padding:2px 8px;border-radius:20px;margin-left:4px;">\ud83d\udd34 LIVE</span>'
+                'font-weight:700;padding:2px 8px;border-radius:20px;margin-left:4px;">🔴 LIVE</span>'
             )
             fib_badge = (
-                f'<span class="tp-badge tp-hit">\ud83d\udcd0 {fib_zone}</span>' if fib_zone else ""
+                f'<span class="tp-badge tp-hit">📐 {fib_zone}</span>' if fib_zone else ""
             )
             pos_html = (
                 f'<div class="pos-card {card_class}">'

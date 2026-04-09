@@ -411,8 +411,10 @@ with tab_compounder:
                 )
 
         if next_milestone:
+            # Ensure progress is between 0 and 100
+            safe_progress = max(0, min(100, int(progress)))
             st.progress(
-                int(progress),
+                safe_progress,
                 text=f"Progress to next milestone (${next_milestone:,.0f}): {progress:.1f}%",
             )
 
