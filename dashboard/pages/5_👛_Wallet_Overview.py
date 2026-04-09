@@ -58,6 +58,7 @@ try:
     from data.providers.moralis_wallet import (
         get_wallet_net_worth,
         get_wallet_token_balances,
+        get_wallet_token_balances_v2,
         get_wallet_pnl,
         get_usage_stats,
     )
@@ -167,11 +168,11 @@ def safe_net_worth(address: str) -> dict:
 
 
 def safe_token_balances(address: str, chain: str) -> list:
-    """Fetch token balances with error handling."""
+    """Fetch token balances with USD prices via v2 endpoint."""
     if not moralis_available or not address:
         return []
     try:
-        return get_wallet_token_balances(address, chain)
+        return get_wallet_token_balances_v2(address, chain)
     except Exception:
         return []
 

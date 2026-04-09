@@ -648,6 +648,9 @@ def evaluate_position(pos: dict, current_price: float,
 
     # ── Liquidity drain emergency exit ────────────────────────────────────────
     if settings.LIQUIDITY_DRAIN_EXIT_ENABLED:
+        entry_liq = float(pos.get("entry_liquidity_usd", 0) or 0)
+        current_liq = float(pos.get("current_liquidity_usd", 0) or 0)
+
         # ── Per-Cycle Liquidity Drain (Front-run dumps) ──
 
         prev_liq = float(pos.get("prev_liquidity_usd", entry_liq))
@@ -669,8 +672,6 @@ def evaluate_position(pos: dict, current_price: float,
                 }
 
         # ── Total Liquidity Drain (from entry) ──
-        entry_liq = float(pos.get("entry_liquidity_usd", 0))
-        current_liq = float(pos.get("current_liquidity_usd", 0))
         if entry_liq > 0 and current_liq > 0:
             liq_drop_pct = ((entry_liq - current_liq) / entry_liq) * 100
             if liq_drop_pct >= settings.LIQUIDITY_DRAIN_DROP_PCT:

@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-09T14:49:51.646079+00:00",
+  "timestamp": "2026-04-09T18:00:59.846947+00:00",
   "git": {
-    "sha": "c1a58fd",
+    "sha": "27d4e3e",
     "branch": "main",
-    "message": "fix: add unique keys to all 12 plotly_chart calls across 5 dashboard pages \u2014 eliminates StreamlitDuplicateElementId crashes"
+    "message": "fix: dashboard showing OFFLINE \u2014 heartbeat was overwriting is_running flag from BotStateWriter, now merges instead"
   },
   "checks": {
     "syntax": {
