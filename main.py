@@ -985,6 +985,7 @@ async def run_bot_loop():
                 "cycle": 0,
                 "mode": settings.MODE,
                 "status": "starting",
+                "is_running": True,
                 "open_positions": 0,
                 "closed_positions": 0,
                 "realized_pnl_usd": 0.0,
@@ -2347,8 +2348,8 @@ async def run_bot_loop():
                 logger.debug(f"Dashboard state write failed: {state_err}")
 
             # ── Bot heartbeat + outcome self-monitor ─────────────────────────
-            # Writes bot_status.json every cycle so the health check knows we
-            # are alive AND so we can answer "are we making money?"
+            # MERGES extra fields into bot_status.json written by
+            # BotStateWriter.write_cycle() — preserves is_running flag.
             try:
                 import json as _json
                 from pathlib import Path as _Path
@@ -2361,10 +2362,23 @@ async def run_bot_loop():
                 _win_rate = (len(_wins) / len(_closed_pos) * 100) if _closed_pos else 0.0
                 _os = get_offensive_state()
 
-                _status = {
+                _status_path = _Path(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json"))
+                _status_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Read existing status (written by BotStateWriter) and merge
+                _existing = {}
+                if _status_path.exists():
+                    try:
+                        with open(_status_path) as _rf:
+                            _existing = _json.load(_rf)
+                    except (ValueError, IOError):
+                        _existing = {}
+
+                _existing.update({
                     "last_cycle_at": _time_module.strftime("%Y-%m-%dT%H:%M:%SZ", _time_module.gmtime()),
                     "cycle": cycle,
                     "mode": settings.MODE,
+                    "is_running": True,
                     "open_positions": len(_open_pos),
                     "closed_positions": len(_closed_pos),
                     "wins": len(_wins),
@@ -2376,11 +2390,9 @@ async def run_bot_loop():
                     "consecutive_losses": _os.consecutive_losses,
                     "god_mode_active": getattr(_os, "god_mode_active", False),
                     "capital_phase": getattr(_os, "capital_phase", 0),
-                }
-                _status_path = _Path(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json"))
-                _status_path.parent.mkdir(parents=True, exist_ok=True)
+                })
                 with open(_status_path, "w") as _sf:
-                    _json.dump(_status, _sf, indent=2)
+                    _json.dump(_existing, _sf, indent=2)
 
                 # Self-review: log outcome summary every 5 cycles
                 if cycle % 5 == 0:

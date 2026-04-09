@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-09T12:04:42.493370+00:00",
+  "timestamp": "2026-04-09T14:49:51.646079+00:00",
   "git": {
-    "sha": "a215205",
+    "sha": "c1a58fd",
     "branch": "main",
-    "message": "deploy: 2026-04-09 07:53 \u2014 post-preflight"
+    "message": "fix: add unique keys to all 12 plotly_chart calls across 5 dashboard pages \u2014 eliminates StreamlitDuplicateElementId crashes"
   },
   "checks": {
     "syntax": {
