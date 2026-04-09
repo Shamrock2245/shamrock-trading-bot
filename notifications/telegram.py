@@ -115,21 +115,28 @@ def notify_conviction_alert(
     liquidity_usd: float = 0,
 ) -> bool:
     """
-    Special alert for exceptional gems (score 80+).
-    These are the highest-conviction setups the scanner finds.
+    Alert for all gems that pass the scoring threshold.
+    Tiered messaging: EXCEPTIONAL (80+), STRONG (70-79), GOOD (65-69).
     """
+    if score >= 80:
+        emoji, tier, footer = "🏆", "EXCEPTIONAL", "🔥 Full conviction — express lane"
+    elif score >= 70:
+        emoji, tier, footer = "💎", "STRONG", "⚡ High conviction entry"
+    else:
+        emoji, tier, footer = "✅", "GOOD", "📈 Standard entry"
+
     price_str = f"${price_usd:.8f}" if price_usd < 0.001 else (
         f"${price_usd:.4f}" if price_usd < 1 else f"${price_usd:,.2f}"
     )
     msg = (
-        f"🏆 <b>CONVICTION ALERT: ${symbol}</b> ({chain.upper()})\n"
-        f"Score: <b>{score:.0f}/100</b> — EXCEPTIONAL\n\n"
+        f"{emoji} <b>GEM ALERT: ${symbol}</b> ({chain.upper()})\n"
+        f"Score: <b>{score:.0f}/100</b> — {tier}\n\n"
         f"Price: {price_str}\n"
         f"MCap: ${market_cap:,.0f}\n"
         f"Liquidity: ${liquidity_usd:,.0f}\n"
     )
     if strategy_tag:
         msg += f"Strategy: {strategy_tag}\n"
-    msg += "\n🔥 Full conviction entry — express lane active"
+    msg += f"\n{footer}"
 
     return send_telegram_message(msg)

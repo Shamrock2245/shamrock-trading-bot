@@ -38,22 +38,22 @@ st.markdown("""
     background: linear-gradient(145deg, rgba(0,208,156,0.04), rgba(13,17,23,0.98));
     border: 1px solid rgba(0,208,156,0.25);
     border-radius: 14px;
-    padding: 18px 20px;
-    margin-bottom: 14px;
+    padding: 22px 24px;
+    margin-bottom: 16px;
     transition: border-color 0.3s, transform 0.2s;
 }
 .advisor-action-card:hover {
     border-color: rgba(0,208,156,0.5);
     transform: translateY(-1px);
 }
-.momentum-rising { border-left: 3px solid #00D09C; }
-.momentum-falling { border-left: 3px solid #FF4757; }
-.momentum-stable { border-left: 3px solid #484F58; }
-.momentum-new { border-left: 3px solid #58A6FF; }
+.momentum-rising { border-left: 4px solid #00D09C; }
+.momentum-falling { border-left: 4px solid #FF4757; }
+.momentum-stable { border-left: 4px solid #484F58; }
+.momentum-new { border-left: 4px solid #58A6FF; }
 .macro-regime-card {
     border-radius: 14px;
-    padding: 20px 24px;
-    margin-bottom: 16px;
+    padding: 22px 26px;
+    margin-bottom: 18px;
 }
 .macro-bull { background: linear-gradient(145deg, rgba(0,208,156,0.06), rgba(13,17,23,0.98)); border: 1px solid rgba(0,208,156,0.25); }
 .macro-neutral { background: linear-gradient(145deg, rgba(255,184,77,0.06), rgba(13,17,23,0.98)); border: 1px solid rgba(255,184,77,0.25); }
@@ -189,10 +189,10 @@ for sym, cd in coins.items():
     above200 = cd.get("above_ema200", False)
     _sc = "#00D09C" if cr == "BULL" else ("#FF4757" if cr in ("BEAR", "EXTREME_FEAR") else "#FFB84D")
     macro_html += (
-        f'<div style="background:rgba(48,54,61,0.3);border-radius:8px;padding:8px 12px;min-width:100px;">'
-        f'<div style="color:#E6EDF3;font-size:0.75rem;font-weight:700;">{sym}</div>'
-        f'<div style="color:{_sc};font-size:0.82rem;font-weight:700;font-family:monospace;">{chg:+.1f}%</div>'
-        f'<div style="color:#484F58;font-size:0.6rem;">{"✅ Above" if above200 else "❌ Below"} EMA200</div>'
+        f'<div style="background:rgba(48,54,61,0.3);border-radius:10px;padding:10px 14px;min-width:110px;">'
+        f'<div style="color:#E6EDF3;font-size:0.85rem;font-weight:700;">{sym}</div>'
+        f'<div style="color:{_sc};font-size:0.92rem;font-weight:700;font-family:monospace;">{chg:+.1f}%</div>'
+        f'<div style="color:#8B949E;font-size:0.7rem;">{"✅ Above" if above200 else "❌ Below"} EMA200</div>'
         f'</div>'
     )
 macro_html += '</div></div>'
@@ -237,34 +237,34 @@ if actionable:
 
         st.markdown(
             f'<div class="advisor-action-card">'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
-            f'<div style="display:flex;align-items:center;gap:10px;">'
-            f'<div style="background:rgba(0,208,156,0.1);color:{score_color};font-size:1.1rem;font-weight:800;'
-            f'width:52px;height:52px;border-radius:12px;display:flex;align-items:center;justify-content:center;'
-            f'font-family:monospace;border:1px solid {score_color}33;">{score:.0f}</div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+            f'<div style="display:flex;align-items:center;gap:12px;">'
+            f'<div style="background:rgba(0,208,156,0.1);color:{score_color};font-size:1.3rem;font-weight:800;'
+            f'width:58px;height:58px;border-radius:14px;display:flex;align-items:center;justify-content:center;'
+            f'font-family:monospace;border:1px solid {score_color}44;">{score:.0f}</div>'
             f'<div>'
-            f'<div style="color:#E6EDF3;font-size:1.05rem;font-weight:800;">${symbol}'
-            f'<span style="color:{chain_color};font-size:0.72rem;margin-left:8px;">{chain_emoji} {chain.capitalize()}</span>'
+            f'<div style="color:#E6EDF3;font-size:1.15rem;font-weight:800;">${symbol}'
+            f'<span style="color:{chain_color};font-size:0.82rem;margin-left:10px;">{chain_emoji} {chain.capitalize()}</span>'
             f'{badge_html}</div>'
-            f'<div style="color:#484F58;font-size:0.68rem;margin-top:2px;">'
+            f'<div style="color:#8B949E;font-size:0.78rem;margin-top:4px;">'
             f'{timing_icon} {timing.capitalize()} · {"✅ Safe" if is_safe else "⚠️ Check safety"} · '
             f'{"Score ≥82 → Express Lane" if express else f"Score {score:.0f}/100"}</div>'
             f'</div>'
             f'</div>'
             f'<div style="text-align:right;">'
-            f'<div style="color:#E6EDF3;font-size:0.95rem;font-weight:700;font-family:monospace;">{price_str}</div>'
-            f'<div style="color:#484F58;font-size:0.65rem;">MCap ${mcap:,.0f}</div>'
+            f'<div style="color:#E6EDF3;font-size:1.05rem;font-weight:700;font-family:monospace;">{price_str}</div>'
+            f'<div style="color:#8B949E;font-size:0.75rem;">MCap ${mcap:,.0f}</div>'
             f'</div>'
             f'</div>'
-            f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">'
-            f'<div><div style="color:#484F58;font-size:0.55rem;font-weight:700;text-transform:uppercase;">Liquidity</div>'
-            f'<div style="color:#E6EDF3;font-size:0.78rem;font-family:monospace;">${liq:,.0f}</div></div>'
-            f'<div><div style="color:#484F58;font-size:0.55rem;font-weight:700;text-transform:uppercase;">Vol 1h</div>'
-            f'<div style="color:#E6EDF3;font-size:0.78rem;font-family:monospace;">${vol1h:,.0f}</div></div>'
-            f'<div><div style="color:#484F58;font-size:0.55rem;font-weight:700;text-transform:uppercase;">Vol 24h</div>'
-            f'<div style="color:#E6EDF3;font-size:0.78rem;font-family:monospace;">${vol24h:,.0f}</div></div>'
-            f'<div><div style="color:#484F58;font-size:0.55rem;font-weight:700;text-transform:uppercase;">Δ 1h</div>'
-            f'<div style="color:{"#00D09C" if gem.get("price_change_1h",0)>=0 else "#FF4757"};font-size:0.78rem;font-family:monospace;">'
+            f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">'
+            f'<div><div style="color:#8B949E;font-size:0.65rem;font-weight:700;text-transform:uppercase;">Liquidity</div>'
+            f'<div style="color:#E6EDF3;font-size:0.88rem;font-family:monospace;">${liq:,.0f}</div></div>'
+            f'<div><div style="color:#8B949E;font-size:0.65rem;font-weight:700;text-transform:uppercase;">Vol 1h</div>'
+            f'<div style="color:#E6EDF3;font-size:0.88rem;font-family:monospace;">${vol1h:,.0f}</div></div>'
+            f'<div><div style="color:#8B949E;font-size:0.65rem;font-weight:700;text-transform:uppercase;">Vol 24h</div>'
+            f'<div style="color:#E6EDF3;font-size:0.88rem;font-family:monospace;">${vol24h:,.0f}</div></div>'
+            f'<div><div style="color:#8B949E;font-size:0.65rem;font-weight:700;text-transform:uppercase;">Δ 1h</div>'
+            f'<div style="color:{"#00D09C" if gem.get("price_change_1h",0)>=0 else "#FF4757"};font-size:0.88rem;font-family:monospace;">'
             f'{gem.get("price_change_1h",0):+.1f}%</div></div>'
             f'</div>'
             f'</div>',
@@ -374,19 +374,19 @@ if watchlist_data:
         delta = curr_score - init_score
 
         st.markdown(
-            f'<div class="glass-card {mom_class}" style="padding:10px 14px;margin-bottom:6px;'
+            f'<div class="glass-card {mom_class}" style="padding:12px 18px;margin-bottom:8px;'
             f'display:flex;justify-content:space-between;align-items:center;">'
             f'<div>'
-            f'<span style="color:#E6EDF3;font-size:0.82rem;font-weight:700;">{sym}</span>'
-            f'<span style="color:#484F58;font-size:0.68rem;margin-left:8px;">'
+            f'<span style="color:#E6EDF3;font-size:0.92rem;font-weight:700;">{sym}</span>'
+            f'<span style="color:#8B949E;font-size:0.78rem;margin-left:10px;">'
             f'{chain_emoji} {chain.capitalize()} · {checks} checks · {age_h:.1f}h</span>'
             f'</div>'
-            f'<div style="display:flex;align-items:center;gap:12px;">'
-            f'<span style="color:{score_color};font-size:0.85rem;font-weight:800;font-family:monospace;">'
+            f'<div style="display:flex;align-items:center;gap:14px;">'
+            f'<span style="color:{score_color};font-size:0.95rem;font-weight:800;font-family:monospace;">'
             f'{curr_score:.0f}</span>'
-            f'<span style="color:{"#00D09C" if delta >= 0 else "#FF4757"};font-size:0.7rem;font-family:monospace;">'
+            f'<span style="color:{"#00D09C" if delta >= 0 else "#FF4757"};font-size:0.8rem;font-family:monospace;">'
             f'{delta:+.0f}</span>'
-            f'<span style="font-size:0.72rem;">{mom_icon}</span>'
+            f'<span style="font-size:0.82rem;">{mom_icon}</span>'
             f'</div>'
             f'</div>',
             unsafe_allow_html=True,

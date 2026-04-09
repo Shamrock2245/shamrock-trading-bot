@@ -770,22 +770,21 @@ class GemScanner:
             f"| watchlist: {self.watchlist.size} tokens watched"
         )
 
-        # ── Telegram conviction alerts for exceptional gems (80+) ─────────────
+        # ── Telegram alerts for all high-conviction gems ─────────────────────
         for c in candidates:
-            if c.gem_score >= 80.0:
-                try:
-                    from notifications.telegram import notify_conviction_alert
-                    notify_conviction_alert(
-                        symbol=c.token.symbol,
-                        chain=c.token.chain,
-                        score=c.gem_score,
-                        strategy_tag=c.strategy_tag or '',
-                        price_usd=c.token.price_usd or 0,
-                        market_cap=c.token.market_cap or 0,
-                        liquidity_usd=c.token.liquidity_usd or 0,
-                    )
-                except Exception:
-                    pass
+            try:
+                from notifications.telegram import notify_conviction_alert
+                notify_conviction_alert(
+                    symbol=c.token.symbol,
+                    chain=c.token.chain,
+                    score=c.gem_score,
+                    strategy_tag=c.strategy_tag or '',
+                    price_usd=c.token.price_usd or 0,
+                    market_cap=c.token.market_cap or 0,
+                    liquidity_usd=c.token.liquidity_usd or 0,
+                )
+            except Exception:
+                pass
 
         return candidates
 

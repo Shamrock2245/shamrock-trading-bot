@@ -116,7 +116,7 @@ st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
 # ── Filters ───────────────────────────────────────────────────────────────────
 fc1, fc2, fc3, fc4, fc5 = st.columns([1.2, 1, 0.8, 0.8, 0.8])
 with fc1:
-    chain_filter = st.selectbox("Chain", ["All", "Ethereum", "Base", "Arbitrum", "Polygon", "BSC", "Solana"])
+    chain_filter = st.selectbox("Chain", ["All", "Ethereum", "Base", "Arbitrum", "Polygon", "BSC", "Avalanche", "Solana"])
 with fc2:
     min_score = st.slider("Min Score", 0, 100, 60)
 with fc3:
