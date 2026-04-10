@@ -831,9 +831,21 @@ class GemScanner:
             )
             return None
 
-        # ── HARD GATE #4: Moralis Security Score ──────────────────────────────
+        # ── HARD GATE #4: Moralis Security Score & Metadata ────────────────────────
         try:
-            from data.providers.moralis_data import get_token_score
+            from data.providers.moralis_data import get_token_score, get_token_metadata
+            
+            # Check Token Metadata for the new 'possible_spam' indicator
+            metadata_res = get_token_metadata([token.address], token.chain)
+            if metadata_res and isinstance(metadata_res, list) and len(metadata_res) > 0:
+                metadata = metadata_res[0]
+                if metadata.get("possible_spam") is True:
+                    logger.warning(
+                        f"⛔ SPAM GATE: {token.symbol} [{token.chain}] rejected — "
+                        f"Moralis native spam detection triggered."
+                    )
+                    return None
+            
             token_score_data = get_token_score(token.address, token.chain)
             if token_score_data:
                 score_value = token_score_data.get("security_score", 100)
@@ -848,7 +860,7 @@ class GemScanner:
             else:
                 candidate.moralis_security_score = 70
         except Exception as e:
-            logger.debug(f"Moralis security score skipped for {token.symbol}: {e}")
+            logger.debug(f"Moralis security/metadata score skipped for {token.symbol}: {e}")
             candidate.moralis_security_score = 70
 
         # ── Age score (12%) ────────────────────────────────────────────────────────

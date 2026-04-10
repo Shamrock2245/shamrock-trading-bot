@@ -82,3 +82,35 @@ def get_token_analytics(token_address: str, chain: str) -> dict:
     except Exception as e:
         logger.debug(f"Exception fetching Moralis analytics for {token_address}: {e}")
         return {}
+
+def get_token_metadata(token_addresses: list, chain: str) -> list:
+    """
+    Get token metadata (including possible_spam flags).
+    https://docs.moralis.com/data-api/evm/reference/get-token-metadata
+    """
+    if not MORALIS_API_KEY or not token_addresses:
+        return []
+
+    try:
+        chain_lower = chain.lower()
+        if chain_lower == "solana":
+            url = f"{SOLANA_API_BASE}/token/mainnet/{token_addresses[0]}/metadata"
+            res = requests.get(url, headers=_get_headers(), timeout=4)
+            if res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return [data]
+            return []
+        else:
+            hex_chain = _chain_to_hex(chain_lower)
+            url = f"{MORALIS_API_BASE}/erc20/metadata?chain={hex_chain}"
+            for addr in token_addresses:
+                url += f"&addresses={addr}"
+            
+            res = requests.get(url, headers=_get_headers(), timeout=4)
+            if res.status_code == 200:
+                return res.json()
+            return []
+    except Exception as e:
+        logger.debug(f"Exception fetching Moralis metadata: {e}")
+        return []
