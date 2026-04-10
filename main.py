@@ -486,7 +486,7 @@ async def run_bot_loop():
                 return
 
         allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score,
-                        is_express=True)
+                        is_express=True, candidate=candidate)
         if not allocation:
             # ── Hyperliquid fallback: zero-gas leveraged perp ──────────────
             if hl_executor and hl_executor.is_available() and hl_executor.has_perp(token.symbol):
@@ -1930,6 +1930,7 @@ async def run_bot_loop():
                     gem_score=candidate.gem_score,
                     strategy="gem_snipe",
                     is_express=is_express,
+                    candidate=candidate,
                 )
 
                 if not allocations:
@@ -2202,6 +2203,7 @@ async def run_bot_loop():
                                 chain=fib_sig.chain,
                                 gem_score=fib_sig.gem_score or 60.0,
                                 strategy="fib_entry",
+                                candidate=candidate,
                             )
                             if allocation:
                                 wallet = allocation.wallet
@@ -2324,7 +2326,7 @@ async def run_bot_loop():
                                 chain=sc.chain,
                                 gem_score=decision.ta_composite,
                                 is_express=False,
-                                candidate=None,
+                                candidate=candidate,
                             )
                             if not routed:
                                 logger.debug(f"Swing: no wallet route for {sc.symbol}/{sc.chain}")

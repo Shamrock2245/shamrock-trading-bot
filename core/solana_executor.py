@@ -312,64 +312,77 @@ def sign_and_send_transaction(
         signed_tx_bytes = bytes(signed_tx)
         signed_tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
 
-        # ── Send with retries ─────────────────────────────────────────────────
+        # ── Send with retries (Concurrent RPC Broadcasting) ───────────────────
         rpc_urls = [rpc_url]
         if hasattr(settings, "SOLANA_RPC_FALLBACK") and settings.SOLANA_RPC_FALLBACK:
             rpc_urls.append(settings.SOLANA_RPC_FALLBACK)
+        if hasattr(settings, "HELIUS_API_KEY") and settings.HELIUS_API_KEY:
+            rpc_urls.append(f"https://mainnet.helius-rpc.com/?api-key={settings.HELIUS_API_KEY}")
+
+        import concurrent.futures
+
+        def broadcast_to_rpc(url: str, payload: dict) -> dict:
+            try:
+                resp = requests.post(url, json=payload, timeout=10)
+                return {"url": url, "result": resp.json(), "error": None}
+            except Exception as e:
+                return {"url": url, "result": None, "error": str(e)}
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                signed_tx_b64,
+                {
+                    "encoding": "base64",
+                    "skipPreflight": False,
+                    "preflightCommitment": "confirmed",
+                    "maxRetries": 3,
+                },
+            ],
+        }
 
         for attempt in range(max_retries):
-            active_rpc = rpc_urls[min(attempt, len(rpc_urls) - 1)]
-            try:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "sendTransaction",
-                    "params": [
-                        signed_tx_b64,
-                        {
-                            "encoding": "base64",
-                            "skipPreflight": False,
-                            "preflightCommitment": "confirmed",
-                            "maxRetries": 3,
-                        },
-                    ],
-                }
-                resp = requests.post(active_rpc, json=payload, timeout=30)
-                result = resp.json()
-
-                if "error" in result:
-                    err = result["error"]
-                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                    logger.error(f"RPC error (attempt {attempt+1}/{max_retries}): {err_msg}")
-                    # Blockhash expired — no point retrying same tx
-                    if "BlockhashNotFound" in err_msg or "block height exceeded" in err_msg.lower():
-                        logger.error("Blockhash expired — transaction must be rebuilt")
-                        return None
-                    if attempt < max_retries - 1:
-                        time.sleep(2 ** attempt)
-                    continue
-
-                signature = result.get("result")
-                if signature:
-                    logger.info(f"✅ Solana tx broadcast: {signature}")
-                    # Poll for confirmation (up to 30s)
-                    confirmed = _poll_tx_confirmation(signature, active_rpc, timeout=30)
-                    if confirmed:
-                        logger.info(f"✅ Solana tx confirmed: {signature}")
-                        return signature
-                    else:
-                        logger.warning(f"⚠️ Solana tx broadcast but NOT confirmed after 30s: {signature}")
-                        # Still return signature — position monitor will reconcile
-                        return signature
-
-                logger.error(f"Unexpected RPC response: {result}")
-
-            except Exception as e:
-                logger.error(f"Send attempt {attempt+1} failed: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
-
-        logger.error(f"Transaction failed after {max_retries} attempts")
+            logger.info(f"Broadcasting tx to {len(rpc_urls)} RPCs concurrently (Attempt {attempt+1}/{max_retries})...")
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(rpc_urls)) as executor:
+                futures = [executor.submit(broadcast_to_rpc, url, payload) for url in rpc_urls]
+                
+                for future in concurrent.futures.as_completed(futures):
+                    res = future.result()
+                    if res["error"]:
+                        logger.debug(f"RPC {res['url']} failed: {res['error']}")
+                        continue
+                        
+                    result = res["result"]
+                    if "error" in result:
+                        err_msg = result["error"].get("message", str(result["error"]))
+                        logger.debug(f"RPC {res['url']} returned error: {err_msg}")
+                        
+                        # If blockhash expired, abort entirely
+                        if "BlockhashNotFound" in err_msg or "block height exceeded" in err_msg.lower():
+                            logger.error("Blockhash expired — transaction must be rebuilt")
+                            return None
+                        continue
+                        
+                    signature = result.get("result")
+                    if signature:
+                        logger.info(f"✅ Solana tx broadcast successful via {res['url']}: {signature}")
+                        # Poll for confirmation (up to 30s) using the successful RPC
+                        confirmed = _poll_tx_confirmation(signature, res['url'], timeout=30)
+                        if confirmed:
+                            logger.info(f"✅ Solana tx confirmed: {signature}")
+                            return signature
+                        else:
+                            logger.warning(f"⚠️ Solana tx broadcast but NOT confirmed after 30s: {signature}")
+                            return signature
+                            
+            # If we get here, all RPCs failed this attempt
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+                
+        logger.error(f"Transaction failed after {max_retries} concurrent attempts")
         return None
 
     except ImportError:
@@ -483,13 +496,21 @@ def execute_solana_buy(
 
     # ── Jito bundle submission (primary — MEV protected) ──────────────────────
     if signed_tx_b64:
-        # Scale tip by price impact: higher impact = more competitive block needed
+        # Upgrade 3: Dynamic Jito Tip Scaling
+        # Base tips in lamports
+        BASE_TIP = 50_000         # ~$0.007
+        HIGH_CONVICTION = 250_000 # ~$0.035
+        SNIPE_TIP = 1_000_000     # ~$0.14 (Doubled for actual snipes)
+        
+        tip = BASE_TIP
+        
+        # 1. Age-based urgency (Sniping)
+        # We don't have token_age_hours here directly, so we rely on price impact
+        # as a proxy for urgency/congestion, or default to HIGH_CONVICTION if impact is high
         if price_impact > 2.0:
-            tip = JITO_TIP_SNIPE
+            tip = SNIPE_TIP
         elif price_impact > 0.5:
-            tip = JITO_TIP_HIGH_CONVICTION
-        else:
-            tip = JITO_TIP_STANDARD
+            tip = HIGH_CONVICTION
 
         jito_result = execute_solana_via_jito(
             serialized_tx_b64=signed_tx_b64,

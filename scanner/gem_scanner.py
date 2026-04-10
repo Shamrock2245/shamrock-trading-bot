@@ -952,8 +952,49 @@ class GemScanner:
             candidate.holder_score = 20
         else:
             candidate.holder_score = 10
+        # ── Dynamic Volume Decay & Holder Momentum (Upgrade 2) ────────────────
+        # 1. Dynamic Volume Decay (Micro-trend analysis)
+        vol_5m = getattr(candidate, 'moralis_pair_buy_vol_5m', 0) or 0
+        vol_1h = token.volume_1h
+        
+        if vol_1h > 0 and vol_5m > 0:
+            expected_5m_vol = vol_1h / 12.0
+            vol_velocity_ratio = vol_5m / expected_5m_vol
+            
+            if vol_velocity_ratio < 0.5:
+                penalty = 15.0
+                candidate.volume_score = max(0, candidate.volume_score - penalty)
+                logger.info(f"📉 Volume Decay Penalty: {token.symbol} (ratio={vol_velocity_ratio:.2f}) -> -{penalty} vol score")
+            elif vol_velocity_ratio > 2.0:
+                bonus = 15.0
+                candidate.volume_score = min(100, candidate.volume_score + bonus)
+                logger.info(f"📈 Volume Acceleration Bonus: {token.symbol} (ratio={vol_velocity_ratio:.2f}) -> +{bonus} vol score")
 
-        # ── Social signals score (8%) — REAL scoring ─────────────────────────
+        # 2. Holder Momentum Filter
+        holder_growth_1d = getattr(candidate, 'moralis_holders_change_1d', 0) or 0
+        total_holders = token.holder_count
+        
+        if total_holders > 0 and holder_growth_1d > 0:
+            growth_pct = (holder_growth_1d / total_holders) * 100
+            
+            if growth_pct < 1.0 and token.age_hours > 24:
+                penalty = 20.0
+                candidate.holder_score = max(0, candidate.holder_score - penalty)
+                logger.info(f"🐌 Stagnant Holder Penalty: {token.symbol} (growth={growth_pct:.1f}%) -> -{penalty} holder score")
+            elif growth_pct > 15.0:
+                bonus = 20.0
+                candidate.holder_score = min(100, candidate.holder_score + bonus)
+                logger.info(f"🚀 Explosive Holder Bonus: {token.symbol} (growth={growth_pct:.1f}%) -> +{bonus} holder score")
+
+        # 3. Smart Money Convergence (Whale + Sniper Confluence)
+        whale_buyers = getattr(candidate, 'moralis_exp_net_buyers_1w', 0) or 0
+        sniper_count = getattr(candidate, 'sniper_count', 0) or 0
+        
+        if whale_buyers >= 5 and sniper_count >= 2 and getattr(candidate, 'sniper_risk', 'unknown') != 'critical':
+            candidate.smart_money_score = min(100, getattr(candidate, 'smart_money_score', 50) + 25)
+            logger.info(f"🐋🎯 Smart Money Confluence: {token.symbol} (whales={whale_buyers}, snipers={sniper_count}) -> +25 smart money score")
+
+        # ── Social score (6%) — REAL social scoring ───────────────────────────
         # Uses social_scoring.py: DexScreener profile links + LunarCrush + CoinGecko
         try:
             candidate.social_score = get_social_score(

@@ -181,52 +181,57 @@ def calculate_kelly_position_pct(
     gem_score: float,
     params: Optional[KellyParams] = None,
     clamp_max: float = 0.10,
+    candidate=None,
 ) -> float:
     """
-    Calculate Kelly Criterion position size as a percentage of portfolio.
-
-    The Kelly formula: f* = (p × b - q) / b
-    Where:
-      p = win probability
-      q = loss probability (1 - p)
-      b = win/loss ratio (avg_win / avg_loss)
-
-    We use half-Kelly (f* × 0.5) to reduce variance while preserving edge.
-    We also scale by gem_score to bet more on higher-conviction trades.
-
-    Args:
-        gem_score: Gem score 0-100 (higher = more conviction)
-        params: Kelly parameters (uses defaults if None)
-        clamp_max: Upper bound for Kelly fraction (profile-specific: 0.10 conservative, 0.70 nuclear)
-
-    Returns:
-        Position size as a fraction (e.g., 0.03 = 3% of portfolio)
+    Calculate Kelly Criterion position size dynamically adjusted by signal confidence.
     """
     if params is None:
         params = KellyParams()
 
-    # Adjust win rate based on gem score
-    # Score 55 → 50% win rate, Score 82+ → 65% win rate
+    # 1. Base Win Rate Adjustment (from composite score)
     score_bonus = max(0, (gem_score - 55) / 27) * 0.15  # 0 to +15% win rate
-    adjusted_win_rate = min(params.win_rate + score_bonus, 0.75)
+    base_win_rate = min(params.win_rate + score_bonus, 0.75)
+
+    # 2. Signal Confidence Multiplier
+    confidence_mult = 1.0
+    if candidate:
+        vol_score = getattr(candidate, 'volume_score', 50)
+        liq_score = getattr(candidate, 'liquidity_score', 50)
+        if vol_score >= 80 and liq_score >= 70:
+            confidence_mult += 0.15
+        elif vol_score < 40 or liq_score < 40:
+            confidence_mult -= 0.20
+
+        whale_buyers = getattr(candidate, 'moralis_exp_net_buyers_1w', 0)
+        smart_money = getattr(candidate, 'smart_money_score', 50)
+        if whale_buyers >= 5 or smart_money >= 75:
+            confidence_mult += 0.20
+
+        timing_trend = getattr(candidate, 'timing_bp_trend', 'flat')
+        if timing_trend == 'accelerating':
+            confidence_mult += 0.10
+        elif timing_trend == 'decelerating':
+            confidence_mult -= 0.25
+
+    confidence_mult = max(0.5, min(1.5, confidence_mult))
+    adjusted_win_rate = min(base_win_rate * confidence_mult, 0.85)
     loss_rate = 1 - adjusted_win_rate
 
-    # Win/loss ratio
+    # 3. Kelly Calculation
     b = params.avg_win_multiple / params.avg_loss_multiple
-
-    # Full Kelly
     kelly_full = (adjusted_win_rate * b - loss_rate) / b
 
-    # Half-Kelly for safety
-    kelly_half = kelly_full * params.kelly_fraction
+    dynamic_kelly_fraction = params.kelly_fraction * confidence_mult
+    kelly_adjusted = kelly_full * dynamic_kelly_fraction
 
-    # Clamp to profile-specific range (0.5% to clamp_max)
-    kelly_clamped = max(0.005, min(kelly_half, clamp_max))
+    kelly_clamped = max(0.005, min(kelly_adjusted, clamp_max))
 
-    logger.debug(
-        f"Kelly sizing: score={gem_score:.0f} | win_rate={adjusted_win_rate:.1%} | "
-        f"b={b:.2f} | full_kelly={kelly_full:.1%} | half_kelly={kelly_half:.1%} | "
-        f"clamped={kelly_clamped:.1%} (max={clamp_max:.0%})"
+    symbol = getattr(candidate.token, 'symbol', 'UNKNOWN') if candidate and hasattr(candidate, 'token') else 'UNKNOWN'
+    logger.info(
+        f"🧠 Adaptive Sizing [{symbol}]: score={gem_score:.0f} | "
+        f"conf_mult={confidence_mult:.2f}x | win_rate={adjusted_win_rate:.1%} | "
+        f"kelly={kelly_clamped:.1%} (max={clamp_max:.0%})"
     )
 
     return kelly_clamped
@@ -488,6 +493,7 @@ def route_trade(
     is_express: bool = False,
     use_kelly: bool = True,
     specific_wallet: str = "",
+    candidate=None,
 ) -> Optional[TradeAllocation]:
     """
     Determine the best wallet and position size for a trade.
@@ -704,6 +710,7 @@ def route_trade(
             kelly_pct = calculate_kelly_position_pct(
                 gem_score,
                 clamp_max=profile.kelly_clamp_max,  # 0.10 conservative, 0.70 nuclear
+                candidate=candidate,
             )
             # Kelly bounded by effective max, then scaled by regime
             effective_pct = min(kelly_pct, effective_max_pct) * regime_mult
@@ -825,6 +832,7 @@ def route_trade_all(
     token_age_hours: float = 24.0,
     is_express: bool = False,
     use_kelly: bool = True,
+    candidate=None,
 ) -> list:
     """
     Route a trade to ALL eligible wallets (not just the first one).
@@ -864,6 +872,7 @@ def route_trade_all(
             is_express=wallet_is_express,
             use_kelly=use_kelly,
             specific_wallet=wallet_alias,
+            candidate=candidate,
         )
         if alloc:
             allocations.append(alloc)
