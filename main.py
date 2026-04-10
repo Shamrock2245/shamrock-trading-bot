@@ -114,6 +114,7 @@ from dashboard.state import (
 )
 from core.daily_floor_guardian import DailyFloorGuardian
 from core.bluechip_anchor import BluechipAnchor
+from core.capital_rotator import CapitalRotator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2533,6 +2534,17 @@ async def run_bot_loop():
                                     reconcile_evm_positions(evm_addr, chain=_chain)
                     except Exception as evm_recon_err:
                         logger.debug(f'EVM reconciliation error: {evm_recon_err}')
+
+                # ── Arbitrage Trade-Up (Capital Rotation) ──
+                # Check for rotation opportunities out of stagnant assets into top gems
+                # Run periodically (e.g., every 20 cycles, approx 15-20 mins)
+                if cycle % 20 == 0:
+                    try:
+                        rotator = CapitalRotator()
+                        rotator.try_rotate()
+                    except Exception as rot_err:
+                        logger.error(f"Capital Rotator error: {rot_err}", exc_info=True)
+
 
         except KeyboardInterrupt:
             logger.info("Bot stopped by user")

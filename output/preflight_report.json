@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T02:36:48.983572+00:00",
+  "timestamp": "2026-04-10T03:17:37.214366+00:00",
   "git": {
-    "sha": "6b230c3",
+    "sha": "aaf7019",
     "branch": "main",
-    "message": "chore: episodic memory \u2014 gas guard bottleneck session"
+    "message": "feat: daily portfolio cleanup \u2014 re-scores positions, flushes trash memecoins to native gas"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 103,
+      "files_checked": 105,
       "errors": [],
-      "summary": "103/103 files clean"
+      "summary": "105/105 files clean"
     },
     "tests": {
       "name": "tests",

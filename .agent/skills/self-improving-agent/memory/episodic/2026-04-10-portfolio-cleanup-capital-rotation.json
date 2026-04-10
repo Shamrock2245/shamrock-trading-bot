@@ -1,0 +1,76 @@
+{
+  "episode_id": "ep-2026-04-10-002",
+  "timestamp": "2026-04-10T02:40:00Z",
+  "category": "position_mgmt",
+  "title": "Gas Manager + Daily Cleanup + Capital Rotation Vision",
+  "duration_minutes": 30,
+  "outcome": "success",
+  "summary": "Built two new systems: (1) Gas auto-replenishment with worst-performer liquidation fallback, (2) Daily portfolio cleanup that re-scores all open positions via DexScreener and flushes trash (score <45 or PnL <-40%) to native gas. User also requested proactive 'arbitrage trading up' — continuously rotating capital from low-conviction to high-conviction positions.",
+  "what_happened": {
+    "task": "Implement gas management and portfolio hygiene for overnight operation",
+    "features_built": [
+      "core/gas_manager.py — dual-strategy gas replenishment (USDC primary, liquidation fallback)",
+      "daily_portfolio_cleanup() — re-scores all positions, flushes trash → native gas",
+      "Main loop integration: gas check every 10 cycles, cleanup self-gates to 24h"
+    ],
+    "stale_position_found": "BTC.b on Avalanche had 3,366 wei (dust) but position file showed full quantity — on-chain balance mismatch caused flush failure. Manually closed."
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Worst-performer ranking formula (PnL×2 + score×0.5) correctly identifies dead weight",
+      "Daily cleanup correctly identified BTC.b at -100% PnL and attempted flush",
+      "Both systems are non-blocking — wrapped in try/except, never halt the main loop"
+    ],
+    "what_went_wrong": [
+      "BTC.b flush failed because position file quantity didn't match on-chain balance (dust remnant)",
+      "Need to add on-chain balance check before attempting flush sells"
+    ],
+    "root_cause": "Position file quantities can drift from on-chain reality when partial sells or failed exits leave dust"
+  },
+  "patterns_extracted": [
+    {
+      "pattern": "position_quantity_drift",
+      "description": "Position file quantities can become stale vs on-chain balance. Always check actual on-chain token balance before attempting a sell, not just the stored quantity.",
+      "confidence": 0.95,
+      "category": "position_mgmt",
+      "action": "Before any sell, compare stored qty vs on-chain balance. Use min(stored, on-chain) as sell amount."
+    },
+    {
+      "pattern": "every_move_toward_profitability",
+      "description": "User directive: every capital movement should trend toward profitability. Gas should be funded by selling losers. Trash positions should become gas. Dead capital should be recycled. Never let stale positions sit idle.",
+      "confidence": 1.0,
+      "category": "guardrails",
+      "action": "Implemented in gas_manager.py and daily_portfolio_cleanup(). Future: proactive capital rotation."
+    },
+    {
+      "pattern": "capital_rotation_opportunity",
+      "description": "Future feature: proactive 'arbitrage trading up' — if a held position scores 50 but a new candidate scores 85, sell the low-scorer to fund the high-scorer. This requires a conviction comparison engine that runs hourly alongside the position monitor.",
+      "confidence": 0.70,
+      "category": "position_mgmt",
+      "action": "Design a CapitalRotator that compares held position scores vs. top gem candidates and triggers swaps when delta exceeds threshold (e.g., 25+ point spread)."
+    }
+  ],
+  "future_features": [
+    {
+      "name": "CapitalRotator",
+      "priority": "high",
+      "description": "Hourly: re-score all held positions, compare against top 5 gem candidates. If candidate_score - position_score > 25 AND position is profitable or near-breakeven, sell position and enter candidate. Net effect: continuously trade up in conviction quality.",
+      "files_to_create": ["core/capital_rotator.py"],
+      "files_to_modify": ["main.py"]
+    },
+    {
+      "name": "OnChainBalanceVerification",
+      "priority": "medium",
+      "description": "Before any flush/liquidation sell, verify actual on-chain token balance matches position file. Use min(stored, actual) to prevent 'insufficient balance' errors.",
+      "files_to_modify": ["core/gas_manager.py"]
+    }
+  ],
+  "files_modified": [
+    "core/gas_manager.py",
+    "main.py"
+  ],
+  "user_feedback": {
+    "rating": null,
+    "comments": "User wants: (1) flush trash daily, (2) convert to gas across all chains, (3) always arbitrage trading up in capital value hourly/daily"
+  }
+}
