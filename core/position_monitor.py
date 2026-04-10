@@ -588,6 +588,55 @@ def evaluate_position(pos: dict, current_price: float,
                 }
 
     # ── Take-profit tiers ─────────────────────────────────────────────────────
+    # Dynamic TP: ATR-relative levels replace fixed multipliers when enabled.
+    # Inspired by Freqtrade's custom_exit() — adapts TP levels to volatility.
+    try:
+        from strategies.dynamic_tp import calculate_dynamic_tp, DYNAMIC_TP_ENABLED as _DTP_ENABLED
+        if _DTP_ENABLED:
+            _dtp_closes = pos.get("ohlcv_closes")
+            _dtp_highs = pos.get("ohlcv_highs")
+            _dtp_lows = pos.get("ohlcv_lows")
+            _age_h = 0.0
+            if entry_time:
+                try:
+                    _entry_dt = datetime.fromisoformat(str(entry_time).replace("Z", "+00:00"))
+                    _age_h = (datetime.now(timezone.utc) - _entry_dt).total_seconds() / 3600
+                except Exception:
+                    pass
+            _macro = pos.get("macro_regime", "NEUTRAL")
+            if _dtp_closes and len(_dtp_closes) >= 15:
+                _dtp = calculate_dynamic_tp(
+                    entry_price=entry_price,
+                    closes=_dtp_closes, highs=_dtp_highs, lows=_dtp_lows,
+                    position_age_hours=_age_h,
+                    macro_regime=_macro,
+                )
+                if _dtp.tp1_gain_pct > 0:
+                    tp1_gain_override = _dtp.tp1_gain_pct
+                    tp1_mult = 1 + tp1_gain_override / 100
+                    tp2_mult = 1 + _dtp.tp2_gain_pct / 100
+                    tp3_mult = 1 + _dtp.tp3_gain_pct / 100
+                    logger.debug(
+                        f"Dynamic TP override: TP1={_dtp.tp1_gain_pct:.0f}% "
+                        f"TP2={_dtp.tp2_gain_pct:.0f}% TP3={_dtp.tp3_gain_pct:.0f}%"
+                    )
+
+                # Early exit recommendation from velocity stall
+                if _dtp.early_exit_recommended and not tp1_hit:
+                    if gain_pct > 5.0:  # Only exit early if at least slightly profitable
+                        logger.info(
+                            f"📉 Dynamic TP early exit: {pos.get('token_symbol')} — "
+                            f"P(TP1)={_dtp.p_tp1:.0%} too low, velocity stalled. "
+                            f"Exiting at {gain_pct:.1f}% gain."
+                        )
+                        return {
+                            "reason": f"dynamic_tp_early_exit (P(TP1)={_dtp.p_tp1:.0%}, vel={_dtp.velocity_ratio:.2f}) [{profile_name}]",
+                            "sell_pct": 1.0,
+                            "urgency": "normal",
+                        }
+    except Exception as _dtp_err:
+        logger.debug(f"Dynamic TP skipped: {_dtp_err}")
+
     # TP1 — with dynamic analytics-driven delay
     tp1_gain = (tp1_mult - 1) * 100
     if not tp1_hit and gain_pct >= tp1_gain:

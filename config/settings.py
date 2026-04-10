@@ -239,6 +239,13 @@ FIB_PROXIMITY_PCT = float(os.getenv("FIB_PROXIMITY_PCT", "3.0"))
 FIB_SWING_WINDOW = int(os.getenv("FIB_SWING_WINDOW", "3"))
 TA_ENABLED = os.getenv("TA_ENABLED", "true").lower() == "true"
 
+# ── Profitability Upgrades (Freqtrade + Quant-Trading inspired) ──────────────
+# All features default OFF — enable individually to measure impact.
+VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "false").lower() == "true"
+MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true"
+REGIME_STRATEGY_ENABLED = os.getenv("REGIME_STRATEGY_ENABLED", "false").lower() == "true"
+DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "false").lower() == "true"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Position Monitoring
 # ─────────────────────────────────────────────────────────────────────────────

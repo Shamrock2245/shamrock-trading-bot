@@ -34,6 +34,12 @@ from typing import Optional
 
 import requests
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None  # RSI divergence will gracefully skip
+
+
 from config import settings
 from data.models import SignalScore
 
@@ -428,6 +434,25 @@ class SignalEngine:
             elif rsi > 80:
                 score.momentum_score = max(score.momentum_score - 35, 0)
 
+        # ── RSI Divergence Detection (quant-trading pattern) ─────────────────
+        # Detects bullish divergences (price ↓ while RSI ↑ = reversal signal)
+        # and bearish divergences (price ↑ while RSI ↓ = weakness signal).
+        try:
+            from strategies.indicators import detect_divergence, _manual_rsi
+            _rsi_series = _manual_rsi(pd.Series(closes))
+            _div_type = detect_divergence(pd.Series(closes), _rsi_series)
+            if _div_type == "BULLISH_DIV":
+                score.momentum_score = min(score.momentum_score + 15, 100)
+                logger.info(f"🔄 RSI BULLISH DIVERGENCE: {token_symbol} — price ↓ but RSI ↑")
+            elif _div_type == "BEARISH_DIV":
+                score.momentum_score = max(score.momentum_score - 15, 0)
+                logger.info(f"🔄 RSI BEARISH DIVERGENCE: {token_symbol} — price ↑ but RSI ↓")
+            elif _div_type == "HIDDEN_BULLISH":
+                score.momentum_score = min(score.momentum_score + 8, 100)
+                logger.debug(f"RSI hidden bullish divergence: {token_symbol}")
+        except Exception as _div_err:
+            logger.debug(f"RSI divergence detection skipped for {token_symbol}: {_div_err}")
+
         # ── MACD ──────────────────────────────────────────────────────────────
         macd_result = _macd(closes)
         score.macd_signal = macd_result["signal"]
@@ -518,17 +543,79 @@ class SignalEngine:
             else:
                 score.momentum_score = max(score.momentum_score - 10, 0)  # Overextended
 
-        # ── Blend TA-29 scores (40% weight) with existing scores (60%) ────────
-        # If the 29-indicator engine ran successfully, blend its scores in.
+        # ── Regime-Adaptive Strategy Weights (Freqtrade + quant-trading) ────
+        # In trending markets: boost trend signals, reduce mean-reversion.
+        # In ranging markets: boost RSI/BB, reduce EMA/MACD.
+        # In bear markets: boost safety/volume, reduce all trend signals.
+        _regime_weights = None
+        try:
+            from strategies.regime_strategy import get_regime_weights, REGIME_STRATEGY_ENABLED
+            if REGIME_STRATEGY_ENABLED:
+                _macro_regime = "NEUTRAL"
+                try:
+                    from core.macro_filter import get_macro_regime
+                    _macro = get_macro_regime()
+                    _macro_regime = _macro.regime
+                except Exception:
+                    pass
+                _adx_val = None
+                if _ta29_trend is not None:
+                    try:
+                        _adx_val = ta29.adx_value
+                    except Exception:
+                        pass
+                _regime_weights = get_regime_weights(_macro_regime, _adx_val)
+        except Exception as _rw_err:
+            logger.debug(f"Regime strategy skipped: {_rw_err}")
+
+        # ── Blend TA-29 scores with existing scores ──────────────────────────
+        # Uses regime-adaptive blend ratios when available, otherwise 60/40.
         if _ta29_trend is not None:
-            score.trend_score    = round(score.trend_score    * 0.60 + _ta29_trend    * 0.40, 1)
-            score.momentum_score = round(score.momentum_score * 0.60 + _ta29_momentum * 0.40, 1)
-            score.volume_score   = round(score.volume_score   * 0.60 + _ta29_volume   * 0.40, 1)
+            if _regime_weights:
+                _core_w = _regime_weights.core_ta_weight
+                _ta29_w = _regime_weights.ta29_weight
+                # Apply regime multipliers to scores before blending
+                score.trend_score    = round(score.trend_score    * _regime_weights.trend_mult, 1)
+                score.momentum_score = round(score.momentum_score * _regime_weights.momentum_mult, 1)
+                score.volume_score   = round(score.volume_score   * _regime_weights.volume_mult, 1)
+                # Clamp after regime adjustment
+                score.trend_score    = max(-100, min(100, score.trend_score))
+                score.momentum_score = max(0, min(100, score.momentum_score))
+                score.volume_score   = max(0, min(100, score.volume_score))
+            else:
+                _core_w = 0.60
+                _ta29_w = 0.40
+
+            score.trend_score    = round(score.trend_score    * _core_w + _ta29_trend    * _ta29_w, 1)
+            score.momentum_score = round(score.momentum_score * _core_w + _ta29_momentum * _ta29_w, 1)
+            score.volume_score   = round(score.volume_score   * _core_w + _ta29_volume   * _ta29_w, 1)
             logger.info(
                 f"TA-29 blended for {token_symbol}: "
                 f"trend={score.trend_score:.0f} momentum={score.momentum_score:.0f} "
                 f"volume={score.volume_score:.0f}"
+                f"{f' [regime={_regime_weights.regime_name}]' if _regime_weights else ''}"
             )
+
+        # ── Multi-Timeframe Confirmation (Freqtrade informative_pairs) ────────
+        # Confirms 1h signal with 15m and 4h trend alignment.
+        # All three aligned = dramatically higher win rate.
+        try:
+            from strategies.mtf_confirmer import get_mtf_alignment, MTF_CONFIRM_ENABLED
+            if MTF_CONFIRM_ENABLED and pair_address:
+                _mtf = get_mtf_alignment(pair_address, chain, closes_1h=closes)
+                if _mtf.alignment_score != 50.0:
+                    # Blend MTF alignment into trend_score at 25% weight
+                    score.trend_score = round(
+                        score.trend_score * 0.75 + _mtf.alignment_score * 0.25, 1
+                    )
+                    score.trend_score = max(-100, min(100, score.trend_score))
+                    logger.info(
+                        f"🕐 MTF blended for {token_symbol}: "
+                        f"alignment={_mtf.alignment_score:.0f} → "
+                        f"trend={score.trend_score:.0f} ({_mtf.detail})"
+                    )
+        except Exception as _mtf_err:
+            logger.debug(f"MTF confirmation skipped for {token_symbol}: {_mtf_err}")
 
         return score
 

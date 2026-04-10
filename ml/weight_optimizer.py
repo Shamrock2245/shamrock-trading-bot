@@ -416,6 +416,25 @@ def run_training_cycle() -> dict:
     except Exception as e:
         logger.error(f"ML: Failed to save dynamic weights: {e}")
 
+    # Run trade analytics (exit performance, signal decay, risk metrics)
+    try:
+        from ml.trade_analytics import run_analytics
+        analytics = run_analytics()
+        if analytics.get("status") != "insufficient_data":
+            # Store best exit reason in weights for dashboard visibility
+            best_exit = None
+            by_exit = analytics.get("by_exit_reason", {})
+            if by_exit:
+                best_exit = max(by_exit.items(), key=lambda x: x[1].get("avg_pnl_pct", -999))
+                result.setdefault("analytics", {})["best_exit_reason"] = best_exit[0]
+                result["analytics"]["overall_win_rate"] = analytics.get("overall_win_rate_pct")
+                result["analytics"]["sharpe_7d"] = analytics.get("risk_metrics", {}).get("sharpe_7d")
+                # Re-save with analytics metadata
+                with open(WEIGHTS_PATH, "w") as f:
+                    json.dump(result, f, indent=2)
+    except Exception as _analytics_err:
+        logger.debug(f"ML: Trade analytics skipped: {_analytics_err}")
+
     return result["weights"]
 
 

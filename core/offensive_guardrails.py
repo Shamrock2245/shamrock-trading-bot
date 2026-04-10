@@ -740,6 +740,7 @@ def calculate_offensive_position_size(
     is_momentum_reentry: bool = False,
     moralis_exp_net_buyers_1w: int = 0,
     is_accumulation_zone: bool = False,
+    **kwargs,  # token_address, chain, ohlcv, closes, highs, lows for volatility sizer
 ) -> tuple[float, str]:
     """
     Apply all offensive multipliers to the base position size.
@@ -810,6 +811,30 @@ def calculate_offensive_position_size(
         multiplier *= accum_mult
         reasons.append(f"accum_zone={accum_mult:.2f}x🟢")
         logger.info(f"🟢 ACCUMULATION ZONE BONUS: +{(accum_mult-1)*100:.0f}% position size (buying the dip)")
+
+    # 5c. Volatility-adaptive sizing (ATR-based)
+    # Inspired by Freqtrade custom_stake_amount() + quant-trading VIX strategies.
+    # Smaller positions in choppy markets, larger in smooth trends and BB squeezes.
+    try:
+        from strategies.volatility_sizer import get_volatility_multiplier as _get_vol_mult
+        from strategies.volatility_sizer import VOLATILITY_SIZING_ENABLED as _VOL_ENABLED
+        if _VOL_ENABLED:
+            # Use OHLCV data from position if available, otherwise just log a skip
+            _ohlcv = kwargs.get("ohlcv")
+            _closes = kwargs.get("closes")
+            _highs = kwargs.get("highs")
+            _lows = kwargs.get("lows")
+            _token_addr = kwargs.get("token_address", "")
+            _chain = kwargs.get("chain", "")
+            vol_mult = _get_vol_mult(
+                token_address=_token_addr, chain=_chain,
+                ohlcv=_ohlcv, closes=_closes, highs=_highs, lows=_lows,
+            )
+            if vol_mult != 1.0:
+                multiplier *= vol_mult
+                reasons.append(f"volatility={vol_mult:.2f}x📊")
+    except Exception as _vol_err:
+        logger.debug(f"Volatility sizing skipped: {_vol_err}")
 
     # 6. Momentum reentry gets a bonus (we know this token moves)
     if is_momentum_reentry and settings.MOMENTUM_REENTRY_ENABLED:
