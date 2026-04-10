@@ -144,10 +144,12 @@ class MoralisStreamsServer:
 
                 if is_test_webhook:
                     logger.info("MoralisStreams: ✅ Test/verification webhook received — returning 200")
+                    payload_bytes = b'{"status":"ok"}'
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload_bytes)))
                     self.end_headers()
-                    self.wfile.write(b'{"status":"ok"}')
+                    self.wfile.write(payload_bytes)
                     return
 
                 # ── Signature Verification ────────────────────────────────
@@ -168,8 +170,12 @@ class MoralisStreamsServer:
                 except Exception as e:
                     logger.warning(f"MoralisStreams: Bad JSON payload: {e}")
                     parent.metrics["errors"] += 1
+                    err_bytes = b'{"error":"bad json"}'
                     self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(err_bytes)))
                     self.end_headers()
+                    self.wfile.write(err_bytes)
                     return
 
                 # ── Test Webhook (empty body on stream create) ────────────
@@ -187,9 +193,12 @@ class MoralisStreamsServer:
 
                 if not payload.get("block") and not has_any_data:
                     logger.info("MoralisStreams: Test webhook received — returning 200")
+                    test_bytes = b'{"ok": true, "test": true}'
                     self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(test_bytes)))
                     self.end_headers()
-                    self.wfile.write(b'{"ok": true, "test": true}')
+                    self.wfile.write(test_bytes)
                     return
 
                 # ── Confirmed vs Unconfirmed ──────────────────────────────
@@ -211,9 +220,12 @@ class MoralisStreamsServer:
                 if confirmed:
                     # Skip confirmed — we already processed unconfirmed
                     logger.debug("MoralisStreams: Skipping confirmed webhook (already acted on unconfirmed)")
+                    skip_bytes = b'{"ok": true, "skipped": "confirmed_dup"}'
                     self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(skip_bytes)))
                     self.end_headers()
-                    self.wfile.write(b'{"ok": true, "skipped": "confirmed_dup"}')
+                    self.wfile.write(skip_bytes)
                     return
 
                 # ── Replay-Attack Dedup ───────────────────────────────────
@@ -229,9 +241,12 @@ class MoralisStreamsServer:
                             f"MoralisStreams: ⚠️ Replay detected — block={block_num} "
                             f"chain={_chain_id_to_name(chain_id)} already processed, skipping"
                         )
+                        replay_bytes = b'{"ok": true, "skipped": "replay_dup"}'
                         self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(replay_bytes)))
                         self.end_headers()
-                        self.wfile.write(b'{"ok": true, "skipped": "replay_dup"}')
+                        self.wfile.write(replay_bytes)
                         return
                     parent._seen_webhooks.add(_dedup_key)
                     # Evict oldest half when set exceeds max size to bound memory
@@ -277,9 +292,12 @@ class MoralisStreamsServer:
                 threading.Thread(target=_process_background, daemon=True).start()
 
                 # Immediately return 200 OK so Moralis doesn't mark it failed/replayable
+                res_bytes = json.dumps({"ok": True, "async": True, "tag": tag}).encode("utf-8")
                 self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(res_bytes)))
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": True, "async": True, "tag": tag}).encode("utf-8"))
+                self.wfile.write(res_bytes)
 
         self._server = ThreadingHTTPServer((self.host, self.port), _Handler)
         self._thread = threading.Thread(

@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T20:28:41.416965+00:00",
-  "feedback": "[bot_logs] WARNINGS: 6 warning(s)\n  - shamrock-bot  | 2026-04-10 20:28:37,756 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 20:28:38,287 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 20:28:38,287 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+  "timestamp": "2026-04-10T20:59:31.105277+00:00",
+  "feedback": "[bot_logs] WARNINGS: 5 warning(s)\n  - shamrock-bot  | 2026-04-10 20:59:33,887 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,19 +43,18 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 20:28:37,756 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
-        "shamrock-bot  | 2026-04-10 20:28:38,287 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 20:28:38,287 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
-        "shamrock-bot  | 2026-04-10 20:28:45,230 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/",
-        "shamrock-bot  | 2026-04-10 20:29:00,868 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED HPhpZonU...: Top holder controls 22.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 20:29:00,869 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: CAVEMAN [solana] rejected \u2014 Top holder controls 22.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
+        "shamrock-bot  | 2026-04-10 20:59:33,887 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
+        "shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+        "shamrock-bot  | 2026-04-10 20:59:34,457 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 20:59:45,962 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-10 20:28:37,759 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-10 20:28:37,762 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
-        "shamrock-bot  | 2026-04-10 20:28:37,762 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + ",
-        "shamrock-bot  | 2026-04-10 20:28:37,762 | INFO     | __main__ | \u2705 RL Position Sizer daemon started \u2014 trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)",
-        "shamrock-bot  | 2026-04-10 20:28:37,762 | INFO     | __main__ | \u2705 XGBoost Weight Optimizer daemon started \u2014 retrains scoring weights on completed trades every 6h"
+        "shamrock-bot  | 2026-04-10 20:59:31,758 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
+        "shamrock-bot  | 2026-04-10 20:59:33,890 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
+        "shamrock-bot  | 2026-04-10 20:59:33,890 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
+        "shamrock-bot  | 2026-04-10 20:59:33,891 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + ",
+        "shamrock-bot  | 2026-04-10 20:59:33,892 | INFO     | __main__ | \u2705 RL Position Sizer daemon started \u2014 trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)"
       ],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
@@ -63,12 +62,12 @@
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "2c70bbb",
-      "server_sha": "2c70bbb",
-      "local_message": "deploy: Zero-Latency Solana Webhook Discovery",
-      "server_message": "deploy: Zero-Latency Solana Webhook Discovery",
+      "local_sha": "c8bb4c8",
+      "server_sha": "c8bb4c8",
+      "local_message": "fix: execute Moralis webhooks asynchronously to prevent timeouts and replay loops",
+      "server_message": "fix: execute Moralis webhooks asynchronously to prevent timeouts and replay loops",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "45568f7"
+  "preflight_sha": "2c70bbb"
 }
