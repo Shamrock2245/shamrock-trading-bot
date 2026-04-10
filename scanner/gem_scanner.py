@@ -672,47 +672,6 @@ class GemScanner:
         except Exception as e:
             logger.warning(f"Sniper convergence discovery error: {e}")
 
-        # ── Source 13: DexScreener New Pairs (Base + Solana, ≤10m old) ─────────
-        # Brand-new pairs just created — earliest possible entry before any
-        # other scanner discovers them. +3 early-discovery bonus.
-        try:
-            from data.providers.dexscreener_new_pairs import discover_new_pairs
-            new_pairs = discover_new_pairs()
-            new_pairs_added = 0
-            for np_signals in new_pairs:
-                token_addr = np_signals.get("base_token_address", "")
-                chain_id = np_signals.get("chain_id", "")
-                chain = self._dexscreener_to_chain(chain_id)
-                if not chain or not token_addr:
-                    continue
-                if chain not in settings.ACTIVE_CHAINS:
-                    continue
-                if token_addr.lower() in seen_addresses:
-                    continue
-                token = self._signals_to_token(np_signals, chain)
-                if token:
-                    candidate = self._score_token(token, is_boosted=True)
-                    if candidate is None:
-                        continue
-                    # +3 early-discovery bonus for ultra-fresh pairs
-                    candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
-                    candidate.strategy_tag = "new_pair_snipe"
-                    pair_age = np_signals.get("pair_age_minutes", 0)
-                    if candidate.gem_score >= _macro_min_score:
-                        candidates.append(candidate)
-                        seen_addresses.add(token_addr.lower())
-                        new_pairs_added += 1
-                        logger.info(
-                            f"🆕 NEW PAIR ADDED: {token.symbol} on {chain} — "
-                            f"{pair_age:.1f}m old, score={candidate.gem_score:.1f}"
-                        )
-                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "new_pair")
-            if new_pairs_added:
-                logger.info(f"🆕 New pairs: {new_pairs_added} ultra-fresh tokens passed scoring")
-        except Exception as e:
-            logger.warning(f"New pairs discovery error: {e}")
-
         # ── Source 14: Grok CT Trending (top 5 X/Twitter discussed tokens) ─────
         # Social narrative precedes price action in meme/micro-cap markets.
         # Grok identifies the hottest CT discussions and we check if those

@@ -821,6 +821,13 @@ async def run_bot_loop():
                 except Exception as e:
                     logger.debug(f"Liquidity event handler error: {e}")
 
+            def _on_solana_discovery_event(token_mint: str):
+                try:
+                    logger.info(f"🚀 ZERO-LATENCY DISCOVERY: Solana token {token_mint[:8]}... detected via webhook")
+                    _stream_evaluate_token(token_mint, "solana", "solana_webhook")
+                except Exception as e:
+                    logger.debug(f"Solana discovery event handler error: {e}")
+
             streams_server = MoralisStreamsServer(
                 host=settings.MORALIS_STREAMS_HOST,
                 port=settings.MORALIS_STREAMS_PORT,
@@ -828,6 +835,7 @@ async def run_bot_loop():
                 on_swap_event=wm.ingest_external_swap,
                 on_whale_event=_on_whale_event if settings.MORALIS_STREAMS_WHALE_ENABLED else None,
                 on_liquidity_event=_on_liquidity_event if settings.MORALIS_STREAMS_LIQUIDITY_ENABLED else None,
+                on_solana_discovery_event=_on_solana_discovery_event if settings.MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED else None,
             )
             streams_server.start()
 

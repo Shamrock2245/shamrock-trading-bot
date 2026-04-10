@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T03:39:54.165517+00:00",
-  "feedback": "[bot_logs] WARNINGS: 9 warning(s)\n  - shamrock-bot  | 2026-04-10 03:39:32,356 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa\n  - shamrock-bot  | 2026-04-10 03:39:33,811 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for CFG: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon\n  - shamrock-bot  | 2026-04-10 03:39:34,376 | WARNING  | safety | BLOCKED | 0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94 | ethereum | Owner can change balances (drain risk)",
+  "timestamp": "2026-04-10T12:13:37.532875+00:00",
+  "feedback": "[bot_logs] WARNINGS: 6 warning(s)\n  - shamrock-bot  | 2026-04-10 12:13:35,717 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 12:13:35,717 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED\n  - shamrock-bot  | 2026-04-10 12:13:38,699 | WARNING  | core.adaptive_mode | \ud83d\udd04 HWM RESET (ADAPTIVE_FORCE_NORMAL=true): $12 \u2192 $0 | Mode forced to NORMAL | Full position sizing restored",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,29 +43,32 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 03:39:32,356 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
-        "shamrock-bot  | 2026-04-10 03:39:33,811 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for CFG: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon",
-        "shamrock-bot  | 2026-04-10 03:39:34,376 | WARNING  | safety | BLOCKED | 0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94 | ethereum | Owner can change balances (drain risk)",
-        "shamrock-bot  | 2026-04-10 03:39:39,560 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED BBYEvoXY...: Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 03:39:39,560 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: BABYPEPE [solana] rejected \u2014 Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 03:39:51,428 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED BBYEvoXY...: Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 03:39:51,429 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: BABYPEPE [solana] rejected \u2014 Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 03:39:53,298 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED 9YiTzXRb...: Top holder controls 31.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 03:39:53,298 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: umi [solana] rejected \u2014 Top holder controls 31.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
+        "shamrock-bot  | 2026-04-10 12:13:35,717 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 12:13:35,717 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+        "shamrock-bot  | 2026-04-10 12:13:38,699 | WARNING  | core.adaptive_mode | \ud83d\udd04 HWM RESET (ADAPTIVE_FORCE_NORMAL=true): $12 \u2192 $0 | Mode forced to NORMAL | Full position sizing restored",
+        "shamrock-bot  | 2026-04-10 12:13:41,888 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/",
+        "shamrock-bot  | 2026-04-10 12:13:50,438 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
+        "shamrock-bot  | 2026-04-10 12:13:51,864 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for ampersend: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/"
       ],
-      "healthy_signals": [],
-      "log_lines": 83,
+      "healthy_signals": [
+        "shamrock-bot  | 2026-04-10 12:13:35,720 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
+        "shamrock-bot  | 2026-04-10 12:13:42,438 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-10 12:13:48,590 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-10 12:13:48,590 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-10 12:13:56,504 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
+      ],
+      "log_lines": 103,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "6789da1",
-      "server_sha": "6789da1",
-      "local_message": "fix(wallets): restore missing daily_loss_limit_eth for wallet_c",
-      "server_message": "fix(wallets): restore missing daily_loss_limit_eth for wallet_c",
+      "local_sha": "45568f7",
+      "server_sha": "45568f7",
+      "local_message": "fix: scope leak in main.py candidate routing",
+      "server_message": "fix: scope leak in main.py candidate routing",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "4bea056"
+  "preflight_sha": "56fd240"
 }

@@ -178,6 +178,11 @@ MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD",
 # Liquidity event stream — monitors DEX factory contracts for new pools
 MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "false").lower() == "true"
 
+# Solana Zero-Latency Discovery Stream — monitors Pump.fun & Raydium
+MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED = os.getenv("MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED", "true").lower() == "true"
+PUMP_FUN_PROGRAM_ID = os.getenv("PUMP_FUN_PROGRAM_ID", "6EF8rrecthR5Dkzon8Nwu78hRvfC11xTKE1dJ94U2X13")
+RAYDIUM_AMM_PROGRAM_ID = os.getenv("RAYDIUM_AMM_PROGRAM_ID", "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
+
 # Hybrid mode — when streams are active, extend poll interval as fallback
 MORALIS_STREAMS_FALLBACK_POLL_INTERVAL = int(os.getenv("MORALIS_STREAMS_FALLBACK_POLL_INTERVAL", "120"))  # 2 min
 # Solana alpha wallets — verified Pump.fun/Raydium snipers (seeded 2026-04-04)

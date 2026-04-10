@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
 TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
+TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 
 
 class MoralisStreamsServer:
@@ -49,6 +50,7 @@ class MoralisStreamsServer:
         on_swap_event: Callable[[str, dict], None],
         on_whale_event: Optional[Callable[[dict], None]] = None,
         on_liquidity_event: Optional[Callable[[dict], None]] = None,
+        on_solana_discovery_event: Optional[Callable[[str], None]] = None,
     ):
         self.host = host
         self.port = port
@@ -56,6 +58,7 @@ class MoralisStreamsServer:
         self.on_swap_event = on_swap_event
         self.on_whale_event = on_whale_event
         self.on_liquidity_event = on_liquidity_event
+        self.on_solana_discovery_event = on_solana_discovery_event
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -177,9 +180,10 @@ class MoralisStreamsServer:
                 has_erc20 = bool(payload.get("erc20Transfers"))
                 has_nft = bool(payload.get("nftTransfers"))
                 has_native = bool(payload.get("nativeTransfers"))
+                has_token_txs = bool(payload.get("tokenTransfers"))
                 has_txs = bool(payload.get("txs"))
                 has_logs = bool(payload.get("logs"))
-                has_any_data = has_erc20 or has_nft or has_native or has_txs or has_logs
+                has_any_data = has_erc20 or has_nft or has_native or has_txs or has_logs or has_token_txs
 
                 if not payload.get("block") and not has_any_data:
                     logger.info("MoralisStreams: Test webhook received — returning 200")
@@ -194,7 +198,7 @@ class MoralisStreamsServer:
                 # skip the confirmed duplicate to avoid double-trading.
                 confirmed = payload.get("confirmed", True)
                 chain_id = str(payload.get("chainId") or "")
-                block_num = str(payload.get("block", {}).get("number", ""))
+                block_num = str(payload.get("block", {}).get("number") or payload.get("blockNumber") or "")
 
                 logger.info(
                     f"MoralisStreams: 📨 Webhook received — chain={_chain_id_to_name(chain_id)} "
@@ -246,6 +250,8 @@ class MoralisStreamsServer:
                     processed = _handle_whale_event(parent, payload)
                 elif tag == TAG_LIQUIDITY:
                     processed = _handle_liquidity_event(parent, payload)
+                elif tag == TAG_SOLANA_DISCOVERY:
+                    processed = _handle_solana_discovery_event(parent, payload)
                 else:
                     # Unknown tag — try alpha wallet handler as default
                     logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
@@ -619,7 +625,38 @@ def _handle_liquidity_event(server: MoralisStreamsServer, payload: dict) -> int:
     return processed
 
 
+
+def _handle_solana_discovery_event(server: MoralisStreamsServer, payload: dict) -> int:
+    if not server.on_solana_discovery_event:
+        return 0
+
+    transfers = payload.get("tokenTransfers", []) or []
+    mints = set()
+    for ev in transfers:
+        mint = ev.get("mint") or ev.get("tokenMint") or ""
+        if mint:
+            mints.add(mint)
+            
+    processed = 0
+    for mint in mints:
+        # Ignore Wrapped SOL and system addresses
+        if mint in ("So11111111111111111111111111111111111111112", "11111111111111111111111111111111"):
+            continue
+            
+        try:
+            server.on_solana_discovery_event(mint)
+            processed += 1
+        except Exception as e:
+            logger.error(f"MoralisStreams: Error processing Solana discovery event for {mint}: {e}")
+            server.metrics["errors"] += 1
+
+    if processed:
+        logger.info(f"MoralisStreams: 🚀 {processed} new Solana tokens discovered via webhook")
+
+    return processed
+
 # ─────────────────────────────────────────────────────────────────────────────
+
 # Utilities
 # ─────────────────────────────────────────────────────────────────────────────
 

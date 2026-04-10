@@ -34,6 +34,7 @@ CHAIN_IDS = ["0x1", "0x2105", "0xa4b1", "0x89", "0x38", "0xa86a"]  # ETH, Base, 
 TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
 TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
+TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 
 # Uniswap V2 Router / Factory event signatures
 PAIR_CREATED_TOPIC = "PairCreated(address,address,address,uint256)"
@@ -142,6 +143,10 @@ class MoralisStreamsManager:
         # 4. Optional: liquidity event stream
         if settings.MORALIS_STREAMS_LIQUIDITY_ENABLED:
             self._ensure_liquidity_stream()
+
+        # 4.5. Optional: Solana highly active discovery stream
+        if settings.MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED:
+            self._ensure_solana_discovery_stream()
 
         # 5. Start health check loop
         if settings.MORALIS_STREAMS_AUTO_SYNC:
@@ -298,6 +303,32 @@ class MoralisStreamsManager:
         if wallets:
             self.sync_alpha_wallets(wallets)
 
+
+    def _ensure_solana_discovery_stream(self) -> None:
+        if TAG_SOLANA_DISCOVERY in self._managed_streams:
+            logger.info(f"MoralisStreamsManager: Solana discovery stream already exists: {self._managed_streams[TAG_SOLANA_DISCOVERY]}")
+            return
+
+        webhook = f"{self.webhook_url}/moralis/streams"
+        addresses = []
+        if settings.PUMP_FUN_PROGRAM_ID:
+            addresses.append(settings.PUMP_FUN_PROGRAM_ID)
+        if settings.RAYDIUM_AMM_PROGRAM_ID:
+            addresses.append(settings.RAYDIUM_AMM_PROGRAM_ID)
+
+        body = {
+            "webhookUrl": webhook,
+            "description": "Shamrock Trading Bot — Solana Zero-Latency Token Discovery",
+            "tag": TAG_SOLANA_DISCOVERY,
+            "network": ["mainnet"],
+            "address": addresses
+        }
+
+        stream_id = self._create_stream(body, network="solana")
+        if stream_id:
+            self._managed_streams[TAG_SOLANA_DISCOVERY] = stream_id
+            logger.info(f"MoralisStreamsManager: ✅ Solana discovery stream created: {stream_id}")
+
     # ─────────────────────────────────────────────────────────────────────────
     # Health Monitoring
     # ─────────────────────────────────────────────────────────────────────────
@@ -319,7 +350,8 @@ class MoralisStreamsManager:
         self.metrics["last_health_check"] = time.time()
 
         for tag, stream_id in list(self._managed_streams.items()):
-            info = self._get_stream(stream_id)
+            net = "solana" if tag == TAG_SOLANA_DISCOVERY else "evm"
+            info = self._get_stream(stream_id, network=net)
             if not info:
                 logger.warning(f"MoralisStreamsManager: Stream {tag} ({stream_id}) not found — will recreate")
                 del self._managed_streams[tag]
@@ -336,17 +368,17 @@ class MoralisStreamsManager:
                     f"Will auto-terminate in 24h if not fixed."
                 )
                 # Try to unpause/reset by updating the stream
-                self._update_stream_status(stream_id, "active")
+                self._update_stream_status(stream_id, "active", network=net)
             elif status == "paused":
                 logger.info(f"MoralisStreamsManager: Stream {tag} ({stream_id}) is paused — resuming")
-                self._update_stream_status(stream_id, "active")
+                self._update_stream_status(stream_id, "active", network=net)
             elif status == "terminated":
                 logger.warning(
                     f"MoralisStreamsManager: Stream {tag} ({stream_id}) is TERMINATED — "
                     f"this is unrecoverable. Recreating..."
                 )
                 # Delete the dead stream and recreate
-                self._delete_stream(stream_id)
+                self._delete_stream(stream_id, network=net)
                 del self._managed_streams[tag]
                 self._recreate_stream(tag)
                 self.metrics["streams_recreated"] += 1
@@ -359,17 +391,19 @@ class MoralisStreamsManager:
             self._ensure_whale_stream()
         elif tag == TAG_LIQUIDITY:
             self._ensure_liquidity_stream()
+        elif tag == TAG_SOLANA_DISCOVERY:
+            self._ensure_solana_discovery_stream()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Moralis API Calls
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _create_stream(self, body: dict) -> Optional[str]:
+    def _create_stream(self, body: dict, network: str = "evm") -> Optional[str]:
         """Create a new stream. Returns stream ID or None."""
         try:
             # CRITICAL: Moralis uses PUT for create, NOT POST
             resp = requests.put(
-                f"{BASE_URL}/streams/evm",
+                f"{BASE_URL}/streams/{network}",
                 headers=self._headers,
                 json=body,
                 timeout=30,
@@ -392,11 +426,11 @@ class MoralisStreamsManager:
             self.metrics["errors"] += 1
             return None
 
-    def _get_stream(self, stream_id: str) -> Optional[dict]:
+    def _get_stream(self, stream_id: str, network: str = "evm") -> Optional[dict]:
         """Get a specific stream's info."""
         try:
             resp = requests.get(
-                f"{BASE_URL}/streams/evm/{stream_id}",
+                f"{BASE_URL}/streams/{network}/{stream_id}",
                 headers=self._headers,
                 timeout=15,
             )
@@ -406,11 +440,11 @@ class MoralisStreamsManager:
         except Exception:
             return None
 
-    def _get_all_streams(self) -> list[dict]:
+    def _get_all_streams(self, network: str = "evm") -> list[dict]:
         """Get all streams for this API key."""
         try:
             resp = requests.get(
-                f"{BASE_URL}/streams/evm?limit=100",
+                f"{BASE_URL}/streams/{network}?limit=100",
                 headers=self._headers,
                 timeout=15,
             )
@@ -422,11 +456,11 @@ class MoralisStreamsManager:
             logger.error(f"MoralisStreamsManager: Error listing streams: {e}")
             return []
 
-    def _delete_stream(self, stream_id: str) -> bool:
+    def _delete_stream(self, stream_id: str, network: str = "evm") -> bool:
         """Delete a stream."""
         try:
             resp = requests.delete(
-                f"{BASE_URL}/streams/evm/{stream_id}",
+                f"{BASE_URL}/streams/{network}/{stream_id}",
                 headers=self._headers,
                 timeout=15,
             )
@@ -434,14 +468,14 @@ class MoralisStreamsManager:
         except Exception:
             return False
 
-    def _replace_addresses(self, stream_id: str, addresses: list[str]) -> bool:
+    def _replace_addresses(self, stream_id: str, addresses: list[str], network: str = "evm") -> bool:
         """Replace all addresses on a stream (PATCH)."""
         if not addresses:
             return True
         try:
             # Moralis expects address in body as {"address": [...]}
             resp = requests.post(
-                f"{BASE_URL}/streams/evm/{stream_id}/address",
+                f"{BASE_URL}/streams/{network}/{stream_id}/address",
                 headers=self._headers,
                 json={"address": addresses},
                 timeout=30,
@@ -459,11 +493,11 @@ class MoralisStreamsManager:
             logger.error(f"MoralisStreamsManager: Error adding addresses: {e}")
             return False
 
-    def _update_stream_status(self, stream_id: str, status: str) -> bool:
+    def _update_stream_status(self, stream_id: str, status: str, network: str = "evm") -> bool:
         """Update stream status (active/paused)."""
         try:
             resp = requests.post(
-                f"{BASE_URL}/streams/evm/{stream_id}/status",
+                f"{BASE_URL}/streams/{network}/{stream_id}/status",
                 headers=self._headers,
                 json={"status": status},
                 timeout=15,
@@ -474,10 +508,10 @@ class MoralisStreamsManager:
 
     def _discover_existing_streams(self) -> None:
         """Find streams we previously created (by tag prefix)."""
-        streams = self._get_all_streams()
+        streams = self._get_all_streams("evm") + self._get_all_streams("solana")
         for s in streams:
             tag = s.get("tag", "")
             sid = s.get("id", "")
-            if tag in (TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY) and sid:
+            if tag in (TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY, TAG_SOLANA_DISCOVERY) and sid:
                 self._managed_streams[tag] = sid
                 logger.info(f"MoralisStreamsManager: Discovered existing stream {tag} → {sid} (status={s.get('status')})")
