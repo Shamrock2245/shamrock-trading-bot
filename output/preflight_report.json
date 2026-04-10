@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T01:16:46.184906+00:00",
+  "timestamp": "2026-04-10T02:07:27.132800+00:00",
   "git": {
-    "sha": "e281621",
+    "sha": "388dbb8",
     "branch": "main",
-    "message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics"
+    "message": "tune: lower Solana quality gate 72\u219265 for more trade volume"
   },
   "checks": {
     "syntax": {
