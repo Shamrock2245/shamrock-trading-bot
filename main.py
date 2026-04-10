@@ -1001,6 +1001,25 @@ async def run_bot_loop():
         logger.info(f"--- Cycle {cycle} ---")
 
         try:
+            # ── Gas Manager: auto-replenish gas tokens every 10 cycles ────────
+            if cycle % 10 == 1:  # First cycle + every 10th
+                try:
+                    from core.gas_manager import check_and_replenish_gas, get_gas_status_summary
+                    gas_summary = get_gas_status_summary()
+                    if "need gas" in gas_summary.lower():
+                        logger.info(gas_summary)
+                    gas_records = check_and_replenish_gas()
+                    for rec in gas_records:
+                        if rec.success:
+                            notify_alert(
+                                f"⛽ Gas Replenished: {rec.wallet_alias}/{rec.chain}",
+                                f"Swapped ${rec.usdc_spent:.2f} USDC → "
+                                f"{rec.native_received:.6f} {rec.native_token}",
+                                level="info",
+                            )
+                except Exception as _gas_err:
+                    logger.debug(f"Gas manager check failed (non-blocking): {_gas_err}")
+
             # ── Execute Base USDC Deployment Plan (if exists) ─────────────────
             try:
                 if os.path.exists("reports/base_deploy_plan.json"):

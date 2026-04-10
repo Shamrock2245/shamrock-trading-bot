@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T02:07:27.132800+00:00",
+  "timestamp": "2026-04-10T02:17:08.615352+00:00",
   "git": {
-    "sha": "388dbb8",
+    "sha": "3be515b",
     "branch": "main",
-    "message": "tune: lower Solana quality gate 72\u219265 for more trade volume"
+    "message": "tune: lower gas guard ratio 2.0\u21921.5 + ETH gas estimate 6\u21923 \u2014 unblock Ethereum trades"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 102,
+      "files_checked": 103,
       "errors": [],
-      "summary": "102/102 files clean"
+      "summary": "103/103 files clean"
     },
     "tests": {
       "name": "tests",
