@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-09T18:38:35.317990+00:00",
-  "feedback": "[bot_logs] WARNINGS: 8 warning(s)\n  - shamrock-bot  | 2026-04-09 18:38:36,339 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-09 18:38:36,339 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED\n  - shamrock-bot  | 2026-04-09 18:38:36,346 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $0 | HWM: $549 | Drawdown: 100.0% | Swing wins: 0",
+  "timestamp": "2026-04-10T01:05:17.291822+00:00",
+  "feedback": "[bot_logs] WARNINGS: 5 warning(s)\n  - shamrock-bot  | 2026-04-10 01:05:18,196 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $9 | HWM: $549 | Drawdown: 98.4% | Swing wins: 0\n  - shamrock-bot  | 2026-04-10 01:05:20,852 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/\n  - shamrock-bot  | 2026-04-10 01:05:26,148 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GcUANCt1...: Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,21 +43,18 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-09 18:38:36,339 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-09 18:38:36,339 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
-        "shamrock-bot  | 2026-04-09 18:38:36,346 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $0 | HWM: $549 | Drawdown: 100.0% | Swing wins: 0",
-        "shamrock-bot  | 2026-04-09 18:38:39,763 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/",
-        "shamrock-bot  | 2026-04-09 18:38:43,558 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
-        "shamrock-bot  | 2026-04-09 18:38:44,879 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for DARK: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respo",
-        "shamrock-bot  | 2026-04-09 18:38:48,573 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED 4PmX1bd9...: Top holder controls 71.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-09 18:38:48,573 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: VBET [solana] rejected \u2014 Top holder controls 71.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
+        "shamrock-bot  | 2026-04-10 01:05:18,196 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $9 | HWM: $549 | Drawdown: 98.4% | Swing wins: 0",
+        "shamrock-bot  | 2026-04-10 01:05:20,852 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/",
+        "shamrock-bot  | 2026-04-10 01:05:26,148 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GcUANCt1...: Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 01:05:26,149 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: Jelly [solana] rejected \u2014 Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 01:05:35,405 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-09 18:38:34,739 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
-        "shamrock-bot  | 2026-04-09 18:38:34,739 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
-        "shamrock-bot  | 2026-04-09 18:38:35,768 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-09 18:38:35,780 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
-        "shamrock-bot  | 2026-04-09 18:38:35,780 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + "
+        "shamrock-bot  | 2026-04-10 01:05:18,194 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
+        "shamrock-bot  | 2026-04-10 01:05:26,315 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-10 01:05:32,520 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-10 01:05:32,520 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-10 01:05:34,960 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
@@ -65,12 +62,12 @@
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "399dfb8",
-      "server_sha": "399dfb8",
-      "local_message": "feat: 5 quick-win upgrades \u2014 TG alerts, win/loss analytics, gem advisor page, EMA watchlist, honeypot re-check",
-      "server_message": "feat: 5 quick-win upgrades \u2014 TG alerts, win/loss analytics, gem advisor page, EMA watchlist, honeypot re-check",
+      "local_sha": "e281621",
+      "server_sha": "e281621",
+      "local_message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics",
+      "server_message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "75a0c20"
+  "preflight_sha": "6db86d7"
 }

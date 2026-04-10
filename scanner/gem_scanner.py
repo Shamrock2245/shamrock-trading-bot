@@ -1831,7 +1831,7 @@ class GemScanner:
         # ── FINAL GATE: Solana Meme Coin Quality Floor ─────────────────────────────────────────────────────────────────────────────────────
         # Solana meme coins need a HIGHER bar than EVM tokens. The ecosystem
         # is flooded with low-quality pump-and-dumps. Only take the cream.
-        SOLANA_MIN_SCORE = 72.0
+        SOLANA_MIN_SCORE = 65.0
         if token.chain == "solana" and candidate.gem_score < SOLANA_MIN_SCORE:
             logger.info(
                 f"⛔ SOLANA QUALITY GATE: {token.symbol} score={candidate.gem_score:.1f} "

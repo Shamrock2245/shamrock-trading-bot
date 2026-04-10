@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T01:01:50.691632+00:00",
+  "timestamp": "2026-04-10T01:16:46.184906+00:00",
   "git": {
-    "sha": "6db86d7",
+    "sha": "e281621",
     "branch": "main",
-    "message": "docs: comprehensive README rewrite \u2014 accurate wallet profiles, 7-layer validation pipeline, copy-trading pipeline, ML modules, 9 dashboard pages, 38 behavioral docs, Docker services, and updated project structure"
+    "message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics"
   },
   "checks": {
     "syntax": {
