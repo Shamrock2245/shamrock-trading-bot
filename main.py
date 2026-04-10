@@ -2203,7 +2203,7 @@ async def run_bot_loop():
                                 chain=fib_sig.chain,
                                 gem_score=fib_sig.gem_score or 60.0,
                                 strategy="fib_entry",
-                                candidate=candidate,
+                                candidate=None,
                             )
                             if allocation:
                                 wallet = allocation.wallet
@@ -2326,7 +2326,7 @@ async def run_bot_loop():
                                 chain=sc.chain,
                                 gem_score=decision.ta_composite,
                                 is_express=False,
-                                candidate=candidate,
+                                candidate=None,
                             )
                             if not routed:
                                 logger.debug(f"Swing: no wallet route for {sc.symbol}/{sc.chain}")
