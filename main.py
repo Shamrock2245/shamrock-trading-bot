@@ -1011,11 +1011,19 @@ async def run_bot_loop():
                     gas_records = check_and_replenish_gas()
                     for rec in gas_records:
                         if rec.success:
+                            if rec.source == "liquidation":
+                                msg = (
+                                    f"Liquidated {rec.liquidated_token} → "
+                                    f"{rec.native_received:.6f} {rec.native_token}"
+                                )
+                            else:
+                                msg = (
+                                    f"Swapped ${rec.usdc_spent:.2f} USDC → "
+                                    f"{rec.native_received:.6f} {rec.native_token}"
+                                )
                             notify_alert(
                                 f"⛽ Gas Replenished: {rec.wallet_alias}/{rec.chain}",
-                                f"Swapped ${rec.usdc_spent:.2f} USDC → "
-                                f"{rec.native_received:.6f} {rec.native_token}",
-                                level="info",
+                                msg, level="info",
                             )
                 except Exception as _gas_err:
                     logger.debug(f"Gas manager check failed (non-blocking): {_gas_err}")

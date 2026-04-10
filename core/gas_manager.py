@@ -2,14 +2,19 @@
 core/gas_manager.py — Gas Token Auto-Replenishment System
 
 Monitors native gas token balances across all active wallets and chains.
-When gas drops below a threshold, automatically swaps a small amount of
-USDC → native token (ETH, BNB, MATIC, SOL, AVAX) to ensure the bot
-can always execute trades.
+When gas drops below a threshold, replenishes gas via two strategies:
+
+Strategy 1 (Primary):  Swap USDC → native token
+Strategy 2 (Fallback): Liquidate worst-performing position → native token
+
+The fallback ensures dead-weight, underperforming positions fund operational
+gas needs — every move trends toward profitability.
 
 Runs at the top of each scan cycle via `check_and_replenish_gas()`.
 
 Design principles:
-  - Only swap when USDC balance is sufficient (don't drain trading capital)
+  - Prefer USDC when available (don't disrupt positions unnecessarily)
+  - Fall back to liquidating lowest-PnL positions for gas
   - Only replenish to a target level (don't over-buy gas)
   - Cooldown per wallet+chain to prevent spam
   - Full logging for auditability
@@ -95,6 +100,8 @@ class GasReplenishRecord:
     tx_hash: str = ""
     success: bool = True
     error: str = ""
+    source: str = "usdc"           # "usdc" or "liquidation"
+    liquidated_token: str = ""     # symbol of position liquidated (if source=liquidation)
 
 
 def _load_state() -> list[dict]:
@@ -347,6 +354,225 @@ def _replenish_gas_evm(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Strategy 2: Liquidate worst performer for gas
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _find_worst_performer(
+    wallet_alias: str, chain: str,
+) -> Optional[dict]:
+    """
+    Find the worst-performing open position for a wallet on a given chain.
+
+    Ranking criteria (worst first):
+    1. Largest unrealized loss (biggest loser)
+    2. Lowest gem score (least conviction)
+    3. Oldest position (stale capital)
+
+    Returns the position dict, or None if no positions on this chain.
+    """
+    try:
+        from core.position_monitor import load_positions
+        positions = load_positions()
+        # Filter to open positions for this wallet on this chain
+        candidates = [
+            p for p in positions
+            if p.get("status") == "open"
+            and (p.get("wallet", "").lower() == wallet_alias.lower()
+                 or p.get("wallet", "").lower().replace(" ", "_") == wallet_alias.lower())
+            and p.get("chain", "").lower() == chain.lower()
+        ]
+        if not candidates:
+            return None
+
+        def _performance_score(pos: dict) -> float:
+            """
+            Lower score = worse performer = first to liquidate.
+            Combines unrealized PnL %, gem score, and age.
+            """
+            entry_val = float(pos.get("entry_value_usd", 0)) or 1.0
+            current_val = float(pos.get("current_value_usd", 0))
+            pnl_pct = ((current_val - entry_val) / entry_val) * 100 if entry_val > 0 else -100
+            gem_score = float(pos.get("gem_score", 50))
+
+            # Weighted composite: PnL dominates, gem score as tiebreaker
+            # A position at -50% with score 40 is worse than one at -10% with score 80
+            return (pnl_pct * 2.0) + (gem_score * 0.5)
+
+        # Sort by performance score ascending (worst first)
+        candidates.sort(key=_performance_score)
+        worst = candidates[0]
+
+        entry_val = float(worst.get("entry_value_usd", 0))
+        current_val = float(worst.get("current_value_usd", 0))
+        pnl_pct = ((current_val - entry_val) / entry_val * 100) if entry_val > 0 else 0
+
+        logger.info(
+            f"⛽🔻 Worst performer on {wallet_alias}/{chain}: "
+            f"{worst.get('token_symbol', '?')} | PnL={pnl_pct:+.1f}% | "
+            f"score={worst.get('gem_score', '?')} | "
+            f"entry=${entry_val:.2f} current=${current_val:.2f}"
+        )
+        return worst
+
+    except Exception as e:
+        logger.debug(f"Gas manager: failed to find worst performer: {e}")
+        return None
+
+
+def _liquidate_for_gas(
+    wallet: WalletConfig,
+    chain_name: str,
+    chain_config: ChainConfig,
+    position: dict,
+    gas_deficit_usd: float,
+) -> Optional[GasReplenishRecord]:
+    """
+    Sell enough of a position to cover the gas deficit.
+
+    Only sells the minimum needed for gas — doesn't dump the entire position
+    unless it's worth less than the gas deficit.
+    """
+    try:
+        token_address = position.get("token_address", "")
+        token_symbol = position.get("token_symbol", "?")
+        current_value = float(position.get("current_value_usd", 0))
+        quantity = float(position.get("quantity", 0))
+
+        if not token_address or quantity <= 0:
+            return None
+
+        # Calculate how much to sell: enough for gas + 20% buffer
+        target_sell_usd = min(gas_deficit_usd * 1.2, current_value)
+        if current_value <= 0:
+            # Position has no current value — sell it all, it's dead weight
+            sell_fraction = 1.0
+        else:
+            sell_fraction = min(target_sell_usd / current_value, 1.0)
+
+        # Get token amount to sell
+        sell_quantity = quantity * sell_fraction
+        if sell_quantity <= 0:
+            return None
+
+        logger.info(
+            f"⛽🔄 LIQUIDATING FOR GAS: {token_symbol} on {chain_name} | "
+            f"selling {sell_fraction:.0%} (${target_sell_usd:.2f}) of position → native gas"
+        )
+
+        if settings.IS_PAPER:
+            logger.info(
+                f"⛽ GAS LIQUIDATION (paper): would sell {sell_fraction:.0%} of {token_symbol} "
+                f"(${target_sell_usd:.2f}) for gas on {chain_name}"
+            )
+            return GasReplenishRecord(
+                wallet_alias=wallet.alias,
+                chain=chain_name,
+                native_token=chain_config.native_token,
+                usdc_spent=0.0,
+                native_received=0.0,
+                gas_before=0.0,
+                gas_after=0.0,
+                timestamp=time.time(),
+                tx_hash="paper_liquidation",
+                success=True,
+                source="liquidation",
+                liquidated_token=token_symbol,
+            )
+
+        # Live execution: sell token → native via the executor
+        from core.executor import TradeExecutor, TradeParams
+        from web3 import Web3
+
+        executor = TradeExecutor()
+        native_address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+
+        # Determine token decimals (default 18 for most ERC-20s)
+        token_decimals = int(position.get("token_decimals", 18))
+        sell_amount_wei = int(sell_quantity * (10 ** token_decimals))
+
+        params = TradeParams(
+            wallet=wallet,
+            chain=chain_name,
+            token_in=Web3.to_checksum_address(token_address),
+            token_out=native_address,
+            amount_in_wei=sell_amount_wei,
+            slippage_bps=300,  # 3% — not price sensitive for gas funding
+        )
+
+        result = executor.execute_trade(params)
+
+        if result.success:
+            logger.info(
+                f"⛽✅ GAS LIQUIDATION SUCCESS: sold {sell_fraction:.0%} of {token_symbol} "
+                f"→ {result.amount_out:.6f} {chain_config.native_token} | "
+                f"tx={result.tx_hash[:16] if result.tx_hash else '?'}..."
+            )
+
+            # Update position quantity in the position file
+            try:
+                from core.position_monitor import load_positions, _save_positions
+                all_positions = load_positions()
+                for p in all_positions:
+                    if (p.get("token_address", "").lower() == token_address.lower()
+                            and p.get("chain", "").lower() == chain_name.lower()
+                            and p.get("status") == "open"):
+                        remaining = quantity - sell_quantity
+                        if remaining <= 0 or sell_fraction >= 0.95:
+                            p["status"] = "closed"
+                            p["close_reason"] = "gas_liquidation"
+                            p["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                            logger.info(f"⛽ Position {token_symbol} fully closed for gas")
+                        else:
+                            p["quantity"] = remaining
+                            p["entry_value_usd"] = float(p.get("entry_value_usd", 0)) * (1 - sell_fraction)
+                            logger.info(
+                                f"⛽ Position {token_symbol} trimmed: "
+                                f"{sell_fraction:.0%} sold, {1-sell_fraction:.0%} remaining"
+                            )
+                        break
+                _save_positions(all_positions)
+            except Exception as _pos_err:
+                logger.warning(f"Gas liquidation: failed to update position file: {_pos_err}")
+
+            return GasReplenishRecord(
+                wallet_alias=wallet.alias,
+                chain=chain_name,
+                native_token=chain_config.native_token,
+                usdc_spent=0.0,
+                native_received=result.amount_out or 0.0,
+                gas_before=0.0,
+                gas_after=result.amount_out or 0.0,
+                timestamp=time.time(),
+                tx_hash=result.tx_hash or "",
+                success=True,
+                source="liquidation",
+                liquidated_token=token_symbol,
+            )
+        else:
+            logger.warning(
+                f"⛽❌ Gas liquidation failed for {token_symbol}: {result.error}"
+            )
+            return GasReplenishRecord(
+                wallet_alias=wallet.alias,
+                chain=chain_name,
+                native_token=chain_config.native_token,
+                usdc_spent=0.0,
+                native_received=0.0,
+                gas_before=0.0,
+                gas_after=0.0,
+                timestamp=time.time(),
+                success=False,
+                error=f"Liquidation failed: {result.error}",
+                source="liquidation",
+                liquidated_token=token_symbol,
+            )
+
+    except Exception as e:
+        logger.error(f"⛽ Gas liquidation error: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry point — call from main loop
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -409,11 +635,35 @@ def check_and_replenish_gas() -> list[GasReplenishRecord]:
                 usdc_balance = 0.0
 
             if usdc_balance < GAS_MIN_USDC_RESERVE:
-                logger.warning(
+                # ── Strategy 2: No USDC → liquidate worst performer for gas ──
+                logger.info(
                     f"⛽ Gas low on {wallet.alias}/{chain_name} "
-                    f"({gas_balance:.6f} {native_token}) but USDC too low "
-                    f"(${usdc_balance:.2f} < ${GAS_MIN_USDC_RESERVE:.2f} reserve)"
+                    f"({gas_balance:.6f} {native_token}), USDC too low "
+                    f"(${usdc_balance:.2f}) — trying position liquidation"
                 )
+                worst = _find_worst_performer(wallet_key, chain_name)
+                if worst:
+                    from core.wallet_router import get_native_price_usd
+                    native_price = get_native_price_usd(native_token)
+                    target = GAS_TARGET_THRESHOLDS.get(native_token, min_threshold * 3)
+                    deficit_usd = (target - gas_balance) * native_price
+                    record = _liquidate_for_gas(
+                        wallet, chain_name, chain_config, worst, deficit_usd,
+                    )
+                    if record:
+                        record.gas_before = gas_balance
+                        records.append(record)
+                        history.append(asdict(record))
+                        _set_cooldown(wallet_key, chain_name)
+                        if record.success:
+                            logger.info(
+                                f"⛽✅ Gas funded via liquidation: {wallet.alias}/{chain_name} | "
+                                f"sold {record.liquidated_token} → {record.native_received:.6f} {native_token}"
+                            )
+                else:
+                    logger.debug(
+                        f"⛽ No positions to liquidate for gas on {wallet.alias}/{chain_name}"
+                    )
                 continue
 
             # Calculate how much USDC to swap
