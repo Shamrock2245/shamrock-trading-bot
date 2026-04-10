@@ -858,6 +858,19 @@ class GemScanner:
                 )
         except Exception as _bd_err:
             logger.debug(f"Bundle detection skipped for {token.symbol}: {_bd_err}")
+            
+        # ── HARD GATE #3: Stablecoin & Fiat Exclusion ──────────────────────────
+        # Reject stablecoins/fiat pegs so we don't accidentally deploy capital 
+        # into pegged assets thinking they are gems.
+        _sym = token.symbol.upper()
+        if ("USD" in _sym or "EUR" in _sym or "AUD" in _sym or "CAD" in _sym or 
+            "GBP" in _sym or "STABLE" in _sym or "FIAT" in _sym or "YEN" in _sym or
+            _sym in ("DAI", "FRAX", "BUSD", "SDAI", "BTC", "CBTC", "WETH", "WAVAX", "WSOL", "CBBTC")):
+            logger.info(
+                f"🚫 EXCLUDED FIAT/STABLE: {token.symbol} [{token.chain}] "
+                f"— skipping (we avoid stablecoin pairs for gem sniping)"
+            )
+            return None
 
         # ── Age score (12%) ────────────────────────────────────────────────────────
         # New tokens are better for sniping.

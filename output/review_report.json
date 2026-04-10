@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T03:20:44.482351+00:00",
-  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+  "timestamp": "2026-04-10T03:39:54.165517+00:00",
+  "feedback": "[bot_logs] WARNINGS: 9 warning(s)\n  - shamrock-bot  | 2026-04-10 03:39:32,356 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa\n  - shamrock-bot  | 2026-04-10 03:39:33,811 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for CFG: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon\n  - shamrock-bot  | 2026-04-10 03:39:34,376 | WARNING  | safety | BLOCKED | 0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94 | ethereum | Owner can change balances (drain risk)",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,28 +43,29 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
+        "shamrock-bot  | 2026-04-10 03:39:32,356 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa",
+        "shamrock-bot  | 2026-04-10 03:39:33,811 | WARNING  | data.providers.grok_sentiment | Grok sentiment: API request failed for CFG: 429 Client Error: Too Many Requests for url: https://api.x.ai/v1/respon",
+        "shamrock-bot  | 2026-04-10 03:39:34,376 | WARNING  | safety | BLOCKED | 0xcccccccccc33d538dbc2ee4feab0a7a1ff4e8a94 | ethereum | Owner can change balances (drain risk)",
+        "shamrock-bot  | 2026-04-10 03:39:39,560 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED BBYEvoXY...: Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 03:39:39,560 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: BABYPEPE [solana] rejected \u2014 Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 03:39:51,428 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED BBYEvoXY...: Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 03:39:51,429 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: BABYPEPE [solana] rejected \u2014 Top holder controls 22.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 03:39:53,298 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED 9YiTzXRb...: Top holder controls 31.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 03:39:53,298 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: umi [solana] rejected \u2014 Top holder controls 31.2% of supply (threshold: 20.0%) \u2014 likely bundled sniper"
       ],
-      "healthy_signals": [
-        "shamrock-bot  | 2026-04-10 03:20:44,416 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
-        "shamrock-bot  | 2026-04-10 03:20:44,417 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
-        "shamrock-bot  | 2026-04-10 03:20:45,467 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-10 03:20:45,468 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
-        "shamrock-bot  | 2026-04-10 03:20:45,469 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + "
-      ],
-      "log_lines": 103,
+      "healthy_signals": [],
+      "log_lines": 83,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "4bea056",
-      "server_sha": "4bea056",
-      "local_message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator",
-      "server_message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator",
+      "local_sha": "6789da1",
+      "server_sha": "6789da1",
+      "local_message": "fix(wallets): restore missing daily_loss_limit_eth for wallet_c",
+      "server_message": "fix(wallets): restore missing daily_loss_limit_eth for wallet_c",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "aaf7019"
+  "preflight_sha": "4bea056"
 }

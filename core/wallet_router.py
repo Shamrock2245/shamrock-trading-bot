@@ -605,14 +605,23 @@ def route_trade(
                 )
                 continue
         else:
+            # AVAX requires larger 10% gas/manual reserve per user instructions
+            if chain.lower() == "avalanche":
+                # Ensure minimum absolute gas is respected alongside 10% reserve
+                local_min_balance = max(min_balance_required, native_balance * 0.10)
+            else:
+                local_min_balance = min_balance_required
+
             logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
-            if native_balance <= min_balance_required:
+            if native_balance <= local_min_balance:
                 logger.warning(
                     f"Wallet {wallet.alias} balance too low on {chain}: "
-                    f"{native_balance:.4f} <= {min_balance_required} {chain_config.native_token}"
+                    f"{native_balance:.4f} <= {local_min_balance:.4f} {chain_config.native_token}"
                 )
                 continue
-            wallet_balance_usd = native_balance * native_price
+            
+            # Use post-reserve balance for sizing to ensure accurate capital allocation percentages
+            wallet_balance_usd = (native_balance - (local_min_balance if chain.lower() == "avalanche" else 0)) * native_price
 
         # ── Phase-based capital scaling ───────────────────────────────────────
         phase = get_capital_phase(wallet_balance_usd)
@@ -673,6 +682,13 @@ def route_trade(
             effective_max_pct = min(phase_max_pct, recovery_cap_pct)
         else:
             effective_max_pct = min(phase_max_pct, profile_max_pct)
+
+        # ── Avalanche 90% Deployment Override ─────────────────────────────────
+        # User requested explicitly deploying 90% of Avax across 2 solid trades
+        if chain.lower() == "avalanche":
+            effective_max_pct = 0.45  # 45% * 2 positions = 90% global load
+            if effective_max_concurrent < 2:
+                effective_max_concurrent = 2
 
         # ── Regime filter — global multiplier ─────────────────────────────────
         try:

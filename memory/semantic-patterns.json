@@ -396,6 +396,20 @@
       "files": [],
       "source_episode": "ep-2026-04-08-001",
       "evolution_marker": "2026-04-08 | HIGH | Old PAT caused 5+ minutes of wasted time with hung commands"
+    },
+    {
+      "id": "ops-001",
+      "category": "operations",
+      "name": "nightly_balance_growth_check",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "User requires that the bot actively grows the portfolio each day. A nightly check-in must explicitly verify that the total balance is greater than the previous night's closing balance. Failure to do so indicates a regression or bad trading day that requires attention.",
+      "rule": "When performing nightly check-ins or self-improving evaluations, always compare current daily balance against the previous night's close. Ensure the balance is growing.",
+      "anti_pattern": "Reporting nominal functionality without actually checking if capital is compounding",
+      "files": ["core/daily_floor_guardian.py"],
+      "source_episode": "ep-2026-04-10-001",
+      "evolution_marker": "2026-04-10 | CRITICAL | User requested strict daily compounding validation"
     }
   ]
 }

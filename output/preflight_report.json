@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T03:27:59.805339+00:00",
+  "timestamp": "2026-04-10T03:43:57.117111+00:00",
   "git": {
-    "sha": "4bea056",
+    "sha": "6789da1",
     "branch": "main",
-    "message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator"
+    "message": "fix(wallets): restore missing daily_loss_limit_eth for wallet_c"
   },
   "checks": {
     "syntax": {
