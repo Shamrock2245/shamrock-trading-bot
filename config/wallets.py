@@ -284,6 +284,7 @@ WALLETS: dict[str, WalletConfig] = {
         chains=["ethereum"],
         max_position_size_pct=5.0,       # Larger positions — long-term conviction
         max_concurrent_positions=5,
+        daily_loss_limit_eth=1.0,        # Higher tolerance for long-term holds
         min_eth_balance_alert=0.1,
         is_cold_storage=True,            # No automated trading — profit sweeps only
     ),
