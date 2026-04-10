@@ -1,0 +1,78 @@
+{
+  "episode_id": "ep-2026-04-10-001",
+  "timestamp": "2026-04-10T02:23:00Z",
+  "category": "trade_execution",
+  "title": "Gas Guard Bottleneck & Gas Auto-Replenishment System",
+  "duration_minutes": 90,
+  "outcome": "success",
+  "summary": "Identified that ALL Ethereum copy-trade signals were being blocked by the gas guard (position size $22.87 < $24 minimum). Root cause was dual: overestimated ETH gas cost ($6/swap, actual ~$1-3) and overly conservative gas ratio (2.0x). Also built gas auto-replenishment system with worst-performer liquidation fallback.",
+  "what_happened": {
+    "task": "Enable profitability features and ensure bot executes trades aggressively",
+    "blockers_found": [
+      "Gas guard: $22.87 position < $24.00 min (2.0x round-trip gas $12.00) on ethereum",
+      "Solana Quality Gate hardcoded at 72.0 overriding global MIN_GEM_SCORE=60",
+      "Low USDC reserves preventing gas replenishment on chains with no USDC"
+    ],
+    "solutions_applied": [
+      "Lowered Solana Quality Gate: 72.0 → 65.0 in scanner/gem_scanner.py",
+      "Updated ETH gas estimate: $6 → $3 in core/wallet_router.py",
+      "Lowered MIN_POSITION_GAS_RATIO: 2.0 → 1.5 via .env",
+      "Created core/gas_manager.py with dual-strategy gas funding",
+      "Wired gas manager into main.py (every 10 cycles)"
+    ]
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Diagnostic approach: checked bot logs → found 100% of signals blocked by same gas guard",
+      "Realized gas estimates were frozen at 2024 levels ($6/swap), 2026 Ethereum gas is ~$1-3",
+      "Dual-strategy gas manager (USDC primary, worst-performer liquidation fallback) is elegant"
+    ],
+    "what_went_wrong": [
+      "Initial .env append created duplicate MIN_POSITION_GAS_RATIO entries — needed dedup",
+      "The Solana gate being hardcoded in gem_scanner.py (not in settings.py) was hard to discover",
+      "Multiple deploy cycles needed because root cause had multiple layers"
+    ],
+    "root_cause": "Compounding conservative defaults: high Solana gate + high ETH gas estimate + high gas ratio multiplied to create an impenetrable barrier for small-capital wallets"
+  },
+  "patterns_extracted": [
+    {
+      "pattern": "gas_estimates_stale",
+      "description": "On-chain gas costs change over time. Hardcoded estimates become stale. ETH gas was $6 in 2024 but $1-3 in 2026 post-Dencun.",
+      "confidence": 0.95,
+      "category": "trade_execution",
+      "action": "Review ESTIMATED_GAS_COST_USD in wallet_router.py quarterly"
+    },
+    {
+      "pattern": "hardcoded_overrides_bypass_config",
+      "description": "Chain-specific hardcoded thresholds (like SOLANA_MIN_SCORE=72) override global env-configured values (MIN_GEM_SCORE=60). Always check for in-code overrides when config changes don't take effect.",
+      "confidence": 0.98,
+      "category": "scoring_engine",
+      "action": "When changing a global threshold, grep for chain-specific overrides"
+    },
+    {
+      "pattern": "small_capital_creates_guard_cascade",
+      "description": "At low capital ($9-$91), multiple independent safety guards (gas ratio, min trade, recovery mode, max position %) can compound to make ALL trades impossible. Each guard is reasonable in isolation but fatal in combination.",
+      "confidence": 0.95,
+      "category": "guardrails",
+      "action": "When capital is in seed phase (<$500), audit all guards simultaneously"
+    },
+    {
+      "pattern": "profitability_first_gas_funding",
+      "description": "Gas should be funded by liquidating worst-performing positions, not by reserving clean trading capital. Dead-weight positions can serve operational needs.",
+      "confidence": 0.90,
+      "category": "position_mgmt",
+      "action": "Gas manager Strategy 2: find position with worst (PnL×2 + score×0.5), sell minimum needed"
+    }
+  ],
+  "files_modified": [
+    "scanner/gem_scanner.py",
+    "core/wallet_router.py",
+    "core/gas_manager.py",
+    "main.py",
+    ".env (server-side)"
+  ],
+  "user_feedback": {
+    "rating": null,
+    "comments": "User requested profitability-first approach: gas liquidation should target worst performers, every move toward profitability"
+  }
+}
