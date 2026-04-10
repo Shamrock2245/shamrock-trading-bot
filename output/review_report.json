@@ -1,9 +1,9 @@
 {
-  "grade": "fail",
-  "strategy": "rollback",
-  "exit_code": 2,
-  "timestamp": "2026-04-10T02:28:03.235592+00:00",
-  "feedback": "[git_state] FAILED: Mismatch: local=6b230c3, server=e441180\n[bot_logs] WARNINGS: 10 warning(s)\n  - shamrock-bot  | 2026-04-10 02:27:12,928 | WARNING  | ml.rl_position_sizer | SB3 install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writab\n  - shamrock-bot  | 2026-04-10 02:27:41,823 | ERROR    | ml.weight_optimizer | ML dependencies not installed: No module named 'xgboost'. Run: pip install xgboost scikit-learn\n  - shamrock-bot  | 2026-04-10 02:27:41,824 | WARNING  | ml.weight_optimizer | ML: Training failed \u2014 using static weights",
+  "grade": "warn",
+  "strategy": "monitor",
+  "exit_code": 1,
+  "timestamp": "2026-04-10T03:20:44.482351+00:00",
+  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,30 +43,28 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 02:27:12,928 | WARNING  | ml.rl_position_sizer | SB3 install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writab",
-        "shamrock-bot  | 2026-04-10 02:27:41,823 | ERROR    | ml.weight_optimizer | ML dependencies not installed: No module named 'xgboost'. Run: pip install xgboost scikit-learn",
-        "shamrock-bot  | 2026-04-10 02:27:41,824 | WARNING  | ml.weight_optimizer | ML: Training failed \u2014 using static weights",
-        "shamrock-bot  | 2026-04-10 02:28:00,918 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED rG49p6sS...: Top holder controls 42.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:00,919 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: XPX [solana] rejected \u2014 Top holder controls 42.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:06,022 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED wwzqJcBx...: Top holder controls 23.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:06,023 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: JELLYBEAN [solana] rejected \u2014 Top holder controls 23.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:09,996 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GHpK2bcd...: Top holder controls 23.5% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:09,996 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: FWEG [solana] rejected \u2014 Top holder controls 23.5% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 02:28:11,498 | ERROR    | core.executor | 1inch send error (attempt 1): Transaction HexBytes('0x8ee7045c04a35a26177d003af22905d88e9b6abf3465970f157a0b86c9577b07') is not in "
+        "shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 03:20:46,000 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
       ],
-      "healthy_signals": [],
+      "healthy_signals": [
+        "shamrock-bot  | 2026-04-10 03:20:44,416 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
+        "shamrock-bot  | 2026-04-10 03:20:44,417 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
+        "shamrock-bot  | 2026-04-10 03:20:45,467 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
+        "shamrock-bot  | 2026-04-10 03:20:45,468 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
+        "shamrock-bot  | 2026-04-10 03:20:45,469 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + "
+      ],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
-      "passed": false,
-      "local_sha": "6b230c3",
-      "server_sha": "e441180",
-      "local_message": "chore: episodic memory \u2014 gas guard bottleneck session",
-      "server_message": "feat: gas manager liquidates worst performers when USDC unavailable \u2014 profitability-first gas funding",
-      "summary": "Mismatch: local=6b230c3, server=e441180"
+      "passed": true,
+      "local_sha": "4bea056",
+      "server_sha": "4bea056",
+      "local_message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator",
+      "server_message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator",
+      "summary": "In sync"
     }
   },
-  "preflight_sha": "bd3aefe"
+  "preflight_sha": "aaf7019"
 }

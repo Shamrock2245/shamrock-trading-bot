@@ -140,12 +140,33 @@ SWING_SCALP_PROFILE = StrategyProfile(
     kelly_clamp_max=0.15,
     max_position_usd=100.0,       # Hard cap $100 per swing trade
     max_concurrent=5,
-    # Fast fail
     fast_fail_down_pct=5.0,       # Tighter for blue chips
     fast_fail_hours=1.0,
     max_slippage_pct=1.0,         # Very tight — liquid tokens
 )
 
+# ── Solana Alpha Profile (high conviction 90% cap deploy) ────────────────────
+ALPHA_SOL_PROFILE = StrategyProfile(
+    name="alpha_sol",
+    min_gem_score=85.0,           # VERY high quality
+    express_lane_score=92.0,      # Absolute top tier for instant buys
+    tp1_mult=3.0,
+    tp1_sell_pct=0.30,
+    tp2_mult=8.0,
+    tp2_sell_pct=0.30,
+    tp3_mult=20.0,
+    tp3_sell_pct=0.40,
+    hard_stop_pct=15.0,           # Decent cushion
+    trailing_stop_pct=25.0,
+    trailing_tighten={6.0: 15.0},
+    max_position_pct=45.0,        # 2 plays of 45% = 90% deployed (reserving 10% gas/liquidity)
+    kelly_clamp_max=0.60,
+    max_position_usd=0.0,
+    max_concurrent=2,             # A few plays
+    fast_fail_down_pct=15.0,
+    fast_fail_hours=1.5,
+    max_slippage_pct=5.0,
+)
 
 @dataclass
 class WalletConfig:
@@ -263,9 +284,24 @@ WALLETS: dict[str, WalletConfig] = {
         chains=["ethereum"],
         max_position_size_pct=5.0,       # Larger positions — long-term conviction
         max_concurrent_positions=5,
-        daily_loss_limit_eth=1.0,        # Higher tolerance for long-term holds
         min_eth_balance_alert=0.1,
         is_cold_storage=True,            # No automated trading — profit sweeps only
+    ),
+
+    "wallet_sol_alpha": WalletConfig(
+        alias="Wallet Sol Alpha",
+        address="FzZwd2Zqw7bMpzUoxNA7QwqziAVLddtDftecvs5p8gt2",  # Store mapped Solana address into address field as placeholder
+        private_key_env="WALLET_PRIVATE_KEY_SOL_ALPHA",  # Not strictly used for Sol
+        solana_private_key_env="SOLANA_PRIVATE_KEY_ALPHA",
+        solana_address="FzZwd2Zqw7bMpzUoxNA7QwqziAVLddtDftecvs5p8gt2",
+        role="High-conviction sniper for top-tier Solana gems — targets 90% capital deployment",
+        strategies=["gem_snipe", "momentum", "breakout"],
+        chains=["solana"],
+        max_position_size_pct=45.0,
+        max_concurrent_positions=2,
+        daily_loss_limit_eth=2.0,           
+        min_eth_balance_alert=0.05,
+        strategy_profile=ALPHA_SOL_PROFILE,
     ),
 }
 

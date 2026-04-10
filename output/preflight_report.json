@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T03:17:37.214366+00:00",
+  "timestamp": "2026-04-10T03:27:59.805339+00:00",
   "git": {
-    "sha": "aaf7019",
+    "sha": "4bea056",
     "branch": "main",
-    "message": "feat: daily portfolio cleanup \u2014 re-scores positions, flushes trash memecoins to native gas"
+    "message": "deploy: 2026-04-09 23:17 \u2014 post-preflight Arbitrage Trade-Up Capital Rotator"
   },
   "checks": {
     "syntax": {
