@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T20:59:31.105277+00:00",
-  "feedback": "[bot_logs] WARNINGS: 5 warning(s)\n  - shamrock-bot  | 2026-04-10 20:59:33,887 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+  "timestamp": "2026-04-10T21:20:01.319652+00:00",
+  "feedback": "[bot_logs] WARNINGS: 3 warning(s)\n  - shamrock-bot  | 2026-04-10 21:20:03,603 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 21:20:04,158 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 21:20:04,158 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,18 +43,16 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 20:59:33,887 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
-        "shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 20:59:34,456 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
-        "shamrock-bot  | 2026-04-10 20:59:34,457 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 20:59:45,962 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
+        "shamrock-bot  | 2026-04-10 21:20:03,603 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
+        "shamrock-bot  | 2026-04-10 21:20:04,158 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 21:20:04,158 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-10 20:59:31,758 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
-        "shamrock-bot  | 2026-04-10 20:59:33,890 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-10 20:59:33,890 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
-        "shamrock-bot  | 2026-04-10 20:59:33,891 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + ",
-        "shamrock-bot  | 2026-04-10 20:59:33,892 | INFO     | __main__ | \u2705 RL Position Sizer daemon started \u2014 trains PPO agent on completed trades every 24h (neutral 1.0x until 50 trades)"
+        "shamrock-bot  | 2026-04-10 21:20:01,646 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
+        "shamrock-bot  | 2026-04-10 21:20:01,646 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
+        "shamrock-bot  | 2026-04-10 21:20:03,606 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
+        "shamrock-bot  | 2026-04-10 21:20:03,608 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
+        "shamrock-bot  | 2026-04-10 21:20:03,608 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + "
       ],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
@@ -62,10 +60,10 @@
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "c8bb4c8",
-      "server_sha": "c8bb4c8",
-      "local_message": "fix: execute Moralis webhooks asynchronously to prevent timeouts and replay loops",
-      "server_message": "fix: execute Moralis webhooks asynchronously to prevent timeouts and replay loops",
+      "local_sha": "f6e9202",
+      "server_sha": "f6e9202",
+      "local_message": "fix: explicit Content-Type and Content-Length headers in Moralis webhook HTTP responses to prevent Moralis parsing failures",
+      "server_message": "fix: explicit Content-Type and Content-Length headers in Moralis webhook HTTP responses to prevent Moralis parsing failures",
       "summary": "In sync"
     }
   },

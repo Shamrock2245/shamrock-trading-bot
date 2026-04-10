@@ -831,6 +831,26 @@ class GemScanner:
             )
             return None
 
+        # ── HARD GATE #4: Moralis Security Score ──────────────────────────────
+        try:
+            from data.providers.moralis_data import get_token_score
+            token_score_data = get_token_score(token.address, token.chain)
+            if token_score_data:
+                score_value = token_score_data.get("security_score", 100)
+                if score_value < 70:
+                    logger.warning(
+                        f"⛔ SECURITY GATE: {token.symbol} [{token.chain}] rejected — "
+                        f"Moralis Security Score {score_value}/100"
+                    )
+                    return None
+                # Save it so we can use it in contract score
+                candidate.moralis_security_score = score_value
+            else:
+                candidate.moralis_security_score = 70
+        except Exception as e:
+            logger.debug(f"Moralis security score skipped for {token.symbol}: {e}")
+            candidate.moralis_security_score = 70
+
         # ── Age score (12%) ────────────────────────────────────────────────────────
         # New tokens are better for sniping.
         # < 24h = 100, < 48h = 75, < 72h = 50, < 168h = 25, > 168h = 10
@@ -912,40 +932,53 @@ class GemScanner:
         else:
             candidate.holder_score = 10
         # ── Dynamic Volume Decay & Holder Momentum (Upgrade 2) ────────────────
-        # 1. Dynamic Volume Decay (Micro-trend analysis)
-        vol_5m = getattr(candidate, 'moralis_pair_buy_vol_5m', 0) or 0
-        vol_1h = token.volume_1h
-        
-        if vol_1h > 0 and vol_5m > 0:
-            expected_5m_vol = vol_1h / 12.0
-            vol_velocity_ratio = vol_5m / expected_5m_vol
+        # Incorporate Moralis Deep Analytics if available
+        try:
+            from data.providers.moralis_data import get_token_analytics
+            analytics_data = get_token_analytics(token.address, token.chain)
             
-            if vol_velocity_ratio < 0.5:
-                penalty = 15.0
-                candidate.volume_score = max(0, candidate.volume_score - penalty)
-                logger.info(f"📉 Volume Decay Penalty: {token.symbol} (ratio={vol_velocity_ratio:.2f}) -> -{penalty} vol score")
-            elif vol_velocity_ratio > 2.0:
-                bonus = 15.0
-                candidate.volume_score = min(100, candidate.volume_score + bonus)
-                logger.info(f"📈 Volume Acceleration Bonus: {token.symbol} (ratio={vol_velocity_ratio:.2f}) -> +{bonus} vol score")
+            if analytics_data:
+                # 1. Net Buyers & Volume (1 Day or 1 Month based on token age)
+                # If < 12h use '1d' fallback, else use 1w or 1m
+                if token.age_hours < 12:
+                    period_key = "1d"
+                else:
+                    period_key = "1w" if "1w" in analytics_data else "1m"
+                    
+                net_buyers = analytics_data.get(period_key, {}).get("net_buyers", 0)
+                exp_net_buyers = analytics_data.get(period_key, {}).get("experienced_net_buyers", 0)
+                buy_vol = analytics_data.get(period_key, {}).get("buy_volume_usd", 0)
+                sell_vol = analytics_data.get(period_key, {}).get("sell_volume_usd", 0)
+                
+                candidate.moralis_buy_pressure = net_buyers
+                candidate.moralis_exp_net_buyers_1w = exp_net_buyers
+                
+                # Overwhelming sell pressure penalty
+                if net_buyers < 0:
+                    penalty = 30.0
+                    candidate.holder_score = max(0, candidate.holder_score - penalty)
+                    logger.info(f"🐌 Negative Net Buyers Penalty: {token.symbol} (net_buyers={net_buyers}) -> -{penalty} holder score")
+                elif net_buyers > 50:
+                    bonus = 15.0
+                    candidate.holder_score = min(100, candidate.holder_score + bonus)
+                    logger.info(f"🚀 Massive Net Buyers Bonus: {token.symbol} (net_buyers={net_buyers}) -> +{bonus} holder score")
+                    
+                # Volume Acceleration/Decay
+                if buy_vol > 0 and sell_vol > 0:
+                    buy_sell_ratio = buy_vol / sell_vol
+                    if buy_sell_ratio < 0.5:
+                        penalty = 15.0
+                        candidate.volume_score = max(0, candidate.volume_score - penalty)
+                        logger.info(f"📉 Volume Decay Penalty: {token.symbol} (buy:sell={buy_sell_ratio:.2f}) -> -{penalty} vol score")
+                    elif buy_sell_ratio > 2.0:
+                        bonus = 15.0
+                        candidate.volume_score = min(100, candidate.volume_score + bonus)
+                        logger.info(f"📈 Volume Acceleration Bonus: {token.symbol} (buy:sell={buy_sell_ratio:.2f}) -> +{bonus} vol score")
 
-        # 2. Holder Momentum Filter
-        holder_growth_1d = getattr(candidate, 'moralis_holders_change_1d', 0) or 0
-        total_holders = token.holder_count
-        
-        if total_holders > 0 and holder_growth_1d > 0:
-            growth_pct = (holder_growth_1d / total_holders) * 100
-            
-            if growth_pct < 1.0 and token.age_hours > 24:
-                penalty = 20.0
-                candidate.holder_score = max(0, candidate.holder_score - penalty)
-                logger.info(f"🐌 Stagnant Holder Penalty: {token.symbol} (growth={growth_pct:.1f}%) -> -{penalty} holder score")
-            elif growth_pct > 15.0:
-                bonus = 20.0
-                candidate.holder_score = min(100, candidate.holder_score + bonus)
-                logger.info(f"🚀 Explosive Holder Bonus: {token.symbol} (growth={growth_pct:.1f}%) -> +{bonus} holder score")
+        except Exception as e:
+            logger.debug(f"Moralis analytics skipped for {token.symbol}: {e}")
 
-        # 3. Smart Money Convergence (Whale + Sniper Confluence)
+        # Smart Money Convergence (Whale + Sniper Confluence)
         whale_buyers = getattr(candidate, 'moralis_exp_net_buyers_1w', 0) or 0
         sniper_count = getattr(candidate, 'sniper_count', 0) or 0
         
@@ -993,8 +1026,8 @@ class GemScanner:
             candidate.smart_money_score = 50.0  # Neutral fallback — 0 was dragging scores down
 
         # ── Contract verified score (8%) ──────────────────────────────────────
-        # Default 70 — updated by GoPlus safety check in executor
-        candidate.contract_score = 70
+        # Default 70 (or Moralis security score) — updated by GoPlus safety check in executor
+        candidate.contract_score = getattr(candidate, "moralis_security_score", 70)
 
         # ── Initial composite (before enrichment) ─────────────────────────────
         base_score = (
