@@ -733,3 +733,333 @@ def get_gas_status_summary() -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"⛽ Gas check error: {e}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily Portfolio Cleanup — Flush underperformers to gas
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Every 24 hours, re-score all open positions by pulling live DexScreener
+# data. Tokens that now score below FLUSH_SCORE_THRESHOLD (i.e. "trash"),
+# or positions that have lost more than FLUSH_PNL_THRESHOLD, are liquidated
+# and converted to native gas tokens across all chains.
+#
+# This ensures dead capital is recycled and the portfolio stays lean.
+
+# Config (env-overridable)
+FLUSH_ENABLED = os.getenv("FLUSH_ENABLED", "true").lower() == "true"
+FLUSH_SCORE_THRESHOLD = float(os.getenv("FLUSH_SCORE_THRESHOLD", "45"))      # Re-score below this → flush
+FLUSH_PNL_THRESHOLD = float(os.getenv("FLUSH_PNL_THRESHOLD", "-40"))         # Unrealized PnL worse than this % → flush
+FLUSH_MIN_AGE_HOURS = float(os.getenv("FLUSH_MIN_AGE_HOURS", "6"))           # Don't flush positions < 6h old
+FLUSH_INTERVAL_HOURS = float(os.getenv("FLUSH_INTERVAL_HOURS", "24"))        # Run once per 24h
+FLUSH_SELL_TO_GAS = os.getenv("FLUSH_SELL_TO_GAS", "true").lower() == "true" # True = sell to native gas, False = sell to USDC
+
+_FLUSH_STATE_FILE = Path(os.environ.get(
+    "FLUSH_STATE_FILE",
+    os.path.join(os.path.dirname(__file__), "..", "output", "flush_state.json"),
+))
+
+# In-memory last flush timestamp
+_last_flush_ts: float = 0.0
+
+
+def _load_flush_state() -> dict:
+    """Load flush state (last run timestamp, history)."""
+    try:
+        if _FLUSH_STATE_FILE.exists():
+            with open(_FLUSH_STATE_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"last_flush_at": 0, "history": []}
+
+
+def _save_flush_state(state: dict) -> None:
+    """Persist flush state to disk."""
+    try:
+        _FLUSH_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Keep last 200 history entries
+        state["history"] = state.get("history", [])[-200:]
+        with open(_FLUSH_STATE_FILE, "w") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        logger.debug(f"Flush: failed to save state: {e}")
+
+
+def _rescore_token(token_address: str, chain: str) -> Optional[float]:
+    """
+    Re-score a token by pulling live DexScreener data through the gem scanner.
+
+    Returns the new gem score (0-100), or None if scoring fails.
+    """
+    try:
+        from data.providers.dexscreener import get_token_pairs, extract_gem_signals
+        from scanner.gem_scanner import GemScanner
+
+        pairs = get_token_pairs(token_address) or []
+        if not pairs:
+            logger.debug(f"Flush: no pairs found for {token_address[:10]}... — stale token?")
+            return 0.0  # No pairs = dead token = should be flushed
+
+        pair = pairs[0]
+        signals = extract_gem_signals(pair)
+
+        scanner = GemScanner()
+        token_obj = scanner._signals_to_token(signals, chain)
+        if not token_obj:
+            return 0.0  # Can't build token object = dead
+
+        candidate = scanner._score_token(token_obj)
+        if candidate is None:
+            return 0.0
+
+        return candidate.gem_score
+
+    except Exception as e:
+        logger.debug(f"Flush: rescore error for {token_address[:10]}...: {e}")
+        return None  # Can't score = don't flush (might be transient API error)
+
+
+def daily_portfolio_cleanup() -> list[dict]:
+    """
+    Flush underperforming positions to native gas tokens.
+
+    Called periodically from the main loop. Self-gates to run once per
+    FLUSH_INTERVAL_HOURS. For each open position:
+
+    1. Calculate unrealized PnL %
+    2. Re-score the token via DexScreener + gem scanner
+    3. If score < FLUSH_SCORE_THRESHOLD OR pnl < FLUSH_PNL_THRESHOLD → flush
+    4. Sell position → native gas token (or USDC)
+
+    Returns list of flush event dicts for logging/notifications.
+    """
+    global _last_flush_ts
+
+    if not FLUSH_ENABLED:
+        return []
+
+    # Gate: only run once per interval
+    flush_state = _load_flush_state()
+    last_run = max(_last_flush_ts, flush_state.get("last_flush_at", 0))
+    now = time.time()
+    if (now - last_run) < (FLUSH_INTERVAL_HOURS * 3600):
+        return []
+
+    logger.info("🧹 DAILY PORTFOLIO CLEANUP — re-scoring all open positions...")
+
+    from core.position_monitor import load_positions, save_positions
+
+    positions = load_positions()
+    open_positions = [p for p in positions if p.get("status") == "open"]
+
+    if not open_positions:
+        logger.info("🧹 No open positions to evaluate")
+        _last_flush_ts = now
+        flush_state["last_flush_at"] = now
+        _save_flush_state(flush_state)
+        return []
+
+    flush_results = []
+    flushed_count = 0
+    kept_count = 0
+
+    for pos in open_positions:
+        token_address = pos.get("token_address", "")
+        token_symbol = pos.get("token_symbol", "?")
+        chain = pos.get("chain", "")
+        wallet_name = pos.get("wallet", "")
+        entry_value = float(pos.get("entry_value_usd", 0))
+        current_value = float(pos.get("current_value_usd", 0))
+        quantity = float(pos.get("quantity", 0))
+        opened_at = pos.get("opened_at", "")
+
+        if not token_address or not chain:
+            continue
+
+        # Check age — don't flush young positions (give them time)
+        age_hours = 999  # Default: old enough to flush
+        if opened_at:
+            try:
+                from datetime import datetime, timezone
+                opened_ts = datetime.fromisoformat(
+                    str(opened_at).replace("Z", "+00:00")
+                ).timestamp()
+                age_hours = (now - opened_ts) / 3600
+            except Exception:
+                pass
+
+        if age_hours < FLUSH_MIN_AGE_HOURS:
+            logger.debug(f"🧹 {token_symbol}: too young ({age_hours:.1f}h < {FLUSH_MIN_AGE_HOURS}h) — skipping")
+            continue
+
+        # Calculate unrealized PnL
+        if entry_value > 0 and current_value > 0:
+            pnl_pct = ((current_value - entry_value) / entry_value) * 100
+        elif entry_value > 0:
+            pnl_pct = -100  # No current value = total loss
+        else:
+            pnl_pct = 0
+
+        # Re-score the token
+        new_score = _rescore_token(token_address, chain)
+        original_score = float(pos.get("gem_score", 50))
+
+        flush_reason = None
+
+        # Decision: flush if score is trash OR PnL is terrible
+        if new_score is not None and new_score < FLUSH_SCORE_THRESHOLD:
+            flush_reason = f"score_decay ({original_score:.0f}→{new_score:.0f})"
+        elif pnl_pct < FLUSH_PNL_THRESHOLD:
+            flush_reason = f"pnl_loss ({pnl_pct:+.1f}%)"
+        elif new_score is not None and new_score < FLUSH_SCORE_THRESHOLD and pnl_pct < -10:
+            flush_reason = f"low_score_and_loss (score={new_score:.0f}, pnl={pnl_pct:+.1f}%)"
+
+        if not flush_reason:
+            score_str = f"{new_score:.0f}" if new_score is not None else "?"
+            logger.debug(
+                f"🧹 {token_symbol}/{chain}: KEEP — score={score_str}, pnl={pnl_pct:+.1f}%"
+            )
+            kept_count += 1
+            continue
+
+        # ── FLUSH this position ────────────────────────────────────────────
+        score_str = f"{new_score:.0f}" if new_score is not None else "?"
+        logger.info(
+            f"🧹🗑️ FLUSHING: {token_symbol}/{chain} — {flush_reason} | "
+            f"score={score_str} pnl={pnl_pct:+.1f}% | "
+            f"entry=${entry_value:.2f} current=${current_value:.2f}"
+        )
+
+        flush_event = {
+            "token_symbol": token_symbol,
+            "token_address": token_address,
+            "chain": chain,
+            "wallet": wallet_name,
+            "original_score": original_score,
+            "new_score": new_score,
+            "pnl_pct": pnl_pct,
+            "entry_value_usd": entry_value,
+            "current_value_usd": current_value,
+            "flush_reason": flush_reason,
+            "timestamp": now,
+            "success": False,
+            "tx_hash": "",
+            "sold_to": "gas" if FLUSH_SELL_TO_GAS else "usdc",
+        }
+
+        # Skip Solana for now (EVM only)
+        chain_config = CHAINS.get(chain)
+        if not chain_config or chain_config.is_solana:
+            logger.debug(f"🧹 {token_symbol}: Solana flush not yet supported — skipping")
+            flush_event["error"] = "solana_not_supported"
+            flush_results.append(flush_event)
+            continue
+
+        if quantity <= 0:
+            logger.debug(f"🧹 {token_symbol}: zero quantity — marking closed")
+            pos["status"] = "closed"
+            pos["close_reason"] = "flush_zero_qty"
+            pos["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            flush_event["success"] = True
+            flush_results.append(flush_event)
+            flushed_count += 1
+            continue
+
+        # Resolve wallet config
+        from config.wallets import get_active_trading_wallets
+        wallet_conf = None
+        for w in get_active_trading_wallets():
+            if (w.address.lower() == wallet_name.lower()
+                    or w.alias.lower() == wallet_name.lower()
+                    or w.alias.lower().replace(" ", "_") == wallet_name.lower()):
+                wallet_conf = w
+                break
+
+        if not wallet_conf:
+            logger.warning(f"🧹 {token_symbol}: no wallet found for '{wallet_name}' — skipping")
+            flush_event["error"] = "wallet_not_found"
+            flush_results.append(flush_event)
+            continue
+
+        # Sell token → native gas token (or USDC)
+        try:
+            if settings.IS_PAPER:
+                logger.info(
+                    f"🧹 FLUSH (paper): would sell {token_symbol}/{chain} "
+                    f"(${current_value:.2f}) → native gas"
+                )
+                pos["status"] = "closed"
+                pos["close_reason"] = f"flush_{flush_reason}"
+                pos["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                flush_event["success"] = True
+                flush_event["tx_hash"] = "paper_flush"
+                flush_results.append(flush_event)
+                flushed_count += 1
+                continue
+
+            from core.executor import TradeExecutor, TradeParams
+            from web3 import Web3
+
+            executor = TradeExecutor()
+
+            # Determine sell destination
+            if FLUSH_SELL_TO_GAS:
+                sell_to = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+            else:
+                sell_to = Web3.to_checksum_address(chain_config.usdc_address) if chain_config.usdc_address else "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+
+            token_decimals = int(pos.get("token_decimals", 18))
+            sell_amount_wei = int(quantity * (10 ** token_decimals))
+
+            params = TradeParams(
+                wallet=wallet_conf,
+                chain=chain,
+                token_in=Web3.to_checksum_address(token_address),
+                token_out=sell_to,
+                amount_in_wei=sell_amount_wei,
+                slippage_bps=400,  # 4% — these are trash tokens, expect thin liquidity
+            )
+
+            result = executor.execute_trade(params)
+
+            if result.success:
+                logger.info(
+                    f"🧹✅ FLUSHED: {token_symbol}/{chain} → "
+                    f"{result.amount_out:.6f} {chain_config.native_token if FLUSH_SELL_TO_GAS else 'USDC'} | "
+                    f"tx={result.tx_hash[:16] if result.tx_hash else '?'}..."
+                )
+                pos["status"] = "closed"
+                pos["close_reason"] = f"flush_{flush_reason}"
+                pos["closed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                pos["realized_pnl_usd"] = (result.amount_out or 0) - entry_value if not FLUSH_SELL_TO_GAS else 0
+                flush_event["success"] = True
+                flush_event["tx_hash"] = result.tx_hash or ""
+                flushed_count += 1
+            else:
+                logger.warning(f"🧹❌ Flush failed for {token_symbol}: {result.error}")
+                flush_event["error"] = result.error or "trade_failed"
+
+        except Exception as e:
+            logger.error(f"🧹 Flush execution error for {token_symbol}: {e}")
+            flush_event["error"] = str(e)
+
+        flush_results.append(flush_event)
+
+    # Save updated positions
+    save_positions(positions)
+
+    # Update flush state
+    _last_flush_ts = now
+    flush_state["last_flush_at"] = now
+    flush_state["history"].extend(flush_results)
+    _save_flush_state(flush_state)
+
+    logger.info(
+        f"🧹 CLEANUP COMPLETE: {flushed_count} flushed, {kept_count} kept, "
+        f"{len(open_positions) - flushed_count - kept_count} skipped | "
+        f"next run in {FLUSH_INTERVAL_HOURS:.0f}h"
+    )
+
+    return flush_results
+

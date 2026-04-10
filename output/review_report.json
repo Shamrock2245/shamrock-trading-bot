@@ -1,9 +1,9 @@
 {
-  "grade": "warn",
-  "strategy": "monitor",
-  "exit_code": 1,
-  "timestamp": "2026-04-10T01:05:17.291822+00:00",
-  "feedback": "[bot_logs] WARNINGS: 5 warning(s)\n  - shamrock-bot  | 2026-04-10 01:05:18,196 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $9 | HWM: $549 | Drawdown: 98.4% | Swing wins: 0\n  - shamrock-bot  | 2026-04-10 01:05:20,852 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/\n  - shamrock-bot  | 2026-04-10 01:05:26,148 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GcUANCt1...: Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+  "grade": "fail",
+  "strategy": "rollback",
+  "exit_code": 2,
+  "timestamp": "2026-04-10T02:28:03.235592+00:00",
+  "feedback": "[git_state] FAILED: Mismatch: local=6b230c3, server=e441180\n[bot_logs] WARNINGS: 10 warning(s)\n  - shamrock-bot  | 2026-04-10 02:27:12,928 | WARNING  | ml.rl_position_sizer | SB3 install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writab\n  - shamrock-bot  | 2026-04-10 02:27:41,823 | ERROR    | ml.weight_optimizer | ML dependencies not installed: No module named 'xgboost'. Run: pip install xgboost scikit-learn\n  - shamrock-bot  | 2026-04-10 02:27:41,824 | WARNING  | ml.weight_optimizer | ML: Training failed \u2014 using static weights",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,31 +43,30 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 01:05:18,196 | WARNING  | core.adaptive_mode | \ud83d\udd34 RECOVERY MODE | Capital: $9 | HWM: $549 | Drawdown: 98.4% | Swing wins: 0",
-        "shamrock-bot  | 2026-04-10 01:05:20,852 | WARNING  | core.macro_filter | MacroFilter: BTC dominance fetch failed (both sources): 429 Client Error: Too Many Requests for url: https://api.coingecko.com/",
-        "shamrock-bot  | 2026-04-10 01:05:26,148 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GcUANCt1...: Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 01:05:26,149 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: Jelly [solana] rejected \u2014 Top holder controls 21.3% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
-        "shamrock-bot  | 2026-04-10 01:05:35,405 | WARNING  | ml.timesfm_signal | TimesFM install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writa"
+        "shamrock-bot  | 2026-04-10 02:27:12,928 | WARNING  | ml.rl_position_sizer | SB3 install failed: WARNING: The directory '/home/shamrock/.cache/pip' or its parent directory is not owned or is not writab",
+        "shamrock-bot  | 2026-04-10 02:27:41,823 | ERROR    | ml.weight_optimizer | ML dependencies not installed: No module named 'xgboost'. Run: pip install xgboost scikit-learn",
+        "shamrock-bot  | 2026-04-10 02:27:41,824 | WARNING  | ml.weight_optimizer | ML: Training failed \u2014 using static weights",
+        "shamrock-bot  | 2026-04-10 02:28:00,918 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED rG49p6sS...: Top holder controls 42.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:00,919 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: XPX [solana] rejected \u2014 Top holder controls 42.4% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:06,022 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED wwzqJcBx...: Top holder controls 23.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:06,023 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: JELLYBEAN [solana] rejected \u2014 Top holder controls 23.9% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:09,996 | WARNING  | core.bundle_detector | \ud83d\udea8 SOLANA BUNDLE DETECTED GHpK2bcd...: Top holder controls 23.5% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:09,996 | WARNING  | scanner.gem_scanner | \u26d4 BUNDLE GATE: FWEG [solana] rejected \u2014 Top holder controls 23.5% of supply (threshold: 20.0%) \u2014 likely bundled sniper",
+        "shamrock-bot  | 2026-04-10 02:28:11,498 | ERROR    | core.executor | 1inch send error (attempt 1): Transaction HexBytes('0x8ee7045c04a35a26177d003af22905d88e9b6abf3465970f157a0b86c9577b07') is not in "
       ],
-      "healthy_signals": [
-        "shamrock-bot  | 2026-04-10 01:05:18,194 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
-        "shamrock-bot  | 2026-04-10 01:05:26,315 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
-        "shamrock-bot  | 2026-04-10 01:05:32,520 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
-        "shamrock-bot  | 2026-04-10 01:05:32,520 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
-        "shamrock-bot  | 2026-04-10 01:05:34,960 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
-      ],
+      "healthy_signals": [],
       "log_lines": 103,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
-      "passed": true,
-      "local_sha": "e281621",
-      "server_sha": "e281621",
-      "local_message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics",
-      "server_message": "feat: 6 profitability upgrades (Freqtrade + quant-trading) \u2014 volatility sizing, RSI divergence, MTF confirmation, regime strategy, dynamic TP, trade analytics",
-      "summary": "In sync"
+      "passed": false,
+      "local_sha": "6b230c3",
+      "server_sha": "e441180",
+      "local_message": "chore: episodic memory \u2014 gas guard bottleneck session",
+      "server_message": "feat: gas manager liquidates worst performers when USDC unavailable \u2014 profitability-first gas funding",
+      "summary": "Mismatch: local=6b230c3, server=e441180"
     }
   },
-  "preflight_sha": "6db86d7"
+  "preflight_sha": "bd3aefe"
 }

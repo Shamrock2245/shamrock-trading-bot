@@ -1028,6 +1028,25 @@ async def run_bot_loop():
                 except Exception as _gas_err:
                     logger.debug(f"Gas manager check failed (non-blocking): {_gas_err}")
 
+            # ── Daily Portfolio Cleanup: flush underperformers to gas ─────────
+            # Self-gates to run once per 24h. Re-scores all open positions via
+            # DexScreener — tokens below score 45 or PnL < -40% → sold to native gas.
+            if cycle % 10 == 1:
+                try:
+                    from core.gas_manager import daily_portfolio_cleanup
+                    flush_results = daily_portfolio_cleanup()
+                    for ev in flush_results:
+                        if ev.get("success"):
+                            notify_alert(
+                                f"🧹 Flushed: {ev['token_symbol']}/{ev['chain']}",
+                                f"Reason: {ev['flush_reason']} | "
+                                f"Score: {ev.get('original_score', '?')}→{ev.get('new_score', '?')} | "
+                                f"Sold to {'gas' if ev.get('sold_to') == 'gas' else 'USDC'}",
+                                level="info",
+                            )
+                except Exception as _flush_err:
+                    logger.debug(f"Portfolio cleanup failed (non-blocking): {_flush_err}")
+
             # ── Execute Base USDC Deployment Plan (if exists) ─────────────────
             try:
                 if os.path.exists("reports/base_deploy_plan.json"):
