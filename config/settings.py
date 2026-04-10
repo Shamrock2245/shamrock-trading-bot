@@ -84,6 +84,13 @@ MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
 HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # Tightened: cut losers at 15%
 
+# ── Parabolic Parachute (Fibonacci Over-Extension Exit) ──────────────────────
+# Triggers hyper-tight trailing stops when price goes vertical beyond typical Fibonacci extensions.
+PARABOLIC_ACTIVATION_PCT = float(os.getenv("PARABOLIC_ACTIVATION_PCT", "161.8"))       # Fib 1.618 exts
+PARABOLIC_TRAILING_STOP_PCT = float(os.getenv("PARABOLIC_TRAILING_STOP_PCT", "5.0"))   # Tighten to 5%
+EXTREME_PARABOLIC_ACTIVATION_PCT = float(os.getenv("EXTREME_PARABOLIC_ACTIVATION_PCT", "423.6")) # Fib 4.236
+EXTREME_PARABOLIC_TRAILING_STOP_PCT = float(os.getenv("EXTREME_PARABOLIC_TRAILING_STOP_PCT", "2.0")) # Tighten to 2%
+
 # ── Take-Profit Tiers (Profit Machine Playbook) ─────────────────────────────
 # TP1 at 1.5x: sell 40% → captures micro-cap gains before reversals
 # TP2 at 2.5x: sell 35% of remaining → asymmetric exit on confirmed runners

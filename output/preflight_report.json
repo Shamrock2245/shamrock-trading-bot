@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T20:56:45.890159+00:00",
+  "timestamp": "2026-04-10T23:15:27.926780+00:00",
   "git": {
-    "sha": "2c70bbb",
+    "sha": "9f49da7",
     "branch": "main",
-    "message": "deploy: Zero-Latency Solana Webhook Discovery"
+    "message": "feat: integrate Moralis v2.2 metadata endpoint to handle new possible_spam flags natively in token evaluation"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 104,
+      "files_checked": 105,
       "errors": [],
-      "summary": "104/104 files clean"
+      "summary": "105/105 files clean"
     },
     "tests": {
       "name": "tests",

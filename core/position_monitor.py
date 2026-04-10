@@ -523,6 +523,38 @@ def evaluate_position(pos: dict, current_price: float,
                 "urgency": "immediate",
             }
 
+    # ── Parabolic Parachute (Fibonacci Over-Extension Lock) ──────────────────
+    # SECURES MAXIMUM RUNNERS: If a token breaches extreme Fibonacci gain levels
+    # (e.g. +161.8% or +423.6%), we override all confluence checks and standard
+    # trailing stops. We tighten the trail instantly to front-run dumps on the wick.
+    max_gain_pct = ((highest_price - entry_price) / entry_price) * 100
+    param_ext_act = getattr(settings, "EXTREME_PARABOLIC_ACTIVATION_PCT", 423.6)
+    param_ext_trail = getattr(settings, "EXTREME_PARABOLIC_TRAILING_STOP_PCT", 2.0)
+    param_par_act = getattr(settings, "PARABOLIC_ACTIVATION_PCT", 161.8)
+    param_par_trail = getattr(settings, "PARABOLIC_TRAILING_STOP_PCT", 5.0)
+
+    is_extreme = max_gain_pct >= param_ext_act
+    is_parabolic = max_gain_pct >= param_par_act
+
+    if is_extreme or is_parabolic:
+        locked_trail = param_ext_trail if is_extreme else param_par_trail
+        para_stop_price = highest_price * (1 - locked_trail / 100)
+        
+        if current_price <= para_stop_price:
+            drop_from_high = ((current_price - highest_price) / highest_price) * 100
+            zone = "EXTREME 4.236 Fib" if is_extreme else "1.618 Fib"
+            logger.warning(
+                f"🪂 PARABOLIC PARACHUTE ACTIVATED: {pos.get('token_symbol')} "
+                f"broke {zone} at {max_gain_pct:.1f}% gain! Dropped {drop_from_high:.1f}% "
+                f"from wick high (${highest_price:.6f}) under {locked_trail}% locked trail. "
+                f"SECURING THE BAG IMMEDIATELY."
+            )
+            return {
+                "reason": f"parabolic_parachute_exit ({zone}, {max_gain_pct:.1f}% max gain, locked trail {locked_trail}%) [{profile_name}]",
+                "sell_pct": 1.0,
+                "urgency": "immediate",
+            }
+
     # ── Dynamic trailing stop (only active after TP1) ─────────────────────────
     if tp1_hit and highest_price > entry_price:
         # Determine effective trailing % based on dynamic tightening
