@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T20:25:35.845525+00:00",
+  "timestamp": "2026-04-10T20:56:45.890159+00:00",
   "git": {
-    "sha": "45568f7",
+    "sha": "2c70bbb",
     "branch": "main",
-    "message": "fix: scope leak in main.py candidate routing"
+    "message": "deploy: Zero-Latency Solana Webhook Discovery"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 106,
+      "files_checked": 104,
       "errors": [],
-      "summary": "106/106 files clean"
+      "summary": "104/104 files clean"
     },
     "tests": {
       "name": "tests",

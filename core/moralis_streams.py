@@ -241,37 +241,45 @@ class MoralisStreamsServer:
                             parent._seen_webhooks.discard(_evict_key)
 
                 # ── Route by Tag ──────────────────────────────────────────
+                # ── Process Async to Prevent Timeouts ─────────────────────
+                # Handlers can take >10s (especially if trading), which causes
+                # Moralis to timeout and queue the event as replayable.
                 tag = payload.get("tag", "")
-                processed = 0
+                
+                def _process_background():
+                    processed = 0
+                    try:
+                        if tag == TAG_ALPHA_WALLETS:
+                            processed = _handle_alpha_wallet_event(parent, payload)
+                        elif tag == TAG_WHALE_DETECTOR:
+                            processed = _handle_whale_event(parent, payload)
+                        elif tag == TAG_LIQUIDITY:
+                            processed = _handle_liquidity_event(parent, payload)
+                        elif tag == TAG_SOLANA_DISCOVERY:
+                            processed = _handle_solana_discovery_event(parent, payload)
+                        else:
+                            logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
+                            processed = _handle_alpha_wallet_event(parent, payload)
+                        
+                        # ── Track Metrics ─────────────────────────────────────────
+                        parent.metrics["events_processed"] += processed
+                        parent.metrics["events_by_tag"][tag] = parent.metrics["events_by_tag"].get(tag, 0) + processed
 
-                if tag == TAG_ALPHA_WALLETS:
-                    processed = _handle_alpha_wallet_event(parent, payload)
-                elif tag == TAG_WHALE_DETECTOR:
-                    processed = _handle_whale_event(parent, payload)
-                elif tag == TAG_LIQUIDITY:
-                    processed = _handle_liquidity_event(parent, payload)
-                elif tag == TAG_SOLANA_DISCOVERY:
-                    processed = _handle_solana_discovery_event(parent, payload)
-                else:
-                    # Unknown tag — try alpha wallet handler as default
-                    logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
-                    processed = _handle_alpha_wallet_event(parent, payload)
+                        latency_ms = (time.time() - recv_time) * 1000
+                        latencies = parent.metrics["_latencies"]
+                        latencies.append(latency_ms)
+                        if len(latencies) > 100:
+                            latencies.pop(0)
+                        parent.metrics["avg_latency_ms"] = sum(latencies) / len(latencies)
+                    except Exception as e:
+                        logger.error(f"Error in background stream processing: {e}")
 
-                # ── Track Metrics ─────────────────────────────────────────
-                parent.metrics["events_processed"] += processed
-                parent.metrics["events_by_tag"][tag] = parent.metrics["events_by_tag"].get(tag, 0) + processed
+                threading.Thread(target=_process_background, daemon=True).start()
 
-                # Latency tracking (webhook receive → processing complete)
-                latency_ms = (time.time() - recv_time) * 1000
-                latencies = parent.metrics["_latencies"]
-                latencies.append(latency_ms)
-                if len(latencies) > 100:
-                    latencies.pop(0)
-                parent.metrics["avg_latency_ms"] = sum(latencies) / len(latencies)
-
+                # Immediately return 200 OK so Moralis doesn't mark it failed/replayable
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": True, "processed": processed, "tag": tag}).encode("utf-8"))
+                self.wfile.write(json.dumps({"ok": True, "async": True, "tag": tag}).encode("utf-8"))
 
         self._server = ThreadingHTTPServer((self.host, self.port), _Handler)
         self._thread = threading.Thread(
