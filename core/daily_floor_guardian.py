@@ -31,6 +31,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -39,8 +41,8 @@ FLOOR_STATE_FILE = Path(os.environ.get(
     os.path.join(os.path.dirname(__file__), "..", "output", "daily_floor.json"),
 ))
 
-# How far below the floor triggers preservation mode (3% buffer)
-FLOOR_BREACH_BUFFER_PCT = float(os.environ.get("FLOOR_BREACH_BUFFER_PCT", "3.0"))
+# How far below the floor triggers preservation mode (e.g. 3.0% buffer)
+FLOOR_BREACH_BUFFER_PCT = getattr(settings, "FLOOR_BREACH_BUFFER_PCT", 3.0)
 
 # How far above the floor we need to recover to exit preservation mode
 FLOOR_RECOVERY_BUFFER_PCT = float(os.environ.get("FLOOR_RECOVERY_BUFFER_PCT", "2.0"))

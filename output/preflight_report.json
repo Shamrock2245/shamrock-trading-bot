@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-10T23:15:27.926780+00:00",
+  "timestamp": "2026-04-13T13:34:53.616455+00:00",
   "git": {
-    "sha": "9f49da7",
+    "sha": "f2026a8",
     "branch": "main",
-    "message": "feat: integrate Moralis v2.2 metadata endpoint to handle new possible_spam flags natively in token evaluation"
+    "message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks"
   },
   "checks": {
     "syntax": {

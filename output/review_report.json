@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T22:01:19.271394+00:00",
-  "feedback": "[bot_logs] WARNINGS: 3 warning(s)\n  - shamrock-bot  | 2026-04-10 22:01:20,741 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 22:01:21,276 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-10 22:01:21,276 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
+  "timestamp": "2026-04-10T23:18:15.159768+00:00",
+  "feedback": "[bot_logs] WARNINGS: 4 warning(s)\n  - shamrock-bot  | 2026-04-10 23:18:12,396 | WARNING  | strategies.indicators | pandas-ta not available. Using fallback calculations. This is normal in Docker \u2014 manual indicators are production-ready.\n  - shamrock-bot  | 2026-04-10 23:18:16,689 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | ============================================================",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,29 +43,30 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 22:01:20,741 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
-        "shamrock-bot  | 2026-04-10 22:01:21,276 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 22:01:21,276 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
+        "shamrock-bot  | 2026-04-10 23:18:12,396 | WARNING  | strategies.indicators | pandas-ta not available. Using fallback calculations. This is normal in Docker \u2014 manual indicators are production-ready.",
+        "shamrock-bot  | 2026-04-10 23:18:16,689 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
+        "shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
       ],
       "healthy_signals": [
-        "shamrock-bot  | 2026-04-10 22:01:18,826 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
-        "shamrock-bot  | 2026-04-10 22:01:18,826 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
-        "shamrock-bot  | 2026-04-10 22:01:20,743 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-10 22:01:20,744 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)",
-        "shamrock-bot  | 2026-04-10 22:01:20,745 | INFO     | __main__ | \u2705 Sniper Discovery daemon started \u2014 proactively harvesting high-PnL microcap wallets from gems (Moralis profitability/summary + stats + "
+        "shamrock-bot  | \u2551           \u2618\ufe0f  SHAMROCK TRADING BOT  \u2618\ufe0f                            \u2551",
+        "shamrock-bot  | 2026-04-10 23:18:14,793 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
+        "shamrock-bot  | 2026-04-10 23:18:14,793 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
+        "shamrock-bot  | 2026-04-10 23:18:16,693 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
+        "shamrock-bot  | 2026-04-10 23:18:16,695 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)"
       ],
-      "log_lines": 103,
+      "log_lines": 70,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "9f49da7",
-      "server_sha": "9f49da7",
-      "local_message": "feat: integrate Moralis v2.2 metadata endpoint to handle new possible_spam flags natively in token evaluation",
-      "server_message": "feat: integrate Moralis v2.2 metadata endpoint to handle new possible_spam flags natively in token evaluation",
+      "local_sha": "f2026a8",
+      "server_sha": "f2026a8",
+      "local_message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks",
+      "server_message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "2c70bbb"
+  "preflight_sha": "9f49da7"
 }

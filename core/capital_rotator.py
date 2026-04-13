@@ -23,7 +23,7 @@ OUTPUT_DIR = Path("output")
 GEM_SCAN_FILE = OUTPUT_DIR / "gem_scan.json"
 
 class CapitalRotator:
-    def __init__(self, rotation_threshold: int = 25):
+    def __init__(self, rotation_threshold: float = 15.0):
         self.rotation_threshold = getattr(settings, "ROTATION_SCORE_THRESHOLD", rotation_threshold)
 
     def try_rotate(self):

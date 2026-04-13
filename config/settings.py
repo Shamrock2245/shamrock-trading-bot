@@ -258,6 +258,12 @@ MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true
 REGIME_STRATEGY_ENABLED = os.getenv("REGIME_STRATEGY_ENABLED", "false").lower() == "true"
 DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "false").lower() == "true"
 
+# ── Capital Appreciation & Retention (Floor Guardian & Capital Rotator) ──────
+# Daily Floor: if portfolio dips this much below midnight snapshot, engage lockdown
+FLOOR_BREACH_BUFFER_PCT = float(os.getenv("FLOOR_BREACH_BUFFER_PCT", "3.0"))  # Realistic 3.0% buffer for crypto
+# Capital Rotator: swap out a stagnant holding if a new gem scores this much higher
+ROTATION_SCORE_THRESHOLD = float(os.getenv("ROTATION_SCORE_THRESHOLD", "15.0"))  # Aggressive 15pt threshold
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Position Monitoring
 # ─────────────────────────────────────────────────────────────────────────────
