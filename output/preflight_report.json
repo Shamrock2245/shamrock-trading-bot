@@ -1,11 +1,11 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-13T13:34:53.616455+00:00",
+  "timestamp": "2026-04-13T13:42:32.766244+00:00",
   "git": {
-    "sha": "f2026a8",
+    "sha": "678396c",
     "branch": "main",
-    "message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks"
+    "message": "fix: ensure shamrock user has home directory in Docker to allow pip cache for TimesFM download"
   },
   "checks": {
     "syntax": {

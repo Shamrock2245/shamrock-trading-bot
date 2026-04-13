@@ -2,8 +2,8 @@
   "grade": "warn",
   "strategy": "monitor",
   "exit_code": 1,
-  "timestamp": "2026-04-10T23:18:15.159768+00:00",
-  "feedback": "[bot_logs] WARNINGS: 4 warning(s)\n  - shamrock-bot  | 2026-04-10 23:18:12,396 | WARNING  | strategies.indicators | pandas-ta not available. Using fallback calculations. This is normal in Docker \u2014 manual indicators are production-ready.\n  - shamrock-bot  | 2026-04-10 23:18:16,689 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo\n  - shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | ============================================================",
+  "timestamp": "2026-04-13T13:43:08.374611+00:00",
+  "feedback": "[bot_logs] WARNINGS: 2 warning(s)\n  - shamrock-bot  | 2026-04-13 13:43:10,660 | WARNING  | __main__ | ============================================================\n  - shamrock-bot  | 2026-04-13 13:43:10,660 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED",
   "checks": {
     "containers": {
       "name": "containers",
@@ -43,30 +43,28 @@
       "has_warnings": true,
       "critical_lines": [],
       "warning_lines": [
-        "shamrock-bot  | 2026-04-10 23:18:12,396 | WARNING  | strategies.indicators | pandas-ta not available. Using fallback calculations. This is normal in Docker \u2014 manual indicators are production-ready.",
-        "shamrock-bot  | 2026-04-10 23:18:16,689 | ERROR    | core.moralis_streams_manager | MoralisStreamsManager: Failed to create stream shamrock-solana-discovery: 400 {\"message\":\"Could not send test webhoo",
-        "shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | ============================================================",
-        "shamrock-bot  | 2026-04-10 23:18:17,242 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
+        "shamrock-bot  | 2026-04-13 13:43:10,660 | WARNING  | __main__ | ============================================================",
+        "shamrock-bot  | 2026-04-13 13:43:10,660 | WARNING  | __main__ | \u26a0\ufe0f  LIVE MODE ACTIVE \u2014 REAL TRADES WILL BE EXECUTED"
       ],
       "healthy_signals": [
-        "shamrock-bot  | \u2551           \u2618\ufe0f  SHAMROCK TRADING BOT  \u2618\ufe0f                            \u2551",
-        "shamrock-bot  | 2026-04-10 23:18:14,793 | INFO     | core.wallet_monitor | \u2705 WalletMonitor daemon started",
-        "shamrock-bot  | 2026-04-10 23:18:14,793 | INFO     | __main__ | \u2705 Wallet monitor daemon started: 10 alpha wallets tracked",
-        "shamrock-bot  | 2026-04-10 23:18:16,693 | INFO     | __main__ | \u2705 Moralis Streams fully activated \u2014 webhook server on :8787, manager syncing alpha wallets",
-        "shamrock-bot  | 2026-04-10 23:18:16,695 | INFO     | core.sniper_discovery | \u2705 SniperDiscoveryDaemon started (interval=6h)"
+        "shamrock-bot  | 2026-04-13 13:43:10,665 | INFO     | __main__ | \u2705 Startup heartbeat written \u2014 health check armed",
+        "shamrock-bot  | 2026-04-13 13:43:17,001 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair",
+        "shamrock-bot  | 2026-04-13 13:43:22,079 | INFO     | core.sniper_discovery | \u2705 SniperDiscovery: 4 active snipers saved (0 EVM, 4 Solana)",
+        "shamrock-bot  | 2026-04-13 13:43:22,079 | INFO     | core.sniper_discovery | \u2705 Solana Alpha Discovery complete: 4 candidates \u2192 4 scored \u2192 top 4 promoted to active tracking",
+        "shamrock-bot  | 2026-04-13 13:43:29,123 | INFO     | core.gmgn_client | \u2705 GMGN client initialized with Ed25519 key pair"
       ],
-      "log_lines": 70,
+      "log_lines": 103,
       "summary": "All clear (with warnings)"
     },
     "git_state": {
       "name": "git_state",
       "passed": true,
-      "local_sha": "f2026a8",
-      "server_sha": "f2026a8",
-      "local_message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks",
-      "server_message": "deploy: 2026-04-10 19:15 \u2014 Parabolic parachute exit locks",
+      "local_sha": "4df99e0",
+      "server_sha": "4df99e0",
+      "local_message": "fix: remove non-existent torch extra from timesfm pip installation",
+      "server_message": "fix: remove non-existent torch extra from timesfm pip installation",
       "summary": "In sync"
     }
   },
-  "preflight_sha": "9f49da7"
+  "preflight_sha": "678396c"
 }
