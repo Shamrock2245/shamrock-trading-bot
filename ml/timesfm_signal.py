@@ -52,7 +52,7 @@ def _try_install_timesfm() -> bool:
     logger.info("TimesFM not installed — attempting auto-install (this may take 2-3 minutes)...")
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "timesfm[torch]", "--quiet"],
+            [sys.executable, "-m", "pip", "install", "timesfm", "--quiet"],
             capture_output=True, text=True, timeout=300,
         )
         if result.returncode == 0:
