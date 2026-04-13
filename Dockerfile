@@ -10,7 +10,7 @@
 FROM python:3.12-slim AS base
 
 # Security: run as non-root user
-RUN groupadd -r shamrock && useradd -r -g shamrock shamrock
+RUN groupadd -r shamrock && useradd -m -r -g shamrock shamrock
 
 WORKDIR /app
 
