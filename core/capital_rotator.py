@@ -119,21 +119,40 @@ class CapitalRotator:
             logger.error(f"Cannot liquidate: No wallet found for '{wallet_alias}'")
             return
             
-        decimals = int(pos.get("token_decimals", 18))
-        token_amount_wei = int(sell_qty * (10 ** decimals))
-        
-        params = build_take_profit_params(
-            wallet=wallet,
-            chain=chain,
-            token_address=token_address,
-            token_amount_wei=token_amount_wei,
-            slippage_bps=300,  # 3% slippage for rotation liquidation
-        )
-        
-        executor = TradeExecutor()
-        result = executor.execute_trade(params)
-        
-        if result.success:
-            logger.info(f"✅ ROTATION SUCCESS: Liquidated {pos.get('token_symbol')}. Tx: {result.tx_hash}")
+        if chain.lower() == "solana":
+            from core.solana_executor import execute_solana_sell
+            sol_public_key = wallet.solana_address or wallet.address
+            sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
+            
+            tx_hash = execute_solana_sell(
+                token_mint=token_address,
+                token_amount=sell_qty,
+                wallet_public_key=sol_public_key,
+                wallet_private_key_env=sol_key_env,
+                slippage_bps=300,
+                is_paper=pos.get("is_paper", True) or settings.MODE == "paper"
+            )
+            success = tx_hash is not None
+            error_msg = "Solana execution failed" if not success else ""
         else:
-            logger.error(f"❌ ROTATION FAILED: {pos.get('token_symbol')} - {result.error}")
+            decimals = int(pos.get("token_decimals", 18))
+            token_amount_wei = int(sell_qty * (10 ** decimals))
+            
+            params = build_take_profit_params(
+                wallet=wallet,
+                chain=chain,
+                token_address=token_address,
+                token_amount_wei=token_amount_wei,
+                slippage_bps=300,  # 3% slippage for rotation liquidation
+            )
+            
+            executor = TradeExecutor()
+            result = executor.execute_trade(params)
+            success = result.success
+            tx_hash = result.tx_hash
+            error_msg = result.error
+        
+        if success:
+            logger.info(f"✅ ROTATION SUCCESS: Liquidated {pos.get('token_symbol')}. Tx: {tx_hash}")
+        else:
+            logger.error(f"❌ ROTATION FAILED: {pos.get('token_symbol')} - {error_msg}")

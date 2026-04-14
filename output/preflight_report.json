@@ -1,19 +1,19 @@
 {
   "verdict": "pass",
   "all_passed": true,
-  "timestamp": "2026-04-13T13:42:32.766244+00:00",
+  "timestamp": "2026-04-14T12:30:07.747755+00:00",
   "git": {
-    "sha": "678396c",
+    "sha": "66ad5f5",
     "branch": "main",
-    "message": "fix: ensure shamrock user has home directory in Docker to allow pip cache for TimesFM download"
+    "message": "chore: update review and preflight reports with latest deployment status and git metadata"
   },
   "checks": {
     "syntax": {
       "name": "syntax",
       "passed": true,
-      "files_checked": 105,
+      "files_checked": 106,
       "errors": [],
-      "summary": "105/105 files clean"
+      "summary": "106/106 files clean"
     },
     "tests": {
       "name": "tests",
