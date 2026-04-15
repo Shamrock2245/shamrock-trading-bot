@@ -1637,6 +1637,13 @@ def run_all_indicators(df: pd.DataFrame) -> TAResult:
     """
     logger.info(f"Running 29-indicator TA on {len(df)} candles...")
 
+    # ── Defensive: strip duplicate timestamps ─────────────────────────────
+    # Duplicate index labels cause 'cannot reindex on an axis with duplicate
+    # labels' in pd.concat calls (e.g. calculate_adx True Range).
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep="last")].copy()
+        logger.debug(f"TA dedup: reduced to {len(df)} candles after removing dupes")
+
     result = TAResult()
 
     # ── CORE Trend Indicators (weight 1.0) ─────────────────────────────────

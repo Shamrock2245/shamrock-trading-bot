@@ -31,6 +31,26 @@ from config.chains import DEXSCREENER_CHAIN_MAP
 
 logger = logging.getLogger(__name__)
 
+
+def _dedup_ohlcv(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    """Remove duplicate timestamps from OHLCV DataFrame.
+
+    Duplicate index labels cause 'cannot reindex on an axis with duplicate
+    labels' in downstream pd.concat / TA indicator calls.  Keep the *last*
+    row for each timestamp (typically the freshest candle).
+    """
+    if df is None or df.empty:
+        return df
+    if df.index.duplicated().any():
+        before = len(df)
+        df = df[~df.index.duplicated(keep="last")]
+        logger.debug(
+            f"OHLCV dedup: removed {before - len(df)} duplicate timestamp(s) "
+            f"({before} → {len(df)} candles)"
+        )
+    return df
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory OHLCV cache (avoids redundant API calls within a scan cycle)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -476,6 +496,7 @@ def fetch_ohlcv(
                     limit=max(200, days * 24),
                 )
 
+            df = _dedup_ohlcv(df)
             if df is not None and len(df) >= min_candles:
                 logger.info(
                     f"Moralis OHLCV: {len(df)} candles for "
@@ -493,6 +514,7 @@ def fetch_ohlcv(
             pair_address=pair_address,
             limit=max(200, days * 24),
         )
+        df = _dedup_ohlcv(df)
         if df is not None and len(df) >= min_candles:
             _set_cached_ohlcv(token_address, chain, days, df)
             return df
@@ -503,6 +525,7 @@ def fetch_ohlcv(
     if chain != "solana":  # CoinGecko doesn't support Solana contract lookups
         try:
             df = _fetch_coingecko_ohlc(token_address, chain, days=days)
+            df = _dedup_ohlcv(df)
             if df is not None and len(df) >= min_candles:
                 logger.info(f"OHLCV from CoinGecko: {len(df)} candles for {token_address[:10]}...")
                 _set_cached_ohlcv(token_address, chain, days, df)
@@ -514,6 +537,7 @@ def fetch_ohlcv(
     try:
         pairs = _fetch_dexscreener_pairs(token_address)
         df = _build_ohlcv_from_pair_snapshots(pairs, chain)
+        df = _dedup_ohlcv(df)
         if df is not None and len(df) >= 3:
             logger.warning(
                 f"OHLCV from DexScreener snapshots only ({len(df)} points) for "

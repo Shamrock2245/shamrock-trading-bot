@@ -132,16 +132,25 @@ class GemSnipeStrategy:
         # Calculate on-chain score from gem scanner data
         onchain_score = self._calculate_onchain_score(candidate)
 
+        ta_ok = False
         if df is not None and len(df) >= 3:
-            signal_score, ta_result, fib_result = analyze_token(
-                df=df,
-                current_price=current_price,
-                onchain_score=onchain_score,
-                direction="buy",
-                chain=token.chain,
-            )
-        else:
-            # Insufficient OHLCV data — use signal engine's micro-cap score if available
+            try:
+                signal_score, ta_result, fib_result = analyze_token(
+                    df=df,
+                    current_price=current_price,
+                    onchain_score=onchain_score,
+                    direction="buy",
+                    chain=token.chain,
+                )
+                ta_ok = True
+            except Exception as e:
+                logger.warning(
+                    f"TA analysis failed for {token.symbol} ({len(df)} candles): {e} "
+                    f"— falling back to gem score only"
+                )
+
+        if not ta_ok:
+            # Insufficient OHLCV data or TA failure — use signal engine's micro-cap score
             from strategies.fibonacci import FibResult as FR
             from strategies.indicators import TAResult as TA
 
