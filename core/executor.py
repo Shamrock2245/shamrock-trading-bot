@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 from eth_account import Account
@@ -310,7 +310,7 @@ class TradeExecutor:
             # Check current allowance via 1inch API
             url = f"{settings.ONEINCH_API_URL}/{chain_id}/approve/allowance"
             headers = {"Authorization": f"Bearer {settings.ONEINCH_API_KEY}"}
-            resp = requests.get(
+            resp = get_session().get(
                 url, headers=headers,
                 params={"tokenAddress": token_address, "walletAddress": wallet_address},
                 timeout=10,
@@ -331,7 +331,7 @@ class TradeExecutor:
             )
 
             # Get 1inch router address from approve/spender endpoint
-            spender_resp = requests.get(
+            spender_resp = get_session().get(
                 f"{settings.ONEINCH_API_URL}/{chain_id}/approve/spender",
                 headers=headers, timeout=10,
             )
@@ -463,7 +463,7 @@ class TradeExecutor:
             }
 
             # Get quote first
-            quote_resp = requests.post(
+            quote_resp = get_session().post(
                 f"{cow_url}/api/v1/quote",
                 json=order_payload,
                 timeout=15,
@@ -544,7 +544,7 @@ class TradeExecutor:
             "includeProtocols": "true",
         }
         try:
-            resp = requests.get(url, headers=headers, params=params, timeout=15)
+            resp = get_session().get(url, headers=headers, params=params, timeout=15)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -633,7 +633,7 @@ class TradeExecutor:
                     execution_path="1inch",
                 )
 
-            resp = requests.get(url, headers=headers, params=swap_params, timeout=20)
+            resp = get_session().get(url, headers=headers, params=swap_params, timeout=20)
             if resp.status_code != 200:
                 return TradeResult(
                     success=False,
@@ -672,7 +672,7 @@ class TradeExecutor:
                     retry_params = dict(swap_params)
                     retry_params["slippage"] = (params.slippage_bps + slippage_bump) / 100
                     try:
-                        resp = requests.get(url, headers=headers, params=retry_params, timeout=20)
+                        resp = get_session().get(url, headers=headers, params=retry_params, timeout=20)
                         if resp.status_code == 200:
                             swap_data = resp.json()
                             tx = swap_data.get("tx", tx)
@@ -792,7 +792,7 @@ class TradeExecutor:
                 "disableEstimate": "true",
                 "allowPartialFill": "false",
             }
-            resp = requests.get(url, headers=headers, params=swap_params, timeout=20)
+            resp = get_session().get(url, headers=headers, params=swap_params, timeout=20)
             if resp.status_code != 200:
                 return TradeResult(
                     success=False,

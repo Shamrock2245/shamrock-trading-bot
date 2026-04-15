@@ -19,7 +19,7 @@ import socket
 import time
 import uuid
 
-import requests
+from data.http_session import get_session
 import urllib3.util.connection as _uconn
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
@@ -109,7 +109,7 @@ class GMGNClient:
         headers, signed_params = self._sign(path, params)
 
         url = f"{GMGN_BASE_URL}{path}"
-        resp = requests.get(url, headers=headers, params=signed_params, timeout=15)
+        resp = get_session().get(url, headers=headers, params=signed_params, timeout=15)
 
         if resp.status_code != 200:
             logger.error(f"GMGN API error {resp.status_code}: {resp.text[:300]}")

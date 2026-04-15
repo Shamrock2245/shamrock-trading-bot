@@ -36,7 +36,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -126,7 +126,7 @@ def _get_erc20_transfers_block0(
             "sort": "asc",
             "apikey": ETHERSCAN_API_KEY,
         }
-        resp = requests.get(api_url, params=params, timeout=15)
+        resp = get_session().get(api_url, params=params, timeout=15)
         data = resp.json()
         if data.get("status") == "1" and data.get("result"):
             return data["result"]
@@ -250,7 +250,7 @@ def _get_solana_largest_accounts(token_mint: str) -> list[dict]:
             "method": "getTokenLargestAccounts",
             "params": [token_mint, {"commitment": "confirmed"}],
         }
-        resp = requests.post(_HELIUS_RPC, json=payload, timeout=15)
+        resp = get_session().post(_HELIUS_RPC, json=payload, timeout=15)
         result = resp.json()
         return result.get("result", {}).get("value", [])
     except Exception as e:
@@ -267,7 +267,7 @@ def _get_solana_token_supply(token_mint: str) -> int:
             "method": "getTokenSupply",
             "params": [token_mint],
         }
-        resp = requests.post(_HELIUS_RPC, json=payload, timeout=15)
+        resp = get_session().post(_HELIUS_RPC, json=payload, timeout=15)
         result = resp.json()
         amount = result.get("result", {}).get("value", {}).get("amount", "0")
         return int(amount)

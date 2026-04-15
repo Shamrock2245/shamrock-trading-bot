@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 from config.chains import CHAINS
@@ -212,7 +212,7 @@ def discover_moonshot_candidates(chain: str) -> list[MoonshotCandidate]:
 
     # === Source 1: DexScreener latest boosted (trending) ===
     try:
-        r = requests.get(
+        r = get_session().get(
             "https://api.dexscreener.com/token-boosts/latest/v1",
             headers={"accept": "application/json"},
             timeout=10,
@@ -247,7 +247,7 @@ def discover_moonshot_candidates(chain: str) -> list[MoonshotCandidate]:
         moralis_chain = chain_map.get(chain)
         if moralis_chain:
             try:
-                r = requests.get(
+                r = get_session().get(
                     "https://deep-index.moralis.io/api/v2.2/discovery/tokens/trending",
                     params={"chain": moralis_chain},
                     headers={"X-API-Key": moralis_key, "accept": "application/json"},
@@ -318,7 +318,7 @@ def enrich_candidate(candidate: MoonshotCandidate) -> MoonshotCandidate:
     # Fetch buy/sell ratio from DexScreener detail
     ds_chain = DEXSCREENER_CHAIN_MAP.get(candidate.chain, candidate.chain)
     try:
-        r = requests.get(
+        r = get_session().get(
             f"https://api.dexscreener.com/tokens/v1/{ds_chain}/{candidate.token_address}",
             headers={"accept": "application/json"},
             timeout=10,

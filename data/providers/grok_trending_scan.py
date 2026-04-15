@@ -28,7 +28,8 @@ import re
 import time
 from typing import Optional
 
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,7 @@ def _call_grok_trending() -> dict:
         "Authorization": f"Bearer {api_key}",
     }
 
-    resp = requests.post(GROK_RESPONSES_URL, json=payload, headers=headers, timeout=60)
+    resp = get_session().post(GROK_RESPONSES_URL, json=payload, headers=headers, timeout=60)
     resp.raise_for_status()
 
     data = resp.json()

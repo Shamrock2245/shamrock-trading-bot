@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ def _get(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
         return None
     _rate_limit()
     try:
-        r = requests.get(url, headers=_headers(), params=params or {}, timeout=timeout)
+        r = get_session().get(url, headers=_headers(), params=params or {}, timeout=timeout)
         if r.status_code == 429:
             logger.warning("Moralis rate limit hit — sleeping 5s")
             time.sleep(5)
@@ -725,7 +725,7 @@ def _harvest_from_dexscreener_boosted() -> dict[str, list[str]]:
     """
     candidates: dict[str, list[str]] = {c: [] for c in ACTIVE_CHAINS}
     try:
-        r = requests.get(
+        r = get_session().get(
             "https://api.dexscreener.com/token-boosts/latest/v1",
             timeout=10,
         )
@@ -816,7 +816,7 @@ def discover_top_solana_alpha_wallets(max_wallets: int = 10) -> list[SniperWalle
 
     # ── Source 1: DexScreener trending Solana pairs → top holders ─────────
     try:
-        r = requests.get(
+        r = get_session().get(
             "https://api.dexscreener.com/token-boosts/latest/v1",
             timeout=10,
         )

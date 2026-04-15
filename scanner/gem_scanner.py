@@ -108,10 +108,109 @@ except ImportError:
         "fibonacci": 0.05, "grok_sentiment": 0.05, "age": 0.04, "social": 0.03,
     }
 
+# ── Hoisted optional imports (avoid per-token sys.modules lookups) ───────────
+try:
+    from core.bundle_detector import check_bundle as _check_bundle
+    _BUNDLE_AVAILABLE = True
+except ImportError:
+    _BUNDLE_AVAILABLE = False
+
+try:
+    from core.volume_trend import VolumeTrendTracker as _VolumeTrendTracker
+    _VOLUME_TREND_AVAILABLE = True
+except ImportError:
+    _VOLUME_TREND_AVAILABLE = False
+
+try:
+    from data.providers.moralis_data import (
+        get_token_score as _get_token_score,
+        get_token_metadata as _get_token_metadata,
+        get_token_analytics as _get_token_analytics,
+    )
+    _MORALIS_DATA_AVAILABLE = True
+except ImportError:
+    _MORALIS_DATA_AVAILABLE = False
+
+try:
+    from data.providers.helius_enrichment import enrich_solana_token as _enrich_solana_token
+    _HELIUS_AVAILABLE = True
+except ImportError:
+    _HELIUS_AVAILABLE = False
+
+try:
+    from data.providers.moralis_wallet import get_enhanced_token_metadata as _get_enhanced_token_metadata
+    _MORALIS_WALLET_AVAILABLE = True
+except ImportError:
+    _MORALIS_WALLET_AVAILABLE = False
+
+try:
+    from data.providers.grok_sentiment import get_grok_sentiment_score as _get_grok_sentiment_score
+    _GROK_SENTIMENT_AVAILABLE = True
+except ImportError:
+    _GROK_SENTIMENT_AVAILABLE = False
+
+try:
+    from data.providers.moralis_intelligence import cortex_analyze_token as _cortex_analyze_token
+    _CORTEX_AVAILABLE = True
+except ImportError:
+    _CORTEX_AVAILABLE = False
+
+try:
+    from data.providers.moralis_money import get_historical_price_context as _get_historical_price_context
+    _HISTORICAL_PRICE_AVAILABLE = True
+except ImportError:
+    _HISTORICAL_PRICE_AVAILABLE = False
+
+try:
+    from data.providers.coinpaprika import check_alltime_ath_gate as _check_alltime_ath_gate
+    _COINPAPRIKA_AVAILABLE = True
+except ImportError:
+    _COINPAPRIKA_AVAILABLE = False
+
+try:
+    from notifications.telegram import (
+        notify_conviction_alert as _notify_conviction,
+        notify_threshold_breach as _notify_threshold,
+    )
+    _TELEGRAM_AVAILABLE = True
+except ImportError:
+    _TELEGRAM_AVAILABLE = False
+
+try:
+    from notifications.slack import notify_alert as _notify_slack
+    _SLACK_AVAILABLE = True
+except ImportError:
+    _SLACK_AVAILABLE = False
+
+try:
+    from ml.timesfm_signal import get_forecast_from_dexscreener as _get_timesfm_forecast
+    _TIMESFM_AVAILABLE = True
+except ImportError:
+    _TIMESFM_AVAILABLE = False
+
+try:
+    from data.providers.grok_trending_scan import discover_grok_trending as _discover_grok_trending
+    _GROK_TRENDING_AVAILABLE = True
+except ImportError:
+    _GROK_TRENDING_AVAILABLE = False
+
+try:
+    from data.providers.moralis_sniper_detection import discover_sniper_convergence as _discover_sniper_convergence
+    _SNIPER_CONVERGENCE_AVAILABLE = True
+except ImportError:
+    _SNIPER_CONVERGENCE_AVAILABLE = False
+
+# ── Stablecoin / fiat exclusion sets (Fix 5: O(1) lookup) ────────────────────
+_EXCLUDED_SYMBOLS = frozenset({
+    "DAI", "FRAX", "BUSD", "SDAI", "BTC", "CBTC", "WETH", "WAVAX", "WSOL", "CBBTC",
+})
+_EXCLUDED_SUBSTRINGS = ("USD", "EUR", "AUD", "CAD", "GBP", "STABLE", "FIAT", "YEN")
+
 logger = logging.getLogger(__name__)
 
 # Chains to scan (EVM + Solana)
 SCAN_CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "avalanche", "solana"]
+
 
 # DexScreener chain ID → internal chain name (including Solana)
 _DEXSCREENER_CHAIN_MAP = {
@@ -143,6 +242,8 @@ class GemScanner:
         # every cycle so real-time whale/pool events are processed immediately.
         import collections as _collections
         self._stream_candidates: _collections.deque = _collections.deque(maxlen=50)
+        # Singleton VolumeTrendTracker (Fix 3: avoid per-token disk I/O)
+        self._volume_tracker = _VolumeTrendTracker() if _VOLUME_TREND_AVAILABLE else None
         # Load ML-derived dynamic weights (refreshed every 6h from trades.json)
         # Falls back to static defaults when insufficient trade history exists.
         if _ML_WEIGHTS_AVAILABLE:
@@ -428,8 +529,7 @@ class GemScanner:
                     )
                     # ── Telegram threshold breach alert ─────────────────────
                     try:
-                        from notifications.telegram import notify_threshold_breach
-                        notify_threshold_breach(
+                                                _notify_threshold(
                             symbol=promo['symbol'],
                             chain=promo['chain'],
                             old_score=promo['initial_score'],
@@ -628,8 +728,7 @@ class GemScanner:
         # 5 minutes, that convergence is the strongest possible signal.
         # These get a +10 bonus and are flagged as express-lane candidates.
         try:
-            from data.providers.moralis_sniper_detection import discover_sniper_convergence
-            convergence_tokens = discover_sniper_convergence()
+            convergence_tokens = _discover_sniper_convergence()
             sniper_conv_added = 0
             for conv in convergence_tokens:
                 token_addr = conv.get("token_address", "")
@@ -677,8 +776,7 @@ class GemScanner:
         # Grok identifies the hottest CT discussions and we check if those
         # tokens are tradeable. +5 social momentum bonus.
         try:
-            from data.providers.grok_trending_scan import discover_grok_trending
-            grok_trending = discover_grok_trending()
+            grok_trending = _discover_grok_trending()
             grok_added = 0
             for gt_signals in grok_trending:
                 token_addr = gt_signals.get("base_token_address", "")
@@ -732,8 +830,7 @@ class GemScanner:
         # ── Telegram alerts for all high-conviction gems ─────────────────────
         for c in candidates:
             try:
-                from notifications.telegram import notify_conviction_alert
-                notify_conviction_alert(
+                _notify_conviction(
                     symbol=c.token.symbol,
                     chain=c.token.chain,
                     score=c.gem_score,
@@ -797,8 +894,7 @@ class GemScanner:
         # holders are permanent sellers at any price uptick — no TA signal
         # can overcome it. Hard reject before any scoring runs.
         try:
-            from core.bundle_detector import check_bundle
-            _bundle = check_bundle(token.address, token.chain)
+            _bundle = _check_bundle(token.address, token.chain)
             if _bundle.is_bundled:
                 logger.warning(
                     f"⛔ BUNDLE GATE: {token.symbol} [{token.chain}] rejected — "
@@ -822,9 +918,7 @@ class GemScanner:
         # Reject stablecoins/fiat pegs so we don't accidentally deploy capital 
         # into pegged assets thinking they are gems.
         _sym = token.symbol.upper()
-        if ("USD" in _sym or "EUR" in _sym or "AUD" in _sym or "CAD" in _sym or 
-            "GBP" in _sym or "STABLE" in _sym or "FIAT" in _sym or "YEN" in _sym or
-            _sym in ("DAI", "FRAX", "BUSD", "SDAI", "BTC", "CBTC", "WETH", "WAVAX", "WSOL", "CBBTC")):
+        if _sym in _EXCLUDED_SYMBOLS or any(sub in _sym for sub in _EXCLUDED_SUBSTRINGS):
             logger.info(
                 f"🚫 EXCLUDED FIAT/STABLE: {token.symbol} [{token.chain}] "
                 f"— skipping (we avoid stablecoin pairs for gem sniping)"
@@ -833,10 +927,9 @@ class GemScanner:
 
         # ── HARD GATE #4: Moralis Security Score & Metadata ────────────────────────
         try:
-            from data.providers.moralis_data import get_token_score, get_token_metadata
-            
+                        
             # Check Token Metadata for the new 'possible_spam' indicator
-            metadata_res = get_token_metadata([token.address], token.chain)
+            metadata_res = _get_token_metadata([token.address], token.chain)
             if metadata_res and isinstance(metadata_res, list) and len(metadata_res) > 0:
                 metadata = metadata_res[0]
                 if metadata.get("possible_spam") is True:
@@ -846,7 +939,7 @@ class GemScanner:
                     )
                     return None
             
-            token_score_data = get_token_score(token.address, token.chain)
+            token_score_data = _get_token_score(token.address, token.chain)
             if token_score_data:
                 score_value = token_score_data.get("security_score", 100)
                 if score_value < 70:
@@ -904,8 +997,7 @@ class GemScanner:
 
         # ── Volume trend adjustment (cross-cycle momentum) ────────────────
         try:
-            from core.volume_trend import VolumeTrendTracker
-            _vtt = VolumeTrendTracker()
+            _vtt = self._volume_tracker
             _vtt.record(token.address, token.chain, token.volume_1h or 0)
             _vt = _vtt.get_trend(token.address, token.chain)
             if _vt["score_bonus"] != 0 and _vt["readings"] >= 3:
@@ -963,8 +1055,7 @@ class GemScanner:
         # ── Dynamic Volume Decay & Holder Momentum (Upgrade 2) ────────────────
         # Incorporate Moralis Deep Analytics if available
         try:
-            from data.providers.moralis_data import get_token_analytics
-            analytics_data = get_token_analytics(token.address, token.chain)
+            analytics_data = _get_token_analytics(token.address, token.chain)
             
             if analytics_data:
                 # 1. Net Buyers & Volume (1 Day or 1 Month based on token age)
@@ -1094,8 +1185,7 @@ class GemScanner:
                         )
                         # Slack alert for high sniper activity
                         try:
-                            from notifications.slack import notify_alert
-                            notify_alert(
+                            _notify_slack(
                                 "🎯 Sniper Warning",
                                 f"{token.symbol} has {sniper_count} snipers "
                                 f"(${sniped_usd:,.0f} sniped) — "
@@ -1252,8 +1342,7 @@ class GemScanner:
                 )
 
             def _get_moralis_meta():
-                from data.providers.moralis_wallet import get_enhanced_token_metadata
-                return get_enhanced_token_metadata([token.address], chain=token.chain)
+                return _get_enhanced_token_metadata([token.address], chain=token.chain)
 
             def _get_moralis_money():
                 return moralis_enrich(token.address, token.chain)
@@ -1411,8 +1500,7 @@ class GemScanner:
             )
             if prelim_score >= 48:
                 try:
-                    from data.providers.grok_sentiment import get_grok_sentiment_score
-                    candidate.grok_sentiment_score = get_grok_sentiment_score(
+                    candidate.grok_sentiment_score = _get_grok_sentiment_score(
                         token.symbol, token.chain
                     )
                 except Exception as e:
@@ -1425,8 +1513,7 @@ class GemScanner:
             # and Perplexity (web search). Score delta applied to grok_sentiment_score.
             if token.chain != "solana" and prelim_score >= 48:
                 try:
-                    from data.providers.moralis_intelligence import cortex_analyze_token
-                    _cortex = cortex_analyze_token(
+                    _cortex = _cortex_analyze_token(
                         token_address=token.address,
                         chain=token.chain,
                         symbol=token.symbol,
@@ -1809,8 +1896,7 @@ class GemScanner:
         # This is the last adjustment so it can cap or boost based on WHERE
         # we are buying, regardless of all other signals.
         try:
-            from data.providers.moralis_money import get_historical_price_context
-            price_ctx = get_historical_price_context(
+            price_ctx = _get_historical_price_context(
                 token_address=token.address,
                 chain=token.chain,
                 current_price=token.price_usd,
@@ -1874,8 +1960,7 @@ class GemScanner:
         # Rejects tokens within 15% of their all-time high — strongest FOMO signal.
         # Graceful no-op if CoinPaprika doesn’t have the token indexed.
         try:
-            from data.providers.coinpaprika import check_alltime_ath_gate
-            cp_reject, cp_reason = check_alltime_ath_gate(
+            cp_reject, cp_reason = _check_alltime_ath_gate(
                 symbol=token.symbol,
                 current_price_usd=token.price_usd,
                 name=getattr(token, "name", ""),

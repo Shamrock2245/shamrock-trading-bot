@@ -36,7 +36,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _helius_get_asset(mint: str) -> Optional[dict]:
     if not _HELIUS_KEY:
         return None
     try:
-        resp = requests.post(
+        resp = get_session().post(
             _HELIUS_RPC,
             json={"jsonrpc": "2.0", "id": 1, "method": "getAsset", "params": {"id": mint}},
             timeout=8,
@@ -122,7 +122,7 @@ def _helius_get_token_accounts(mint: str, limit: int = 20) -> list[dict]:
     if not _HELIUS_KEY:
         return []
     try:
-        resp = requests.post(
+        resp = get_session().post(
             _HELIUS_RPC,
             json={
                 "jsonrpc": "2.0", "id": 1,
@@ -149,7 +149,7 @@ def _helius_get_wallet_transactions(wallet: str, limit: int = 10) -> list[dict]:
     if not _HELIUS_KEY:
         return []
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{_HELIUS_API_BASE}/addresses/{wallet}/transactions",
             params={"api-key": _HELIUS_KEY, "limit": limit, "type": "SWAP"},
             timeout=10,
@@ -167,7 +167,7 @@ def _moralis_solana_price(mint: str) -> Optional[dict]:
     if not _MORALIS_KEY:
         return None
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{_MORALIS_SOL_BASE}/token/mainnet/{mint}/price",
             headers={"X-API-Key": _MORALIS_KEY},
             timeout=8,
@@ -184,7 +184,7 @@ def _moralis_solana_metadata(mint: str) -> Optional[dict]:
     if not _MORALIS_KEY:
         return None
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{_MORALIS_SOL_BASE}/token/mainnet/{mint}/metadata",
             headers={"X-API-Key": _MORALIS_KEY},
             timeout=8,
@@ -204,7 +204,7 @@ def _moralis_solana_wallet_portfolio(wallet: str) -> Optional[dict]:
     if not _MORALIS_KEY:
         return None
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{_MORALIS_SOL_BASE}/account/mainnet/{wallet}/portfolio",
             headers={"X-API-Key": _MORALIS_KEY},
             timeout=10,
@@ -221,7 +221,7 @@ def _moralis_solana_token_pairs(mint: str) -> list[dict]:
     if not _MORALIS_KEY:
         return []
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{_MORALIS_SOL_BASE}/token/mainnet/{mint}/pairs",
             headers={"X-API-Key": _MORALIS_KEY},
             timeout=8,
@@ -238,7 +238,7 @@ def _moralis_solana_token_pairs(mint: str) -> list[dict]:
 def _public_rpc_largest_accounts(mint: str) -> list[dict]:
     """Fallback: fetch largest token accounts via public Solana RPC."""
     try:
-        resp = requests.post(
+        resp = get_session().post(
             "https://api.mainnet-beta.solana.com",
             json={
                 "jsonrpc": "2.0", "id": 1,
@@ -258,7 +258,7 @@ def _public_rpc_largest_accounts(mint: str) -> list[dict]:
 def _public_rpc_supply(mint: str) -> Optional[int]:
     """Fallback: fetch total token supply via public Solana RPC."""
     try:
-        resp = requests.post(
+        resp = get_session().post(
             "https://api.mainnet-beta.solana.com",
             json={
                 "jsonrpc": "2.0", "id": 1,

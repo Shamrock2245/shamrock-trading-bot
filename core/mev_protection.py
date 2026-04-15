@@ -26,7 +26,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from web3 import Web3
@@ -121,7 +122,7 @@ def _simulate_flashbots_bundle(
         "X-Flashbots-Signature": signature,
     }
     try:
-        resp = requests.post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=20)
+        resp = get_session().post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=20)
         resp.raise_for_status()
         result = resp.json()
         if "error" in result:
@@ -183,7 +184,7 @@ def submit_flashbots_bundle(
         "X-Flashbots-Signature": signature,
     }
     try:
-        resp = requests.post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=30)
+        resp = get_session().post(FLASHBOTS_RELAY_URL, data=body, headers=headers, timeout=30)
         resp.raise_for_status()
         result = resp.json()
         if "error" in result:
@@ -224,7 +225,7 @@ def submit_via_flashbots_protect(
         "params": [signed_raw_tx],
     }
     try:
-        resp = requests.post(rpc_url, json=payload, timeout=30)
+        resp = get_session().post(rpc_url, json=payload, timeout=30)
         resp.raise_for_status()
         result = resp.json()
         if "error" in result:
@@ -452,7 +453,7 @@ def submit_jito_bundle(
             logger.debug(f"Jito auth signing failed (proceeding without auth): {e}")
 
     try:
-        resp = requests.post(JITO_BLOCK_ENGINE_URL, json=payload, headers=headers, timeout=30)
+        resp = get_session().post(JITO_BLOCK_ENGINE_URL, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         result = resp.json()
         if "error" in result:
@@ -550,7 +551,7 @@ def get_cow_quote(
         "buyTokenBalance": "erc20",
     }
     try:
-        resp = requests.post(f"{cow_url}/api/v1/quote", json=payload, timeout=20)
+        resp = get_session().post(f"{cow_url}/api/v1/quote", json=payload, timeout=20)
         if resp.status_code in (200, 201):
             return resp.json()
         logger.warning(f"CoW quote failed: {resp.status_code} {resp.text[:200]}")
@@ -639,7 +640,7 @@ def submit_cow_order(
         "from": order.receiver,
     }
     try:
-        resp = requests.post(f"{cow_url}/api/v1/orders", json=order_payload, timeout=20)
+        resp = get_session().post(f"{cow_url}/api/v1/orders", json=order_payload, timeout=20)
         if resp.status_code in (200, 201):
             order_uid = resp.json()
             logger.info(f"CoW order submitted: {order_uid}")

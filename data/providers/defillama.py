@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ _TVL_CACHE_TTL = 1800  # 30 min
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def _get(url: str, timeout: int = 15) -> dict:
     """Make a GET request to DefiLlama API."""
-    resp = requests.get(url, timeout=timeout)
+    resp = get_session().get(url, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 

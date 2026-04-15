@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Any, Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -429,7 +429,7 @@ class MoralisStreamsManager:
     def _get_stream(self, stream_id: str, network: str = "evm") -> Optional[dict]:
         """Get a specific stream's info."""
         try:
-            resp = requests.get(
+            resp = get_session().get(
                 f"{BASE_URL}/streams/{network}/{stream_id}",
                 headers=self._headers,
                 timeout=15,
@@ -443,7 +443,7 @@ class MoralisStreamsManager:
     def _get_all_streams(self, network: str = "evm") -> list[dict]:
         """Get all streams for this API key."""
         try:
-            resp = requests.get(
+            resp = get_session().get(
                 f"{BASE_URL}/streams/{network}?limit=100",
                 headers=self._headers,
                 timeout=15,
@@ -474,7 +474,7 @@ class MoralisStreamsManager:
             return True
         try:
             # Moralis expects address in body as {"address": [...]}
-            resp = requests.post(
+            resp = get_session().post(
                 f"{BASE_URL}/streams/{network}/{stream_id}/address",
                 headers=self._headers,
                 json={"address": addresses},
@@ -496,7 +496,7 @@ class MoralisStreamsManager:
     def _update_stream_status(self, stream_id: str, status: str, network: str = "evm") -> bool:
         """Update stream status (active/paused)."""
         try:
-            resp = requests.post(
+            resp = get_session().post(
                 f"{BASE_URL}/streams/{network}/{stream_id}/status",
                 headers=self._headers,
                 json={"status": status},

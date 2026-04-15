@@ -25,7 +25,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -104,7 +104,7 @@ def get_sol_balance(address: str) -> dict:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/account/{NETWORK}/{address}/balance",
             headers=_headers(),
             timeout=15,
@@ -137,7 +137,7 @@ def get_solana_portfolio(address: str) -> dict:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/account/{NETWORK}/{address}/portfolio",
             params={"excludeSpam": "true"},
             headers=_headers(),
@@ -171,7 +171,7 @@ def get_spl_token_balances(address: str) -> list:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/account/{NETWORK}/{address}/tokens",
             params={"excludeSpam": "true"},
             headers=_headers(),
@@ -225,7 +225,7 @@ def get_token_snipers(pair_address: str, blocks_after_creation: int = 10) -> dic
         if blocks_after_creation:
             params["blocksAfterCreation"] = blocks_after_creation
 
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/token/{NETWORK}/pairs/{pair_address}/snipers",
             params=params,
             headers=_headers(),
@@ -327,7 +327,7 @@ def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/token/{NETWORK}/{token_address}/top-holders",
             params={"limit": limit},
             headers=_headers(),
@@ -399,7 +399,7 @@ def get_pumpfun_graduated(limit: int = 20) -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/token/{NETWORK}/exchange/pumpfun/graduated",
             params={"limit": limit},
             headers=_headers(),
@@ -450,7 +450,7 @@ def get_solana_token_pairs(token_address: str) -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/token/{NETWORK}/{token_address}/pairs",
             headers=_headers(),
             timeout=15,
@@ -496,7 +496,7 @@ def get_solana_token_price(token_address: str) -> dict:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/token/{NETWORK}/{token_address}/price",
             headers=_headers(),
             timeout=10,
@@ -545,7 +545,7 @@ def get_wallet_swaps(
         if token_address:
             params["tokenAddress"] = token_address
 
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/account/{NETWORK}/{address}/swaps",
             params=params,
             headers=_headers(),
@@ -595,7 +595,7 @@ def get_sol_balance_usd(address: str, sol_price: float = 0) -> float:
     if sol_price <= 0:
         # Fallback: get from CoinGecko
         try:
-            resp = requests.get(
+            resp = get_session().get(
                 "https://api.coingecko.com/api/v3/simple/price",
                 params={"ids": "solana", "vs_currencies": "usd"},
                 timeout=8,
@@ -656,7 +656,7 @@ def get_token_ohlcv(
             "limit": limit
         }
         
-        resp = requests.get(url, headers=_headers(), params=params, timeout=10)
+        resp = get_session().get(url, headers=_headers(), params=params, timeout=10)
         
         if resp.status_code == 404:
             logger.debug(f"Moralis Solana OHLCV: pair not found {pair_address}")

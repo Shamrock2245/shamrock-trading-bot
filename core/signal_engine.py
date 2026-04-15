@@ -32,7 +32,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 try:
     import pandas as pd
@@ -94,7 +94,7 @@ def get_ohlcv_geckoterminal(
             f"/pools/{pool_address}/ohlcv/{timeframe}"
         )
         params = {"limit": limit, "currency": "usd"}
-        resp = requests.get(url, params=params, timeout=15)
+        resp = get_session().get(url, params=params, timeout=15)
         resp.raise_for_status()
 
         data = resp.json()

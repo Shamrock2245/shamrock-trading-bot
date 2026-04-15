@@ -17,7 +17,7 @@ import time
 from typing import Optional
 
 import pandas as pd
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -132,7 +132,7 @@ def get_token_price(
         if include_percent_change:
             params["include"] = "percent_change"
 
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/price",
             params=params,
             headers=_headers(),
@@ -208,7 +208,7 @@ def get_batch_prices(
 
     _rate_check()
     try:
-        resp = requests.post(
+        resp = get_session().post(
             f"{BASE_URL}/erc20/prices",
             json=payload,
             headers=_json_headers(),
@@ -296,7 +296,7 @@ def get_ohlcv(
             "limit": min(limit, 500),
             "currency": currency,
         }
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/pairs/{pair_address}/ohlcv",
             params=params,
             headers=_headers(),
@@ -382,7 +382,7 @@ def get_token_metadata(token_address: str, chain: str) -> Optional[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/metadata",
             params={
                 "chain": CHAIN_HEX[chain],

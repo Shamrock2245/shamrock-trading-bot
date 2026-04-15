@@ -36,7 +36,7 @@ import os
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def _call_perplexity(symbol: str, name: str, address: str, chain: str) -> dict:
         "Content-Type": "application/json",
     }
 
-    resp = requests.post(
+    resp = get_session().post(
         f"{_BASE_URL}/chat/completions",
         json=payload,
         headers=headers,

@@ -25,7 +25,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ def check_deployer_wallet(
     try:
         # ── Fraud Detection ───────────────────────────────────────────────────
         fraud_url = f"{_API_BASE}/fraud_detection"
-        fraud_resp = requests.post(
+        fraud_resp = get_session().post(
             fraud_url,
             json={"apiKey": api_key, "network": network, "walletAddress": wallet_address},
             timeout=_TIMEOUT,
@@ -244,7 +245,7 @@ def check_deployer_wallet(
         if result.checked and not result.is_blocked:
             try:
                 behav_url = f"{_API_BASE}/behavioral_prediction"
-                behav_resp = requests.post(
+                behav_resp = get_session().post(
                     behav_url,
                     json={"apiKey": api_key, "network": network, "walletAddress": wallet_address},
                     timeout=_TIMEOUT,

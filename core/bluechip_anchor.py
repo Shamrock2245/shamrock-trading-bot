@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ def _fetch_blue_chip_prices() -> dict:
         f"&order=market_cap_desc&per_page=10&page=1"
     )
     try:
-        resp = requests.get(url, timeout=10)
+        resp = get_session().get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 

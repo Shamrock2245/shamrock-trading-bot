@@ -27,7 +27,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -149,7 +149,7 @@ def get_wallet_net_worth(
                 params["chains[]"].append(ch)
 
         # Use requests with multiple chain params
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/net-worth",
             params=[("chains[]", ch) for ch in chain_hexes]
                 + [("exclude_spam", str(exclude_spam).lower()),
@@ -255,7 +255,7 @@ def get_wallet_pnl(
             "chain": CHAIN_HEX[chain],
             "days": days,
         }
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/profitability",
             params=params,
             headers=_headers(),
@@ -348,7 +348,7 @@ def get_wallet_token_balances(
             "chain": CHAIN_HEX[chain],
             "exclude_spam": str(exclude_spam).lower(),
         }
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/{wallet_address}/erc20",
             params=params,
             headers=_headers(),
@@ -433,7 +433,7 @@ def get_wallet_pnl_summary(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/profitability/summary",
             params={"chain": CHAIN_HEX[chain], "days": days},
             headers=_headers(),
@@ -524,7 +524,7 @@ def get_wallet_token_balances_v2(
         if max_token_inactivity_days > 0:
             params["max_token_inactivity"] = str(max_token_inactivity_days)
 
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/tokens",
             params=params,
             headers=_headers(),
@@ -600,7 +600,7 @@ def get_wallet_stats(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/stats",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),
@@ -680,7 +680,7 @@ def get_enhanced_token_metadata(
         for addr in token_addresses:
             params.append(("addresses", addr))
 
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/metadata",
             params=params,
             headers=_headers(),
@@ -798,7 +798,7 @@ def get_wallet_swaps(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/swaps",
             params={
                 "chain": CHAIN_HEX[chain],
@@ -1015,7 +1015,7 @@ def get_wallet_insights(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/insights",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),

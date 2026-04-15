@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def _fetch_ohlcv(pair_address: str, resolution: str = "1h",
     try:
         # DexScreener OHLCV endpoint (free, no key needed)
         url = f"https://api.dexscreener.com/latest/dex/pairs/solana/{pair_address}"
-        resp = requests.get(url, timeout=10)
+        resp = get_session().get(url, timeout=10)
         data = resp.json()
         pair = data.get("pair") or data.get("pairs", [{}])[0]
 
@@ -158,7 +158,7 @@ def _fetch_market_metrics() -> dict:
             "order": "market_cap_desc",
             "sparkline": "false",
         }
-        resp = requests.get(url, params=params, timeout=10)
+        resp = get_session().get(url, params=params, timeout=10)
         data = resp.json()
 
         metrics = {}

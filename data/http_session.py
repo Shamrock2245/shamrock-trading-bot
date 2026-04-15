@@ -1,0 +1,42 @@
+"""
+data/http_session.py — Shared requests.Session with connection pooling.
+
+Every provider module should use `get_session()` instead of raw `requests.get/post`.
+Benefits:
+  - HTTP keep-alive reuses TCP+SSL connections (saves ~100ms per call)
+  - Connection pool limits prevent socket exhaustion
+  - Retry policy with exponential backoff built-in
+  - Thread-safe by default (requests.Session uses urllib3 thread-safe pools)
+
+Usage:
+    from data.http_session import get_session
+    resp = get_session().get(url, timeout=15)
+"""
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+_session: requests.Session | None = None
+
+
+def get_session() -> requests.Session:
+    """Return a shared requests.Session with connection pooling and retry policy."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,  # Let callers handle status codes
+        )
+        adapter = HTTPAdapter(
+            pool_connections=20,   # Number of distinct hosts to pool
+            pool_maxsize=20,       # Max connections per host
+            max_retries=retries,
+        )
+        _session.mount("https://", adapter)
+        _session.mount("http://", adapter)
+    return _session

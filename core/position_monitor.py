@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 from data.providers.moralis_money import get_token_analytics_fresh
@@ -161,7 +161,7 @@ def get_current_price(token_address: str, chain: str, pair_address: str = "") ->
             else:
                 url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
 
-            resp = requests.get(url, timeout=10)
+            resp = get_session().get(url, timeout=10)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = f"HTTP {resp.status_code}"
                 time.sleep(1.5 * (2 ** attempt))  # 1.5s, 3s, 6s
@@ -201,7 +201,7 @@ def get_price_and_volume(token_address: str, chain: str, pair_address: str = "")
             else:
                 url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
 
-            resp = requests.get(url, timeout=10)
+            resp = get_session().get(url, timeout=10)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = f"HTTP {resp.status_code}"
                 time.sleep(1.5 * (2 ** attempt))
@@ -267,7 +267,7 @@ def batch_get_prices_and_volumes(positions: list[dict]) -> dict[str, dict]:
         batch_str = ",".join(batch)
         try:
             url = f"https://api.dexscreener.com/latest/dex/tokens/{batch_str}"
-            resp = requests.get(url, timeout=15)
+            resp = get_session().get(url, timeout=15)
             data = resp.json()
             all_pairs = data.get("pairs", [])
 

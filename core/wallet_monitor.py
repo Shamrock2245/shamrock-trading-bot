@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Callable
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -266,13 +266,13 @@ def _get_evm_recent_swaps(
             "order": "DESC",
         }
         headers = {"X-API-Key": MORALIS_API_KEY, "Accept": "application/json"}
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp = get_session().get(url, params=params, headers=headers, timeout=10)
 
         if resp.status_code == 404:
             # Fallback: use token transfers endpoint
             url = f"{_MORALIS_BASE}/{wallet_address}/erc20/transfers"
             params = {"chain": chain_id, "limit": 20, "order": "DESC"}
-            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            resp = get_session().get(url, params=params, headers=headers, timeout=10)
 
         if resp.status_code != 200:
             logger.debug(f"Moralis swap fetch failed for {wallet_address[:10]}...: HTTP {resp.status_code}")
@@ -498,7 +498,7 @@ def _get_solana_recent_swaps_helius(
                 {"limit": 20, "commitment": "confirmed"},
             ],
         }
-        resp = requests.post(_HELIUS_RPC, json=payload, timeout=10)
+        resp = get_session().post(_HELIUS_RPC, json=payload, timeout=10)
         sigs_data = resp.json()
         signatures = sigs_data.get("result", [])
         if not signatures:
@@ -526,7 +526,7 @@ def _get_solana_recent_swaps_helius(
                         {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
                     ],
                 }
-                tx_resp = requests.post(_HELIUS_RPC, json=tx_payload, timeout=10)
+                tx_resp = get_session().post(_HELIUS_RPC, json=tx_payload, timeout=10)
                 tx_data = tx_resp.json().get("result")
                 if not tx_data:
                     continue

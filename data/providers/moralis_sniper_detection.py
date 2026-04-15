@@ -25,7 +25,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ def _fetch_recent_swaps(wallet_address: str, chain: str) -> list[dict]:
     for chain_name, chain_hex in CHAIN_HEX.items():
         _rate_check()
         try:
-            resp = requests.get(
+            resp = get_session().get(
                 f"{MORALIS_BASE_URL}/wallets/{wallet_address}/swaps",
                 params={
                     "chain": chain_hex,

@@ -20,7 +20,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
@@ -205,7 +205,7 @@ def _find_solana_creator(token_address: str) -> Optional[str]:
                 {"encoding": "jsonParsed"}
             ],
         }
-        resp = requests.post(rpc_url, json=payload, timeout=10)
+        resp = get_session().post(rpc_url, json=payload, timeout=10)
         data = resp.json()
         result = data.get("result", {})
         value = result.get("value", {})
@@ -232,7 +232,7 @@ def _solana_get_signatures(address: str, limit: int = 20) -> list[dict]:
             "method": "getSignaturesForAddress",
             "params": [address, {"limit": limit}],
         }
-        resp = requests.post(settings.SOLANA_RPC_URL, json=payload, timeout=15)
+        resp = get_session().post(settings.SOLANA_RPC_URL, json=payload, timeout=15)
         data = resp.json()
         return data.get("result", [])
     except Exception as e:
@@ -252,7 +252,7 @@ def _solana_get_transaction(signature: str) -> Optional[dict]:
                 {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
             ],
         }
-        resp = requests.post(settings.SOLANA_RPC_URL, json=payload, timeout=10)
+        resp = get_session().post(settings.SOLANA_RPC_URL, json=payload, timeout=10)
         data = resp.json()
         return data.get("result")
     except Exception as e:

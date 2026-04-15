@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def _ema(prices: list[float], period: int) -> float:
 def _fetch_coin_history(coin_id: str, days: int = 200) -> list[float]:
     """Fetch daily close prices from CoinGecko with CoinPaprika fallback."""
     try:
-        r = requests.get(
+        r = get_session().get(
             f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
             params={"vs_currency": "usd", "days": str(days), "interval": "daily"},
             timeout=15,
@@ -150,7 +150,7 @@ def _fetch_coin_history(coin_id: str, days: int = 200) -> list[float]:
 def _fetch_fear_greed() -> tuple[int, str]:
     """Fetch current Fear & Greed Index from alternative.me. Returns (value, label)."""
     try:
-        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=10)
+        r = get_session().get("https://api.alternative.me/fng/?limit=1", timeout=10)
         r.raise_for_status()
         data = r.json()
         entry = data.get("data", [{}])[0]
@@ -176,7 +176,7 @@ def _fetch_btc_dominance() -> float:
         logger.debug(f"MacroFilter: Moralis BTC dominance failed: {_m_err}")
     # ── Fallback: CoinGecko free tier ─────────────────────────────────────────
     try:
-        r = requests.get(
+        r = get_session().get(
             "https://api.coingecko.com/api/v3/global",
             timeout=10,
         )

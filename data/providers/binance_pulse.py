@@ -17,7 +17,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def get_smart_money_inflow(
     url = f"{_BASE_URL}/tracker/wallet/token/inflow/rank/query/ai"
 
     try:
-        resp = requests.post(
+        resp = get_session().post(
             url,
             json={
                 "chainId": chain_id,
@@ -246,7 +246,7 @@ def get_social_hype(
     )
 
     try:
-        resp = requests.get(
+        resp = get_session().get(
             url,
             params={
                 "chainId": chain_id,
@@ -360,7 +360,7 @@ def get_trending_tokens(
     )
 
     try:
-        resp = requests.post(
+        resp = get_session().post(
             url,
             json={
                 "rankType": rank_type,

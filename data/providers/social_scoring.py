@@ -20,7 +20,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -95,7 +95,7 @@ def _get_trending_symbols() -> set[str]:
         headers = {}
         if settings.COINGECKO_API_KEY:
             headers["x-cg-demo-api-key"] = settings.COINGECKO_API_KEY
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = get_session().get(url, headers=headers, timeout=10)
         data = resp.json()
         coins = data.get("coins", [])
         trending = {c["item"]["symbol"].upper() for c in coins if c.get("item")}

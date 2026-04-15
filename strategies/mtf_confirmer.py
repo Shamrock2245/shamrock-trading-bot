@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ def _fetch_candles(pair_address: str, chain: str, timeframe: str,
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=10, headers={
+        resp = get_session().get(url, params=params, timeout=10, headers={
             "Accept": "application/json;version=20230302"
         })
         resp.raise_for_status()

@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
@@ -44,7 +44,7 @@ def _headers() -> dict:
 def _get(endpoint: str, params: dict = None) -> dict:
     _rate_limit()
     url = f"{_get_url()}{endpoint}"
-    resp = requests.get(url, headers=_headers(), params=params, timeout=15)
+    resp = get_session().get(url, headers=_headers(), params=params, timeout=15)
     resp.raise_for_status()
     return resp.json()
 

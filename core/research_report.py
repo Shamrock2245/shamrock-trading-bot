@@ -84,8 +84,8 @@ def _position_size_recommendation(gem_score: float, capital_usd: float) -> dict:
 def _fetch_token_data(token_address: str, chain: str) -> dict:
     """Fetch basic token data from DexScreener for standalone report generation."""
     try:
-        import requests
-        r = requests.get(
+        from data.http_session import get_session
+        r = get_session().get(
             f"https://api.dexscreener.com/latest/dex/tokens/{token_address}",
             timeout=10,
         )

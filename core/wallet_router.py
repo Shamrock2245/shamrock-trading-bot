@@ -284,7 +284,8 @@ def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
     Tries each RPC once — first success wins.
     """
     import time
-    import requests
+    import requests  # kept for exceptions
+    from data.http_session import get_session
 
     # Normalize to EIP-55 checksum address (prevents silent 0x0 from RPCs)
     try:
@@ -338,7 +339,7 @@ def _get_evm_balance(wallet_address: str, chain: ChainConfig) -> float:
 
     for rpc_url in rpc_pool:
         try:
-            resp = requests.post(rpc_url, json=payload, timeout=6)
+            resp = get_session().post(rpc_url, json=payload, timeout=6)
             data = resp.json()
             if "error" in data:
                 logger.debug(f"RPC error from {rpc_url}: {data['error']} — trying next")
@@ -373,14 +374,13 @@ def _get_sol_balance(wallet_address: str) -> float:
         if not rpc_url:
             continue
         try:
-            import requests
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getBalance",
                 "params": [wallet_address],
             }
-            resp = requests.post(rpc_url, json=payload, timeout=10)
+            resp = get_session().post(rpc_url, json=payload, timeout=10)
             data = resp.json()
             if "result" in data and "value" in data["result"]:
                 lamports = data["result"]["value"]
@@ -405,7 +405,6 @@ def get_native_price_usd(native_token: str) -> float:
         "AVAX": 35.0,
     }
     try:
-        import requests
         coin_ids = {
             "ETH": "ethereum",
             "MATIC": "matic-network",
@@ -422,7 +421,7 @@ def get_native_price_usd(native_token: str) -> float:
             return _FALLBACK_PRICES.get(native_token.upper(), 1.0)
         url = "https://api.coingecko.com/api/v3/simple/price"
         params = {"ids": coin_id, "vs_currencies": "usd"}
-        resp = requests.get(url, params=params, timeout=10)
+        resp = get_session().get(url, params=params, timeout=10)
         data = resp.json()
         return float(data.get(coin_id, {}).get("usd", _FALLBACK_PRICES.get(native_token, 1.0)))
     except Exception as e:
@@ -910,7 +909,7 @@ def get_usdc_balance(wallet_address: str, chain: str) -> float:
                     "params": [{"to": chain_config.usdc_address, "data": data}, "latest"],
                     "id": 1
                 }
-                resp = requests.post(rpc_url, json=payload, timeout=5)
+                resp = get_session().post(rpc_url, json=payload, timeout=5)
                 if resp.status_code == 200:
                     res_json = resp.json()
                     if "result" in res_json and res_json["result"] != "0x":

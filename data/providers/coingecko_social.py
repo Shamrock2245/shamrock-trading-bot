@@ -17,7 +17,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def _get(endpoint: str, params: dict = None) -> dict:
     _rate_limit()
     url = f"{BASE_URL}{endpoint}"
     headers = {"Accept": "application/json"}
-    resp = requests.get(url, headers=headers, params=params, timeout=10)
+    resp = get_session().get(url, headers=headers, params=params, timeout=10)
     if resp.status_code == 429:
         logger.warning("CoinGecko: Rate limit hit (429), backing off...")
         time.sleep(10)

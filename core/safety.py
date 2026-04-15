@@ -25,7 +25,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 from requests.exceptions import HTTPError as RequestsHTTPError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -141,7 +142,7 @@ def _call_goplus(token_address: str, chain_id: str) -> dict:
     goplus_key = getattr(settings, "GOPLUS_API_KEY", "") or ""
     if goplus_key:
         headers["Authorization"] = goplus_key
-    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    resp = get_session().get(url, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     result = data.get("result", {})
@@ -154,7 +155,7 @@ def _call_honeypot_is(token_address: str, chain_id: int) -> dict:
     """Call Honeypot.is API — simulates buy+sell on-chain."""
     url = "https://api.honeypot.is/v2/IsHoneypot"
     params = {"address": token_address, "chainID": chain_id}
-    resp = requests.get(url, params=params, timeout=20)
+    resp = get_session().get(url, params=params, timeout=20)
     resp.raise_for_status()
     return resp.json()
 
@@ -167,7 +168,7 @@ def _call_tokensniffer(token_address: str, chain_id: int) -> dict:
         return {}
     url = f"https://tokensniffer.com/api/v2/tokens/{chain_id}/{token_address}"
     headers = {"x-api-key": api_key}
-    resp = requests.get(url, headers=headers, timeout=15)
+    resp = get_session().get(url, headers=headers, timeout=15)
     if resp.status_code == 404:
         return {}  # Token not indexed yet — not a blocker
     resp.raise_for_status()
@@ -212,7 +213,7 @@ def _call_rugcheck(token_address: str) -> dict:
 
     url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
     try:
-        resp = requests.get(url, timeout=10)
+        resp = get_session().get(url, timeout=10)
         if resp.status_code == 404:
             return {}  # Token not indexed — new token, expected
         if resp.status_code >= 400:

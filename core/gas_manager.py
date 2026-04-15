@@ -203,7 +203,7 @@ def _replenish_gas_evm(
     Uses the same 1inch infrastructure the executor uses for trading,
     but swaps USDC → native (ETH address 0xeee...).
     """
-    import requests
+    from data.http_session import get_session
     from web3 import Web3
 
     native_address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
@@ -252,7 +252,7 @@ def _replenish_gas_evm(
             "disableEstimate": "false",
         }
 
-        resp = requests.get(url, headers=headers, params=swap_params, timeout=20)
+        resp = get_session().get(url, headers=headers, params=swap_params, timeout=20)
         if resp.status_code != 200:
             logger.error(f"Gas manager: 1inch swap failed ({resp.status_code}): {resp.text[:200]}")
             return None

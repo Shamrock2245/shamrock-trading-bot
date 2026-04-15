@@ -24,7 +24,7 @@ import time
 from typing import Optional
 
 import pandas as pd
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.chains import DEXSCREENER_CHAIN_MAP
@@ -93,7 +93,7 @@ def _fetch_geckoterminal_pools(token_address: str, chain: str) -> list[dict]:
     gt_chain = GECKOTERMINAL_CHAIN_MAP.get(chain, chain)
     url = f"{GECKOTERMINAL_BASE}/networks/{gt_chain}/tokens/{token_address.lower()}/pools"
     params = {"page": 1}
-    resp = requests.get(url, params=params, timeout=15)
+    resp = get_session().get(url, params=params, timeout=15)
     if resp.status_code == 404:
         return []
     resp.raise_for_status()
@@ -129,7 +129,7 @@ def _fetch_geckoterminal_ohlcv(
         f"/pools/{pool_address.lower()}/ohlcv/{timeframe}"
     )
     params = {"aggregate": aggregate, "limit": min(limit, 1000), "currency": "usd"}
-    resp = requests.get(url, params=params, timeout=20)
+    resp = get_session().get(url, params=params, timeout=20)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
@@ -267,7 +267,7 @@ def _fetch_coingecko_ohlc(
     params = {"vs_currency": "usd", "days": days}
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = get_session().get(url, params=params, timeout=15)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -320,7 +320,7 @@ def _fetch_dexscreener_pairs(token_address: str) -> list[dict]:
     """Fetch all pairs for a token from DexScreener."""
     _dex_rate_limit()
     url = f"{DEXSCREENER_BASE}/dex/tokens/{token_address}"
-    resp = requests.get(url, timeout=15)
+    resp = get_session().get(url, timeout=15)
     resp.raise_for_status()
     return resp.json().get("pairs", [])
 
@@ -562,7 +562,7 @@ def get_current_price_geckoterminal(chain: str, pool_address: str) -> Optional[f
         gt_chain = GECKOTERMINAL_CHAIN_MAP.get(chain, chain)
         _gt_rate_limit()
         url = f"{GECKOTERMINAL_BASE}/networks/{gt_chain}/pools/{pool_address.lower()}"
-        resp = requests.get(url, timeout=10)
+        resp = get_session().get(url, timeout=10)
         if resp.status_code != 200:
             return None
         data = resp.json()

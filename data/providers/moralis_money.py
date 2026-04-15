@@ -43,7 +43,8 @@ Rate limiting: 25 req/min enforced via token bucket. 10-minute cache per chain/t
 import logging
 import time
 from typing import Optional
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 
 from config import settings
 
@@ -229,7 +230,7 @@ def get_filtered_tokens(
             "timeFramesToReturn": ["oneHour", "fourHours", "oneDay"],
             "excludeMetadata": False,
         }
-        resp = requests.post(
+        resp = get_session().post(
             f"{BASE_URL}/discovery/tokens",
             json=payload,
             headers=_json_headers(),
@@ -388,7 +389,7 @@ def get_whale_accumulation_tokens(
             "timeFramesToReturn": ["oneDay", "oneWeek"],
             "excludeMetadata": False,
         }
-        resp = requests.post(
+        resp = get_session().post(
             f"{BASE_URL}/discovery/tokens",
             json=payload,
             headers=_json_headers(),
@@ -480,7 +481,7 @@ def get_trending_tokens(chain: str) -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/trending",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -520,7 +521,7 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/top-gainers",
             params={"chain": moralis_chain, "time_frame": time_frame},
             headers=_headers(),
@@ -584,7 +585,7 @@ def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/top-losers",
             params={"chain": moralis_chain, "time_frame": time_frame},
             headers=_headers(),
@@ -638,7 +639,7 @@ def get_buying_pressure_tokens(chain: str) -> list[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/buying-pressure",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -680,7 +681,7 @@ def get_token_score(token_address: str, chain: str) -> Optional[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/tokens/{token_address}/score",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -737,7 +738,7 @@ def get_token_analytics(token_address: str, chain: str) -> Optional[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/tokens/{token_address}/analytics",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -931,7 +932,7 @@ def get_batch_analytics(tokens: list[dict]) -> list[dict]:
 
         _rate_check()
         try:
-            resp = requests.post(
+            resp = get_session().post(
                 f"{BASE_URL}/tokens/analytics",
                 json=payload,
                 headers=_json_headers(),
@@ -961,7 +962,7 @@ def get_token_stats(token_address: str, chain: str) -> Optional[dict]:
     moralis_chain = CHAIN_MAP[chain]
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/stats",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -983,7 +984,7 @@ def get_holder_count(token_address: str, chain: str) -> int:
     moralis_chain = CHAIN_MAP[chain]
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/owners",
             params={"chain": moralis_chain, "limit": 1},
             headers=_headers(),
@@ -1019,7 +1020,7 @@ def get_discovery_token_details(token_address: str, chain: str) -> Optional[dict
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/token",
             params={"chain": moralis_chain, "token_address": token_address},
             headers=_headers(),
@@ -1097,7 +1098,7 @@ def get_bonding_status(token_address: str, chain: str) -> Optional[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/tokens/{token_address}/bonding-status",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -1139,7 +1140,7 @@ def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/pairs/stats",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -1210,7 +1211,7 @@ def get_graduated_tokens_by_exchange(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/graduated-by-exchange",
             params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
             headers=_headers(),
@@ -1272,7 +1273,7 @@ def get_new_tokens_by_exchange(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/discovery/tokens/new-by-exchange",
             params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
             headers=_headers(),
@@ -1348,7 +1349,7 @@ def get_erc20_pairs(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/pairs",
             params={"chain": moralis_chain, "limit": limit},
             headers=_headers(),
@@ -1445,7 +1446,7 @@ def get_pair_stats(
 
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/pairs/{pair_address}/stats",
             params={"chain": moralis_chain},
             headers=_headers(),
@@ -1678,7 +1679,7 @@ def get_historical_price_context(
         # Resolve pair address if not provided — use most liquid DexScreener pair
         if not pair_address:
             pair_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
-            resp = requests.get(pair_url, timeout=8)
+            resp = get_session().get(pair_url, timeout=8)
             if resp.status_code != 200:
                 return neutral
             pairs = resp.json().get("pairs", [])
@@ -1702,7 +1703,7 @@ def get_historical_price_context(
         ohlcv_url = (
             f"https://api.dexscreener.com/latest/dex/pairs/{dex_chain}/{pair_address}"
         )
-        ohlcv_resp = requests.get(ohlcv_url, timeout=10)
+        ohlcv_resp = get_session().get(ohlcv_url, timeout=10)
         if ohlcv_resp.status_code != 200:
             return neutral
 

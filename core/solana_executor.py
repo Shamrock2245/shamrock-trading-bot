@@ -43,7 +43,8 @@ import os
 import time
 from typing import Optional
 
-import requests
+import requests  # kept for exceptions
+from data.http_session import get_session
 
 from config import settings
 from config.chains import CHAINS
@@ -123,7 +124,7 @@ def get_jupiter_quote(
     for base_url in urls_to_try:
         try:
             url = f"{base_url}/quote"
-            resp = requests.get(url, params=params, headers=_jupiter_headers(), timeout=15)
+            resp = get_session().get(url, params=params, headers=_jupiter_headers(), timeout=15)
             if resp.status_code == 401 and base_url != _JUPITER_LITE_URL:
                 logger.warning(f"Jupiter primary API returned 401 — falling back to lite-api")
                 continue
@@ -178,7 +179,7 @@ def get_jupiter_swap_transaction(
     for base_url in urls_to_try:
         try:
             url = f"{base_url}/swap"
-            resp = requests.post(url, json=payload, headers=_jupiter_headers(), timeout=20)
+            resp = get_session().post(url, json=payload, headers=_jupiter_headers(), timeout=20)
             if resp.status_code == 401 and base_url != _JUPITER_LITE_URL:
                 logger.warning("Jupiter swap primary 401 — trying lite-api")
                 continue
@@ -221,7 +222,7 @@ def _poll_tx_confirmation(
                 "method": "getSignatureStatuses",
                 "params": [[signature], {"searchTransactionHistory": False}],
             }
-            resp = requests.post(rpc_url, json=payload, timeout=10)
+            resp = get_session().post(rpc_url, json=payload, timeout=10)
             result = resp.json()
             statuses = result.get("result", {}).get("value", [])
             if statuses and statuses[0] is not None:
@@ -323,7 +324,7 @@ def sign_and_send_transaction(
 
         def broadcast_to_rpc(url: str, payload: dict) -> dict:
             try:
-                resp = requests.post(url, json=payload, timeout=10)
+                resp = get_session().post(url, json=payload, timeout=10)
                 return {"url": url, "result": resp.json(), "error": None}
             except Exception as e:
                 return {"url": url, "result": None, "error": str(e)}

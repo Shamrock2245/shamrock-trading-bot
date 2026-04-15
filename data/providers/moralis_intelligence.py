@@ -56,7 +56,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 
@@ -176,7 +176,7 @@ def get_top_traders(token_address: str, chain: str, limit: int = 10) -> list[dic
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/top-traders",
             params={"chain": CHAIN_HEX[chain], "limit": limit},
             headers=_headers(),
@@ -263,7 +263,7 @@ def get_evm_snipers(token_address: str, chain: str) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/snipers",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),
@@ -323,7 +323,7 @@ def get_token_score_timeseries(token_address: str, chain: str, days: int = 7) ->
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/tokens/{token_address}/score/historical",
             params={"chain": CHAIN_HEX[chain], "days": days},
             headers=_headers(),
@@ -384,7 +384,7 @@ def get_analytics_timeseries(token_address: str, chain: str, timeframe: str = "1
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.post(
+        resp = get_session().post(
             f"{BASE_URL}/tokens/analytics/timeseries",
             json={
                 "tokens": [{"token_address": token_address, "chain": CHAIN_HEX[chain]}],
@@ -458,7 +458,7 @@ def get_holder_stats(token_address: str, chain: str) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/holders/stats",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),
@@ -509,7 +509,7 @@ def get_holder_growth(token_address: str, chain: str, days: int = 7) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/holders/historical",
             params={"chain": CHAIN_HEX[chain], "days": days},
             headers=_headers(),
@@ -577,7 +577,7 @@ def get_token_swaps(token_address: str, chain: str, limit: int = 20) -> list[dic
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/swaps",
             params={"chain": CHAIN_HEX[chain], "limit": limit, "order": "DESC"},
             headers=_headers(),
@@ -663,7 +663,7 @@ def get_wallet_history(wallet_address: str, limit: int = 50) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/history",
             params={"limit": limit},
             headers=_headers(),
@@ -703,7 +703,7 @@ def get_wallet_approvals(wallet_address: str, chain: str) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/approvals",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),
@@ -744,7 +744,7 @@ def get_wallet_chain_activity(wallet_address: str) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/chains",
             headers=_headers(),
             timeout=8,
@@ -781,7 +781,7 @@ def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/defi/positions",
             params={"chain": CHAIN_HEX[chain]},
             headers=_headers(),
@@ -848,7 +848,7 @@ def get_chain_metrics() -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/volume/chains",
             headers=_headers(),
             timeout=10,
@@ -918,7 +918,7 @@ def get_category_metrics() -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/volume/categories",
             headers=_headers(),
             timeout=10,
@@ -965,7 +965,7 @@ def search_tokens(query: str, chain: str = None, limit: int = 10) -> list[dict]:
         params: dict = {"q": query, "limit": limit}
         if chain and chain in CHAIN_HEX:
             params["chain"] = CHAIN_HEX[chain]
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/tokens/search",
             params=params,
             headers=_headers(),
@@ -1017,7 +1017,7 @@ def get_pumpfun_new_tokens(limit: int = 20) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/exchange/pumpfun/new",
             params={"limit": limit},
             headers=_headers(),
@@ -1061,7 +1061,7 @@ def get_pumpfun_bonding_tokens(limit: int = 20) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/exchange/pumpfun/bonding",
             params={"limit": limit},
             headers=_headers(),
@@ -1106,7 +1106,7 @@ def get_solana_holder_stats(token_address: str) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/stats",
             headers=_headers(),
             timeout=8,
@@ -1153,7 +1153,7 @@ def get_solana_holder_growth(token_address: str, days: int = 7) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/historical",
             params={"days": days},
             headers=_headers(),
@@ -1201,7 +1201,7 @@ def get_solana_score_timeseries(token_address: str, days: int = 7) -> dict:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/score/historical",
             params={"days": days},
             headers=_headers(),
@@ -1564,7 +1564,7 @@ def get_token_security(token_address: str, chain: str) -> Optional[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/erc20/{token_address}/security",
             params={"chain": chain_hex},
             headers=_headers(),
@@ -1608,7 +1608,7 @@ def get_wallet_labels(address: str) -> Optional[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/wallets/{address}/labels",
             headers=_headers(),
             timeout=10,
@@ -1652,7 +1652,7 @@ def get_entity_label(address: str) -> Optional[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/entities/search",
             params={"query": address, "limit": 1},
             headers=_headers(),
@@ -1697,7 +1697,7 @@ def get_global_market_metrics() -> Optional[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/market-data/global/market-cap",
             headers=_headers(),
             timeout=10,
@@ -1730,7 +1730,7 @@ def get_top_crypto_by_market_cap(limit: int = 10) -> list[dict]:
         return _get_cache(cache_key)
     _rate_check()
     try:
-        resp = requests.get(
+        resp = get_session().get(
             f"{BASE_URL}/market-data/top-cryptocurrencies-by-market-cap",
             params={"top": limit},
             headers=_headers(),
@@ -1790,7 +1790,7 @@ def cortex_analyze_token(
     _rate_check()
     try:
         chain_hex = CHAIN_HEX.get(chain, chain)
-        resp = requests.post(
+        resp = get_session().post(
             f"{BASE_URL}/cortex/chat",
             json={
                 "messages": [{"role": "user", "content": question}],

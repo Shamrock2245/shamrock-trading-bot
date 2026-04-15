@@ -17,7 +17,7 @@ import logging
 import os
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def _post_via_bot(text: str, channel: str, blocks: Optional[list] = None) -> boo
         payload["blocks"] = blocks
 
     try:
-        resp = requests.post(
+        resp = get_session().post(
             "https://slack.com/api/chat.postMessage",
             headers={
                 "Authorization": "Bearer {}".format(SLACK_BOT_TOKEN),
@@ -70,7 +70,7 @@ def _post_via_webhook(text: str) -> bool:
         return False
 
     try:
-        resp = requests.post(
+        resp = get_session().post(
             SLACK_WEBHOOK_URL,
             json={"text": text},
             timeout=10,

@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 from config.chains import CHAINS, GOPLUS_CHAIN_MAP
@@ -105,7 +105,7 @@ def _get_top_holders_etherscan(token_address: str, chain: str) -> list[str]:
     }
 
     try:
-        resp = requests.get(api_url, params=params, timeout=10)
+        resp = get_session().get(api_url, params=params, timeout=10)
         data = resp.json()
         if data.get("status") == "1" and data.get("result"):
             return [h.get("TokenHolderAddress", "").lower() for h in data["result"]]
@@ -138,7 +138,7 @@ def _get_top_holders_goplus(token_address: str, chain: str) -> list[str]:
     try:
         url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
         params = {"contract_addresses": token_address}
-        resp = requests.get(url, params=params, timeout=10)
+        resp = get_session().get(url, params=params, timeout=10)
         data = resp.json()
 
         result = data.get("result", {})
@@ -162,7 +162,7 @@ def _get_top_holders_solana(token_address: str) -> list[str]:
     try:
         url = f"https://public-api.solscan.io/token/holders"
         params = {"tokenAddress": token_address, "limit": 20, "offset": 0}
-        resp = requests.get(url, params=params, timeout=10)
+        resp = get_session().get(url, params=params, timeout=10)
         data = resp.json()
         holders = data.get("data", [])
         return [h.get("owner", "").lower() for h in holders if h.get("owner")]

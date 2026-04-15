@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config import settings
@@ -68,7 +68,7 @@ def get_quote(
         "includeGas": "true",
     }
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=15)
+        resp = get_session().get(url, headers=_headers(), params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.HTTPError as e:
@@ -117,7 +117,7 @@ def get_swap_data(
         "allowPartialFill": "false",
     }
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=20)
+        resp = get_session().get(url, headers=_headers(), params=params, timeout=20)
         resp.raise_for_status()
         return resp.json()
     except requests.HTTPError as e:
@@ -138,7 +138,7 @@ def get_token_allowance(
     url = f"{settings.ONEINCH_API_URL}/{chain_id}/approve/allowance"
     params = {"tokenAddress": token_address, "walletAddress": wallet_address}
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=10)
+        resp = get_session().get(url, headers=_headers(), params=params, timeout=10)
         resp.raise_for_status()
         return int(resp.json().get("allowance", 0))
     except Exception as e:
@@ -154,7 +154,7 @@ def get_approve_calldata(chain_id: int, token_address: str) -> Optional[dict]:
     url = f"{settings.ONEINCH_API_URL}/{chain_id}/approve/transaction"
     params = {"tokenAddress": token_address}
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=10)
+        resp = get_session().get(url, headers=_headers(), params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:

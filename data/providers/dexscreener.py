@@ -18,18 +18,24 @@ Rate limits: 60 req/min (profiles, boosts, CTO, ads, orders)
             300 req/min (pairs, search, token lookups)
 """
 
+import json as _json
 import logging
 import time
 from typing import Optional
 
-import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.dexscreener.com"
 _last_request_time = 0.0
 _MIN_REQUEST_INTERVAL = 1.0  # 60 req/min = 1 req/sec minimum spacing
+
+# ── Response TTL cache (prevents duplicate calls within a scan cycle) ─────────
+_response_cache: dict[str, tuple[float, any]] = {}
+_CACHE_TTL = 30  # seconds
 
 
 def _rate_limit():
@@ -43,12 +49,20 @@ def _rate_limit():
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=15))
 def _get(endpoint: str, params: dict = None) -> dict:
-    """Make a GET request to DexScreener API."""
+    """Make a GET request to DexScreener API with TTL caching."""
+    cache_key = f"{endpoint}:{_json.dumps(params, sort_keys=True) if params else ''}"
+    cached = _response_cache.get(cache_key)
+    if cached:
+        ts, data = cached
+        if time.time() - ts < _CACHE_TTL:
+            return data
     _rate_limit()
     url = f"{BASE_URL}{endpoint}"
-    resp = requests.get(url, params=params, timeout=15)
+    resp = get_session().get(url, params=params, timeout=15)
     resp.raise_for_status()
-    return resp.json()
+    result = resp.json()
+    _response_cache[cache_key] = (time.time(), result)
+    return result
 
 
 def get_latest_token_profiles() -> list[dict]:

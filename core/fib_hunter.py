@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 from config.chains import CHAINS
@@ -256,7 +256,7 @@ def fetch_ohlcv_for_fib(token_address: str, chain: str) -> Optional[list]:
     if gecko_chain:
         try:
             # Find pool address first
-            r = requests.get(
+            r = get_session().get(
                 f"https://api.geckoterminal.com/api/v2/networks/{gecko_chain}/tokens/{token_address}/pools",
                 params={"page": 1},
                 headers={"accept": "application/json"},
@@ -268,7 +268,7 @@ def fetch_ohlcv_for_fib(token_address: str, chain: str) -> Optional[list]:
                     pool_addr = pools[0].get("attributes", {}).get("address", "")
                     if pool_addr:
                         # Fetch OHLCV
-                        ohlcv_r = requests.get(
+                        ohlcv_r = get_session().get(
                             f"https://api.geckoterminal.com/api/v2/networks/{gecko_chain}/pools/{pool_addr}/ohlcv/hour",
                             params={"aggregate": 1, "limit": 100},
                             headers={"accept": "application/json"},

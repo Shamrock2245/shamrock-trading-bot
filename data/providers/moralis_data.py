@@ -1,6 +1,6 @@
 import os
 import time
-import requests
+from data.http_session import get_session
 from loguru import logger
 
 MORALIS_API_KEY = os.environ.get("MORALIS_API_KEY", "")
@@ -42,7 +42,7 @@ def get_token_score(token_address: str, chain: str) -> dict:
             hex_chain = _chain_to_hex(chain_lower)
             url = f"{MORALIS_API_BASE}/erc20/{token_address}/score?chain={hex_chain}"
 
-        res = requests.get(url, headers=_get_headers(), timeout=4)
+        res = get_session().get(url, headers=_get_headers(), timeout=4)
         if res.status_code == 200:
             return res.json()
         elif res.status_code == 404:
@@ -71,7 +71,7 @@ def get_token_analytics(token_address: str, chain: str) -> dict:
             hex_chain = _chain_to_hex(chain_lower)
             url = f"{MORALIS_API_BASE}/erc20/{token_address}/analytics?chain={hex_chain}"
 
-        res = requests.get(url, headers=_get_headers(), timeout=5)
+        res = get_session().get(url, headers=_get_headers(), timeout=5)
         if res.status_code == 200:
             return res.json()
         elif res.status_code == 404:
@@ -95,7 +95,7 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
         chain_lower = chain.lower()
         if chain_lower == "solana":
             url = f"{SOLANA_API_BASE}/token/mainnet/{token_addresses[0]}/metadata"
-            res = requests.get(url, headers=_get_headers(), timeout=4)
+            res = get_session().get(url, headers=_get_headers(), timeout=4)
             if res.status_code == 200:
                 data = res.json()
                 if isinstance(data, dict):
@@ -107,7 +107,7 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
             for addr in token_addresses:
                 url += f"&addresses={addr}"
             
-            res = requests.get(url, headers=_get_headers(), timeout=4)
+            res = get_session().get(url, headers=_get_headers(), timeout=4)
             if res.status_code == 200:
                 return res.json()
             return []

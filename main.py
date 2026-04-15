@@ -30,7 +30,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
+from data.http_session import get_session
 
 from notifications.slack import notify_trade, notify_alert, notify_cycle_summary
 from notifications.telegram import notify_alert as tg_notify_alert, notify_trade as tg_notify_trade
@@ -1513,7 +1513,7 @@ async def run_bot_loop():
                             from core.solana_executor import execute_solana_buy
                             # Convert USD → SOL using CoinGecko
                             try:
-                                sol_price_resp = requests.get(
+                                sol_price_resp = get_session().get(
                                     "https://api.coingecko.com/api/v3/simple/price",
                                     params={"ids": "solana", "vs_currencies": "usd"},
                                     timeout=10,
@@ -1661,7 +1661,7 @@ async def run_bot_loop():
 
                                 # Fetch current price from DexScreener
                                 try:
-                                    _ds_resp = requests.get(
+                                    _ds_resp = get_session().get(
                                         f"https://api.dexscreener.com/latest/dex/tokens/{_cmd_addr}",
                                         timeout=8,
                                     )
@@ -1740,7 +1740,7 @@ async def run_bot_loop():
                                     if _cmd_chain == "solana":
                                         from core.solana_executor import execute_solana_buy
                                         try:
-                                            _sol_price_r = requests.get(
+                                            _sol_price_r = get_session().get(
                                                 "https://api.coingecko.com/api/v3/simple/price",
                                                 params={"ids": "solana", "vs_currencies": "usd"},
                                                 timeout=10,

@@ -21,7 +21,7 @@ import logging
 import time
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _set_cached(key: str, data: dict) -> None:
 def _get(path: str, params: Optional[dict] = None) -> Optional[dict]:
     """GET request to CoinPaprika API with error handling."""
     try:
-        resp = requests.get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
+        resp = get_session().get(f"{_BASE}{path}", params=params, timeout=_TIMEOUT)
         if resp.status_code == 429:
             logger.debug("CoinPaprika rate limited — skipping")
             return None

@@ -16,7 +16,7 @@ Rate limit: ~20 req/min on free tier.
 import logging
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ def get_token_security(token_address: str, chain_id: str) -> Optional[dict]:
     try:
         url = f"{GOPLUS_BASE}/token_security/{chain_id}"
         params = {"contract_addresses": token_address.lower()}
-        resp = requests.get(url, params=params, timeout=15)
+        resp = get_session().get(url, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 

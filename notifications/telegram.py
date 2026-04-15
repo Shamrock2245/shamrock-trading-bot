@@ -1,6 +1,6 @@
 import os
 import logging
-import requests
+from data.http_session import get_session
 from typing import Optional
 
 logger = logging.getLogger("telegram")
@@ -28,7 +28,7 @@ def send_telegram_message(text: str, chat_id: Optional[str] = None) -> bool:
     }
     
     try:
-        resp = requests.post(url, json=payload, timeout=5)
+        resp = get_session().post(url, json=payload, timeout=5)
         if resp.status_code == 200:
             return True
         else:

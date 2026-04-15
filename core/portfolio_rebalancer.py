@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
+from data.http_session import get_session
 
 from config import settings
 from config.wallets import WALLETS, get_wallets_for_chain
@@ -121,7 +121,7 @@ def fetch_token_market_data(token_address: str, chain: str) -> dict:
     """Fetch price, liquidity, and volume from DexScreener."""
     ds_chain = DEXSCREENER_CHAIN_MAP.get(chain, chain)
     try:
-        r = requests.get(
+        r = get_session().get(
             f"https://api.dexscreener.com/tokens/v1/{ds_chain}/{token_address}",
             headers={"accept": "application/json"},
             timeout=10,
@@ -183,7 +183,7 @@ def fetch_wallet_tokens_solana(wallet_address: str) -> list[dict]:
                 {"encoding": "jsonParsed"},
             ],
         }
-        r = requests.post(rpc_url, json=payload, timeout=15)
+        r = get_session().post(rpc_url, json=payload, timeout=15)
         data = r.json()
         results = []
         for account in data.get("result", {}).get("value", []):
