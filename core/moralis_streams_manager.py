@@ -402,7 +402,7 @@ class MoralisStreamsManager:
         """Create a new stream. Returns stream ID or None."""
         try:
             # CRITICAL: Moralis uses PUT for create, NOT POST
-            resp = requests.put(
+            resp = get_session().put(
                 f"{BASE_URL}/streams/{network}",
                 headers=self._headers,
                 json=body,
@@ -459,7 +459,7 @@ class MoralisStreamsManager:
     def _delete_stream(self, stream_id: str, network: str = "evm") -> bool:
         """Delete a stream."""
         try:
-            resp = requests.delete(
+            resp = get_session().delete(
                 f"{BASE_URL}/streams/{network}/{stream_id}",
                 headers=self._headers,
                 timeout=15,
