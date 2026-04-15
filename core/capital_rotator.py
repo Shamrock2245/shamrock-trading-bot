@@ -48,29 +48,44 @@ class CapitalRotator:
             logger.debug("No top candidates found in gem_scan.json. Skipping rotation.")
             return
 
-        # 1. Evaluate top candidates
-        top_gem = top_candidates[0]
-        top_gem_score = float(top_gem.get("gem_score", 0))
-        top_gem_symbol = top_gem.get("symbol", "UNKNOWN")
-        top_gem_address = top_gem.get("address", "").lower()
-        
         # 2. Evaluate active holdings
         positions = load_positions()
         
         # We only want to look at active positions
-        # Exclude currently held tokens that are the SAME as the top_gem
         active_positions = [
             p for p in positions 
             if float(p.get("remaining_quantity", 0)) > 0 
-            and p.get("token_address", "").lower() != top_gem_address
         ]
+        open_token_addrs = {p.get("token_address", "").lower() for p in active_positions}
         
         if not active_positions:
             logger.info("No active rotatable positions found.")
             return
 
+        # 1. Find best gem candidate not already held (check top 5)
+        top_gem = None
+        for gem in top_candidates[:5]:
+            gem_addr = gem.get("address", "").lower()
+            if gem_addr and gem_addr not in open_token_addrs:
+                top_gem = gem
+                break
+        
+        if not top_gem:
+            logger.debug("All top candidates already held. Skipping rotation.")
+            return
+
+        top_gem_score = float(top_gem.get("gem_score", 0))
+        top_gem_symbol = top_gem.get("symbol", "UNKNOWN")
+        top_gem_address = top_gem.get("address", "").lower()
+
+        # Exclude currently held tokens that are the SAME as the top_gem from worst-holding search
+        rotatable = [p for p in active_positions if p.get("token_address", "").lower() != top_gem_address]
+        if not rotatable:
+            logger.info("No rotatable positions after excluding target gem.")
+            return
+
         # Find the worst holding
-        worst_holding = min(active_positions, key=lambda p: float(p.get("gem_score", 0.0)))
+        worst_holding = min(rotatable, key=lambda p: float(p.get("gem_score", 0.0)))
         worst_score = float(worst_holding.get("gem_score", 0.0))
         worst_symbol = worst_holding.get("token_symbol", "UNKNOWN")
         

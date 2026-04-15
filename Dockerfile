@@ -42,9 +42,17 @@ RUN mkdir -p /app/logs /app/output /app/data && \
 # Switch to non-root user
 USER shamrock
 
-# Health check: verify bot can import core modules
+# Health check: verify bot is actively running (not just importable)
 HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=3 \
-    CMD python3 -c "from config import settings; from scanner.gem_scanner import GemScanner; print('OK')" || exit 1
+    CMD python3 -c "\
+import json, time; \
+f=open('/app/data/dashboard/bot_status.json'); \
+d=json.load(f); \
+from datetime import datetime, timezone; \
+ts=datetime.fromisoformat(d['timestamp'].replace('Z','+00:00')); \
+age=(datetime.now(timezone.utc)-ts).total_seconds(); \
+print(f'Bot cycle age: {age:.0f}s'); \
+exit(0 if age < 300 else 1)" || exit 1
 
 # Default: run the main bot
 CMD ["python3", "main.py"]

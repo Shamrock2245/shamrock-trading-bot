@@ -358,6 +358,69 @@ def _calculate_risk_metrics(trades: list[dict]) -> dict:
 # Main API
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _analyze_ml_performance(trades: list[dict]) -> dict:
+    """
+    Measure ML model accuracy by comparing predictions to actual outcomes.
+    
+    TimesFM: Did UP forecasts actually produce winning trades?
+    RL Sizer: Did position sizes correlate with trade outcomes?
+    """
+    # ── TimesFM Forecast Accuracy ──────────────────────────────────────────
+    tf_correct = 0
+    tf_total = 0
+    tf_by_direction: dict[str, list[float]] = {"UP": [], "DOWN": [], "FLAT": []}
+    
+    for t in trades:
+        tf_dir = t.get("timesfm_direction", t.get("forecast_direction", ""))
+        if not tf_dir or tf_dir not in ("UP", "DOWN", "FLAT"):
+            continue
+        pnl = float(t.get("pnl_pct", 0))
+        tf_by_direction[tf_dir].append(pnl)
+        tf_total += 1
+        
+        # Correct if: UP and pnl > 0, DOWN and pnl < 0, FLAT is always neutral
+        if (tf_dir == "UP" and pnl > 0) or (tf_dir == "DOWN" and pnl < 0):
+            tf_correct += 1
+    
+    timesfm_metrics = {
+        "total_forecasted_trades": tf_total,
+        "accuracy_pct": round(tf_correct / tf_total * 100, 1) if tf_total > 0 else None,
+    }
+    for direction, pnls in tf_by_direction.items():
+        if pnls:
+            wins = sum(1 for p in pnls if p > 0)
+            timesfm_metrics[f"{direction.lower()}_count"] = len(pnls)
+            timesfm_metrics[f"{direction.lower()}_win_rate_pct"] = round(wins / len(pnls) * 100, 1)
+            timesfm_metrics[f"{direction.lower()}_avg_pnl_pct"] = round(sum(pnls) / len(pnls), 2)
+
+    # ── RL Sizer Correlation ────────────────────────────────────────────────
+    sized_trades = [(float(t.get("position_size_multiplier", 1.0)), float(t.get("pnl_pct", 0)))
+                    for t in trades if t.get("position_size_multiplier")]
+    
+    rl_metrics: dict = {"total_sized_trades": len(sized_trades)}
+    if len(sized_trades) >= 5:
+        # Compare high-conviction (multiplier >= 0.8) vs low-conviction (< 0.6)
+        high_conv = [pnl for mult, pnl in sized_trades if mult >= 0.8]
+        low_conv = [pnl for mult, pnl in sized_trades if mult < 0.6]
+        if high_conv:
+            rl_metrics["high_conviction_count"] = len(high_conv)
+            rl_metrics["high_conviction_avg_pnl_pct"] = round(sum(high_conv) / len(high_conv), 2)
+            rl_metrics["high_conviction_win_rate_pct"] = round(
+                sum(1 for p in high_conv if p > 0) / len(high_conv) * 100, 1
+            )
+        if low_conv:
+            rl_metrics["low_conviction_count"] = len(low_conv)
+            rl_metrics["low_conviction_avg_pnl_pct"] = round(sum(low_conv) / len(low_conv), 2)
+            rl_metrics["low_conviction_win_rate_pct"] = round(
+                sum(1 for p in low_conv if p > 0) / len(low_conv) * 100, 1
+            )
+
+    return {
+        "timesfm": timesfm_metrics,
+        "rl_sizer": rl_metrics,
+    }
+
+
 def run_analytics(lookback_days: int = ANALYTICS_LOOKBACK_DAYS) -> dict:
     """
     Run full trade analytics and save results to disk.
@@ -397,6 +460,9 @@ def run_analytics(lookback_days: int = ANALYTICS_LOOKBACK_DAYS) -> dict:
         "total_realized_pnl_usd": round(
             sum(float(t.get("pnl_usd", 0)) for t in trades), 2
         ),
+
+        # Fix 8: ML model performance metrics
+        "ml_performance": _analyze_ml_performance(trades),
     }
 
     # Save to disk

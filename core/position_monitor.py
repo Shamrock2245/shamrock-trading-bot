@@ -107,12 +107,14 @@ def load_positions() -> list[dict]:
 
 
 def save_positions(positions: list[dict]) -> None:
-    """Persist open positions to disk (atomic write + periodic backup)."""
+    """Persist open positions to disk (atomic write + periodic backup + fsync)."""
     global _save_counter
     try:
         tmp = POSITIONS_FILE.with_suffix(".tmp")
         with open(tmp, "w") as f:
             json.dump(positions, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
         tmp.replace(POSITIONS_FILE)
         # Periodic backup every 100 saves
         _save_counter += 1
@@ -149,63 +151,87 @@ def get_current_price(token_address: str, chain: str, pair_address: str = "") ->
     """
     Fetch current price from DexScreener.
     Returns None if price unavailable.
+    Retries up to 3 times with exponential backoff on transient failures.
     """
-    try:
-        if pair_address:
-            url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
-        else:
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+    last_error = None
+    for attempt in range(3):
+        try:
+            if pair_address:
+                url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
+            else:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
 
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        pairs = data.get("pairs", [])
-        if not pairs:
-            return None
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_error = f"HTTP {resp.status_code}"
+                time.sleep(1.5 * (2 ** attempt))  # 1.5s, 3s, 6s
+                continue
+            data = resp.json()
+            pairs = data.get("pairs", [])
+            if not pairs:
+                return None
 
-        # Use most liquid pair
-        pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
-        price_str = pairs[0].get("priceUsd")
-        return float(price_str) if price_str else None
+            # Use most liquid pair
+            pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+            price_str = pairs[0].get("priceUsd")
+            return float(price_str) if price_str else None
 
-    except Exception as e:
-        logger.debug(f"Price fetch failed for {token_address}: {e}")
-        return None
+        except Exception as e:
+            last_error = str(e)
+            if attempt < 2:
+                time.sleep(1.5 * (2 ** attempt))
+            continue
+
+    logger.debug(f"Price fetch failed after 3 retries for {token_address}: {last_error}")
+    return None
 
 
 def get_price_and_volume(token_address: str, chain: str, pair_address: str = "") -> dict:
     """
     Fetch current price, volume, AND liquidity data from DexScreener.
     Returns dict with price, volume_1h, volume_24h, liquidity_usd. All may be None.
+    Retries up to 3 times with exponential backoff on transient failures.
     """
     result = {"price": None, "volume_1h": None, "volume_24h": None, "liquidity_usd": None}
-    try:
-        if pair_address:
-            url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
-        else:
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+    last_error = None
+    for attempt in range(3):
+        try:
+            if pair_address:
+                url = f"https://api.dexscreener.com/latest/dex/pairs/{chain}/{pair_address}"
+            else:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
 
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        pairs = data.get("pairs", [])
-        if not pairs:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_error = f"HTTP {resp.status_code}"
+                time.sleep(1.5 * (2 ** attempt))
+                continue
+            data = resp.json()
+            pairs = data.get("pairs", [])
+            if not pairs:
+                return result
+
+            pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+            top = pairs[0]
+            price_str = top.get("priceUsd")
+            result["price"] = float(price_str) if price_str else None
+
+            vol = top.get("volume", {})
+            result["volume_1h"] = float(vol.get("h1", 0) or 0)
+            result["volume_24h"] = float(vol.get("h24", 0) or 0)
+
+            # Liquidity data (for liquidity drain exit)
+            liq = top.get("liquidity", {})
+            result["liquidity_usd"] = float(liq.get("usd", 0) or 0)
             return result
 
-        pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
-        top = pairs[0]
-        price_str = top.get("priceUsd")
-        result["price"] = float(price_str) if price_str else None
+        except Exception as e:
+            last_error = str(e)
+            if attempt < 2:
+                time.sleep(1.5 * (2 ** attempt))
+            continue
 
-        vol = top.get("volume", {})
-        result["volume_1h"] = float(vol.get("h1", 0) or 0)
-        result["volume_24h"] = float(vol.get("h24", 0) or 0)
-
-        # Liquidity data (for liquidity drain exit)
-        liq = top.get("liquidity", {})
-        result["liquidity_usd"] = float(liq.get("usd", 0) or 0)
-
-    except Exception as e:
-        logger.debug(f"Price+volume fetch failed for {token_address}: {e}")
-
+    logger.debug(f"Price+volume fetch failed after 3 retries for {token_address}: {last_error}")
     return result
 
 
@@ -1458,7 +1484,7 @@ class PositionMonitor:
         }
 
     def run_forever(self) -> None:
-        """Run the monitor loop indefinitely."""
+        """Run the monitor loop indefinitely. Writes heartbeat for health check."""
         self._running = True
         logger.info(
             f"Position monitor started — checking every "
@@ -1467,6 +1493,20 @@ class PositionMonitor:
         while self._running:
             try:
                 self.run_once()
+                # Write heartbeat so health check can detect if this thread dies
+                try:
+                    _hb_path = POSITIONS_FILE.parent / "bot_status.json"
+                    if _hb_path.exists():
+                        import json as _hb_json
+                        with open(_hb_path, "r") as _hf:
+                            _hb_data = _hb_json.load(_hf)
+                        _hb_data["last_monitor_cycle_at"] = datetime.now(timezone.utc).isoformat()
+                        _hb_tmp = _hb_path.with_suffix(".pm_tmp")
+                        with open(_hb_tmp, "w") as _hf:
+                            _hb_json.dump(_hb_data, _hf, indent=2)
+                        _hb_tmp.replace(_hb_path)
+                except Exception:
+                    pass  # heartbeat write is best-effort
             except Exception as e:
                 logger.error(f"Position monitor loop error: {e}", exc_info=True)
             time.sleep(settings.POSITION_CHECK_INTERVAL_SECONDS)

@@ -90,6 +90,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./output:/app/output
     depends_on:
       - bot
     networks:
@@ -114,6 +115,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./output:/app/output:ro
     networks:
       - shamrock-net
 

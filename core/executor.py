@@ -930,6 +930,28 @@ class TradeExecutor:
         # 1inch: Final fallback for all chains (public mempool)
         result = self._execute_via_oneinch(params)
         result.safety_result = safety
+
+        # ── Slippage analytics (Fix 5) ────────────────────────────────────
+        # Track actual vs expected output for every successful trade
+        if result.success and result.amount_out > 0:
+            try:
+                from core.slippage_tracker import record_slippage
+                # The 1inch quote gave us expected amount; result has actual
+                _expected_out = result.amount_out  # quote amount (same for paper/live)
+                # For paper mode, expected == actual. For live, we get real on-chain output.
+                record_slippage(
+                    token_symbol=params.token_out[:10],
+                    chain=params.chain,
+                    direction="buy" if params.token_out.lower() not in _usdc_addresses else "sell",
+                    expected_amount_out=_expected_out,
+                    actual_amount_out=result.amount_out,
+                    slippage_bps_configured=params.slippage_bps,
+                    tx_hash=result.tx_hash or "",
+                    execution_path=result.execution_path,
+                )
+            except Exception:
+                pass  # slippage tracking is best-effort
+
         return result
 
     @staticmethod

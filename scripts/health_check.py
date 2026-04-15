@@ -102,6 +102,43 @@ def check_bot_cycle() -> dict:
     return result
 
 
+def check_position_monitor() -> dict:
+    """Check if the PositionMonitor thread has run recently."""
+    result = {"ok": False, "message": "", "last_cycle": None, "age_seconds": None}
+    try:
+        if not BOT_STATUS_FILE.exists():
+            result["message"] = "Bot status file missing (cannot check monitor)"
+            return result
+
+        with open(BOT_STATUS_FILE) as f:
+            status = json.load(f)
+
+        last_monitor = status.get("last_monitor_cycle_at")
+        if not last_monitor:
+            # Key not present = old bot version without heartbeat. Skip gracefully.
+            result["ok"] = True
+            result["message"] = "Monitor heartbeat not yet available (OK on first boot)"
+            return result
+
+        last_dt = datetime.fromisoformat(last_monitor.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        age = (now - last_dt).total_seconds()
+        result["last_cycle"] = last_monitor
+        result["age_seconds"] = round(age)
+
+        if age > 120:  # 2 minutes
+            result["message"] = (
+                f"PositionMonitor stale — last cycle {age:.0f}s ago (threshold: 120s)"
+            )
+        else:
+            result["ok"] = True
+            result["message"] = f"PositionMonitor active — last cycle {age:.0f}s ago"
+    except Exception as e:
+        result["message"] = f"Monitor check error: {e}"
+
+    return result
+
+
 def check_dashboard() -> dict:
     """Check if the Streamlit dashboard is responding."""
     result = {"ok": False, "message": "", "status_code": None, "response_ms": None}
@@ -143,6 +180,7 @@ def run_health_check() -> dict:
     now = datetime.now(timezone.utc)
     checks = {
         "bot_cycle": check_bot_cycle(),
+        "position_monitor": check_position_monitor(),
         "dashboard": check_dashboard(),
         "output_files": check_output_files(),
     }
@@ -178,6 +216,12 @@ def run_health_check() -> dict:
         alert_msg = "Health check failures:\n" + "\n".join(failed)
         logger.warning(alert_msg)
         _send_slack_alert(alert_msg, level="warning")
+        # Fix 15: Also alert via Telegram for faster operator notification
+        try:
+            from notifications.telegram import send_telegram_alert
+            send_telegram_alert(f"⚠️ Shamrock Bot Health\n{alert_msg}")
+        except Exception as _tg_err:
+            logger.debug(f"Telegram health alert failed: {_tg_err}")
     else:
         logger.info(f"Health OK — bot_cycle={checks['bot_cycle']['message']}")
 
@@ -198,10 +242,16 @@ def main():
             if health["status"] != "healthy":
                 consecutive_failures += 1
                 if consecutive_failures >= 3:
-                    _send_slack_alert(
-                        f"CRITICAL: Bot has been unhealthy for {consecutive_failures} consecutive checks!",
-                        level="critical",
+                    _crit_msg = (
+                        f"🚨 CRITICAL: Bot has been unhealthy for "
+                        f"{consecutive_failures} consecutive checks!"
                     )
+                    _send_slack_alert(_crit_msg, level="critical")
+                    try:
+                        from notifications.telegram import send_telegram_alert
+                        send_telegram_alert(_crit_msg)
+                    except Exception:
+                        pass
             else:
                 consecutive_failures = 0
         except Exception as e:

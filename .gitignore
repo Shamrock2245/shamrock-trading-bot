@@ -29,14 +29,20 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Data
+# Data (runtime-generated)
 *.db
 *.sqlite3
 data/*.csv
 data/*.json
 !data/models.py
 !data/providers.py
-.env.example
+
+# Output (runtime-generated — positions, trades, scans)
+output/*.json
+output/*.csv
+!output/.gitkeep
+
+# Deploy keys & scripts
 deploy_bot.exp
 .shamrock_deploy_key
 .shamrock_deploy_key.pub

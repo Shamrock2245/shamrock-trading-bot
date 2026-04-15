@@ -579,3 +579,60 @@ def validate_settings() -> list[str]:
         warnings_list.append(f"MIN_GEM_SCORE={MIN_GEM_SCORE} is very low — may produce low-quality candidates (nuclear profile min=72.0, conservative min=58.0)")
 
     return warnings_list
+
+
+def probe_api_keys() -> dict[str, bool]:
+    """
+    Lightweight API key verification at startup.
+    Makes a single tiny request per key to verify it actually works.
+    Returns dict of {service_name: True/False}.
+    Non-blocking — failures are logged as warnings.
+    """
+    import requests as _req
+    results = {}
+
+    # Moralis
+    if MORALIS_API_KEY:
+        try:
+            _r = _req.get(
+                "https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth",
+                headers={"X-API-Key": MORALIS_API_KEY},
+                timeout=8,
+            )
+            results["moralis"] = _r.status_code == 200
+        except Exception:
+            results["moralis"] = False
+
+    # Helius (Solana RPC)
+    if HELIUS_API_KEY:
+        try:
+            _r = _req.post(
+                f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}",
+                json={"jsonrpc": "2.0", "id": 1, "method": "getHealth"},
+                timeout=8,
+            )
+            results["helius"] = _r.status_code == 200
+        except Exception:
+            results["helius"] = False
+
+    # Solana RPC
+    if SOLANA_RPC_URL:
+        try:
+            _r = _req.post(
+                SOLANA_RPC_URL,
+                json={"jsonrpc": "2.0", "id": 1, "method": "getHealth"},
+                timeout=8,
+            )
+            _body = _r.json() if _r.status_code == 200 else {}
+            results["solana_rpc"] = _body.get("result") == "ok"
+        except Exception:
+            results["solana_rpc"] = False
+
+    # DexScreener (no key needed, just connectivity)
+    try:
+        _r = _req.get("https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112", timeout=8)
+        results["dexscreener"] = _r.status_code == 200
+    except Exception:
+        results["dexscreener"] = False
+
+    return results

@@ -902,6 +902,23 @@ class GemScanner:
         elif token.volume_24h >= 100_000:
             candidate.volume_score = 40
 
+        # ── Volume trend adjustment (cross-cycle momentum) ────────────────
+        try:
+            from core.volume_trend import VolumeTrendTracker
+            _vtt = VolumeTrendTracker()
+            _vtt.record(token.address, token.chain, token.volume_1h or 0)
+            _vt = _vtt.get_trend(token.address, token.chain)
+            if _vt["score_bonus"] != 0 and _vt["readings"] >= 3:
+                candidate.volume_score = max(0, min(100, candidate.volume_score + _vt["score_bonus"]))
+                candidate.volume_trend = _vt["direction"]
+                logger.debug(
+                    f"📊 Volume trend {token.symbol}: {_vt['direction']} "
+                    f"({_vt['change_pct']:+.0f}%) → vol score {_vt['score_bonus']:+.1f}"
+                )
+            _vtt.flush()
+        except Exception as _vt_err:
+            logger.debug(f"Volume trend skipped for {token.symbol}: {_vt_err}")
+
         # ── Liquidity score (13%) ─────────────────────────────────────────────
         liq = token.liquidity_usd
         if liq >= 500_000:

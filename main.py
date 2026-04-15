@@ -24,6 +24,7 @@ import json
 import logging
 import os
 from queue import Empty, Queue
+import signal
 import sys
 import threading
 from datetime import datetime, timezone
@@ -65,6 +66,9 @@ safety_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(m
 logging.getLogger("safety").addHandler(safety_handler)
 
 logger = logging.getLogger(__name__)
+
+# Module-level scanner reference — set in run_bot_loop(), used by Moralis Streams closure
+_gem_scanner: "GemScanner | None" = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bot imports (after logging setup)
@@ -385,11 +389,26 @@ def run_show_positions():
         )
 
 
+# ── Graceful Shutdown Handler ─────────────────────────────────────────────
+_shutdown_requested = False
+
+def _handle_shutdown(signum, frame):
+    """Handle SIGTERM/SIGINT for graceful shutdown."""
+    global _shutdown_requested
+    sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+    logger.info(f"🛑 Shutdown signal received ({sig_name}) — finishing current cycle...")
+    _shutdown_requested = True
+
+signal.signal(signal.SIGTERM, _handle_shutdown)
+signal.signal(signal.SIGINT, _handle_shutdown)
+
+
 async def run_bot_loop():
     """
     Main bot loop — runs continuously until interrupted.
     Cycle: balance check → gem scan → safety filter → signal check → risk check → execute
     Position monitor runs in a background thread.
+    Handles SIGTERM/SIGINT for graceful shutdown.
     """
     is_paper = settings.MODE != "live"
     logger.info(f"Starting bot loop in {settings.MODE.upper()} mode")
@@ -399,6 +418,18 @@ async def run_bot_loop():
     print(f"Min gem score: {settings.MIN_GEM_SCORE}")
     print(f"Express lane:  ≥{settings.EXPRESS_LANE_SCORE}")
     print(f"Chains:        {', '.join(settings.ACTIVE_CHAINS)}")
+
+    # ── API Key Verification ──────────────────────────────────────────────────
+    try:
+        from config.settings import probe_api_keys
+        _probes = probe_api_keys()
+        for _svc, _ok in _probes.items():
+            _icon = "🟢" if _ok else "🔴"
+            logger.info(f"  {_icon} {_svc}: {'verified' if _ok else 'FAILED'}")
+            if not _ok:
+                logger.warning(f"API key probe FAILED for {_svc} — check credentials")
+    except Exception as _probe_err:
+        logger.debug(f"API key probes failed (non-blocking): {_probe_err}")
     print()
 
     # ── Persistent BalanceFetcher (reuses Web3 connections across cycles) ──────
@@ -552,6 +583,21 @@ async def run_bot_loop():
             logger.info(f"Fastlane risk blocked {token.symbol}: {risk.reason}")
             return
         signal.risk_passed_at = datetime.now(timezone.utc)
+
+        # ── Pre-trade balance verification (Fix 10) ───────────────────────
+        # Last-second check that wallet actually has enough native balance.
+        # Prevents wasted gas on trades that would revert on-chain.
+        try:
+            _fresh_bal = balance_fetcher.get_native_balance(wallet, token.chain)
+            _estimated_gas = 0.01 if token.chain == "solana" else 0.005  # SOL/ETH gas cushion
+            if _fresh_bal is not None and _fresh_bal < (position_native + _estimated_gas):
+                logger.warning(
+                    f"Fastlane BALANCE CHECK FAILED {token.symbol}: "
+                    f"need {position_native + _estimated_gas:.6f} but wallet has {_fresh_bal:.6f}"
+                )
+                return
+        except Exception as _bal_err:
+            logger.debug(f"Pre-trade balance check failed (proceeding anyway): {_bal_err}")
 
         if token.chain == "solana":
             from core.solana_executor import execute_solana_buy
@@ -737,6 +783,9 @@ async def run_bot_loop():
 
                 def _do_eval():
                     try:
+                        if _gem_scanner is None:
+                            logger.debug("Streams eval: scanner not initialized yet — skipping")
+                            return
                         from data.providers.dexscreener import get_token_pairs, extract_gem_signals
                         pairs = get_token_pairs(token_address) or []
                         if not pairs:
@@ -947,7 +996,9 @@ async def run_bot_loop():
         logger.warning("⚠️  LIVE MODE ACTIVE — REAL TRADES WILL BE EXECUTED")
         logger.warning("=" * 60)
 
+    global _gem_scanner
     scanner = GemScanner()
+    _gem_scanner = scanner  # Expose to Moralis Streams closure
     executor = TradeExecutor()
     strategy = GemSnipeStrategy()
     signal_engine = SignalEngine()
@@ -1004,7 +1055,7 @@ async def run_bot_loop():
     except Exception as _boot_err:
         logger.warning(f"Startup heartbeat failed: {_boot_err}")
 
-    while True:
+    while not _shutdown_requested:
         cycle += 1
         trades_this_cycle = 0
         logger.info(f"--- Cycle {cycle} ---")
@@ -1036,6 +1087,32 @@ async def run_bot_loop():
                             )
                 except Exception as _gas_err:
                     logger.debug(f"Gas manager check failed (non-blocking): {_gas_err}")
+
+            # ── Position Reconciliation: detect phantom positions every ~20 cycles ─
+            if cycle % 20 == 0:
+                try:
+                    from core.reconciliation import reconcile_solana_positions, reconcile_evm_positions
+                    from config.wallets import WALLETS as _recon_wallets
+                    _total_mismatches = 0
+                    for _wk, _wv in _recon_wallets.items():
+                        # Solana reconciliation
+                        _sol_addr = getattr(_wv, "solana_address", None) or ""
+                        if _sol_addr:
+                            _sol_mm = reconcile_solana_positions(_sol_addr)
+                            _total_mismatches += len(_sol_mm)
+                        # EVM reconciliation (check each active chain)
+                        _evm_addr = getattr(_wv, "address", None) or ""
+                        if _evm_addr:
+                            for _rc in settings.ACTIVE_CHAINS:
+                                if _rc != "solana":
+                                    _evm_mm = reconcile_evm_positions(_evm_addr, chain=_rc)
+                                    _total_mismatches += len(_evm_mm)
+                    if _total_mismatches == 0:
+                        logger.info("✅ Reconciliation: all positions match on-chain state")
+                    else:
+                        logger.warning(f"⚠️ Reconciliation: {_total_mismatches} mismatch(es) detected — check Slack")
+                except Exception as _recon_err:
+                    logger.debug(f"Reconciliation check failed (non-blocking): {_recon_err}")
 
             # ── Daily Portfolio Cleanup: flush underperformers to gas ─────────
             # Self-gates to run once per 24h. Re-scores all open positions via
@@ -2575,7 +2652,27 @@ async def run_bot_loop():
                 pass
 
         logger.info(f"Cycle {cycle} complete. Sleeping {get_dynamic_scan_interval()}s...")
-        await asyncio.sleep(get_dynamic_scan_interval())
+        # Use short sleeps to check shutdown flag responsively
+        _sleep_remaining = get_dynamic_scan_interval()
+        while _sleep_remaining > 0 and not _shutdown_requested:
+            _chunk = min(_sleep_remaining, 2)
+            await asyncio.sleep(_chunk)
+            _sleep_remaining -= _chunk
+
+    # ── Graceful shutdown — save all state and notify ──────────────────────────
+    logger.info("🛑 Shutdown in progress — saving state...")
+    try:
+        positions = load_positions()
+        save_positions(positions)
+        logger.info(f"✅ Positions saved ({len(positions)} open)")
+    except Exception as _save_err:
+        logger.error(f"Failed to save positions during shutdown: {_save_err}")
+    try:
+        notify_alert("Shamrock Bot Stopped", f"Graceful shutdown after cycle {cycle}. {len(load_positions())} positions open.", level="warning")
+        tg_notify_alert("Shamrock Bot Stopped", f"Graceful shutdown after cycle {cycle}.", level="warning")
+    except Exception:
+        pass
+    logger.info("✅ Graceful shutdown complete.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
