@@ -47,3 +47,10 @@ deploy_bot.exp
 .shamrock_deploy_key
 .shamrock_deploy_key.pub
 install_key.exp
+
+# Agent skill templates & assets (keep SKILL.md only)
+.agent/skills/*/templates/
+.agent/skills/*/assets/
+.agent/skills/*/agents/
+.agent/skills/**/LICENSE*
+.agent/skills/**/.gitattributes

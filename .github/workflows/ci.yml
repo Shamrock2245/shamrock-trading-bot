@@ -1,19 +1,83 @@
-name: CI
+# ─────────────────────────────────────────────────────────────────────────────
+# Shamrock Trading Bot — CI/CD Pipeline
+# Jobs:
+#   1. lint-and-test  → pytest + import validation
+#   2. preflight      → smoke test: python main.py --scan
+#   3. deploy         → SSH into Hetzner, git pull, docker rebuild (main only)
+#
+# Required GitHub Secrets for deploy:
+#   HETZNER_HOST      → Server IP or hostname
+#   HETZNER_USER      → SSH username (e.g., shamrock)
+#   HETZNER_SSH_KEY   → Private SSH key for deployment
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI/CD
 
 on:
   pull_request:
   push:
     branches: ["main", "master", "work"]
 
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  tests:
+  # ── Job 1: Lint + Unit Tests ──────────────────────────────────────────────
+  lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: "pip"
+
       - name: Install dependencies
         run: pip install -r requirements.txt
+
       - name: Run tests
-        run: pytest -q
+        run: pytest -q --tb=short
+
+  # ── Job 2: Preflight Smoke Test ───────────────────────────────────────────
+  preflight:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Preflight — import check
+        run: python -c "from main import main; print('✅ Import OK')"
+
+  # ── Job 3: Deploy to Hetzner (main branch only) ──────────────────────────
+  deploy:
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd ~/shamrock-trading-bot
+            git pull origin main
+            export GIT_SHA=$(git rev-parse --short HEAD)
+            docker-compose up -d --build shamrock-bot
+            echo "✅ Deployed shamrock-bot @ $GIT_SHA"

@@ -67,6 +67,29 @@ logging.getLogger("safety").addHandler(safety_handler)
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sentry SDK — production error tracking & performance monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import sentry_sdk
+    _sentry_dsn = os.environ.get("SENTRY_DSN", "")
+    if _sentry_dsn:
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            traces_sample_rate=0.1,   # 10% performance traces
+            profiles_sample_rate=0.1,
+            environment=os.environ.get("MODE", "paper"),
+            release=f"shamrock-bot@{os.environ.get('GIT_SHA', 'dev')}",
+            enable_tracing=True,
+            send_default_pii=True,    # Include request headers, IPs for context
+            enable_logs=True,         # Auto-forward Python logging to Sentry
+        )
+        logger.info("🛡️  Sentry initialized — production error tracking active")
+    else:
+        logger.debug("Sentry DSN not set — error tracking disabled")
+except ImportError:
+    logger.debug("sentry-sdk not installed — error tracking disabled")
+
 # Module-level scanner reference — set in run_bot_loop(), used by Moralis Streams closure
 _gem_scanner: "GemScanner | None" = None
 
@@ -2642,6 +2665,12 @@ async def run_bot_loop():
             break
         except Exception as e:
             logger.error(f"Cycle {cycle} error: {e}", exc_info=True)
+            # Report to Sentry for structured error tracking
+            try:
+                import sentry_sdk as _sentry
+                _sentry.capture_exception(e)
+            except Exception:
+                pass
             try:
                 state_writer.write_cycle(
                     candidates=[],

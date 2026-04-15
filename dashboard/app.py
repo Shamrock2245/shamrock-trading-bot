@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
+import time as _time
 from datetime import datetime, timezone
 
 from styles import (
@@ -152,8 +153,11 @@ with st.sidebar:
     )
     st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:0 0 14px;">', unsafe_allow_html=True)
 
-    # Bot status badge
-    status = get_bot_status()
+    # Bot status badge (cached to avoid re-reads on widget interaction)
+    @st.cache_data(ttl=15)
+    def _get_status():
+        return get_bot_status()
+    status = _get_status()
     mode = status.get("mode", "unknown").upper()
     is_running = status.get("is_running", False)
 
@@ -322,16 +326,45 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Data Loading ──────────────────────────────────────────────────────────────
+# ── Data Loading (cached — Streamlit performance optimization) ───────────────
+# Using @st.cache_data(ttl=15) so data refreshes every 15s but widget
+# interactions don't trigger expensive re-reads of every JSON file.
 import json as _json
-history = get_scan_history()
-gems = get_gem_history()
-trades_data = get_trades()
-positions_data = get_positions()
-latest_gems = get_latest_gems()
+
+@st.cache_data(ttl=15)
+def _cached_bot_status():
+    return get_bot_status()
+
+@st.cache_data(ttl=15)
+def _cached_scan_history():
+    return get_scan_history()
+
+@st.cache_data(ttl=15)
+def _cached_gem_history():
+    return get_gem_history()
+
+@st.cache_data(ttl=15)
+def _cached_trades():
+    return get_trades()
+
+@st.cache_data(ttl=15)
+def _cached_positions():
+    return get_positions()
+
+@st.cache_data(ttl=15)
+def _cached_latest_gems():
+    return get_latest_gems()
+
+history = _cached_scan_history()
+gems = _cached_gem_history()
+trades_data = _cached_trades()
+positions_data = _cached_positions()
+latest_gems = _cached_latest_gems()
 
 # Load extra state files
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+@st.cache_data(ttl=15)
 def _load_json(path, default=None):
     try:
         full = os.path.join(_BASE, path)
@@ -1008,59 +1041,182 @@ with chart_c2:
             unsafe_allow_html=True,
         )
 
-# ── Recent Gems Table ─────────────────────────────────────────────────────────
+# ── Recent Trades Feed + Gem Candidates Row ───────────────────────────────────
 st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
-st.markdown("#### 💎 Latest Gem Candidates")
+trades_col, gems_col = st.columns([1, 2])
 
-if latest_gems:
-    # De-duplicate by token address (keep highest score)
-    seen = {}
-    for g in latest_gems:
-        addr = g.get("address", g.get("symbol", ""))
-        if addr not in seen or g.get("gem_score", 0) > seen[addr].get("gem_score", 0):
-            seen[addr] = g
-    deduped = sorted(seen.values(), key=lambda x: x.get("gem_score", 0), reverse=True)[:25]
+with trades_col:
+    st.markdown("#### 📜 Recent Trades")
+    if trades_data:
+        _recent = sorted(trades_data, key=lambda t: t.get("timestamp", ""), reverse=True)[:12]
+        for _t in _recent:
+            _dir = _t.get("direction", "buy")
+            _sym = _t.get("symbol", "???")
+            _chain = _t.get("chain", "")
+            _pnl = _t.get("pnl_usd", 0)
+            _ts = _t.get("timestamp", "")[:16]
+            _price = _t.get("price_usd", 0)
+            _emoji = CHAIN_EMOJI.get(_chain, "⬡")
 
-    rows = []
-    for g in deduped:
-        score = g.get("gem_score", 0)
-        chain = g.get("chain", "")
-        emoji = CHAIN_EMOJI.get(chain, "⬡")
-        timing = g.get("timing_bp_trend", "flat")
-        t_icon = {"accelerating": "🚀", "decelerating": "📉", "flat": "➡️"}.get(timing, "➡️")
-        intel = ("🧠" if g.get("intel_smart_money_buying") else "") + ("🐋" if g.get("intel_whale_buying") else "")
-        rows.append({
-            "Score": f"{score:.1f}",
-            "Token": g.get("symbol", "???"),
-            "Chain": f"{emoji} {chain.capitalize()}",
-            "Price": (f"${g.get('price_usd',0):.6f}" if g.get("price_usd",0) < 1 else f"${g.get('price_usd',0):,.4f}"),
-            "Liq": f"${g.get('liquidity_usd',0):,.0f}",
-            "Vol 1h": f"${g.get('volume_1h',0):,.0f}",
-            "Age": f"{g.get('age_hours',0):.1f}h" if g.get("age_hours") else "N/A",
-            "Timing": f"{t_icon} {timing.capitalize()}",
-            "Intel": intel or "—",
-            "⚡": "⚡" if g.get("express_lane") else "",
-            "Safe": "✅" if g.get("is_safe") else "⚠️",
-        })
-    st.dataframe(
-        pd.DataFrame(rows),
-        use_container_width=True,
-        hide_index=True,
-        height=min(420, len(rows) * 38 + 40),
-    )
-else:
-    st.markdown(
-        '<div class="glass-card" style="text-align:center;padding:2rem;">'
-        '<div style="font-size:1.4rem;margin-bottom:6px;">💎</div>'
-        '<div style="color:#8B949E;">No gem candidates yet — scanner is running</div>'
-        '<div style="color:#484F58;font-size:0.75rem;margin-top:4px;">'
-        'Use Force Scan in the sidebar to trigger immediately</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+            if _dir == "buy":
+                _dir_badge = ('<span style="background:rgba(0,208,156,0.12);color:#00D09C;'
+                              'font-size:0.62rem;font-weight:800;padding:1px 6px;'
+                              'border-radius:4px;">BUY</span>')
+                _pnl_html = ""
+            else:
+                _dir_badge = ('<span style="background:rgba(255,71,87,0.12);color:#FF4757;'
+                              'font-size:0.62rem;font-weight:800;padding:1px 6px;'
+                              'border-radius:4px;">SELL</span>')
+                _pnl_color = "#00D09C" if _pnl >= 0 else "#FF4757"
+                _pnl_sign = "+" if _pnl >= 0 else ""
+                _pnl_html = (f'<span style="color:{_pnl_color};font-size:0.72rem;'
+                             f'font-weight:700;font-family:monospace;">'
+                             f'{_pnl_sign}${abs(_pnl):,.2f}</span>')
 
-# ── Error Feed ────────────────────────────────────────────────────────────────
-errors = get_errors()
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);">'
+                f'{_dir_badge}'
+                f'<span style="color:#E6EDF3;font-size:0.78rem;font-weight:600;">{_sym}</span>'
+                f'<span style="color:#484F58;font-size:0.65rem;">{_emoji} {_chain[:3]}</span>'
+                f'<span style="flex:1;"></span>'
+                f'{_pnl_html}'
+                f'<span style="color:#30363D;font-size:0.6rem;font-family:monospace;">{_ts[11:]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Win/Loss summary bar
+        _buys = len([t for t in trades_data if t.get("direction") == "buy"])
+        _sells_w = len([t for t in sells if t.get("pnl_usd", 0) > 0])
+        _sells_l = len(sells) - _sells_w
+        _total_bar = max(_sells_w + _sells_l, 1)
+        _w_pct = (_sells_w / _total_bar) * 100
+        st.markdown(
+            f'<div style="margin-top:10px;">'
+            f'<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
+            f'<span style="color:#00D09C;font-size:0.68rem;font-weight:700;">'
+            f'✅ {_sells_w} wins</span>'
+            f'<span style="color:#FF4757;font-size:0.68rem;font-weight:700;">'
+            f'❌ {_sells_l} losses</span>'
+            f'</div>'
+            f'<div style="height:6px;background:rgba(255,71,87,0.3);border-radius:3px;overflow:hidden;">'
+            f'<div style="width:{_w_pct:.0f}%;height:100%;background:#00D09C;border-radius:3px;"></div>'
+            f'</div>'
+            f'<div style="color:#484F58;font-size:0.62rem;text-align:center;margin-top:4px;">'
+            f'{_buys} buys · {len(sells)} sells · {win_rate:.0f}% win rate</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="glass-card" style="text-align:center;padding:2rem;">'
+            '<div style="font-size:1.4rem;margin-bottom:6px;">📜</div>'
+            '<div style="color:#8B949E;">No trades yet</div>'
+            '<div style="color:#484F58;font-size:0.72rem;margin-top:4px;">'
+            'Trades appear after the bot executes a buy or sell</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+with gems_col:
+    st.markdown("#### 💎 Latest Gem Candidates")
+    if latest_gems:
+        seen = {}
+        for g in latest_gems:
+            addr = g.get("address", g.get("symbol", ""))
+            if addr not in seen or g.get("gem_score", 0) > seen[addr].get("gem_score", 0):
+                seen[addr] = g
+        deduped = sorted(seen.values(), key=lambda x: x.get("gem_score", 0), reverse=True)[:20]
+
+        _gem_df = pd.DataFrame([
+            {
+                "Score": g.get("gem_score", 0),
+                "Token": g.get("symbol", "???"),
+                "Chain": f"{CHAIN_EMOJI.get(g.get('chain',''), '⬡')} {g.get('chain','').capitalize()}",
+                "Price": g.get("price_usd", 0),
+                "Liquidity": g.get("liquidity_usd", 0),
+                "Vol 1h": g.get("volume_1h", 0),
+                "Age (h)": g.get("age_hours", 0) or 0,
+                "Express": "⚡" if g.get("express_lane") else "",
+                "Safe": "✅" if g.get("is_safe") else "⚠️",
+            }
+            for g in deduped
+        ])
+
+        st.dataframe(
+            _gem_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(460, len(deduped) * 38 + 40),
+            column_config={
+                "Score": st.column_config.ProgressColumn(
+                    "Score",
+                    min_value=0,
+                    max_value=100,
+                    format="%.0f",
+                ),
+                "Price": st.column_config.NumberColumn(
+                    "Price",
+                    format="$%.6f",
+                ),
+                "Liquidity": st.column_config.NumberColumn(
+                    "Liquidity",
+                    format="$%,.0f",
+                ),
+                "Vol 1h": st.column_config.NumberColumn(
+                    "Vol 1h",
+                    format="$%,.0f",
+                ),
+                "Age (h)": st.column_config.NumberColumn(
+                    "Age (h)",
+                    format="%.1f",
+                ),
+            },
+        )
+    else:
+        st.markdown(
+            '<div class="glass-card" style="text-align:center;padding:2rem;">'
+            '<div style="font-size:1.4rem;margin-bottom:6px;">💎</div>'
+            '<div style="color:#8B949E;">No gem candidates yet — scanner is running</div>'
+            '<div style="color:#484F58;font-size:0.75rem;margin-top:4px;">'
+            'Use Force Scan in the sidebar to trigger immediately</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+# ── Watchlist ─────────────────────────────────────────────────────────────────
+if watchlist_data:
+    st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
+    with st.expander(f"👁️ Watchlist ({len(watchlist_data)} tokens)", expanded=False):
+        _wl_rows = []
+        for w in watchlist_data[:30]:
+            if isinstance(w, dict):
+                _wl_rows.append({
+                    "Token": w.get("symbol", w.get("token_symbol", "???")),
+                    "Chain": w.get("chain", "").capitalize(),
+                    "Score": w.get("score", w.get("gem_score", 0)),
+                    "Added": str(w.get("added_at", w.get("discovered_at", "")))[:16],
+                    "Reason": w.get("reason", w.get("strategy_tag", "")),
+                })
+        if _wl_rows:
+            st.dataframe(
+                pd.DataFrame(_wl_rows),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Score": st.column_config.ProgressColumn(
+                        "Score", min_value=0, max_value=100, format="%.0f",
+                    ),
+                },
+            )
+
+# ── Error Feed (cached) ───────────────────────────────────────────────────────
+@st.cache_data(ttl=15)
+def _cached_errors():
+    return get_errors()
+
+errors = _cached_errors()
 if errors:
     with st.expander(f"⚠️ Recent Errors ({len(errors[-10:])})", expanded=False):
         for err in reversed(errors[-10:]):
@@ -1074,9 +1230,18 @@ if errors:
                 unsafe_allow_html=True,
             )
 
-# ── Auto-refresh ──────────────────────────────────────────────────────────────
+# ── Auto-refresh (proper Streamlit pattern — no script injection) ─────────────
 if auto_refresh:
-    st.markdown(
-        f'<script>setTimeout(()=>window.location.reload(),{refresh_rate*1000});</script>',
-        unsafe_allow_html=True,
-    )
+    try:
+        # Use st.fragment with run_every for clean auto-refresh (Streamlit ≥1.33)
+        @st.fragment(run_every=f"{refresh_rate}s")
+        def _auto_refresh_trigger():
+            """Fragment that triggers a full rerun on its refresh cycle."""
+            pass  # The fragment rerun triggers data-reload via the cached functions
+        _auto_refresh_trigger()
+    except (TypeError, AttributeError):
+        # Fallback for older Streamlit versions without run_every
+        st.markdown(
+            f'<meta http-equiv="refresh" content="{refresh_rate}">',
+            unsafe_allow_html=True,
+        )
