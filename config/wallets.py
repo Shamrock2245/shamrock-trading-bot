@@ -145,6 +145,117 @@ SWING_SCALP_PROFILE = StrategyProfile(
     max_slippage_pct=1.0,         # Very tight — liquid tokens
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MTF (Multi-Timeframe) Strategy Profiles
+# Each profile is tuned for a specific hold horizon and exit cadence.
+# These are used by the MTF strategy engine (strategies/mtf_strategy.py) and
+# registered on positions so the monitor applies the correct TP/SL rules.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1H Scalp Profile: fast in/out, tight stops, small TP targets ─────────────
+MTF_1H_SCALP_PROFILE = StrategyProfile(
+    name="mtf_1h_scalp",
+    min_gem_score=62.0,
+    express_lane_score=80.0,
+    # TP: +25% sell 50%, +50% sell 100% — fast scalp exits
+    tp1_mult=1.25,
+    tp1_sell_pct=0.50,
+    tp2_mult=1.50,
+    tp2_sell_pct=1.0,
+    tp3_mult=0.0,          # No TP3 — scalps exit fully at TP2
+    tp3_sell_pct=0.0,
+    # Stops — tight: scalps must cut fast
+    hard_stop_pct=8.0,
+    trailing_stop_pct=8.0,
+    trailing_tighten={1.3: 5.0, 1.45: 3.0},
+    # Sizing — smaller per-trade, higher frequency
+    max_position_pct=8.0,
+    kelly_clamp_max=0.20,
+    max_position_usd=500.0,
+    max_concurrent=8,
+    fast_fail_down_pct=7.0,
+    fast_fail_hours=1.0,
+    max_slippage_pct=3.0,
+)
+
+# ── 4H Swing Profile: technicals-driven, 1-2 day holds ───────────────────────
+MTF_4H_SWING_PROFILE = StrategyProfile(
+    name="mtf_4h_swing",
+    min_gem_score=65.0,
+    express_lane_score=82.0,
+    # TP: +50% sell 40%, +100% sell 35%, +200% sell 25%
+    tp1_mult=1.50,
+    tp1_sell_pct=0.40,
+    tp2_mult=2.00,
+    tp2_sell_pct=0.35,
+    tp3_mult=3.00,
+    tp3_sell_pct=0.25,
+    # Stops — moderate: give room to breathe on 4H candles
+    hard_stop_pct=15.0,
+    trailing_stop_pct=15.0,
+    trailing_tighten={2.0: 10.0, 3.0: 7.0},
+    # Sizing — standard
+    max_position_pct=10.0,
+    kelly_clamp_max=0.30,
+    max_position_usd=2_000.0,
+    max_concurrent=6,
+    fast_fail_down_pct=12.0,
+    fast_fail_hours=3.0,
+    max_slippage_pct=4.0,
+)
+
+# ── 12-24H Momentum Profile: multi-day trend plays ───────────────────────────
+MTF_12H_MOMENTUM_PROFILE = StrategyProfile(
+    name="mtf_12h_momentum",
+    min_gem_score=67.0,
+    express_lane_score=84.0,
+    # TP: +75% sell 35%, +150% sell 35%, +300% sell 30%
+    tp1_mult=1.75,
+    tp1_sell_pct=0.35,
+    tp2_mult=2.50,
+    tp2_sell_pct=0.35,
+    tp3_mult=4.00,
+    tp3_sell_pct=0.30,
+    # Stops — wider: multi-day plays need room
+    hard_stop_pct=18.0,
+    trailing_stop_pct=18.0,
+    trailing_tighten={2.5: 12.0, 4.0: 8.0},
+    # Sizing — moderate-large
+    max_position_pct=12.0,
+    kelly_clamp_max=0.35,
+    max_position_usd=3_000.0,
+    max_concurrent=5,
+    fast_fail_down_pct=14.0,
+    fast_fail_hours=6.0,
+    max_slippage_pct=5.0,
+)
+
+# ── 5-Day Position Profile: conviction plays, ride the trend ─────────────────
+MTF_5D_POSITION_PROFILE = StrategyProfile(
+    name="mtf_5d_position",
+    min_gem_score=70.0,
+    express_lane_score=85.0,
+    # TP: +100% sell 30%, +250% sell 30%, +500% sell 25% — ride the wave
+    tp1_mult=2.00,
+    tp1_sell_pct=0.30,
+    tp2_mult=3.50,
+    tp2_sell_pct=0.30,
+    tp3_mult=6.00,
+    tp3_sell_pct=0.25,
+    # Stops — widest: 5-day plays need room for multi-day drawdowns
+    hard_stop_pct=22.0,
+    trailing_stop_pct=22.0,
+    trailing_tighten={3.5: 15.0, 6.0: 10.0},
+    # Sizing — larger conviction bets
+    max_position_pct=15.0,
+    kelly_clamp_max=0.40,
+    max_position_usd=5_000.0,
+    max_concurrent=4,
+    fast_fail_down_pct=18.0,
+    fast_fail_hours=12.0,
+    max_slippage_pct=5.0,
+)
+
 # ── Solana Alpha Profile (high conviction 90% cap deploy) ────────────────────
 ALPHA_SOL_PROFILE = StrategyProfile(
     name="alpha_sol",

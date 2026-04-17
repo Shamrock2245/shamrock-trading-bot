@@ -255,6 +255,20 @@ TA_ENABLED = os.getenv("TA_ENABLED", "true").lower() == "true"
 # All features default OFF — enable individually to measure impact.
 VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "false").lower() == "true"
 MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true"
+
+# ── MTF Strategy Engine (Multi-Timeframe Horizon Assignment) ─────────────────────
+# Enabled by default — assigns 1H/4H/12H/5D profile to every qualified gem
+# based on multi-timeframe OHLCV technicals. Profile controls TP/SL tiers.
+MTF_STRATEGY_ENABLED = os.getenv("MTF_STRATEGY_ENABLED", "true").lower() == "true"
+# Minimum confidence score (0-100) for MTF to override the wallet default profile
+MTF_MIN_CONFIDENCE = float(os.getenv("MTF_MIN_CONFIDENCE", "40.0"))
+# Minimum candles required on each timeframe to evaluate it (avoid sparse data)
+MTF_MIN_CANDLES_1H = int(os.getenv("MTF_MIN_CANDLES_1H", "8"))
+MTF_MIN_CANDLES_4H = int(os.getenv("MTF_MIN_CANDLES_4H", "6"))
+MTF_MIN_CANDLES_12H = int(os.getenv("MTF_MIN_CANDLES_12H", "4"))
+MTF_MIN_CANDLES_5D = int(os.getenv("MTF_MIN_CANDLES_5D", "3"))
+# Aggressive mode: lower thresholds to catch more plays
+MTF_AGGRESSIVE_MODE = os.getenv("MTF_AGGRESSIVE_MODE", "true").lower() == "true"
 REGIME_STRATEGY_ENABLED = os.getenv("REGIME_STRATEGY_ENABLED", "false").lower() == "true"
 DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "false").lower() == "true"
 

@@ -125,6 +125,7 @@ from scanner.gem_scanner import GemScanner
 from strategies.gem_snipe import GemSnipeStrategy
 from scanner.swing_scanner import SwingScanner
 from strategies.swing_strategy import SwingStrategy
+from strategies.mtf_strategy import evaluate_mtf, MTFDecision
 from core.adaptive_mode import (
     load_mode_state, save_mode_state, update_capital,
     evaluate_mode, apply_mode, should_run_gems, should_run_swing,
@@ -2031,6 +2032,41 @@ async def run_bot_loop():
                         f"— executing immediately"
                     )
 
+                # ── MTF Strategy: assign timeframe profile to every qualified gem ────────
+                # Evaluates 1H/4H/12H-24H/5D technicals and selects the best horizon.
+                # The chosen profile name is stored on the position so the monitor
+                # applies the correct TP/SL tiers for that specific hold duration.
+                _mtf_profile_name = ""  # Default: wallet's built-in profile
+                try:
+                    _mtf_decision = evaluate_mtf(
+                        token_address=token.address,
+                        token_symbol=token.symbol,
+                        chain=token.chain,
+                        pair_address=token.pair_address or "",
+                        current_price=token.price_usd or 0.0,
+                        gem_score=candidate.gem_score,
+                        wallet_balance_usd=200.0,  # Sizing handled by wallet router
+                    )
+                    if _mtf_decision and _mtf_decision.action == "buy":
+                        _mtf_profile_name = _mtf_decision.profile_name
+                        logger.info(
+                            f"⏱️  MTF: {token.symbol} → profile={_mtf_decision.profile_name} "
+                            f"horizon={_mtf_decision.expected_hold_hours:.0f}h "
+                            f"conf={_mtf_decision.confidence:.0f}% "
+                            f"TP1=${_mtf_decision.tp1_price:.6f} "
+                            f"SL=${_mtf_decision.stop_loss_price:.6f}"
+                        )
+                        # Store MTF metadata on candidate for downstream use
+                        candidate.mtf_profile = _mtf_profile_name
+                        candidate.mtf_confidence = _mtf_decision.confidence
+                        candidate.mtf_hold_hours = _mtf_decision.expected_hold_hours
+                    else:
+                        logger.debug(
+                            f"MTF: {token.symbol} no clear timeframe signal — using wallet default profile"
+                        )
+                except Exception as _mtf_err:
+                    logger.debug(f"MTF evaluation failed (non-blocking): {_mtf_err}")
+
                 # ── Wallet routing (DUAL-WALLET: both Primary + Wallet B can fire) ──
 
                 allocations = route_trade_all(
@@ -2216,10 +2252,12 @@ async def run_bot_loop():
                         )
                         risk_manager.record_trade_open(wallet.alias)
 
-                        # ── Register position for auto-sell monitoring ─────────
-                        # Resolve strategy profile name from wallet config
+                        # ── Register position for auto-sell monitoring ─────────────────
+                        # Resolve strategy profile: MTF profile takes priority over wallet default
                         _reg_profile = ""
-                        if hasattr(wallet, "strategy_profile") and wallet.strategy_profile:
+                        if _mtf_profile_name:
+                            _reg_profile = _mtf_profile_name  # MTF-assigned horizon profile
+                        elif hasattr(wallet, "strategy_profile") and wallet.strategy_profile:
                             _reg_profile = wallet.strategy_profile.name
                         register_position(
                             token_address=token.address,

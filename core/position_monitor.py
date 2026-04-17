@@ -37,7 +37,11 @@ from data.http_session import get_session
 
 from config import settings
 from data.providers.moralis_money import get_token_analytics_fresh
-from config.wallets import CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE
+from config.wallets import (
+    CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE,
+    MTF_1H_SCALP_PROFILE, MTF_4H_SWING_PROFILE,
+    MTF_12H_MOMENTUM_PROFILE, MTF_5D_POSITION_PROFILE,
+)
 from data.models import Position, Trade
 from core.offensive_guardrails import (
     get_offensive_state,
@@ -53,6 +57,11 @@ _PROFILE_MAP = {
     "conservative": CONSERVATIVE_PROFILE,
     "nuclear": NUCLEAR_PROFILE,
     "swing": SWING_SCALP_PROFILE,
+    # MTF profiles — multi-timeframe strategy engine
+    "mtf_1h_scalp": MTF_1H_SCALP_PROFILE,
+    "mtf_4h_swing": MTF_4H_SWING_PROFILE,
+    "mtf_12h_momentum": MTF_12H_MOMENTUM_PROFILE,
+    "mtf_5d_position": MTF_5D_POSITION_PROFILE,
 }
 
 logger = logging.getLogger(__name__)
@@ -1012,96 +1021,107 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         except Exception as _hp_err:
             logger.debug(f"Honeypot re-check failed (non-blocking): {_hp_err}")
 
-        # Live execution — delegate to executor (EVM or Solana)
+        # ── SELL ENGINE: Aggressive, fault-tolerant execution ─────────────────
+        # Uses core/sell_engine.py which fixes all root causes of missed sells:
+        #   1. Solana: Jito-first (not standard RPC) for ALL sells
+        #   2. Slippage escalation: 200 → 500 → 1500 → 3000bps
+        #   3. On-chain balance fallback if remaining_quantity=0
+        #   4. 4-attempt retry with exponential backoff
+        #   5. EVM: approval bypass for token→native sells
         try:
+            from core.sell_engine import (
+                execute_sell_solana,
+                execute_sell_evm,
+                resolve_sell_quantity,
+            )
+            from config.wallets import WALLETS
+
             chain = pos.get("chain", "")
-            if chain == "solana":
-                from core.solana_executor import execute_solana_sell
-                from config.wallets import WALLETS
-                wallet_alias = pos.get("wallet", "primary")
-                wallet = WALLETS.get(wallet_alias)
-                sol_pub = wallet.solana_address if wallet else ""
-                sol_key_env = wallet.solana_private_key_env if wallet else ""
-                # Convert quantity to token units using stored decimals.
-                # Solana SPL tokens are most commonly 6 decimals (USDC, most memes)
-                # but some are 9 (SOL-native) or other values.
-                # We store token_decimals at buy time; fall back to 6 if missing.
-                sol_decimals = int(pos.get("token_decimals", 6))
-                if sol_decimals not in (6, 9):  # Sanity check — only trust known-good values
-                    logger.warning(
-                        f"Unexpected Solana token decimals={sol_decimals} for "
-                        f"{pos.get('token_symbol')} — defaulting to 6"
-                    )
-                    sol_decimals = 6
-                token_amount_units = int(sell_qty * (10 ** sol_decimals))
-                logger.info(
-                    f"Solana sell: {sell_qty:.4f} tokens × 10^{sol_decimals} "
-                    f"= {token_amount_units:,} units"
+            sell_urgency = sell_action.get("urgency", "normal")
+            wallet_alias = pos.get("wallet", "primary")
+            wallet = WALLETS.get(wallet_alias)
+            if not wallet:
+                for wk, wv in WALLETS.items():
+                    if (wv.address.lower() == wallet_alias.lower()
+                            or wv.alias.lower() == wallet_alias.lower()):
+                        wallet = wv
+                        break
+            if not wallet:
+                raise ValueError(f"No wallet found for '{wallet_alias}'")
+
+            # Resolve actual sell quantity with on-chain fallback
+            resolved_qty, resolved_units = resolve_sell_quantity(pos, sell_pct)
+            if resolved_units <= 0:
+                raise RuntimeError(
+                    f"Cannot sell {pos.get('token_symbol')}: resolved_units=0 "
+                    f"(remaining_qty={pos.get('remaining_quantity')}, sell_pct={sell_pct})"
                 )
-                # Use urgency-based slippage: immediate exits get wider slippage
-                sell_urgency = sell_action.get("urgency", "normal")
-                sol_slippage = 500 if sell_urgency == "immediate" else 250
-                tx_hash = execute_solana_sell(
+
+            # Update sell_qty to resolved value
+            sell_qty = resolved_qty
+
+            if chain == "solana":
+                sol_pub = getattr(wallet, "solana_address", "") or ""
+                sol_key_env = getattr(wallet, "solana_private_key_env", "") or ""
+                sell_result = execute_sell_solana(
                     token_mint=pos["token_address"],
-                    token_amount=token_amount_units,
+                    token_amount_units=resolved_units,
                     wallet_public_key=sol_pub,
                     wallet_private_key_env=sol_key_env,
-                    slippage_bps=sol_slippage,
+                    urgency=sell_urgency,
                     is_paper=False,
                 )
             else:
-                from core.executor import TradeExecutor, build_take_profit_params
-                from config.wallets import WALLETS
-                wallet_alias = pos.get("wallet", "primary")
-                wallet = WALLETS.get(wallet_alias)
-                if not wallet:
-                    # Try matching by address or alias
-                    for wk, wv in WALLETS.items():
-                        if (wv.address.lower() == wallet_alias.lower()
-                                or wv.alias.lower() == wallet_alias.lower()):
-                            wallet = wv
-                            break
-                if not wallet:
-                    raise ValueError(f"No wallet found for '{wallet_alias}'")
-                # Convert sell_qty to token wei (use decimals from position or default 18)
-                decimals = int(pos.get("token_decimals", 18))
-                token_amount_wei = int(sell_qty * (10 ** decimals))
-                params = build_take_profit_params(
-                    wallet=wallet,
-                    chain=chain,
+                sell_result = execute_sell_evm(
                     token_address=pos["token_address"],
-                    token_amount_wei=token_amount_wei,
-                    slippage_bps=300,  # wider slippage for exits
+                    token_amount_wei=resolved_units,
+                    chain=chain,
+                    wallet=wallet,
+                    urgency=sell_urgency,
+                    is_paper=False,
                 )
-                sell_executor = TradeExecutor()
-                result = sell_executor.execute_trade(params)
-                tx_hash = result.tx_hash if result.success else None
-                if not result.success:
-                    raise RuntimeError(f"EVM sell failed: {result.error}")
+
+            tx_hash = sell_result.tx_hash if sell_result.success else None
+            if not sell_result.success:
+                raise RuntimeError(
+                    f"Sell engine failed after {sell_result.attempts} attempts: "
+                    f"{sell_result.error}"
+                )
+
             trade_record["tx_hash"] = tx_hash
+            trade_record["sell_attempts"] = sell_result.attempts
+            trade_record["slippage_bps_used"] = sell_result.slippage_bps_used
             logger.info(
-                f"LIVE SELL: {pos['token_symbol']} {sell_pct*100:.0f}% "
-                f"@ ${current_price:.6f} | {reason} | tx={tx_hash}"
+                f"✅ LIVE SELL: {pos['token_symbol']} {sell_pct*100:.0f}% "
+                f"@ ${current_price:.6f} | {reason} | tx={tx_hash} | "
+                f"attempts={sell_result.attempts} | slippage={sell_result.slippage_bps_used}bps"
             )
         except Exception as e:
             logger.error(f"Live sell failed for {pos.get('token_symbol')}: {e}")
             trade_record["error"] = str(e)
-            # FIX BUG 4: Track consecutive sell failures. After 3 failures,
-            # log at CRITICAL level and force wider slippage on next attempt.
             fail_count = pos.get("sell_failure_count", 0) + 1
             pos["sell_failure_count"] = fail_count
-            if fail_count >= 3:
+            if fail_count >= 2:
                 logger.critical(
                     f"🚨 SELL FAILURE #{fail_count}: {pos.get('token_symbol')} on {pos.get('chain')} "
-                    f"— forcing max slippage on next attempt. Manual intervention may be needed."
+                    f"— sell engine exhausted all retries. Manual intervention required."
                 )
-                pos["force_max_slippage"] = True
+                try:
+                    from notifications.telegram import notify_alert
+                    notify_alert(
+                        f"🚨 SELL FAILURE #{fail_count}",
+                        f"{pos.get('token_symbol')} on {pos.get('chain')} could not be sold "
+                        f"after {fail_count} monitor cycles. Error: {e}. "
+                        f"Manual intervention required.",
+                        level="error",
+                    )
+                except Exception:
+                    pass
                 try:
                     from notifications.slack import send_slack_message
                     send_slack_message(
                         f"🚨 *SELL FAILURE* #{fail_count}: `{pos.get('token_symbol')}` on `{pos.get('chain')}` "
-                        f"could not be sold after {fail_count} attempts. Error: `{e}`. "
-                        f"Forcing max slippage — manual check recommended."
+                        f"could not be sold. Error: `{e}`. Manual check required."
                     )
                 except Exception:
                     pass
