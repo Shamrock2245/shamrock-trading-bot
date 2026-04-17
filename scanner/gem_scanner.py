@@ -948,13 +948,18 @@ class GemScanner:
                         f"Moralis Security Score {score_value}/100"
                     )
                     return None
-                # Save it so we can use it in contract score
+                # Save security score AND the composite token score (0-100)
+                # The composite includes volume, tx count, supply metrics — richer than security alone
                 candidate.moralis_security_score = score_value
+                composite_score = token_score_data.get("score", token_score_data.get("token_score", 0))
+                candidate.moralis_token_score_composite = composite_score
             else:
                 candidate.moralis_security_score = 70
+                candidate.moralis_token_score_composite = 0
         except Exception as e:
             logger.debug(f"Moralis security/metadata score skipped for {token.symbol}: {e}")
             candidate.moralis_security_score = 70
+            candidate.moralis_token_score_composite = 0
 
         # ── Age score (12%) ────────────────────────────────────────────────────────
         # New tokens are better for sniping.
@@ -1361,10 +1366,37 @@ class GemScanner:
                     is_solana=(token.chain == "solana"),
                 )
 
-            # Submit 6 enrichment calls — added moralis_intelligence for full suite
+            def _get_entity_conviction():
+                """Aggregate entity labels from swaps to detect institutional buying."""
+                try:
+                    from data.providers.moralis_intelligence import get_swap_entity_summary
+                    return get_swap_entity_summary(token.address, token.chain)
+                except Exception:
+                    return {}
+
+            def _get_solana_pair_stats():
+                """Solana-specific pair stats for buyer/seller velocity."""
+                if token.chain != "solana":
+                    return {}
+                try:
+                    from data.providers.moralis_solana import get_solana_pair_stats as _sol_pair_stats
+                    pair_addr = getattr(token, "pair_address", "")
+                    if not pair_addr:
+                        # Try to get the first pair
+                        from data.providers.moralis_solana import get_solana_token_pairs
+                        pairs = get_solana_token_pairs(token.address)
+                        if pairs:
+                            pair_addr = pairs[0].get("pair_address", "")
+                    if pair_addr:
+                        return _sol_pair_stats(pair_addr)
+                except Exception:
+                    pass
+                return {}
+
+            # Submit 8 enrichment calls — added entity conviction + Solana pair stats
             enrichment_results = {}
             future_map = {}
-            with ThreadPoolExecutor(max_workers=6, thread_name_prefix="enrich") as pool:
+            with ThreadPoolExecutor(max_workers=8, thread_name_prefix="enrich") as pool:
                 future_map = {
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
@@ -1372,6 +1404,8 @@ class GemScanner:
                     pool.submit(_get_moralis_money): "moralis_money",
                     pool.submit(_get_binance_pulse): "binance_pulse",
                     pool.submit(_get_intelligence): "moralis_intelligence",
+                    pool.submit(_get_entity_conviction): "entity_conviction",
+                    pool.submit(_get_solana_pair_stats): "solana_pair_stats",
                 }
                 try:
                     for future in as_completed(future_map, timeout=15):
@@ -1713,6 +1747,49 @@ class GemScanner:
                         f"${candidate.binance_smart_money_inflow_usd:,.0f} inflow"
                     )
 
+        # ── Entity Conviction Processing (Gap 5: institutional label parsing) ──
+        if base_score >= 45:
+            entity_data = enrichment_results.get("entity_conviction", {})
+            if entity_data and isinstance(entity_data, dict):
+                candidate.entity_conviction_data = entity_data
+                candidate.entity_exchange_buying = entity_data.get("exchange_buying", False)
+                candidate.entity_fund_buying = entity_data.get("fund_buying", False)
+                candidate.entity_mev_bot_count = entity_data.get("mev_bot_count", 0)
+                candidate.entity_conviction_score = entity_data.get("entity_conviction_score", 50.0)
+                if entity_data.get("entity_labels"):
+                    logger.debug(
+                        f"Entity labels for {token.symbol}: "
+                        f"{entity_data['entity_labels'][:5]} "
+                        f"conv={entity_data.get('entity_conviction_score', 50)}"
+                    )
+            else:
+                candidate.entity_conviction_data = {}
+
+        # ── Solana Pair Stats Processing (Gap 3: buyer/seller velocity) ─────
+        if base_score >= 45 and token.chain == "solana":
+            sol_pair_data = enrichment_results.get("solana_pair_stats", {})
+            if sol_pair_data and isinstance(sol_pair_data, dict):
+                candidate.solana_pair_buyers_5m = sol_pair_data.get("buyers_5m", 0)
+                candidate.solana_pair_sellers_5m = sol_pair_data.get("sellers_5m", 0)
+                candidate.solana_pair_buy_pressure_5m = sol_pair_data.get("buy_pressure_5m", 0.5)
+                candidate.solana_pair_buy_pressure_1h = sol_pair_data.get("buy_pressure_1h", 0.5)
+                candidate.solana_pair_buy_volume_24h = sol_pair_data.get("buy_volume_24h", 0.0)
+                candidate.solana_pair_sell_volume_24h = sol_pair_data.get("sell_volume_24h", 0.0)
+                # Override moralis_pair fields so Solana tokens get the same data format
+                candidate.moralis_pair_buyers_5m = sol_pair_data.get("buyers_5m", 0)
+                candidate.moralis_pair_sellers_5m = sol_pair_data.get("sellers_5m", 0)
+                candidate.moralis_pair_buy_vol_1h = sol_pair_data.get("buy_volume_1h", 0.0)
+                candidate.moralis_pair_sell_vol_1h = sol_pair_data.get("sell_volume_1h", 0.0)
+                candidate.moralis_pair_buyers_24h = sol_pair_data.get("buyers_24h", 0)
+                candidate.moralis_pair_sellers_24h = sol_pair_data.get("sellers_24h", 0)
+                bp_5m = sol_pair_data.get("buy_pressure_5m", 0.5)
+                if bp_5m >= 0.70:
+                    logger.info(
+                        f"📊 SOL PAIR VELOCITY: {token.symbol} — "
+                        f"{sol_pair_data.get('buyers_5m', 0)}b/{sol_pair_data.get('sellers_5m', 0)}s "
+                        f"in 5m ({bp_5m:.0%} buy)"
+                    )
+
         # ── Buy Pressure Score ────────────────────────────────────────────────
         buy_pressure_score = 50.0
         total_txns = token.buys_1h + token.sells_1h
@@ -1793,6 +1870,60 @@ class GemScanner:
                 f"(rank #{candidate.binance_smart_money_rank}, "
                 f"new score={candidate.gem_score})"
             )
+
+        # ── TOKEN SCORE COMPOSITE BONUS: fundamental health → ±5 ──────────
+        # Moralis Token Score (0-100) reflects volume, tx activity, and supply
+        # health. A high composite means the token has genuine activity.
+        moralis_composite = getattr(candidate, 'moralis_token_score_composite', 0)
+        if moralis_composite >= 80:
+            pre_ts = candidate.gem_score
+            candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+            logger.info(
+                f"📊 TOKEN SCORE BONUS: {token.symbol} composite={moralis_composite}/100 "
+                f"→ +5 (score {pre_ts} → {candidate.gem_score})"
+            )
+        elif 30 <= moralis_composite <= 59:
+            pre_ts = candidate.gem_score
+            candidate.gem_score = max(0.0, round(candidate.gem_score - 5.0, 2))
+            logger.debug(
+                f"📊 TOKEN SCORE PENALTY: {token.symbol} composite={moralis_composite}/100 "
+                f"→ -5 (score {pre_ts} → {candidate.gem_score})"
+            )
+
+        # ── ENTITY CONVICTION BONUS: exchange/fund accumulation → +6-12 ───
+        # When Moralis entity labels show known exchanges or funds buying,
+        # this is a very high-conviction signal that real institutions are
+        # accumulating before a potential CEX listing or market move.
+        entity_summary = getattr(candidate, 'entity_conviction_data', None)
+        if entity_summary and isinstance(entity_summary, dict):
+            entity_conv_score = entity_summary.get("entity_conviction_score", 50.0)
+            if entity_summary.get("exchange_buying") and entity_summary.get("fund_buying"):
+                pre_ec = candidate.gem_score
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 12.0, 2))
+                logger.info(
+                    f"🏦 ENTITY CONVICTION: {token.symbol} — EXCHANGE + FUND buying! "
+                    f"labels={entity_summary.get('entity_labels', [])[:3]} → +12 "
+                    f"(score {pre_ec} → {candidate.gem_score})"
+                )
+            elif entity_summary.get("exchange_buying"):
+                pre_ec = candidate.gem_score
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+                logger.info(
+                    f"🏦 ENTITY CONVICTION: {token.symbol} — EXCHANGE accumulation! "
+                    f"labels={entity_summary.get('entity_labels', [])[:3]} → +8 "
+                    f"(score {pre_ec} → {candidate.gem_score})"
+                )
+            elif entity_summary.get("fund_buying"):
+                pre_ec = candidate.gem_score
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 6.0, 2))
+                logger.info(
+                    f"🏦 ENTITY CONVICTION: {token.symbol} — FUND buying! "
+                    f"labels={entity_summary.get('entity_labels', [])[:3]} → +6 "
+                    f"(score {pre_ec} → {candidate.gem_score})"
+                )
+            elif entity_conv_score >= 70:
+                pre_ec = candidate.gem_score
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
 
         # ── CTO Revival bonus ─────────────────────────────────────────────────
         # CTO tokens get a +8 point bonus on top of composite score.

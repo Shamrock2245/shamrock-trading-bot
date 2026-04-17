@@ -289,4 +289,65 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
             except Exception as e:
                 logger.debug(f"Moralis wallet profiling failed: {e}")
 
+        # ── Moralis Top Traders — highest-signal smart money (Gap 4) ──────
+        # If we STILL have a low score (30), try the Moralis Top Traders endpoint.
+        # This returns PnL-verified traders for a specific token — the purest
+        # smart money signal available. A token with 3+ profitable top traders
+        # means real alpha wallets have already taken positions.
+        if score <= 30 and chain != "solana":
+            try:
+                from data.providers.moralis_intelligence import get_top_trader_signal
+                top_trader_data = get_top_trader_signal(token_address, chain)
+                if top_trader_data.get("smart_money_buying"):
+                    sm_score = top_trader_data.get("smart_money_score", 0)
+                    profitable_count = top_trader_data.get("profitable_trader_count", 0)
+                    total_vol = top_trader_data.get("total_smart_money_usd", 0)
+                    if profitable_count >= 3 and sm_score >= 60:
+                        score = 70.0
+                        logger.info(
+                            f"Smart money (top traders): {profitable_count} profitable "
+                            f"traders on {token_address[:10]}... ({chain}), "
+                            f"avg_profit={top_trader_data.get('avg_profit_pct', 0):.1f}% "
+                            f"vol=${total_vol:,.0f}"
+                        )
+                    elif profitable_count >= 1:
+                        score = max(score, 50.0)
+                        logger.debug(
+                            f"Smart money (top traders): {profitable_count} profitable "
+                            f"trader(s) on {token_address[:10]}... ({chain})"
+                        )
+            except Exception as e:
+                logger.debug(f"Moralis Top Traders fallback failed: {e}")
+
+        # ── Moralis DeFi Positions — whale qualification (Gap 6) ──────────
+        # If score is still <= 30, check if the top 2 holders have significant
+        # DeFi positions. A wallet farming $50K+ across multiple protocols
+        # is a real DeFi player, not a bot or passive airdrop recipient.
+        # This costs 2 API calls (one per holder) — only runs as last resort.
+        if score <= 30 and chain != "solana" and holders[:2]:
+            try:
+                from data.providers.moralis_intelligence import get_wallet_defi_positions
+                defi_qualified_count = 0
+                for holder_addr in holders[:2]:
+                    positions = get_wallet_defi_positions(holder_addr, chain)
+                    if positions:
+                        total_defi_usd = sum(p.get("usd_value", 0) for p in positions)
+                        unique_protocols = len(set(p.get("protocol_name", "") for p in positions))
+                        if total_defi_usd >= 50_000 and unique_protocols >= 2:
+                            defi_qualified_count += 1
+                            logger.debug(
+                                f"DeFi whale: {holder_addr[:10]}... "
+                                f"${total_defi_usd:,.0f} across {unique_protocols} protocols"
+                            )
+                if defi_qualified_count >= 2:
+                    score = 55.0
+                    logger.info(
+                        f"Smart money (DeFi qualified): {defi_qualified_count}/2 top holders "
+                        f"are active DeFi whales for {token_address[:10]}... on {chain}"
+                    )
+                elif defi_qualified_count >= 1:
+                    score = max(score, 40.0)
+            except Exception as e:
+                logger.debug(f"DeFi position check failed: {e}")
+
     return _store(cache_key, score)

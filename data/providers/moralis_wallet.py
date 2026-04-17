@@ -1017,7 +1017,7 @@ def get_wallet_insights(
     try:
         resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/insights",
-            params={"chain": CHAIN_HEX[chain]},
+            params={"chain": CHAIN_HEX[chain], "includeChainBreakdown": "true"},
             headers=_headers(),
             timeout=10,
         )
@@ -1091,6 +1091,19 @@ def get_wallet_insights(
             if isinstance(v, (int, float, str, bool))
         }
 
+        # Chain breakdown: per-chain portfolio decomposition (requires includeChainBreakdown=true)
+        raw_breakdown = payload.get("chainBreakdown") or payload.get("chain_breakdown") or {}
+        chain_breakdown = {}
+        if isinstance(raw_breakdown, dict):
+            for chn, chn_data in raw_breakdown.items():
+                if isinstance(chn_data, dict):
+                    chain_breakdown[chn] = {
+                        "native_balance_usd": float(chn_data.get("nativeBalanceUsd", chn_data.get("native_balance_usd", 0)) or 0),
+                        "token_balance_usd": float(chn_data.get("tokenBalanceUsd", chn_data.get("token_balance_usd", 0)) or 0),
+                        "total_usd": float(chn_data.get("totalUsd", chn_data.get("total_usd", 0)) or 0),
+                    }
+        active_chains_count = len([c for c, v in chain_breakdown.items() if v.get("total_usd", 0) > 0])
+
         result = {
             "is_contract":          is_contract,
             "is_fresh_wallet":      is_fresh,
@@ -1101,6 +1114,8 @@ def get_wallet_insights(
             "category":             category,
             "preferred_dex":        preferred_dex,
             "activity_summary":     activity_summary,
+            "chain_breakdown":      chain_breakdown,
+            "active_chains_count":  active_chains_count,
             "wallet_address":       wallet_address,
             "chain":                chain,
         }

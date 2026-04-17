@@ -478,6 +478,96 @@ def get_solana_token_pairs(token_address: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 7b. Pair Stats  (GET /token/{network}/pairs/{pairAddress}/stats) — 25 CU
+#     Buyer/seller velocity across multiple timeframes for Solana pairs.
+#     TRADING SIGNAL: Rising buyer count + falling seller count = accumulation.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_solana_pair_stats(pair_address: str) -> dict:
+    """
+    Get real-time buyer/seller stats for a Solana DEX pair across timeframes.
+
+    Returns:
+        {
+            "buyers_5m": int, "sellers_5m": int,
+            "buyers_1h": int, "sellers_1h": int,
+            "buyers_4h": int, "sellers_4h": int,
+            "buyers_24h": int, "sellers_24h": int,
+            "buy_volume_1h": float, "sell_volume_1h": float,
+            "total_liquidity_usd": float,
+            "buy_pressure_5m": float,  # 0-1 ratio
+            "buy_pressure_1h": float,
+            "buy_pressure_24h": float,
+        }
+
+    Cost: 25 CU
+    """
+    if not _available() or not pair_address:
+        return {}
+
+    cache_key = f"sol_pair_stats_{pair_address}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/token/{NETWORK}/pairs/{pair_address}/stats",
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return {}
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Moralis returns nested timeframe objects
+        def _extract_tf(tf_key: str) -> tuple:
+            """Extract buyer/seller/volume counts for a timeframe."""
+            tf_data = data.get(tf_key, {})
+            buyers = int(tf_data.get("buyers", tf_data.get("buys", 0)) or 0)
+            sellers = int(tf_data.get("sellers", tf_data.get("sells", 0)) or 0)
+            buy_vol = float(tf_data.get("buy_volume_usd", tf_data.get("buyVolumeUsd", 0)) or 0)
+            sell_vol = float(tf_data.get("sell_volume_usd", tf_data.get("sellVolumeUsd", 0)) or 0)
+            return buyers, sellers, buy_vol, sell_vol
+
+        b5, s5, bv5, sv5 = _extract_tf("5m")
+        b1h, s1h, bv1h, sv1h = _extract_tf("1h")
+        b4h, s4h, bv4h, sv4h = _extract_tf("4h")
+        b24h, s24h, bv24h, sv24h = _extract_tf("24h")
+
+        def _pressure(buys: int, sells: int) -> float:
+            total = buys + sells
+            return round(buys / total, 3) if total > 0 else 0.5
+
+        result = {
+            "buyers_5m": b5, "sellers_5m": s5,
+            "buyers_1h": b1h, "sellers_1h": s1h,
+            "buyers_4h": b4h, "sellers_4h": s4h,
+            "buyers_24h": b24h, "sellers_24h": s24h,
+            "buy_volume_1h": round(bv1h, 2),
+            "sell_volume_1h": round(sv1h, 2),
+            "buy_volume_24h": round(bv24h, 2),
+            "sell_volume_24h": round(sv24h, 2),
+            "total_liquidity_usd": float(data.get("totalLiquidityUsd", data.get("total_liquidity_usd", 0)) or 0),
+            "buy_pressure_5m": _pressure(b5, s5),
+            "buy_pressure_1h": _pressure(b1h, s1h),
+            "buy_pressure_24h": _pressure(b24h, s24h),
+        }
+
+        _set_cache(cache_key, result)
+        logger.debug(
+            f"Solana pair stats {pair_address[:12]}...: "
+            f"5m={b5}b/{s5}s 1h={b1h}b/{s1h}s "
+            f"bp_5m={result['buy_pressure_5m']:.0%}"
+        )
+        return result
+
+    except Exception as e:
+        logger.debug(f"Moralis Solana pair stats failed for {pair_address}: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 8. Token Price  (GET /token/{network}/{address}/price) — 10 CU
 # ─────────────────────────────────────────────────────────────────────────────
 def get_solana_token_price(token_address: str) -> dict:

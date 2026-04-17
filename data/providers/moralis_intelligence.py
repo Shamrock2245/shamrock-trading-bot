@@ -568,7 +568,7 @@ def get_holder_growth(token_address: str, chain: str, days: int = 7) -> dict:
 def get_token_swaps(token_address: str, chain: str, limit: int = 20) -> list[dict]:
     """
     Get recent swap transactions for a token.
-    Returns list of swaps with buyer/seller info and USD values.
+    Returns list of swaps with buyer/seller info, USD values, and entity labels.
     """
     if not _available(chain) or chain not in CHAIN_HEX:
         return []
@@ -590,6 +590,20 @@ def get_token_swaps(token_address: str, chain: str, limit: int = 20) -> list[dic
         swaps = data.get("result", data) if isinstance(data, dict) else data
         result = []
         for s in (swaps or [])[:limit]:
+            # Entity label: Moralis tags known addresses (exchanges, funds, MEV bots)
+            entity_label = (
+                s.get("address_label")
+                or s.get("wallet_label")
+                or s.get("from_address_entity")
+                or s.get("to_address_entity")
+                or ""
+            )
+            entity_type = (
+                s.get("address_entity_type")
+                or s.get("from_address_entity_type")
+                or s.get("to_address_entity_type")
+                or ""
+            )
             result.append({
                 "tx_hash":         s.get("transaction_hash", ""),
                 "block_timestamp": s.get("block_timestamp", ""),
@@ -598,12 +612,101 @@ def get_token_swaps(token_address: str, chain: str, limit: int = 20) -> list[dic
                 "usd_amount":      _safe_float(s.get("usd_amount", 0)),
                 "token_amount":    _safe_float(s.get("token_amount", 0)),
                 "price_usd":       _safe_float(s.get("price_usd", 0)),
+                "entity_label":    entity_label,
+                "entity_type":     entity_type.lower(),
             })
         _set_cache(cache_key, result)
         return result
     except Exception as e:
         logger.debug(f"Token swaps error {chain}/{token_address[:8]}: {e}")
         return []
+
+
+def get_swap_entity_summary(token_address: str, chain: str) -> dict:
+    """
+    Aggregate entity labels from recent swaps to detect institutional interest.
+
+    Returns:
+        {
+            "exchange_buying": bool,       # Known exchange is accumulating
+            "fund_buying": bool,           # Known fund/VC is accumulating
+            "mev_bot_count": int,          # MEV bots trading this token
+            "labeled_buyer_count": int,    # Buyers with known entity labels
+            "labeled_seller_count": int,   # Sellers with known entity labels
+            "entity_labels": list[str],    # Unique entity labels seen
+            "entity_conviction_score": float,  # 0-100 score
+        }
+    """
+    swaps = get_token_swaps(token_address, chain, limit=50)
+    if not swaps:
+        return {
+            "exchange_buying": False, "fund_buying": False, "mev_bot_count": 0,
+            "labeled_buyer_count": 0, "labeled_seller_count": 0,
+            "entity_labels": [], "entity_conviction_score": 50.0,
+        }
+
+    # Classify entities from swap labels
+    EXCHANGE_KEYWORDS = {"binance", "coinbase", "kraken", "okx", "bybit", "kucoin", "gate", "bitfinex", "huobi", "htx", "mexc", "upbit"}
+    FUND_KEYWORDS = {"capital", "ventures", "fund", "labs", "research", "dao", "treasury"}
+    BOT_KEYWORDS = {"mev", "bot", "flashbot", "arbitrage", "sandwich"}
+
+    exchange_buys = 0
+    fund_buys = 0
+    mev_count = 0
+    labeled_buyers = 0
+    labeled_sellers = 0
+    unique_labels = set()
+
+    for swap in swaps:
+        label = (swap.get("entity_label") or "").lower()
+        etype = (swap.get("entity_type") or "").lower()
+        is_buy = swap.get("transaction_type") == "buy"
+
+        if not label and not etype:
+            continue
+
+        unique_labels.add(swap.get("entity_label", ""))
+
+        # Classify by type
+        is_exchange = any(kw in label for kw in EXCHANGE_KEYWORDS) or etype in ("exchange", "cex")
+        is_fund = any(kw in label for kw in FUND_KEYWORDS) or etype in ("fund", "vc", "institution")
+        is_bot = any(kw in label for kw in BOT_KEYWORDS) or etype in ("mev", "bot")
+
+        if is_buy:
+            labeled_buyers += 1
+            if is_exchange:
+                exchange_buys += 1
+            if is_fund:
+                fund_buys += 1
+        else:
+            labeled_sellers += 1
+
+        if is_bot:
+            mev_count += 1
+
+    # Conviction score: exchanges and funds buying = high conviction
+    score = 50.0
+    if exchange_buys >= 2:
+        score += 20.0
+    elif exchange_buys >= 1:
+        score += 10.0
+    if fund_buys >= 1:
+        score += 15.0
+    if mev_count >= 3:
+        score -= 10.0  # Heavy MEV activity = front-running risk
+    if labeled_buyers > labeled_sellers:
+        score += 5.0
+
+    result = {
+        "exchange_buying": exchange_buys > 0,
+        "fund_buying": fund_buys > 0,
+        "mev_bot_count": mev_count,
+        "labeled_buyer_count": labeled_buyers,
+        "labeled_seller_count": labeled_sellers,
+        "entity_labels": [l for l in unique_labels if l],
+        "entity_conviction_score": round(min(100.0, max(0.0, score)), 1),
+    }
+    return result
 
 
 def analyze_swap_flow(token_address: str, chain: str) -> dict:
