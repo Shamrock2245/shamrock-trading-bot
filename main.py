@@ -2573,6 +2573,7 @@ async def run_bot_loop():
                     "last_cycle_at": _time_module.strftime("%Y-%m-%dT%H:%M:%SZ", _time_module.gmtime()),
                     "cycle": cycle,
                     "mode": settings.MODE,
+                    "status": "running",
                     "is_running": True,
                     "open_positions": len(_open_pos),
                     "closed_positions": len(_closed_pos),

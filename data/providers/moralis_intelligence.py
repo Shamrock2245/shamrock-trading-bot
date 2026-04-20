@@ -872,11 +872,20 @@ def get_wallet_chain_activity(wallet_address: str) -> dict:
         return {}
 
 
+_ZERO_ADDRESSES = {
+    "",
+    "0x0000000000000000000000000000000000000000",
+    "0x000000000000000000000000000000000000dead",
+}
+
+
 def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
     """
     Get DeFi protocol positions for a wallet.
     Returns positions in Uniswap, Aave, Compound, etc.
     """
+    if not wallet_address or wallet_address.lower() in _ZERO_ADDRESSES:
+        return []
     if not _available(chain) or chain not in CHAIN_HEX:
         return []
     cache_key = f"defi_pos_{chain}_{wallet_address.lower()}"

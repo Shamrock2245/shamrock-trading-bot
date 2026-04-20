@@ -49,7 +49,8 @@ import json, time; \
 f=open('/app/data/dashboard/bot_status.json'); \
 d=json.load(f); \
 from datetime import datetime, timezone; \
-ts=datetime.fromisoformat(d['timestamp'].replace('Z','+00:00')); \
+ts_raw=d.get('last_cycle_at') or d.get('timestamp') or d.get('started_at',''); \
+ts=datetime.fromisoformat(ts_raw.replace('Z','+00:00')); \
 age=(datetime.now(timezone.utc)-ts).total_seconds(); \
 print(f'Bot cycle age: {age:.0f}s'); \
 exit(0 if age < 300 else 1)" || exit 1
