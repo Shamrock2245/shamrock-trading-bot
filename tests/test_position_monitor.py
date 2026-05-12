@@ -118,9 +118,9 @@ class TestHardStopLoss:
             assert "hard" not in reason, f"Hard stop should NOT fire at -10%, got: {reason}"
 
     def test_nuclear_hard_stop_tighter(self):
-        """Nuclear profile has 8% hard stop — should fire at -10%."""
+        """Nuclear profile has 10% hard stop — should fire at -12%."""
         pos = _pos(entry_price=1.0, profile="nuclear")
-        result = _eval(pos, current_price=0.88)  # -12% → below 8% threshold
+        result = _eval(pos, current_price=0.88)  # -12% → below 10% threshold
         assert result is not None, "Nuclear hard stop should fire at -12%"
 
 
@@ -161,40 +161,40 @@ class TestPreTP1PeakProtection:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestTPLadderConservative:
-    """Conservative TP tiers: TP1=1.5x/40%, TP2=2.5x/35%, TP3=5x/25%."""
+    """Conservative TP tiers: TP1=2.5x/35%, TP2=5x/40%, TP3=10x/30%."""
 
     def test_tp1_fires_at_correct_mult(self):
-        """TP1 should fire at 1.5x for conservative profile."""
+        """TP1 should fire at 2.5x for conservative profile."""
         pos = _pos(entry_price=1.0)
-        result = _eval(pos, current_price=1.55)  # 1.55x > 1.5x TP1
-        assert result is not None, "Conservative TP1 should fire at 1.55x"
+        result = _eval(pos, current_price=2.6)  # 2.6x > 2.5x TP1
+        assert result is not None, "Conservative TP1 should fire at 2.6x"
         assert "tp1" in result.get("reason", "").lower(), \
             f"Expected tp1 reason, got: {result.get('reason')}"
         # Verify sell percentage
         sell_pct = result.get("sell_pct", 0)
-        assert 0.35 <= sell_pct <= 0.50, f"TP1 sell_pct should be ~0.40, got: {sell_pct}"
+        assert 0.30 <= sell_pct <= 0.45, f"TP1 sell_pct should be ~0.35, got: {sell_pct}"
 
     def test_no_tp1_below_threshold(self):
-        """TP1 should NOT fire below 1.5x for conservative profile."""
+        """TP1 should NOT fire below 2.5x for conservative profile."""
         pos = _pos(entry_price=1.0)
-        result = _eval(pos, current_price=1.3)  # 1.3x < 1.5x
+        result = _eval(pos, current_price=2.0)  # 2.0x < 2.5x
         if result is not None:
             assert "tp1" not in result.get("reason", "").lower(), \
-                f"TP1 should not fire at 1.3x, got: {result.get('reason')}"
+                f"TP1 should not fire at 2.0x, got: {result.get('reason')}"
 
     def test_tp2_fires_after_tp1(self):
-        """TP2 should fire at 2.5x when TP1 already hit."""
+        """TP2 should fire at 5x when TP1 already hit."""
         pos = _pos(entry_price=1.0, tp1_hit=True)
-        result = _eval(pos, current_price=2.6)  # 2.6x > 2.5x TP2
-        assert result is not None, "Conservative TP2 should fire at 2.6x after TP1 hit"
+        result = _eval(pos, current_price=5.2)  # 5.2x > 5.0x TP2
+        assert result is not None, "Conservative TP2 should fire at 5.2x after TP1 hit"
         assert "tp2" in result.get("reason", "").lower(), \
             f"Expected tp2 reason, got: {result.get('reason')}"
 
     def test_tp3_fires_after_tp1_tp2(self):
-        """TP3 should fire at 5x when TP1+TP2 already hit."""
+        """TP3 should fire at 10x when TP1+TP2 already hit."""
         pos = _pos(entry_price=1.0, tp1_hit=True, tp2_hit=True)
-        result = _eval(pos, current_price=5.5)  # 5.5x > 5.0x TP3
-        assert result is not None, "Conservative TP3 should fire at 5.5x"
+        result = _eval(pos, current_price=10.5)  # 10.5x > 10.0x TP3
+        assert result is not None, "Conservative TP3 should fire at 10.5x"
         assert "tp3" in result.get("reason", "").lower(), \
             f"Expected tp3 reason, got: {result.get('reason')}"
 
@@ -328,10 +328,10 @@ class TestProfileIntegration:
                 "Nuclear TP1 should not fire at 2x (threshold is 5x)"
 
     def test_conservative_fires_tp1_at_lower_mult(self):
-        """Conservative profile should fire TP1 at 1.5x where nuclear would not."""
+        """Conservative profile should fire TP1 at 2.5x where nuclear would not."""
         pos = _pos(entry_price=1.0, profile="conservative")
-        result = _eval(pos, current_price=1.55)
-        assert result is not None, "Conservative TP1 should fire at 1.55x"
+        result = _eval(pos, current_price=2.6)
+        assert result is not None, "Conservative TP1 should fire at 2.6x"
 
     def test_no_profile_does_not_crash(self):
         """Evaluate should handle missing/empty profile gracefully."""
