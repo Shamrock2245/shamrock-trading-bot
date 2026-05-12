@@ -1,3 +1,0 @@
-# New config
-REBALANCE_MIN_AMOUNT = 250
-STALE_HOURS = 12
