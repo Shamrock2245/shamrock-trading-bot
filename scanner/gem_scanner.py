@@ -2131,6 +2131,41 @@ class GemScanner:
             return None
 
         return candidate
+
+    def score_token(self, token_data: dict) -> float:
+        """
+        Public scoring entry point for tests and external callers.
+
+        Accepts a plain dict with token fields and returns a numeric gem_score
+        (0–100). Returns 0.0 if the token cannot be scored.
+
+        Args:
+            token_data: Dict with keys such as address, symbol, chain,
+                        liquidity_usd, volume_24h, market_cap, etc.
+        """
+        try:
+            from data.models import Token as _Token
+            token = _Token(
+                address=str(token_data.get("address", "0x" + "0" * 40)),
+                symbol=str(token_data.get("symbol", "TEST")),
+                name=str(token_data.get("name", token_data.get("symbol", "TEST"))),
+                chain=str(token_data.get("chain", "base")),
+                liquidity_usd=float(token_data.get("liquidity_usd", 0)),
+                volume_24h=float(token_data.get("volume_24h", 0)),
+                market_cap=float(token_data.get("market_cap", 0)),
+                price_change_1h=float(token_data.get("price_change_1h", 0)),
+                price_change_24h=float(token_data.get("price_change_24h", 0)),
+                buys_1h=int(token_data.get("buyers_24h", token_data.get("buys_1h", 0))),
+                sells_1h=int(token_data.get("sellers_24h", token_data.get("sells_1h", 0))),
+            )
+            candidate = self._score_token(token)
+            if candidate is None:
+                return 0.0
+            return float(candidate.gem_score)
+        except Exception as exc:
+            logger.debug(f"score_token error for {token_data.get('symbol', '?')}: {exc}")
+            return 0.0
+
     def _signals_to_token(self, signals: dict, chain: str) -> Optional[Token]:
         """Convert DexScreener signals dict to a Token object."""
         address = signals.get("base_token_address", "")

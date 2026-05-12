@@ -93,9 +93,11 @@ def get_cache_stats() -> dict:
 @dataclass
 class SafetyResult:
     """Result of the full safety pipeline for a token."""
-    token_address: str
-    chain: str
-    is_safe: bool
+    # token_address and chain default to empty string so tests can construct
+    # SafetyResult(is_safe=True, block_reason="") without positional args.
+    token_address: str = ""
+    chain: str = ""
+    is_safe: bool = False
     block_reason: Optional[str] = None
 
     # Individual check results
@@ -257,10 +259,22 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
     Returns:
         SafetyResult with full audit trail
     """
-    token_address = token_address.lower()
-    result = SafetyResult(token_address=token_address, chain=chain, is_safe=False)
+    token_address = (token_address or "").strip().lower()
 
-    # ── Step 1: Instant blocklist check (no cache needed — in-memory set) ─────
+    # ── Step 0: Null / zero-address guard ─────────────────────────────────────
+    # Reject empty strings and the EVM zero address immediately — these are
+    # never valid tokens and must never be traded.
+    _ZERO_ADDRESS_EVM = "0x" + "0" * 40
+    if not token_address or token_address == _ZERO_ADDRESS_EVM:
+        return SafetyResult(
+            token_address=token_address,
+            chain=chain,
+            is_safe=False,
+            block_reason="Null or zero address — invalid token",
+        )
+
+    result = SafetyResult(token_address=token_address, chain=chain, is_safe=False)
+    # ── Step 1: Instant blocklist check (no cache needed — in-memory set) ──────
     if is_blocked(token_address):
         result.block_reason = "On permanent blocklist"
         _log_blocked(result)

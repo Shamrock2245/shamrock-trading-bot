@@ -128,6 +128,21 @@ class DailyFloorGuardian:
     def floor_usd(self) -> float:
         return self._state.floor_usd
 
+    @floor_usd.setter
+    def floor_usd(self, value: float) -> None:
+        """Allow direct assignment for tests and manual overrides."""
+        self._state.floor_usd = round(float(value), 2)
+
+    @property
+    def opening_balance_usd(self) -> float:
+        """Alias used by tests to prime the guardian with an opening balance."""
+        return getattr(self, "_opening_balance_usd_override", self._state.floor_usd)
+
+    @opening_balance_usd.setter
+    def opening_balance_usd(self, value: float) -> None:
+        """Store an opening balance override for test scenarios."""
+        self._opening_balance_usd_override = round(float(value), 2)
+
     @property
     def daily_gain_usd(self) -> float:
         return self._state.daily_gain_usd
@@ -139,6 +154,10 @@ class DailyFloorGuardian:
     @property
     def state(self) -> DailyFloorState:
         return self._state
+
+    def evaluate(self, current_portfolio_usd: float) -> dict:
+        """Alias for update() — used by tests and external callers."""
+        return self.update(current_portfolio_usd)
 
     def update(self, portfolio_usd: float) -> dict:
         """
