@@ -13,7 +13,9 @@ in meme/micro-cap markets.
 API: POST https://api.x.ai/v1/responses
 Model: grok-4-1-fast-non-reasoning (fast, non-reasoning with x_search tool)
 Cache: 10 minutes per cycle (controls API cost)
-Rate: Max 30 req/min (conservative)
+
+Refactored: Uses shared grok_client.py for global rate limiting, correct API
+format, and prompt caching via prompt_cache_key.
 
 Usage:
     from data.providers.grok_trending_scan import discover_grok_trending
@@ -23,21 +25,17 @@ Usage:
 
 import json
 import logging
-import os
-import re
 import time
 from typing import Optional
 
-import requests  # kept for exceptions
-from data.http_session import get_session
+import requests  # kept for exception types
+from data.providers.grok_client import call_grok, get_usage_stats as _get_global_stats
 
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-GROK_RESPONSES_URL = "https://api.x.ai/v1/responses"
-GROK_MODEL = "grok-4-1-fast-non-reasoning"
 MAX_TRENDING_TOKENS = 5
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,13 +44,11 @@ MAX_TRENDING_TOKENS = 5
 _cache: dict[str, tuple[float, list]] = {}
 _CACHE_TTL = 600  # 10 minutes
 
-# Rate limiter
-_request_times: list[float] = []
-_MAX_REQUESTS_PER_MINUTE = 30
-
 
 # ─────────────────────────────────────────────────────────────────────────────
-# System prompt for CT trending scan
+# System Prompt — kept static for optimal prompt caching
+# xAI caches identical system prompt prefixes server-side. Do NOT embed
+# dynamic content here — all variable data goes in the user message.
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a crypto market intelligence analyst. Your job is to identify the TOP 5 cryptocurrency tokens being discussed RIGHT NOW on Crypto Twitter (CT).
 
@@ -90,55 +86,11 @@ If you cannot find 5 trending tokens, return fewer. If CT is quiet, return an em
 Prioritize ACCURACY over quantity — only return tokens you are confident are real and being discussed."""
 
 
-def _get_api_key() -> str:
-    """Load Grok API key from settings or environment."""
-    try:
-        from config import settings
-        key = getattr(settings, "GROK_API_KEY", "")
-        if key:
-            return key
-    except ImportError:
-        pass
-    return os.getenv("GROK_API_KEY", "")
-
-
-def _rate_limit():
-    """Enforce per-minute rate limit."""
-    global _request_times
-    now = time.time()
-    _request_times = [t for t in _request_times if now - t < 60]
-    if len(_request_times) >= _MAX_REQUESTS_PER_MINUTE:
-        wait_time = 60 - (now - _request_times[0])
-        if wait_time > 0:
-            logger.debug(f"Grok trending: rate limiting, waiting {wait_time:.1f}s")
-            time.sleep(wait_time)
-    _request_times.append(now)
-
-
-def _extract_response_text(data: dict) -> str:
-    """
-    Extract the assistant's text from the /v1/responses response format.
-    Same logic as grok_sentiment.py.
-    """
-    for item in reversed(data.get("output", [])):
-        if item.get("type") == "message" and item.get("role") == "assistant":
-            for content_block in item.get("content", []):
-                if content_block.get("type") == "output_text":
-                    return content_block.get("text", "")
-    return ""
-
-
 def _call_grok_trending() -> dict:
     """
     Call Grok Responses API with x_search to get trending CT tokens.
     Returns parsed JSON dict.
     """
-    api_key = _get_api_key()
-    if not api_key:
-        raise RuntimeError("GROK_API_KEY not configured")
-
-    _rate_limit()
-
     user_message = (
         "Search Crypto Twitter (CT) right now and identify the TOP 5 tokens "
         "being discussed the most in the last 1-2 hours. "
@@ -148,39 +100,22 @@ def _call_grok_trending() -> dict:
         "Exclude BTC, ETH, SOL, BNB, USDC, USDT."
     )
 
-    payload = {
-        "model": GROK_MODEL,
-        "input": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        "tools": [{"type": "x_search"}],
-        "temperature": 0.3,
-        "max_output_tokens": 800,
-    }
+    result = call_grok(
+        system_prompt=SYSTEM_PROMPT,
+        user_message=user_message,
+        cache_key="grok_trending",
+        tools=[{"type": "x_search"}],
+        temperature=0.3,
+        max_output_tokens=800,
+        parse_json=True,
+        timeout=60,
+        module="trending",
+    )
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
+    if result is None:
+        raise ValueError("No result from Grok trending call")
 
-    resp = get_session().post(GROK_RESPONSES_URL, json=payload, headers=headers, timeout=60)
-    resp.raise_for_status()
-
-    data = resp.json()
-    content = _extract_response_text(data)
-
-    if not content:
-        raise ValueError("No text output in Grok trending response")
-
-    # Clean up — strip citations and code fences
-    content = re.sub(r'\[\[\d+\]\]\([^)]*\)', '', content).strip()
-    if content.startswith("```"):
-        lines = content.split("\n")
-        content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-    content = content.strip()
-
-    return json.loads(content)
+    return result
 
 
 def _resolve_token_to_pair(symbol: str, chain: str) -> Optional[dict]:
@@ -253,9 +188,12 @@ def discover_grok_trending() -> list[dict]:
             logger.debug(f"Grok trending [cached]: {len(cached)} tokens")
             return cached
 
-    api_key = _get_api_key()
-    if not api_key:
-        logger.debug("Grok trending: no API key configured, skipping")
+    try:
+        from data.providers.grok_client import _get_api_key
+        if not _get_api_key():
+            logger.debug("Grok trending: no API key configured, skipping")
+            return []
+    except Exception:
         return []
 
     results = []
@@ -344,12 +282,8 @@ def get_trending_stats() -> dict:
     """Return current stats for monitoring/dashboard."""
     cached = _cache.get("grok_trending_scan")
     cached_count = len(cached[1]) if cached else 0
-    now = time.time()
-    recent_requests = len([t for t in _request_times if now - t < 60])
-    return {
-        "cached_tokens": cached_count,
-        "requests_last_minute": recent_requests,
-        "max_per_minute": _MAX_REQUESTS_PER_MINUTE,
-        "cache_ttl_seconds": _CACHE_TTL,
-        "max_tokens_per_scan": MAX_TRENDING_TOKENS,
-    }
+    stats = _get_global_stats()
+    stats["cached_tokens"] = cached_count
+    stats["cache_ttl_seconds"] = _CACHE_TTL
+    stats["max_tokens_per_scan"] = MAX_TRENDING_TOKENS
+    return stats

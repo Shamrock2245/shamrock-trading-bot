@@ -254,18 +254,30 @@ class GemSnipeStrategy:
         
         # --- CRO Adversarial Check ---
         try:
-            # Generate a quick summary report for the CRO
-            report_summary = generate_report(candidate, None, save_pdf=False)
+            from core.cro_agent import evaluate_trade
+            # Build a lightweight report summary (avoids heavy generate_report deps)
+            report_summary = {
+                "gem_score": candidate.gem_score,
+                "signal_composite": composite,
+                "fib_zone": fib_result.current_zone if fib_result else "unknown",
+                "fib_confidence": fib_result.confidence if fib_result else 0,
+                "confidence": confidence,
+                "timing_bp_trend": timing_bp_trend,
+            }
             cro_result = evaluate_trade(candidate, report_summary)
             if cro_result and cro_result.get("verdict") == "REJECT":
                 logger.warning(f"CRO REJECTED {candidate.token.symbol}: {cro_result.get('narrative_flaw')}")
                 return StrategyDecision(
                     action="skip",
+                    reason=f"CRO Rejected: {cro_result.get('narrative_flaw')}",
+                    signal_score=signal_score,
+                    ta_result=ta_result,
+                    fib_result=fib_result,
+                    gem_score=candidate.gem_score,
                     confidence=0.0,
-                    rationale=f"CRO Rejected: {cro_result.get('narrative_flaw')}"
                 )
         except Exception as e:
-            logger.error(f"CRO evaluation failed: {e}")
+            logger.debug(f"CRO evaluation skipped: {e}")
         # -----------------------------
         
         return StrategyDecision(

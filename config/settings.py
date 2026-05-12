@@ -536,7 +536,7 @@ RATE_LIMITS = {
     "lunarcrush": 4,      # per minute — 100/day hard cap
     "defillama": 500,     # generous, no key needed
     "jupiter": 600,       # Solana Jupiter API — very generous
-    "grok": 30,           # Grok X sentiment — conservative to control costs
+    "grok": 60,           # Grok — shared 60 RPM across all modules (sentiment, trending, CRO, MiroFish, autoresearch)
     "binance_pulse": 60,  # Binance Web3 Pulse APIs — no key, conservative
 }
 

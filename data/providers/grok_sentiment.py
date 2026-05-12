@@ -18,24 +18,20 @@ Score: 0-100 where:
 
 Caches results for 10 minutes per symbol to control API costs.
 Returns neutral score (50.0) if API key missing or request fails.
+
+Refactored: Uses shared grok_client.py for global rate limiting, correct API
+format, and prompt caching via prompt_cache_key.
 """
 
 import json
 import logging
-import os
 import time
 from typing import Optional
 
-import requests  # kept for exceptions
-from data.http_session import get_session
+import requests  # kept for exception types in callers
+from data.providers.grok_client import call_grok, get_usage_stats as _get_global_stats
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────────────────────────────────────
-GROK_RESPONSES_URL = "https://api.x.ai/v1/responses"
-GROK_MODEL = "grok-4-1-fast-non-reasoning"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cache — 10 minute TTL to control costs
@@ -43,11 +39,12 @@ GROK_MODEL = "grok-4-1-fast-non-reasoning"
 _cache: dict[str, tuple[float, dict]] = {}  # symbol -> (timestamp, result)
 _CACHE_TTL = 600  # 10 minutes
 
-# Rate limiter
-_request_times: list[float] = []
-_MAX_REQUESTS_PER_MINUTE = int(os.getenv("GROK_RPM", "60"))  # Configurable via GROK_RPM env var
 
-
+# ─────────────────────────────────────────────────────────────────────────────
+# System Prompt — kept static for optimal prompt caching
+# xAI caches identical system prompt prefixes server-side. Do NOT embed
+# dynamic content here — all variable data goes in the user message.
+# ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a crypto social sentiment analyst. Your job is to analyze real-time X (Twitter) posts about a cryptocurrency token and return a structured sentiment assessment.
 
 Given a token symbol and chain, use the x_search tool to find recent X posts and analyze:
@@ -72,75 +69,29 @@ If you find NO mentions at all, return sentiment_score=45 (slightly below neutra
 If a token is brand new with minimal mentions but no red flags, return 50-55."""
 
 
-def _get_api_key() -> str:
-    """Load Grok API key from settings or environment."""
-    try:
-        from config import settings
-        key = getattr(settings, "GROK_API_KEY", "")
-        if key:
-            return key
-    except ImportError:
-        pass
-    return os.getenv("GROK_API_KEY", "")
-
-
-def _rate_limit():
-    """Enforce per-minute rate limit."""
-    global _request_times
-    now = time.time()
-    _request_times = [t for t in _request_times if now - t < 60]
-    if len(_request_times) >= _MAX_REQUESTS_PER_MINUTE:
-        wait_time = 60 - (now - _request_times[0])
-        if wait_time > 0:
-            logger.debug(f"Grok sentiment: rate limiting, waiting {wait_time:.1f}s")
-            time.sleep(wait_time)
-    _request_times.append(now)
-
-
 def _check_cache(symbol: str) -> Optional[dict]:
-    """Return cached result if valid."""
+    """Check if we have a valid cached result for this symbol."""
     key = symbol.upper()
     if key in _cache:
         ts, result = _cache[key]
         if time.time() - ts < _CACHE_TTL:
             return result
+        del _cache[key]
     return None
 
 
-def _store_cache(symbol: str, result: dict) -> dict:
-    """Store result in cache."""
+def _store_cache(symbol: str, result: dict) -> None:
+    """Store a result in the cache."""
     _cache[symbol.upper()] = (time.time(), result)
-    return result
-
-
-def _extract_response_text(data: dict) -> str:
-    """
-    Extract the assistant's text from the /v1/responses response format.
-
-    The response has an 'output' array. We look for the last item with
-    type='message' and role='assistant', then extract text from its content.
-    """
-    for item in reversed(data.get("output", [])):
-        if item.get("type") == "message" and item.get("role") == "assistant":
-            for content_block in item.get("content", []):
-                if content_block.get("type") == "output_text":
-                    return content_block.get("text", "")
-    return ""
 
 
 def _call_grok(symbol: str, chain: str) -> dict:
     """
     Call the Grok Responses API with x_search tool to analyze sentiment.
 
-    Uses POST /v1/responses with the x_search built-in tool.
+    Uses the shared grok_client for rate limiting, API format, and caching.
     Returns parsed JSON dict or raises on failure.
     """
-    api_key = _get_api_key()
-    if not api_key:
-        raise RuntimeError("GROK_API_KEY not configured")
-
-    _rate_limit()
-
     user_message = (
         f"Analyze the current X (Twitter) sentiment for the crypto token ${symbol.upper()} "
         f"on the {chain} blockchain. Search for recent posts mentioning ${symbol.upper()}, "
@@ -148,42 +99,20 @@ def _call_grok(symbol: str, chain: str) -> dict:
         f"Focus on posts from the last few hours."
     )
 
-    payload = {
-        "model": GROK_MODEL,
-        "input": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        "tools": [{"type": "x_search"}],
-        "temperature": 0.3,
-        "max_output_tokens": 500,
-    }
+    result = call_grok(
+        system_prompt=SYSTEM_PROMPT,
+        user_message=user_message,
+        cache_key="grok_sentiment",
+        tools=[{"type": "x_search"}],
+        temperature=0.3,
+        max_output_tokens=500,
+        parse_json=True,
+        timeout=60,
+        module="sentiment",
+    )
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-
-    resp = get_session().post(GROK_RESPONSES_URL, json=payload, headers=headers, timeout=60)
-    resp.raise_for_status()
-
-    data = resp.json()
-    content = _extract_response_text(data)
-
-    if not content:
-        raise ValueError("No text output in Grok response")
-
-    # Clean up — strip citations like [[1]](url) and code fences
-    import re
-    content = re.sub(r'\[\[\d+\]\]\([^)]*\)', '', content).strip()
-
-    # Strip markdown code fences if present
-    if content.startswith("```"):
-        lines = content.split("\n")
-        content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-    content = content.strip()
-
-    result = json.loads(content)
+    if result is None:
+        raise ValueError("No result from Grok sentiment call")
 
     # Validate and clamp score
     score = int(result.get("sentiment_score", result.get("score", 50)))
@@ -250,11 +179,7 @@ def get_grok_sentiment_score(symbol: str, chain: str = "unknown") -> float:
 
 
 def get_usage_stats() -> dict:
-    """Return current usage stats for monitoring."""
-    now = time.time()
-    recent_requests = len([t for t in _request_times if now - t < 60])
-    return {
-        "cached_symbols": len(_cache),
-        "requests_last_minute": recent_requests,
-        "max_per_minute": _MAX_REQUESTS_PER_MINUTE,
-    }
+    """Return current usage stats for monitoring (delegates to global client)."""
+    stats = _get_global_stats()
+    stats["cached_symbols"] = len(_cache)
+    return stats
