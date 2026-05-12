@@ -109,6 +109,16 @@ class RiskManager:
         chain_config = CHAINS.get(chain)
         native_token = chain_config.native_token if chain_config else "ETH"
 
+        # ── Null wallet guard ─────────────────────────────────────────────────
+        # wallet=None is only valid in unit tests; block the trade gracefully.
+        if wallet is None:
+            return RiskCheck(
+                approved=False,
+                reason="No wallet configuration provided",
+                chain=chain,
+                native_token=native_token,
+            )
+
         # ── Circuit breaker ───────────────────────────────────────────────────
         if self._circuit_breaker_tripped:
             return RiskCheck(
