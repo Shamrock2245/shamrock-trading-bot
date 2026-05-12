@@ -56,12 +56,12 @@ class TestNuclearTPLadder:
     """Nuclear profile should use 5x/12x/30x TP tiers."""
 
     def test_tp1_at_5x(self):
-        """TP1 should NOT fire at 2x under nuclear profile."""
+        """TP1 should NOT fire at 2.5x under nuclear profile."""
         pos = _make_position(entry_price=1.0)
-        # At 2x (conservative TP1) — nuclear should NOT sell
-        result = evaluate_position(pos, current_price=2.0, strategy_profile=NUCLEAR_PROFILE)
+        # At 2.5x (conservative TP1) — nuclear should NOT sell
+        result = evaluate_position(pos, current_price=2.5, strategy_profile=NUCLEAR_PROFILE)
         assert result is None, (
-            f"Nuclear profile should NOT fire TP1 at 2x, got: {result}"
+            f"Nuclear profile should NOT fire TP1 at 2.5x, got: {result}"
         )
 
     def test_tp1_fires_at_5x(self):
@@ -76,20 +76,20 @@ class TestNuclearTPLadder:
             f"Nuclear TP1 should sell 20%, got: {result.get('sell_pct')}"
         )
 
-    def test_tp2_fires_at_12x(self):
-        """TP2 should fire at 12x under nuclear profile (after TP1 hit)."""
+    def test_tp2_fires_at_15x(self):
+        """TP2 should fire at 15x under nuclear profile (after TP1 hit)."""
         pos = _make_position(entry_price=1.0, tp1_hit=True)
-        result = evaluate_position(pos, current_price=12.0, strategy_profile=NUCLEAR_PROFILE)
-        assert result is not None, "Nuclear TP2 should fire at 12x"
+        result = evaluate_position(pos, current_price=15.0, strategy_profile=NUCLEAR_PROFILE)
+        assert result is not None, "Nuclear TP2 should fire at 15x"
         assert "tp2_" in result.get("reason", ""), (
             f"Reason should contain 'tp2_', got: {result.get('reason')}"
         )
 
-    def test_tp3_fires_at_30x(self):
-        """TP3 should fire at 30x under nuclear profile (after TP1+TP2 hit)."""
+    def test_tp3_fires_at_50x(self):
+        """TP3 should fire at 50x under nuclear profile (after TP1+TP2 hit)."""
         pos = _make_position(entry_price=1.0, tp1_hit=True, tp2_hit=True)
-        result = evaluate_position(pos, current_price=30.0, strategy_profile=NUCLEAR_PROFILE)
-        assert result is not None, "Nuclear TP3 should fire at 30x"
+        result = evaluate_position(pos, current_price=50.0, strategy_profile=NUCLEAR_PROFILE)
+        assert result is not None, "Nuclear TP3 should fire at 50x"
         assert "tp3_" in result.get("reason", ""), (
             f"Reason should contain 'tp3_', got: {result.get('reason')}"
         )
@@ -102,16 +102,16 @@ class TestNuclearTPLadder:
 class TestConservativeTPLadder:
     """Conservative profile should use 2x/3x TP tiers."""
 
-    def test_tp1_fires_at_2x(self):
-        """TP1 should fire at 2x under conservative profile."""
+    def test_tp1_fires_at_2_5x(self):
+        """TP1 should fire at 2.5x under conservative profile."""
         pos = _make_position(entry_price=1.0, strategy_profile="conservative")
-        result = evaluate_position(pos, current_price=2.0, strategy_profile=CONSERVATIVE_PROFILE)
-        assert result is not None, "Conservative TP1 should fire at 2x"
+        result = evaluate_position(pos, current_price=2.6, strategy_profile=CONSERVATIVE_PROFILE)
+        assert result is not None, "Conservative TP1 should fire at 2.6x"
         assert "tp1_" in result.get("reason", ""), (
             f"Reason should contain 'tp1_', got: {result.get('reason')}"
         )
-        assert abs(result.get("sell_pct", 0) - 0.40) < 0.01, (
-            f"Conservative TP1 should sell 40%, got: {result.get('sell_pct')}"
+        assert abs(result.get("sell_pct", 0) - 0.35) < 0.01, (
+            f"Conservative TP1 should sell 35%, got: {result.get('sell_pct')}"
         )
 
 
@@ -140,16 +140,16 @@ class TestHardStops:
     """Hard stop should use profile-specific percentages."""
 
     def test_nuclear_hard_stop_at_10pct(self):
-        """Nuclear hard stop is -8%, should fire below 0.92x entry."""
+        """Nuclear hard stop is -10%, should fire at -12%."""
         pos = _make_position(entry_price=1.0)
-        # Price dropped 10% (also below -8%)
-        result = evaluate_position(pos, current_price=0.90, strategy_profile=NUCLEAR_PROFILE)
-        assert result is not None, "Nuclear hard stop should fire at -8%"
+        # Price dropped 12% — below nuclear's 10% threshold
+        result = evaluate_position(pos, current_price=0.88, strategy_profile=NUCLEAR_PROFILE)
+        assert result is not None, "Nuclear hard stop should fire at -12%"
         assert "stop" in result.get("reason", "").lower(), (
             f"Reason should mention 'stop', got: {result.get('reason')}"
         )
 
-    def test_conservative_hard_stop_at_20pct(self):
+    def test_conservative_hard_stop_tolerance(self):
         """Conservative hard stop is -20%, should NOT fire at -15%."""
         pos = _make_position(entry_price=1.0, strategy_profile="conservative")
         # Price dropped 15% — within conservative tolerance
@@ -218,9 +218,9 @@ class TestTPTierMarking:
             assert "5" in reason, f"Expected '5' in nuclear TP1 reason, got: {reason}"
 
     def test_conservative_tp1_reason_format(self):
-        """Conservative TP1 reason should contain 'tp1_' (e.g. 'tp1_2x')."""
+        """Conservative TP1 reason should contain 'tp1_' (e.g. 'tp1_2.5x')."""
         pos = _make_position(entry_price=1.0, strategy_profile="conservative")
-        result = evaluate_position(pos, current_price=2.0, strategy_profile=CONSERVATIVE_PROFILE)
+        result = evaluate_position(pos, current_price=2.6, strategy_profile=CONSERVATIVE_PROFILE)
         if result:
             reason = result.get("reason", "")
             assert "tp1_" in reason, f"Expected 'tp1_' in reason, got: {reason}"
