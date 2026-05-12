@@ -251,8 +251,26 @@ class GemSnipeStrategy:
         report = format_analysis_report(signal_score, ta_result, fib_result, token.symbol)
         logger.info(f"✅ BUY SIGNAL for {token.symbol} (confidence: {confidence:.0f}{timing_note}):\n{report}")
 
+        
+        # --- CRO Adversarial Check ---
+        try:
+            # Generate a quick summary report for the CRO
+            report_summary = generate_report(candidate, None, save_pdf=False)
+            cro_result = evaluate_trade(candidate, report_summary)
+            if cro_result and cro_result.get("verdict") == "REJECT":
+                logger.warning(f"CRO REJECTED {candidate.token.symbol}: {cro_result.get('narrative_flaw')}")
+                return StrategyDecision(
+                    action="skip",
+                    confidence=0.0,
+                    rationale=f"CRO Rejected: {cro_result.get('narrative_flaw')}"
+                )
+        except Exception as e:
+            logger.error(f"CRO evaluation failed: {e}")
+        # -----------------------------
+        
         return StrategyDecision(
             action="buy",
+
             reason=f"All gates passed — composite={composite:.1f}, gem={candidate.gem_score:.1f}, fib={fib_result.current_zone}{timing_note}",
             signal_score=signal_score,
             ta_result=ta_result,

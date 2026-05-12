@@ -1810,6 +1810,24 @@ async def run_bot_loop():
             else:
                 logger.info(f"Cycle {cycle}: ⏭️ Skipping gem scan (RECOVERY mode — gems every {adaptive_state.gem_frequency} cycles)")
 
+            # --- MiroFish Swarm Simulation (every 10 cycles to save API costs) ---
+            if cycle % 10 == 1 and candidates:
+                try:
+                    from core.mirofish_lite import generate_swarm_context
+                    top_tokens = [c.token.symbol for c in candidates[:5]]
+                    _regime_label = getattr(adaptive_state, 'mode', 'NORMAL')
+                    swarm_context = generate_swarm_context(_regime_label, top_tokens)
+                    if swarm_context:
+                        logger.info(f"MiroFish Consensus: {swarm_context.get('consensus_prediction')} | Tail Risk: {swarm_context.get('tail_risk')}")
+                        import json as _json_mf
+                        import os as _os_mf
+                        _os_mf.makedirs('output', exist_ok=True)
+                        with open('output/mirofish_state.json', 'w') as _mf_f:
+                            _json_mf.dump(swarm_context, _mf_f, indent=2)
+                except Exception as _mf_err:
+                    logger.debug(f"MiroFish simulation failed (non-blocking): {_mf_err}")
+            # -----------------------------------------------------------------------
+
             # Inject copy-trade signals from wallet monitor (highest priority).
             # This turns the monitor from "alert-only" into actionable execution:
             # detected alpha buys are processed in the same cycle trade loop.

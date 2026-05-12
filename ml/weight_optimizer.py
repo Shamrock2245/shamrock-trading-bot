@@ -435,6 +435,8 @@ def run_training_cycle() -> dict:
     except Exception as _analytics_err:
         logger.debug(f"ML: Trade analytics skipped: {_analytics_err}")
 
+    from ml.autoresearch_logger import log_weight_changes
+    log_weight_changes(dict(STATIC_WEIGHTS), result["weights"], "UNKNOWN")
     return result["weights"]
 
 

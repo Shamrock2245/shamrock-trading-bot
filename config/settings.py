@@ -71,6 +71,11 @@ GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")  # Optional — enhances GoPlus
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "")
 BASESCAN_API_KEY = os.getenv("BASESCAN_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+# ATLAS-GIC Inspired Features
+CRO_AGENT_ENABLED = os.getenv("CRO_AGENT_ENABLED", "true").lower() == "true"
+MIROFISH_ENABLED = os.getenv("MIROFISH_ENABLED", "true").lower() == "true"
+GROK_RPM = int(os.getenv("GROK_RPM", "60"))
+GROK_TPM = int(os.getenv("GROK_TPM", "100000"))
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g.alchemy.com/v2/demo")
 

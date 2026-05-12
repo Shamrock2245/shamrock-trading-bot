@@ -45,7 +45,7 @@ _CACHE_TTL = 600  # 10 minutes
 
 # Rate limiter
 _request_times: list[float] = []
-_MAX_REQUESTS_PER_MINUTE = 30  # Conservative — Grok allows more
+_MAX_REQUESTS_PER_MINUTE = int(os.getenv("GROK_RPM", "60"))  # Configurable via GROK_RPM env var
 
 
 SYSTEM_PROMPT = """You are a crypto social sentiment analyst. Your job is to analyze real-time X (Twitter) posts about a cryptocurrency token and return a structured sentiment assessment.
