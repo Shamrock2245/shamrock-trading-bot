@@ -172,23 +172,23 @@ class TestProfileConfig:
         assert NUCLEAR_PROFILE.name == "nuclear"
         assert NUCLEAR_PROFILE.tp1_mult == 5.0
         assert NUCLEAR_PROFILE.tp1_sell_pct == 0.20
-        assert NUCLEAR_PROFILE.tp2_mult == 12.0
+        assert NUCLEAR_PROFILE.tp2_mult == 15.0
         assert NUCLEAR_PROFILE.tp2_sell_pct == 0.25
-        assert NUCLEAR_PROFILE.tp3_mult == 30.0
+        assert NUCLEAR_PROFILE.tp3_mult == 50.0
         assert NUCLEAR_PROFILE.tp3_sell_pct == 0.20
-        assert NUCLEAR_PROFILE.hard_stop_pct == 8.0
-        assert NUCLEAR_PROFILE.trailing_tighten == {10: 15.0, 20: 7.0}
-        assert NUCLEAR_PROFILE.max_position_pct == 25.0
-        assert NUCLEAR_PROFILE.kelly_clamp_max == 0.70
-        assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
+        assert NUCLEAR_PROFILE.hard_stop_pct == 10.0
+        assert NUCLEAR_PROFILE.trailing_tighten == {10: 15.0, 25: 7.0}
+        assert NUCLEAR_PROFILE.max_position_pct == 35.0
+        assert NUCLEAR_PROFILE.kelly_clamp_max == 0.80
+        assert NUCLEAR_PROFILE.max_slippage_pct == 10.0
 
     def test_conservative_profile_values(self):
         assert CONSERVATIVE_PROFILE.name == "conservative"
-        assert CONSERVATIVE_PROFILE.tp1_mult == 1.5
-        assert CONSERVATIVE_PROFILE.tp1_sell_pct == 0.40
-        assert CONSERVATIVE_PROFILE.tp2_mult == 2.5
-        assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.35
-        assert CONSERVATIVE_PROFILE.tp3_mult == 5.0
+        assert CONSERVATIVE_PROFILE.tp1_mult == 2.5
+        assert CONSERVATIVE_PROFILE.tp1_sell_pct == 0.35
+        assert CONSERVATIVE_PROFILE.tp2_mult == 5.0
+        assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.40
+        assert CONSERVATIVE_PROFILE.tp3_mult == 10.0
         assert CONSERVATIVE_PROFILE.hard_stop_pct == 20.0
 
     def test_profile_map_lookups(self):

@@ -63,60 +63,55 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    # FIX: was 65.0 — created a dead zone where cascade-boost-eligible tokens (60-64)
-    # passed the scanner's dynamic MIN_GEM_SCORE gate but got rejected HERE, causing
-    # "No wallet available". Set to 58.0 = CASCADE_BOOST_FLOOR_SCORE (the absolute
-    # minimum the dynamic gate can reach). Primary wallet will accept anything the
-    # scanner already cleared. Nuclear profile remains at 82.0 (express-lane only).
-    min_gem_score=58.0,
-    express_lane_score=82.0,
-    # TP: 1.5x sell 40%, 2.5x sell 35%, 5x sell 25% — project spec pyramid (TP3 re-enabled)
-    tp1_mult=1.5,
-    tp1_sell_pct=0.40,
-    tp2_mult=2.5,
-    tp2_sell_pct=0.35,
-    tp3_mult=5.0,       # FIX: re-enabled — Primary wallet must capture moonshots
-    tp3_sell_pct=0.25,
+    # PAPER MODE: Aggressive entry — catch all signals above score 50 to stress-test
+    min_gem_score=50.0,
+    express_lane_score=72.0,
+    # TP: 2.5x sell 35%, 5x sell 40%, 10x sell 30% — hold longer for bigger wins
+    tp1_mult=2.5,
+    tp1_sell_pct=0.35,
+    tp2_mult=5.0,
+    tp2_sell_pct=0.40,
+    tp3_mult=10.0,
+    tp3_sell_pct=0.30,
     # Stops — project spec: 20% hard stop, 20% trailing after TP1
     hard_stop_pct=20.0,
-    trailing_stop_pct=20.0,  # FIX: was 15%, project spec Tier 1 trailing = 20%
-    trailing_tighten={2.5: 15.0, 5.0: 10.0},  # At TP2 → 15% trail, at TP3 → 10%
-    # Sizing
-    max_position_pct=10.0,    # SEED STAGE: concentrate bets — 10% per trade (~$50-100 per signal)
-    kelly_clamp_max=0.30,
-    max_position_usd=5_000.0,
-    max_concurrent=5,
+    trailing_stop_pct=20.0,
+    trailing_tighten={5.0: 12.0, 10.0: 8.0},  # Tighten at 5x and 10x
+    # Sizing — paper mode: bigger bets
+    max_position_pct=15.0,
+    kelly_clamp_max=0.40,
+    max_position_usd=10_000.0,
+    max_concurrent=8,
     # Fast fail
-    fast_fail_down_pct=10.0,
-    fast_fail_hours=2.0,
+    fast_fail_down_pct=12.0,
+    fast_fail_hours=2.5,
     max_slippage_pct=5.0,
 )
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=72.0,   # UNLOCKED: lowered 82→72 — most quality signals score 72-80, nuclear now fires
-    express_lane_score=80.0,  # Express lane at 80+ (instant market buy, no limit)
-    # TP: 5x sell 20%, 12x sell 25%, 30x sell 20% (ride 35% with trail)
-    # TUNED: tp1_sell_pct 15% → 20% — take more off at 5x to bank gains
+    min_gem_score=62.0,   # PAPER MODE: lowered 72→62 — catch more signals for testing
+    express_lane_score=72.0,  # Express lane at 72+ (instant market buy)
+    # TP: 5x sell 20%, 15x sell 25%, 50x sell 20% (ride 35% with trail) — FULL SEND
     tp1_mult=5.0,
-    tp1_sell_pct=0.20,   # TUNED: was 0.15 — bank 20% at 5x
-    tp2_mult=12.0,
+    tp1_sell_pct=0.20,
+    tp2_mult=15.0,
     tp2_sell_pct=0.25,
-    tp3_mult=30.0,
+    tp3_mult=50.0,
     tp3_sell_pct=0.20,
     # Stops — tighten aggressively as it runs
-    hard_stop_pct=8.0,   # TUNED: was 10% — tighter stop = less capital burned on losers
-    trailing_stop_pct=28.0,  # TUNED: was 30% — slightly tighter to protect nuclear gains
-    trailing_tighten={10: 15.0, 20: 7.0},  # TUNED: tighter at 10x/20x milestones
+    hard_stop_pct=10.0,
+    trailing_stop_pct=30.0,
+    trailing_tighten={10: 15.0, 25: 7.0},
     # Sizing — the missile
-    max_position_pct=25.0,
-    kelly_clamp_max=0.70,
+    max_position_pct=35.0,
+    kelly_clamp_max=0.80,
     max_position_usd=0.0,  # No hard cap
-    max_concurrent=3,
-    # Fast fail — tighter
-    fast_fail_down_pct=12.0,  # TUNED: was 15% — cut losers faster
-    fast_fail_hours=1.0,      # TUNED: was 1.5h — faster failure detection
-    max_slippage_pct=8.0,  # Wider for nuclear entries on memes
+    max_concurrent=6,
+    # Fast fail
+    fast_fail_down_pct=15.0,
+    fast_fail_hours=1.5,
+    max_slippage_pct=10.0,  # Wide for meme entries
 )
 
 # ── Swing Scalp Profile (capital recovery — tight TP/SL for blue chips) ──────
