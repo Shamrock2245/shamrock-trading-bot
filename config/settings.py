@@ -86,8 +86,8 @@ SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g
 MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # Playbook: 15% trailing after TP1
-HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # Tightened: cut losers at 15%
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "12.0"))  # Playbook: 12% trailing after TP1 (must be < hard stop)
+HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "18.0"))  # Hard floor: cut losers at 18% from entry
 
 # ── Parabolic Parachute (Fibonacci Over-Extension Exit) ──────────────────────
 # Triggers hyper-tight trailing stops when price goes vertical beyond typical Fibonacci extensions.
