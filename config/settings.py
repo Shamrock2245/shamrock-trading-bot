@@ -116,8 +116,8 @@ TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # M
 # If a position builds gains but never hits TP1, we still protect those gains.
 # Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
 # Uses a WIDER stop than the post-TP1 trailing (25% vs 15%) to give room to run.
-PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "15.0"))  # 15% trail before TP1 (tightened from 25%)
-PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "15.0"))  # Activate when up 15%+
+PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "20.0"))  # 20% trail before TP1 (wider to let runners develop)
+PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "25.0"))  # Activate when up 25%+ (well below TP1)
 
 # ── Confluence Gate Override ─────────────────────────────────────────────────
 # Hard override: if price drops this much from the high on a profitable position,
