@@ -370,6 +370,10 @@ sells = [t for t in trades_data if t.get("action", "").upper() == "SELL" or t.ge
 wins = [t for t in sells if t.get("pnl_usd", 0) > 0]
 win_rate = (len(wins) / max(len(sells), 1)) * 100
 
+# Derived counts for nav badges & KPI row
+latest_count = len(history[-1].get("candidates", [])) if history and isinstance(history[-1], dict) else len(gems)
+express_count = sum(1 for g in gems if g.get("express_lane", False))
+
 # ── Guardian + Anchor Status (read from output files) ─────────────────────────
 guardian_status = {}
 anchor_status = {}
