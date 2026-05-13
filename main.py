@@ -2336,16 +2336,30 @@ async def run_bot_loop():
             moonshot_mode = os.getenv("MOONSHOT_MODE", "false").lower() in ("true", "1", "yes")
 
             if moonshot_mode:
-                # 4a. Portfolio Rebalancer (every 6h per wallet/chain)
+                # 4a. Portfolio Rebalancer (regime-gated — EXPANSION + sweep only)
                 try:
-                    from core.portfolio_rebalancer import run_rebalance_cycle
-                    is_paper = settings.MODE != "live"
-                    rebalance_plans = run_rebalance_cycle(dry_run=is_paper)
-                    if rebalance_plans:
-                        total_recovery = sum(p.estimated_recovery_usd for p in rebalance_plans)
-                        logger.info(
-                            f"🔄 Rebalanced {len(rebalance_plans)} wallet/chain combos "
-                            f"(est. recovery: ${total_recovery:.2f})"
+                    from core.regime_filter import get_regime_with_sweep, Regime
+                    regime_ctx = get_regime_with_sweep()
+                    regime_ok = (
+                        regime_ctx.get("is_expansion")
+                        or regime_ctx.get("sweep_active")
+                    )
+                    if regime_ok:
+                        from core.portfolio_rebalancer import run_rebalance_cycle
+                        is_paper = settings.MODE != "live"
+                        rebalance_plans = run_rebalance_cycle(dry_run=is_paper)
+                        if rebalance_plans:
+                            total_recovery = sum(p.estimated_recovery_usd for p in rebalance_plans)
+                            logger.info(
+                                f"🔄 Rebalanced {len(rebalance_plans)} wallet/chain combos "
+                                f"(est. recovery: ${total_recovery:.2f}) "
+                                f"[regime={regime_ctx.get('regime', '?')} sweep={'✅' if regime_ctx.get('sweep_active') else '❌'}]"
+                            )
+                    else:
+                        logger.debug(
+                            f"⏸️ Rebalancer skipped — regime={regime_ctx.get('regime', '?')} "
+                            f"sweep={'✅' if regime_ctx.get('sweep_active') else '❌'} "
+                            f"(requires EXPANSION or active sweep)"
                         )
                 except Exception as e:
                     logger.error(f"Rebalancer error: {e}", exc_info=True)

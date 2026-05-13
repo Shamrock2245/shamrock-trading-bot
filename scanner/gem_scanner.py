@@ -2012,13 +2012,59 @@ class GemScanner:
                 f"score {pre_adj} → {candidate.gem_score}"
             )
 
+        # ── LIQUIDITY SWEEP DETECTION (S-Tier Alpha) ────────────────────────
+        # Run AFTER all scoring signals to avoid false positives on junk tokens.
+        # Only check tokens scoring >= 45 (base_score threshold).
+        # Full sweep (4/4): +20 Nuclear bonus → strategy_tag = "sweep_nuclear"
+        # Partial sweep (3/4): +10 bonus → enrichment only
+        # This is the highest-conviction setup in micro-cap crypto.
+        candidate.sweep_detected = False
+        candidate.sweep_confidence = 0.0
+        candidate.sweep_criteria_met = 0
+        candidate.sweep_details = ""
+
+        if base_score >= 45:
+            try:
+                from strategies.indicators import detect_liquidity_sweep_from_dexscreener
+
+                sweep = detect_liquidity_sweep_from_dexscreener(
+                    token_address=token.address,
+                    chain=token.chain,
+                    pair_address=getattr(token, "pair_address", ""),
+                )
+                candidate.sweep_detected = sweep.get("sweep_detected", False)
+                candidate.sweep_confidence = sweep.get("confidence", 0.0)
+                candidate.sweep_criteria_met = sweep.get("criteria_met", 0)
+                candidate.sweep_details = sweep.get("details", "")
+
+                if sweep.get("sweep_detected") and sweep.get("confidence", 0) >= 0.75:
+                    # Full sweep: NUCLEAR bonus
+                    pre_sweep = candidate.gem_score
+                    nuclear_bonus = 20.0 if sweep["criteria_met"] >= 4 else 10.0
+                    candidate.gem_score = min(100.0, round(candidate.gem_score + nuclear_bonus, 2))
+                    candidate.strategy_tag = "sweep_nuclear"
+                    logger.info(
+                        f"🔥 SWEEP DETECTED: {token.symbol} — {sweep['details']} "
+                        f"→ +{nuclear_bonus:.0f} (score {pre_sweep} → {candidate.gem_score})"
+                    )
+                elif sweep.get("criteria_met", 0) >= 2:
+                    logger.info(
+                        f"👀 SWEEP FORMING: {token.symbol} — {sweep['details']} "
+                        f"(score={candidate.gem_score:.1f})"
+                    )
+            except Exception as e:
+                logger.debug(f"Sweep detection failed for {token.symbol}: {e}")
+
         # ── Express lane flag ───────────────────────────────────────────────────────────────────────────
         # CTO tokens with score >= 75 also qualify for express lane
-        # (lower threshold than standard 82 — CTO is inherently high-conviction)
+        # Sweep-nuclear tokens also get express lane treatment
+        # (lower threshold than standard 82 — CTO/Sweep is inherently high-conviction)
         cto_express_threshold = 75.0
+        sweep_express_threshold = 72.0
         candidate.express_lane = (
             candidate.gem_score >= settings.EXPRESS_LANE_SCORE
             or (is_cto and candidate.gem_score >= cto_express_threshold)
+            or (candidate.sweep_detected and candidate.gem_score >= sweep_express_threshold)
         )
 
         # ── HISTORICAL PRICE CONTEXT: 7-day range position adjustment ─────────

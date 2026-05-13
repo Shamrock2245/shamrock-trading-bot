@@ -19,6 +19,13 @@ Action Rules:
   Score ≥ 60 + Fib support  → KEEP (strong position)
 
 Runs once per cycle with 6-hour cooldown between rebalances.
+
+v2 (S-Tier) additions:
+  - Regime-aware stale-wallet detection
+  - Capital rotation to Nuclear wallet on EXPANSION + sweep
+  - $350 minimum move threshold
+  - 8% daily drawdown breaker integration
+  - Idle detection: >8h since last trade OR stable_ratio > 0.65 in NORMAL
 """
 
 import json
@@ -591,12 +598,274 @@ def execute_liquidations(plan: RebalancePlan, wallet) -> int:
     return success_count
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v2: Regime-Aware Stale-Wallet Rebalancer
+# ─────────────────────────────────────────────────────────────────────────────
+STALE_IDLE_HOURS = float(os.getenv("STALE_IDLE_HOURS", "8"))
+STALE_STABLE_RATIO = float(os.getenv("STALE_STABLE_RATIO", "0.65"))
+MIN_ROTATION_USD = float(os.getenv("MIN_ROTATION_USD", "350"))
+DAILY_DD_LIMIT_PCT = float(os.getenv("DAILY_DD_LIMIT_PCT", "0.08"))  # 8% daily DD breaker
+ROTATION_PCT_EXPANSION = float(os.getenv("ROTATION_PCT_EXPANSION", "0.75"))  # Pull 75% on expansion+sweep
+ROTATION_PCT_NORMAL = float(os.getenv("ROTATION_PCT_NORMAL", "0.50"))  # Pull 50% on normal stale
+STALE_STATE_FILE = Path("output/stale_rebalance_state.json")
+
+
+@dataclass
+class StaleWalletResult:
+    """Result of stale-wallet analysis."""
+    is_stale: bool
+    wallet_alias: str
+    chain: str
+    reason: str
+    idle_hours: float = 0.0
+    stable_ratio: float = 0.0
+    available_usd: float = 0.0
+    rotation_amount_usd: float = 0.0
+    target_wallet: str = ""  # Which wallet to rotate TO
+
+
+def _get_last_trade_time(wallet_alias: str, chain: str) -> float:
+    """Get timestamp of last trade for a wallet/chain combo from positions.json."""
+    try:
+        positions_file = Path("output/positions.json")
+        if not positions_file.exists():
+            return 0.0
+        with open(positions_file) as f:
+            positions = json.load(f)
+        if not isinstance(positions, list):
+            return 0.0
+
+        # Find the most recent position for this wallet+chain
+        latest = 0.0
+        for pos in positions:
+            if (pos.get("wallet_alias", "").lower() == wallet_alias.lower()
+                    and pos.get("chain", "").lower() == chain.lower()):
+                entry_ts = pos.get("entry_timestamp", 0)
+                if isinstance(entry_ts, str):
+                    try:
+                        entry_ts = datetime.fromisoformat(entry_ts.replace("Z", "+00:00")).timestamp()
+                    except (ValueError, TypeError):
+                        entry_ts = 0
+                latest = max(latest, float(entry_ts))
+        return latest
+    except Exception as e:
+        logger.debug(f"Failed to get last trade time for {wallet_alias}/{chain}: {e}")
+        return 0.0
+
+
+def _get_stable_ratio(wallet_alias: str, chain: str) -> float:
+    """
+    Calculate stable coin ratio for a wallet: stablecoins / total value.
+    High ratio (>0.65) = capital sitting idle = opportunity cost.
+    """
+    wallet = WALLETS.get(wallet_alias)
+    if not wallet:
+        return 0.0
+
+    try:
+        chain_config = CHAINS.get(chain)
+        if not chain_config:
+            return 0.0
+
+        if chain_config.is_solana:
+            wallet_address = wallet.solana_address or wallet.address
+            tokens = fetch_wallet_tokens_solana(wallet_address)
+        else:
+            wallet_address = wallet.address
+            tokens = fetch_wallet_tokens_moralis(wallet_address, chain)
+
+        if not tokens:
+            return 0.0
+
+        total_value = 0.0
+        stable_value = 0.0
+        for t in tokens:
+            symbol = t.get("symbol", "").upper()
+            balance = t.get("balance", 0)
+            # Quick price estimate from balance (assumes normalized)
+            value = balance * float(t.get("price_usd", 0) or 0)
+            if value < 0.01:
+                continue
+            total_value += value
+            if symbol in {"USDC", "USDT", "DAI", "BUSD"}:
+                stable_value += value
+
+        return stable_value / total_value if total_value > 0 else 0.0
+    except Exception as e:
+        logger.debug(f"Stable ratio calculation failed for {wallet_alias}/{chain}: {e}")
+        return 0.0
+
+
+def _check_daily_dd() -> bool:
+    """
+    Check if daily drawdown limit has been hit.
+    Returns True if DD limit exceeded (block rebalancing).
+    """
+    try:
+        trades_file = Path("output/trades.json")
+        if not trades_file.exists():
+            return False
+        with open(trades_file) as f:
+            trades = json.load(f)
+        if not isinstance(trades, list):
+            return False
+
+        # Calculate today's P&L
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_pnl = 0.0
+        daily_capital = 0.0
+        for t in trades:
+            ts = t.get("timestamp", "")
+            if today in str(ts):
+                daily_pnl += float(t.get("realized_pnl_usd", 0) or 0)
+                daily_capital += float(t.get("position_size_usd", 0) or 0)
+
+        if daily_capital <= 0:
+            return False
+
+        dd_pct = abs(min(0, daily_pnl)) / daily_capital
+        if dd_pct >= DAILY_DD_LIMIT_PCT:
+            logger.warning(
+                f"🛑 DAILY DD BREAKER: {dd_pct:.1%} drawdown today "
+                f"(limit={DAILY_DD_LIMIT_PCT:.0%}) — blocking rebalance"
+            )
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def detect_stale_wallet(
+    wallet_alias: str,
+    chain: str,
+    regime_context: dict = None,
+) -> StaleWalletResult:
+    """
+    Detect if a wallet is stale and should have capital rotated.
+
+    A wallet is stale if:
+      1. Idle > 8 hours (no trades placed) OR
+      2. Stable ratio > 65% AND regime is NORMAL (capital sleeping)
+
+    Capital rotation:
+      - EXPANSION + sweep: Pull 75% to Nuclear wallet
+      - NORMAL + stale: Pull 50% to Nuclear wallet
+      - CHOP: Never rotate (preserve everything)
+    """
+    result = StaleWalletResult(
+        is_stale=False,
+        wallet_alias=wallet_alias,
+        chain=chain,
+        reason="",
+    )
+
+    if regime_context is None:
+        try:
+            from core.regime_filter import get_regime_with_sweep
+            regime_context = get_regime_with_sweep()
+        except Exception:
+            regime_context = {"is_chop": False, "is_expansion": False, "sweep_active": False}
+
+    # Never rotate in CHOP — capital preservation mode
+    if regime_context.get("is_chop"):
+        result.reason = "CHOP regime — no rotation"
+        return result
+
+    # Check idle hours
+    last_trade_ts = _get_last_trade_time(wallet_alias, chain)
+    now = datetime.now(timezone.utc).timestamp()
+    idle_hours = (now - last_trade_ts) / 3600 if last_trade_ts > 0 else 999.0
+    result.idle_hours = round(idle_hours, 1)
+
+    # Check stable ratio
+    stable_ratio = _get_stable_ratio(wallet_alias, chain)
+    result.stable_ratio = round(stable_ratio, 3)
+
+    # Stale conditions
+    idle_stale = idle_hours >= STALE_IDLE_HOURS
+    capital_stale = stable_ratio >= STALE_STABLE_RATIO and not regime_context.get("is_expansion")
+
+    if idle_stale:
+        result.is_stale = True
+        result.reason = f"Idle {idle_hours:.0f}h (threshold={STALE_IDLE_HOURS}h)"
+    elif capital_stale:
+        result.is_stale = True
+        result.reason = f"Stable ratio {stable_ratio:.0%} (threshold={STALE_STABLE_RATIO:.0%}) in NORMAL regime"
+    else:
+        result.reason = f"Active — idle={idle_hours:.1f}h stable={stable_ratio:.0%}"
+        return result
+
+    # Determine rotation amount
+    if regime_context.get("is_expansion") and regime_context.get("sweep_active"):
+        rotation_pct = ROTATION_PCT_EXPANSION  # 75% — go hard
+        result.target_wallet = "nuclear"  # Nuclear wallet gets the capital
+    else:
+        rotation_pct = ROTATION_PCT_NORMAL  # 50% — moderate rotation
+        result.target_wallet = "nuclear"
+
+    # Estimate available USD from stable ratio
+    wallet = WALLETS.get(wallet_alias)
+    if wallet:
+        try:
+            chain_config = CHAINS.get(chain)
+            if chain_config and chain_config.is_solana:
+                wallet_address = wallet.solana_address or wallet.address
+                tokens = fetch_wallet_tokens_solana(wallet_address)
+            elif chain_config:
+                wallet_address = wallet.address
+                tokens = fetch_wallet_tokens_moralis(wallet_address, chain)
+            else:
+                tokens = []
+
+            total_stable = sum(
+                t.get("balance", 0) * float(t.get("price_usd", 0) or 0)
+                for t in tokens
+                if t.get("symbol", "").upper() in {"USDC", "USDT", "DAI"}
+            )
+            result.available_usd = round(total_stable, 2)
+            result.rotation_amount_usd = round(total_stable * rotation_pct, 2)
+        except Exception as e:
+            logger.debug(f"Failed to estimate available USD for {wallet_alias}/{chain}: {e}")
+
+    # Check minimum rotation threshold
+    if result.rotation_amount_usd < MIN_ROTATION_USD:
+        result.is_stale = False
+        result.reason = (
+            f"Below minimum: ${result.rotation_amount_usd:.0f} < "
+            f"${MIN_ROTATION_USD:.0f} threshold"
+        )
+
+    return result
+
+
 def run_rebalance_cycle(dry_run: bool = True) -> list[RebalancePlan]:
     """
     Run rebalance across all wallets and active chains.
     Called from main.py bot loop.
+
+    v2: Also runs stale-wallet detection and logs rotation recommendations.
+    Actual cross-wallet transfers are logged but not auto-executed
+    (requires manual approval or live mode enablement).
     """
     plans = []
+
+    # Check daily DD breaker first
+    if _check_daily_dd():
+        logger.warning("🛑 Daily DD limit hit — skipping rebalance cycle entirely")
+        return plans
+
+    # Get regime context once for the whole cycle
+    regime_context = None
+    try:
+        from core.regime_filter import get_regime_with_sweep
+        regime_context = get_regime_with_sweep()
+        logger.info(
+            f"📊 Rebalancer regime: {regime_context.get('regime', '?')} "
+            f"sweep={'✅' if regime_context.get('sweep_active') else '❌'} "
+            f"should_rebalance={'✅' if regime_context.get('should_rebalance') else '❌'}"
+        )
+    except Exception as e:
+        logger.debug(f"Regime context failed for rebalancer: {e}")
 
     for wallet_key, wallet in WALLETS.items():
         for chain in settings.ACTIVE_CHAINS:
@@ -610,6 +879,50 @@ def run_rebalance_cycle(dry_run: bool = True) -> list[RebalancePlan]:
             if wallet not in chain_wallets:
                 continue
 
+            # ── v2: Stale-wallet detection ──────────────────────────────
+            try:
+                stale = detect_stale_wallet(wallet_key, chain, regime_context)
+                if stale.is_stale:
+                    logger.info(
+                        f"💤 STALE WALLET: {wallet_key}/{chain} — {stale.reason} "
+                        f"| available=${stale.available_usd:.0f} "
+                        f"rotation=${stale.rotation_amount_usd:.0f} "
+                        f"→ target={stale.target_wallet}"
+                    )
+                    # Log the rotation recommendation
+                    _stale_log = {
+                        "wallet": wallet_key,
+                        "chain": chain,
+                        "reason": stale.reason,
+                        "idle_hours": stale.idle_hours,
+                        "stable_ratio": stale.stable_ratio,
+                        "available_usd": stale.available_usd,
+                        "rotation_amount_usd": stale.rotation_amount_usd,
+                        "target_wallet": stale.target_wallet,
+                        "regime": str(regime_context.get("regime", "?")) if regime_context else "?",
+                        "sweep_active": regime_context.get("sweep_active", False) if regime_context else False,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    STALE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with open(STALE_STATE_FILE, "w") as f:
+                        json.dump(_stale_log, f, indent=2)
+
+                    # Slack alert for stale capital
+                    try:
+                        from notifications.slack import notify_alert
+                        notify_alert(
+                            "💤 Stale Capital Detected",
+                            f"{wallet_key}/{chain}: {stale.reason}\n"
+                            f"Available: ${stale.available_usd:,.0f} → "
+                            f"Rotate ${stale.rotation_amount_usd:,.0f} to {stale.target_wallet}",
+                            level="warning",
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug(f"Stale-wallet check failed for {wallet_key}/{chain}: {e}")
+
+            # ── Existing token-scoring rebalance ────────────────────────
             try:
                 plan = generate_rebalance_plan(wallet_key, chain, dry_run=dry_run)
                 if plan:
@@ -630,9 +943,19 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", default=True, help="Plan only, don't execute")
     parser.add_argument("--chain", type=str, default=None, help="Specific chain to rebalance")
     parser.add_argument("--wallet", type=str, default="primary", help="Wallet to rebalance")
+    parser.add_argument("--stale-check", action="store_true", help="Run stale-wallet detection only")
     args = parser.parse_args()
 
-    if args.chain:
+    if args.stale_check:
+        for wk in WALLETS:
+            for ch in settings.ACTIVE_CHAINS:
+                result = detect_stale_wallet(wk, ch)
+                status = "💤 STALE" if result.is_stale else "✅ ACTIVE"
+                print(
+                    f"{status} {wk}/{ch}: {result.reason} "
+                    f"(idle={result.idle_hours}h stable={result.stable_ratio:.0%})"
+                )
+    elif args.chain:
         plan = generate_rebalance_plan(args.wallet, args.chain, dry_run=args.dry_run)
         if plan:
             print(f"\n{'='*70}")

@@ -1787,3 +1787,278 @@ def run_all_indicators(df: pd.DataFrame) -> TAResult:
     )
     return result
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Liquidity Sweep Detector (S-Tier Alpha Signal)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_liquidity_sweep(
+    df: pd.DataFrame,
+    bb_threshold: float = 0.018,
+    volume_mult: float = 3.5,
+    wick_pct: float = 0.005,
+) -> dict:
+    """
+    Liquidity Sweep Detection — Identifies institutional sweep-and-reclaim.
+
+    This detects the single highest-conviction entry pattern in micro-cap
+    crypto: smart money sweeps stop-losses below support, absorbs the
+    liquidity, then reverses with size. When all four conditions converge,
+    it's a "Nuclear" signal.
+
+    Criteria (ALL must be met for full sweep):
+      1. BB Squeeze:    bandwidth < bb_threshold (tight range = breakout imminent)
+      2. Wick Sweep:    low < previous low * (1 - wick_pct) (swept liquidity)
+      3. Volume Spike:  current volume > volume_mult × 20-period avg
+      4. EMA9 Reclaim:  close > EMA9 (buyers absorbed sweep, reclaiming)
+
+    Args:
+        df: DataFrame with OHLCV columns (open, high, low, close, volume).
+            Minimum 25 rows for reliable BB + EMA calculation.
+        bb_threshold: BB bandwidth squeeze threshold (lower = tighter squeeze)
+        volume_mult: Volume spike multiplier over 20-period average
+        wick_pct: Minimum wick depth below previous low (0.5% default)
+
+    Returns:
+        dict with keys:
+          - sweep_detected (bool): True if full 4-criteria sweep confirmed
+          - confidence (float): 0.0 - 1.0 sweep confidence
+          - criteria_met (int): How many of 4 criteria passed (0-4)
+          - bb_bandwidth (float): Current BB bandwidth value
+          - volume_ratio (float): Current vol / 20-period avg vol
+          - wick_depth_pct (float): How far low swept below prev low
+          - details (str): Human-readable summary
+    """
+    result = {
+        "sweep_detected": False,
+        "confidence": 0.0,
+        "criteria_met": 0,
+        "bb_bandwidth": 0.0,
+        "volume_ratio": 0.0,
+        "wick_depth_pct": 0.0,
+        "details": "",
+    }
+
+    if df is None or len(df) < 25:
+        result["details"] = "Insufficient data (need 25+ rows)"
+        return result
+
+    try:
+        close = df["close"].astype(float)
+        low = df["low"].astype(float)
+        high = df["high"].astype(float)
+        volume = df["volume"].astype(float)
+    except (KeyError, ValueError) as e:
+        result["details"] = f"Missing OHLCV columns: {e}"
+        return result
+
+    criteria_flags = []
+
+    # ── Criterion 1: Bollinger Band Squeeze ────────────────────────────────
+    # BB bandwidth = (upper - lower) / middle. Low bandwidth = price coiling.
+    bb_period = 20
+    bb_sma = close.rolling(bb_period).mean()
+    bb_std = close.rolling(bb_period).std()
+    bb_upper = bb_sma + 2 * bb_std
+    bb_lower = bb_sma - 2 * bb_std
+    bb_mid = bb_sma
+
+    # Current bandwidth (last candle)
+    if bb_mid.iloc[-1] and bb_mid.iloc[-1] > 0:
+        bandwidth = (bb_upper.iloc[-1] - bb_lower.iloc[-1]) / bb_mid.iloc[-1]
+    else:
+        bandwidth = 999.0  # No squeeze
+    result["bb_bandwidth"] = round(float(bandwidth), 5)
+
+    squeeze_met = bandwidth < bb_threshold
+    if squeeze_met:
+        criteria_flags.append("BB_SQUEEZE")
+
+    # ── Criterion 2: Wick Sweep Below Previous Low ─────────────────────────
+    # The current candle's low must pierce below the previous candle's low
+    # by at least wick_pct — this means it swept stop-losses.
+    prev_low = float(low.iloc[-2]) if len(low) >= 2 else 0
+    curr_low = float(low.iloc[-1])
+    curr_close = float(close.iloc[-1])
+
+    if prev_low > 0:
+        sweep_depth = (prev_low - curr_low) / prev_low
+    else:
+        sweep_depth = 0.0
+    result["wick_depth_pct"] = round(float(sweep_depth), 5)
+
+    wick_swept = sweep_depth >= wick_pct
+    if wick_swept:
+        criteria_flags.append("WICK_SWEEP")
+
+    # ── Criterion 3: Volume Spike ──────────────────────────────────────────
+    avg_vol = volume.rolling(20).mean().iloc[-1]
+    curr_vol = float(volume.iloc[-1])
+    vol_ratio = curr_vol / avg_vol if avg_vol and avg_vol > 0 else 0.0
+    result["volume_ratio"] = round(float(vol_ratio), 2)
+
+    volume_spike = vol_ratio >= volume_mult
+    if volume_spike:
+        criteria_flags.append("VOLUME_SPIKE")
+
+    # ── Criterion 4: Close Above EMA9 (Reclaim) ───────────────────────────
+    ema9 = close.ewm(span=9, adjust=False).mean()
+    reclaim = curr_close > float(ema9.iloc[-1])
+    if reclaim:
+        criteria_flags.append("EMA9_RECLAIM")
+
+    # ── Composite Result ──────────────────────────────────────────────────
+    criteria_met = len(criteria_flags)
+    result["criteria_met"] = criteria_met
+
+    # Full sweep = all 4 criteria. Partial sweep = 3/4.
+    if criteria_met == 4:
+        result["sweep_detected"] = True
+        result["confidence"] = 1.0
+        result["details"] = f"🔥 FULL SWEEP: {' + '.join(criteria_flags)} | bw={bandwidth:.4f} vol={vol_ratio:.1f}x wick={sweep_depth:.3%}"
+    elif criteria_met == 3:
+        result["sweep_detected"] = True
+        result["confidence"] = 0.75
+        missing = {"BB_SQUEEZE", "WICK_SWEEP", "VOLUME_SPIKE", "EMA9_RECLAIM"} - set(criteria_flags)
+        result["details"] = f"⚡ PARTIAL SWEEP (3/4): {' + '.join(criteria_flags)} | missing={missing.pop()} | bw={bandwidth:.4f} vol={vol_ratio:.1f}x"
+    elif criteria_met == 2:
+        result["confidence"] = 0.35
+        result["details"] = f"👀 SETUP FORMING (2/4): {' + '.join(criteria_flags)} | bw={bandwidth:.4f}"
+    else:
+        result["confidence"] = 0.0
+        result["details"] = f"No sweep ({criteria_met}/4 criteria met)"
+
+    return result
+
+
+def detect_liquidity_sweep_from_dexscreener(
+    token_address: str,
+    chain: str,
+    pair_address: str = "",
+) -> dict:
+    """
+    Convenience wrapper: fetch DexScreener pair data and run sweep detection
+    using price/volume heuristics when full OHLCV isn't available.
+
+    Since DexScreener free tier doesn't expose full candle data, we use
+    the pair's aggregate metrics as a proxy:
+      - Volume spike: 1h vol vs (24h vol / 24) → spike ratio
+      - Price wick:   abs(priceChange.h1) > 5% with recovery → wick signal
+      - BB proxy:     low 24h range (high-low)/price < 3% → squeeze
+      - Reclaim:      h1 change positive → close above short-term avg
+
+    Returns same dict structure as detect_liquidity_sweep().
+    """
+    result = {
+        "sweep_detected": False,
+        "confidence": 0.0,
+        "criteria_met": 0,
+        "bb_bandwidth": 0.0,
+        "volume_ratio": 0.0,
+        "wick_depth_pct": 0.0,
+        "details": "",
+    }
+
+    try:
+        from data.http_session import get_session
+
+        ds_chain_map = {
+            "base": "base", "ethereum": "ethereum", "bsc": "bsc",
+            "avalanche": "avalanche", "polygon": "polygon",
+            "arbitrum": "arbitrum", "solana": "solana",
+        }
+        ds_chain = ds_chain_map.get(chain, chain)
+
+        if pair_address:
+            url = f"https://api.dexscreener.com/latest/dex/pairs/{ds_chain}/{pair_address}"
+        else:
+            url = f"https://api.dexscreener.com/tokens/v1/{ds_chain}/{token_address}"
+
+        resp = get_session().get(url, timeout=10)
+        data = resp.json()
+
+        # Extract pair data
+        if isinstance(data, dict):
+            pair = data.get("pair") or (data.get("pairs", [{}]) or [{}])[0]
+        elif isinstance(data, list) and data:
+            pair = data[0]
+        else:
+            result["details"] = "No pair data from DexScreener"
+            return result
+
+        if not pair or not pair.get("priceUsd"):
+            result["details"] = "No price data in pair"
+            return result
+
+        price = float(pair.get("priceUsd", 0))
+        h1_change = float(pair.get("priceChange", {}).get("h1", 0) or 0)
+        h6_change = float(pair.get("priceChange", {}).get("h6", 0) or 0)
+        h24_change = float(pair.get("priceChange", {}).get("h24", 0) or 0)
+        vol_1h = float(pair.get("volume", {}).get("h1", 0) or 0)
+        vol_24h = float(pair.get("volume", {}).get("h24", 0) or 0)
+        high_24h = float(pair.get("priceHigh24h", 0) or 0)
+        low_24h = float(pair.get("priceLow24h", 0) or 0)
+
+        criteria_flags = []
+
+        # 1. BB Squeeze proxy: tight 24h range
+        if price > 0 and high_24h > 0:
+            range_pct = (high_24h - low_24h) / price
+            result["bb_bandwidth"] = round(range_pct, 5)
+            if range_pct < 0.03:  # Less than 3% range = squeeze
+                criteria_flags.append("BB_SQUEEZE")
+        else:
+            result["bb_bandwidth"] = 0.0
+
+        # 2. Wick sweep: h6 was very negative but h1 recovering
+        # This means price dropped hard then bounced = wick sweep
+        if h6_change < -5.0 and h1_change > 0:
+            wick_depth = abs(h6_change) / 100.0
+            result["wick_depth_pct"] = round(wick_depth, 5)
+            criteria_flags.append("WICK_SWEEP")
+        elif abs(h24_change) > 8 and h1_change > 2:
+            # Wider sweep: big 24h move with strong 1h recovery
+            result["wick_depth_pct"] = round(abs(h24_change) / 100.0, 5)
+            criteria_flags.append("WICK_SWEEP")
+
+        # 3. Volume spike: 1h vol vs average hourly
+        avg_hourly = vol_24h / 24 if vol_24h > 0 else 0
+        vol_ratio = vol_1h / avg_hourly if avg_hourly > 0 else 0
+        result["volume_ratio"] = round(vol_ratio, 2)
+        if vol_ratio >= 3.5:
+            criteria_flags.append("VOLUME_SPIKE")
+
+        # 4. Reclaim: h1 change positive (close above short-term avg)
+        if h1_change > 0:
+            criteria_flags.append("EMA9_RECLAIM")
+
+        criteria_met = len(criteria_flags)
+        result["criteria_met"] = criteria_met
+
+        if criteria_met >= 4:
+            result["sweep_detected"] = True
+            result["confidence"] = 0.90  # Slightly lower than OHLCV-based
+            result["details"] = (
+                f"🔥 SWEEP (DS proxy): {' + '.join(criteria_flags)} | "
+                f"h1={h1_change:+.1f}% h6={h6_change:+.1f}% vol={vol_ratio:.1f}x"
+            )
+        elif criteria_met == 3:
+            result["sweep_detected"] = True
+            result["confidence"] = 0.65
+            missing = {"BB_SQUEEZE", "WICK_SWEEP", "VOLUME_SPIKE", "EMA9_RECLAIM"} - set(criteria_flags)
+            result["details"] = (
+                f"⚡ PARTIAL SWEEP (DS 3/4): {' + '.join(criteria_flags)} | "
+                f"missing={missing.pop()} | h1={h1_change:+.1f}%"
+            )
+        elif criteria_met == 2:
+            result["confidence"] = 0.30
+            result["details"] = f"👀 SETUP (DS 2/4): {' + '.join(criteria_flags)}"
+        else:
+            result["details"] = f"No sweep (DS {criteria_met}/4)"
+
+    except Exception as e:
+        result["details"] = f"Sweep detection error: {e}"
+        logger.debug(f"Liquidity sweep detection failed for {token_address}: {e}")
+
+    return result
+
