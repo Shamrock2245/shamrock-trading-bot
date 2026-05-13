@@ -525,107 +525,179 @@ if guardian_status or anchor_status:
 
     st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
 
-# ── Navigation Cards ──────────────────────────────────────────────────────────
-st.markdown(
-    '<div style="color:#484F58;font-size:0.62rem;font-weight:700;'
-    'text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;">Navigate</div>',
-    unsafe_allow_html=True,
-)
+# ── Quick Nav (compact pill bar) ─────────────────────────────────────────────
+_nav_links = [
+    ("🔍 Scanner", "/Gem_Scanner", latest_count),
+    ("💰 Positions", "/Positions", active_positions),
+    ("📊 Analytics", "/Analytics", 0),
+    ("🏥 Health", "/System_Health", 0),
+    ("👛 Wallets", "/Wallet_Overview", 0),
+    ("🤝 Alpha", "/Alpha_Wallets", 0),
+    ("🎯 Sniper", "/Sniper_Wallets", 0),
+]
+_nav_html = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">'
+for _label, _href, _count in _nav_links:
+    _badge = (f'<span style="background:rgba(0,208,156,0.15);color:#00D09C;'
+              f'font-size:0.6rem;font-weight:800;padding:1px 6px;border-radius:8px;'
+              f'margin-left:5px;">{_count}</span>') if _count > 0 else ""
+    _nav_html += (
+        f'<a href="{_href}" target="_self" style="text-decoration:none;display:inline-flex;'
+        f'align-items:center;gap:3px;background:rgba(255,255,255,0.03);'
+        f'border:1px solid rgba(48,54,61,0.5);border-radius:20px;padding:5px 14px;'
+        f'color:#8B949E;font-size:0.72rem;font-weight:600;transition:all 0.2s;">'
+        f'{_label}{_badge}</a>'
+    )
+_nav_html += '</div>'
+st.markdown(_nav_html, unsafe_allow_html=True)
 
-latest_count = len(latest_gems)
-express_count = len([g for g in latest_gems if g.get("express_lane")])
-pos_badge = f'<div class="nav-badge">{active_positions} open</div>' if active_positions > 0 else ""
-gem_badge = f'<div class="nav-badge">{latest_count} live</div>' if latest_count > 0 else ""
+# ── Live Data Panels (replaced nav cards) ────────────────────────────────────
+_dp_left, _dp_right = st.columns([3, 2])
 
-nav_row1_c1, nav_row1_c2, nav_row1_c3, nav_row1_c4 = st.columns(4)
-nav_row2_c1, nav_row2_c2, nav_row2_c3, nav_row2_c4 = st.columns(4)
-
-with nav_row1_c1:
+with _dp_left:
+    # ── Open Positions Table ─────────────────────────────────────────────────
     st.markdown(
-        f'<a href="/Gem_Scanner" target="_self" class="nav-card">'
-        f'{gem_badge}'
-        f'<span class="nav-icon">🔍</span>'
-        f'<div class="nav-title">Gem Scanner</div>'
-        f'<div class="nav-desc">Live candidates · Score breakdowns · Intelligence signals · Force Scan</div>'
-        f'</a>',
+        '<div style="color:#484F58;font-size:0.62rem;font-weight:700;text-transform:uppercase;'
+        'letter-spacing:0.12em;margin-bottom:8px;">Open positions</div>',
         unsafe_allow_html=True,
     )
+    _open = [p for p in positions_data if p.get("status") == "open" or p.get("is_open", False)]
+    if _open:
+        _rows_html = ""
+        for _p in sorted(_open, key=lambda x: float(x.get("unrealized_pnl_pct", 0)), reverse=True)[:8]:
+            _sym = _p.get("symbol", "???")
+            _chain = _p.get("chain", "?")
+            _entry = float(_p.get("entry_price", 0))
+            _curr = float(_p.get("current_price", _entry))
+            _pnl_pct = float(_p.get("unrealized_pnl_pct", 0))
+            _pnl_color = "#00D09C" if _pnl_pct >= 0 else "#FF4757"
+            _pnl_sign = "+" if _pnl_pct >= 0 else ""
+            _chain_emoji = CHAIN_EMOJI.get(_chain, "⬡")
+            _size = float(_p.get("position_size_usd", 0))
+            _rows_html += (
+                f'<div style="display:flex;align-items:center;padding:8px 12px;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);gap:10px;">'
+                f'<span style="font-size:0.75rem;">{_chain_emoji}</span>'
+                f'<div style="flex:1;min-width:0;">'
+                f'<div style="color:#E6EDF3;font-size:0.78rem;font-weight:700;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{_sym}</div>'
+                f'<div style="color:#484F58;font-size:0.6rem;">{_chain} · ${_size:.2f}</div>'
+                f'</div>'
+                f'<div style="text-align:right;">'
+                f'<div style="color:{_pnl_color};font-size:0.82rem;font-weight:800;'
+                f'font-family:\'JetBrains Mono\',monospace;">{_pnl_sign}{_pnl_pct:.1f}%</div>'
+                f'<div style="color:#30363D;font-size:0.58rem;">'
+                f'${_entry:.6f} → ${_curr:.6f}</div>'
+                f'</div>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div class="glass-card" style="padding:0;overflow:hidden;">'
+            f'{_rows_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="glass-card" style="padding:24px;text-align:center;">'
+            '<div style="color:#30363D;font-size:1.4rem;">📭</div>'
+            '<div style="color:#484F58;font-size:0.78rem;font-weight:600;">No open positions</div>'
+            '<div style="color:#30363D;font-size:0.68rem;">Scanner is searching for gems...</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-with nav_row1_c2:
+with _dp_right:
+    # ── Recent Trades Feed ───────────────────────────────────────────────────
     st.markdown(
-        f'<a href="/Positions" target="_self" class="nav-card">'
-        f'{pos_badge}'
-        f'<span class="nav-icon">💰</span>'
-        f'<div class="nav-title">Positions</div>'
-        f'<div class="nav-desc">Open trades · TP/SL tiers · Pyramid scaling · Unrealized P&L</div>'
-        f'</a>',
+        '<div style="color:#484F58;font-size:0.62rem;font-weight:700;text-transform:uppercase;'
+        'letter-spacing:0.12em;margin-bottom:8px;">Recent trades</div>',
         unsafe_allow_html=True,
     )
+    _recent = sorted(trades_data, key=lambda t: t.get("timestamp", ""), reverse=True)[:8] if trades_data else []
+    if _recent:
+        _trades_html = ""
+        for _t in _recent:
+            _t_sym = _t.get("symbol", "???")
+            _t_side = _t.get("side", "buy").upper()
+            _t_pnl = float(_t.get("realized_pnl_usd", 0))
+            _t_pnl_pct = float(_t.get("pnl_pct", 0))
+            _is_buy = _t_side == "BUY"
+            _side_color = "#00D09C" if _is_buy else "#FF4757"
+            _side_icon = "▲" if _is_buy else "▼"
+            _pnl_str = ""
+            if not _is_buy and _t_pnl != 0:
+                _pc = "#00D09C" if _t_pnl > 0 else "#FF4757"
+                _ps = "+" if _t_pnl > 0 else ""
+                _pnl_str = (
+                    f'<span style="color:{_pc};font-weight:700;font-family:\'JetBrains Mono\',monospace;'
+                    f'font-size:0.72rem;">{_ps}${abs(_t_pnl):.4f}</span>'
+                )
+            _t_time = _t.get("timestamp", "")[:16].replace("T", " ")
+            _t_chain = _t.get("chain", "")
+            _trades_html += (
+                f'<div style="display:flex;align-items:center;padding:7px 12px;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);gap:8px;">'
+                f'<span style="color:{_side_color};font-weight:900;font-size:0.72rem;">{_side_icon}</span>'
+                f'<div style="flex:1;min-width:0;">'
+                f'<div style="color:#E6EDF3;font-size:0.72rem;font-weight:600;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'{_t_sym}</div>'
+                f'<div style="color:#30363D;font-size:0.56rem;">{_t_time} · {_t_chain}</div>'
+                f'</div>'
+                f'{_pnl_str}'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div class="glass-card" style="padding:0;overflow:hidden;">'
+            f'{_trades_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="glass-card" style="padding:24px;text-align:center;">'
+            '<div style="color:#30363D;font-size:1.4rem;">📊</div>'
+            '<div style="color:#484F58;font-size:0.78rem;font-weight:600;">No trades yet</div>'
+            '<div style="color:#30363D;font-size:0.68rem;">Waiting for first execution...</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-with nav_row1_c3:
-    st.markdown(
-        f'<a href="/Analytics" target="_self" class="nav-card">'
-        f'<span class="nav-icon">📊</span>'
-        f'<div class="nav-title">Analytics</div>'
-        f'<div class="nav-desc">P&L curves · Win rate · Chain performance · Score trends</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
+    # ── Chain Allocation Mini ────────────────────────────────────────────────
+    _chain_counts = {}
+    for _g in gems:
+        _c = _g.get("chain", "unknown")
+        _chain_counts[_c] = _chain_counts.get(_c, 0) + 1
+    _total_gems_c = max(sum(_chain_counts.values()), 1)
+    if _chain_counts:
+        st.markdown(
+            '<div style="color:#484F58;font-size:0.62rem;font-weight:700;text-transform:uppercase;'
+            'letter-spacing:0.12em;margin:12px 0 8px;">Chain distribution</div>',
+            unsafe_allow_html=True,
+        )
+        _alloc_html = ""
+        for _c, _cnt in sorted(_chain_counts.items(), key=lambda x: -x[1])[:6]:
+            _pct = (_cnt / _total_gems_c) * 100
+            _cc = CHAIN_COLORS.get(_c, "#8B949E")
+            _ce = CHAIN_EMOJI.get(_c, "⬡")
+            _alloc_html += (
+                f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">'
+                f'<span style="font-size:0.72rem;">{_ce}</span>'
+                f'<span style="color:#8B949E;font-size:0.68rem;font-weight:600;width:50px;">'
+                f'{_c[:8]}</span>'
+                f'<div style="flex:1;height:4px;background:rgba(48,54,61,0.5);border-radius:2px;">'
+                f'<div style="width:{_pct:.0f}%;height:100%;background:{_cc};border-radius:2px;'
+                f'transition:width 0.6s ease;"></div></div>'
+                f'<span style="color:{_cc};font-size:0.65rem;font-weight:700;width:36px;'
+                f'text-align:right;">{_cnt}</span>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div class="glass-card" style="padding:10px 14px;">{_alloc_html}</div>',
+            unsafe_allow_html=True,
+        )
 
-with nav_row1_c4:
-    st.markdown(
-        f'<a href="/System_Health" target="_self" class="nav-card">'
-        f'<span class="nav-icon">🏥</span>'
-        f'<div class="nav-title">System Health</div>'
-        f'<div class="nav-desc">API status · Error feed · Memory · Pipeline health</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-with nav_row2_c1:
-    st.markdown(
-        f'<a href="/Wallet_Overview" target="_self" class="nav-card">'
-        f'<span class="nav-icon">👛</span>'
-        f'<div class="nav-title">Wallets</div>'
-        f'<div class="nav-desc">Net worth · DeFi positions · Approvals · Chain activity</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-with nav_row2_c2:
-    copy_badge = f'<div class="nav-badge">{len([t for t in trades_data if "copy" in str(t.get("reason","")).lower()])} copied</div>' if trades_data else ""
-    st.markdown(
-        f'<a href="/Alpha_Wallets" target="_self" class="nav-card">'
-        f'{copy_badge}'
-        f'<span class="nav-icon">🤝</span>'
-        f'<div class="nav-title">Alpha Wallets</div>'
-        f'<div class="nav-desc">10 tracked wallets · Copy-trade status · Capital distribution</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-with nav_row2_c3:
-    st.markdown(
-        f'<a href="/Sniper_Wallets" target="_self" class="nav-card">'
-        f'<span class="nav-icon">🎯</span>'
-        f'<div class="nav-title">Sniper Wallets</div>'
-        f'<div class="nav-desc">High-PnL leaderboard · Capital compounding · Discovery daemon</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-with nav_row2_c4:
-    st.markdown(
-        f'<a href="/" target="_self" class="nav-card" style="border-color:rgba(0,208,156,0.2);'
-        f'background:linear-gradient(145deg,rgba(0,208,156,0.03),rgba(13,17,23,0.98));">'
-        f'<span class="nav-icon">☘️</span>'
-        f'<div class="nav-title">Command Center</div>'
-        f'<div class="nav-desc">You are here · Overview · Macro regime · Activity feed</div>'
-        f'</a>',
-        unsafe_allow_html=True,
-    )
-
-st.markdown('<div style="height:20px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
 # ── Bot Activity Ticker ──────────────────────────────────────────────────────
 bot_mode = adaptive_state.get("mode", "unknown").upper()
