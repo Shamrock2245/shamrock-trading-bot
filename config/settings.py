@@ -109,15 +109,15 @@ TAKE_PROFIT_TP3_MULT = float(os.getenv("TAKE_PROFIT_TP3_MULT", "5.0"))    # 400%
 TAKE_PROFIT_TP3_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP3_SELL_PCT", "0.25"))  # Sell 25% of remaining
 
 # ── Time-Based & Liquidity Exits (Offensive Playbook §5) ──────────────────
-TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "24.0"))              # Extended: allow 24h for Base/BSC gems to develop
-TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "10.0"))  # Must be up >10% to stay
+TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "8.0"))               # TUNED: 24h→8h — stop holding dead positions overnight
+TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "5.0"))   # TUNED: 10%→5% — exit sooner if not performing
 
 # ── Pre-TP1 Peak Protection (CRITICAL: prevents holding through full reversals) ─
 # If a position builds gains but never hits TP1, we still protect those gains.
 # Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
 # Uses a WIDER stop than the post-TP1 trailing (25% vs 15%) to give room to run.
-PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "20.0"))  # 20% trail before TP1 (wider to let runners develop)
-PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "25.0"))  # Activate when up 25%+ (well below TP1)
+PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "15.0"))  # TUNED: 20%→15% — protect pre-TP1 gains more aggressively
+PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "15.0"))  # TUNED: 25%→15% — activate protection earlier
 
 # ── Confluence Gate Override ─────────────────────────────────────────────────
 # Hard override: if price drops this much from the high on a profitable position,
@@ -235,10 +235,10 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "65.0"))
-MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))
-MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "168"))
-MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "3"))
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "68.0"))              # TUNED: 65→68 — match conservative profile floor, reduce noise entries
+MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "50000"))       # TUNED: 25k→50k — require more liquidity to reduce slippage losses
+MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED: 168h→72h — focus on fresh tokens (3 days max)
+MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
 # Express lane: skip full TA pipeline and execute immediately if score >= this
 EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "82.0"))
@@ -380,7 +380,7 @@ HOT_STREAK_ENABLED = os.getenv("HOT_STREAK_ENABLED", "true").lower() == "true"
 # Activates when daily realized PnL crosses threshold.
 # Switches to Full Kelly sizing, tightens trailing stops, skips TP1 (hold for 5x).
 GOD_MODE_ENABLED = os.getenv("GOD_MODE_ENABLED", "true").lower() == "true"
-GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "250.0"))  # TUNED: was $500 — enter God Mode sooner
+GOD_MODE_DAILY_PNL_THRESHOLD_USD = float(os.getenv("GOD_MODE_DAILY_PNL_THRESHOLD_USD", "500.0"))  # TUNED: 250→500 — don't enter God Mode until we're actually profitable
 GOD_MODE_KELLY_MULTIPLIER = float(os.getenv("GOD_MODE_KELLY_MULTIPLIER", "2.5"))  # TUNED: was 2.0 — more aggressive in God Mode
 GOD_MODE_TRAILING_STOP_PCT = float(os.getenv("GOD_MODE_TRAILING_STOP_PCT", "10.0"))  # TUNED: was 12% — tighter to protect God Mode gains
 GOD_MODE_SKIP_TP1 = os.getenv("GOD_MODE_SKIP_TP1", "true").lower() == "true"
@@ -417,7 +417,7 @@ CASCADE_BOOST_ENABLED = os.getenv("CASCADE_BOOST_ENABLED", "true").lower() == "t
 CASCADE_BOOST_PER_WIN = float(os.getenv("CASCADE_BOOST_PER_WIN", "0.75"))  # FIX: project spec = 0.75 pts per win (was 0.5)
 CASCADE_BOOST_MAX_REDUCTION = float(os.getenv("CASCADE_BOOST_MAX_REDUCTION", "5.0"))  # Reduced from 10 → 5: floor can't drop as far
 CASCADE_BOOST_RECOVERY_PER_LOSS = float(os.getenv("CASCADE_BOOST_RECOVERY_PER_LOSS", "1.0"))  # +1 per loss
-CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "58.0"))  # Raised from 40 → 58: hard quality floor
+CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "65.0"))  # TUNED: 58→65 — cascade can never drop below the global MIN_GEM_SCORE
 
 # ── 6. Express Lane Overdrive ─────────────────────────────────────────────────
 # Highest-conviction snipes (score ≥ EXPRESS_LANE_SCORE) get 1.5-2.0x sizing
@@ -449,11 +449,11 @@ PYRAMID_TIER3_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER3_TRAILING_STOP_P
 # Cuts momentum-dead positions quickly to free capital for live opportunities.
 # Replaces the 12-hour underperformer rotation with faster, smarter exits.
 FAST_FAIL_ENABLED = os.getenv("FAST_FAIL_ENABLED", "true").lower() == "true"
-FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "2.0"))  # Hours before checking
-FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "10.0"))  # Down >10% = momentum dead
-FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "3.0"))  # TUNED: was 4h — cut stalls faster
-FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "20.0"))  # TUNED: was 15% — must show stronger momentum to survive
-FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "70.0"))  # TUNED: was 80% — exit sooner on volume death
+FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "1.0"))               # TUNED: 2h→1h — check for failure sooner
+FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "8.0"))          # TUNED: 10%→8% — cut losers earlier
+FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "2.0"))    # TUNED: 3h→2h — cut stalls faster
+FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "10.0"))       # TUNED: 20%→10% — lower momentum bar to survive
+FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "60.0"))  # TUNED: 70%→60% — exit sooner on volume death
 
 # ── 9. Momentum Reentry ───────────────────────────────────────────────────────
 # After TP1 is hit on a token, immediately re-enters if volume is still surging.

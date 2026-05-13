@@ -63,55 +63,74 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    # PAPER MODE: Aggressive entry — catch all signals above score 50 to stress-test
-    min_gem_score=50.0,
-    express_lane_score=72.0,
-    # TP: 2.5x sell 35%, 5x sell 40%, 10x sell 30% — hold longer for bigger wins
-    tp1_mult=2.5,
-    tp1_sell_pct=0.35,
-    tp2_mult=5.0,
-    tp2_sell_pct=0.40,
-    tp3_mult=10.0,
-    tp3_sell_pct=0.30,
-    # Stops — project spec: 20% hard stop, 20% trailing after TP1
-    hard_stop_pct=20.0,
-    trailing_stop_pct=20.0,
-    trailing_tighten={5.0: 12.0, 10.0: 8.0},  # Tighten at 5x and 10x
-    # Sizing — paper mode: bigger bets
-    max_position_pct=15.0,
-    kelly_clamp_max=0.40,
-    max_position_usd=10_000.0,
+    # TUNED: min_gem_score raised 50→68 — stop entering low-conviction trades
+    # Paper mode was too permissive at 50; 68 filters out noise while still
+    # generating enough volume to validate the strategy.
+    min_gem_score=68.0,
+    express_lane_score=78.0,
+    # TP: 1.5x sell 40%, 2.5x sell 35%, 5x sell 25%
+    # TUNED: TP1 lowered 2.5x→1.5x — most meme/micro-cap gems peak at 1.5-2x
+    # before reversing. Capturing 40% at +50% gain locks in real profit and
+    # funds the trailing stop on the remainder. The old 2.5x TP1 meant the
+    # bot held through full reversals and hit the hard stop instead.
+    tp1_mult=1.5,
+    tp1_sell_pct=0.40,
+    tp2_mult=2.5,
+    tp2_sell_pct=0.35,
+    tp3_mult=5.0,
+    tp3_sell_pct=0.25,
+    # Stops — TUNED: hard stop tightened 20%→15%, trailing 20%→12%
+    # Smaller losses on the ~60% of trades that don't work out is the
+    # single biggest lever on profit factor. R/R target: 1.5x gain vs 15% loss.
+    hard_stop_pct=15.0,
+    trailing_stop_pct=12.0,
+    trailing_tighten={2.5: 8.0, 5.0: 5.0},  # Tighten as it runs
+    # Sizing — TUNED: 8% per trade (was 15%) — smaller bets, more diversification
+    # 15% per trade on a losing streak = catastrophic drawdown.
+    # 8% per trade with 8 concurrent = 64% deployed, 36% reserve.
+    max_position_pct=8.0,
+    kelly_clamp_max=0.25,
+    max_position_usd=5_000.0,
     max_concurrent=8,
-    # Fast fail
-    fast_fail_down_pct=12.0,
-    fast_fail_hours=2.5,
-    max_slippage_pct=5.0,
+    # Fast fail — TUNED: tighter to cut losers faster
+    fast_fail_down_pct=10.0,
+    fast_fail_hours=1.5,
+    max_slippage_pct=4.0,
 )
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    min_gem_score=62.0,   # PAPER MODE: lowered 72→62 — catch more signals for testing
-    express_lane_score=72.0,  # Express lane at 72+ (instant market buy)
-    # TP: 5x sell 20%, 15x sell 25%, 50x sell 20% (ride 35% with trail) — FULL SEND
-    tp1_mult=5.0,
-    tp1_sell_pct=0.20,
-    tp2_mult=15.0,
-    tp2_sell_pct=0.25,
-    tp3_mult=50.0,
+    # TUNED: min_gem_score raised 62→72 — restore the original quality floor.
+    # Paper mode lowered this to 62 "for testing" but it was generating
+    # too many low-quality entries on a 35% position size. Catastrophic.
+    min_gem_score=72.0,
+    express_lane_score=80.0,
+    # TP: TUNED — TP1 lowered 5x→2x, TP2 lowered 15x→5x, TP3 lowered 50x→15x
+    # A nuclear wallet should still swing for big wins, but needs to lock in
+    # profit at 2x first. The old 5x TP1 meant 99% of trades hit the hard stop.
+    # New structure: 2x sell 25%, 5x sell 30%, 15x sell 20% (45% rides with trail)
+    tp1_mult=2.0,
+    tp1_sell_pct=0.25,
+    tp2_mult=5.0,
+    tp2_sell_pct=0.30,
+    tp3_mult=15.0,
     tp3_sell_pct=0.20,
-    # Stops — tighten aggressively as it runs
-    hard_stop_pct=10.0,
-    trailing_stop_pct=30.0,
-    trailing_tighten={10: 15.0, 25: 7.0},
-    # Sizing — the missile
-    max_position_pct=35.0,
-    kelly_clamp_max=0.80,
-    max_position_usd=0.0,  # No hard cap
-    max_concurrent=6,
-    # Fast fail
-    fast_fail_down_pct=15.0,
+    # Stops — TUNED: hard stop 10%→12% (was too tight, getting stopped out on noise)
+    # trailing 30%→20% (30% trail on a meme = giving back 30% of a 10x = huge)
+    hard_stop_pct=12.0,
+    trailing_stop_pct=20.0,
+    trailing_tighten={5.0: 12.0, 10.0: 7.0},
+    # Sizing — TUNED: 20% per trade (was 35%) with max 4 concurrent (was 6)
+    # 35% × 6 concurrent = 210% notional exposure. Insane for paper validation.
+    # 20% × 4 = 80% deployed — still aggressive but survivable.
+    max_position_pct=20.0,
+    kelly_clamp_max=0.50,
+    max_position_usd=0.0,
+    max_concurrent=4,
+    # Fast fail — keep tight on nuclear entries
+    fast_fail_down_pct=12.0,
     fast_fail_hours=1.5,
-    max_slippage_pct=10.0,  # Wide for meme entries
+    max_slippage_pct=8.0,
 )
 
 # ── Swing Scalp Profile (capital recovery — tight TP/SL for blue chips) ──────
@@ -254,23 +273,33 @@ MTF_5D_POSITION_PROFILE = StrategyProfile(
 # ── Solana Alpha Profile (high conviction 90% cap deploy) ────────────────────
 ALPHA_SOL_PROFILE = StrategyProfile(
     name="alpha_sol",
-    min_gem_score=85.0,           # VERY high quality
-    express_lane_score=92.0,      # Absolute top tier for instant buys
-    tp1_mult=3.0,
-    tp1_sell_pct=0.30,
-    tp2_mult=8.0,
+    # TUNED: min_gem_score kept at 85 — Solana quality bar must stay high
+    # The problem was not the score floor but the position sizing.
+    min_gem_score=85.0,
+    express_lane_score=92.0,
+    # TP: TUNED — TP1 lowered 3x→2x to lock in profit on Solana memes
+    # Solana memes are high-velocity but also high-reversal. Getting 30% off
+    # at 2x (instead of waiting for 3x) dramatically improves win rate.
+    tp1_mult=2.0,
+    tp1_sell_pct=0.35,
+    tp2_mult=5.0,
     tp2_sell_pct=0.30,
-    tp3_mult=20.0,
-    tp3_sell_pct=0.40,
-    hard_stop_pct=15.0,           # Decent cushion
-    trailing_stop_pct=25.0,
-    trailing_tighten={6.0: 15.0},
-    max_position_pct=45.0,        # 2 plays of 45% = 90% deployed (reserving 10% gas/liquidity)
-    kelly_clamp_max=0.60,
+    tp3_mult=15.0,
+    tp3_sell_pct=0.35,
+    # Stops — TUNED: hard stop 15%→12%, trailing 25%→18%
+    # Solana memes move fast — a 25% trailing stop gives back too much.
+    hard_stop_pct=12.0,
+    trailing_stop_pct=18.0,
+    trailing_tighten={3.0: 12.0, 8.0: 6.0},
+    # Sizing — TUNED: 20% per trade (was 45%), max 3 concurrent (was 2)
+    # 45% per trade on Solana memes = -$192 in losses. 20% × 3 = 60% deployed.
+    # This is still aggressive but survivable when trades go wrong.
+    max_position_pct=20.0,
+    kelly_clamp_max=0.40,
     max_position_usd=0.0,
-    max_concurrent=2,             # A few plays
-    fast_fail_down_pct=15.0,
-    fast_fail_hours=1.5,
+    max_concurrent=3,
+    fast_fail_down_pct=12.0,
+    fast_fail_hours=1.0,  # Solana moves fast — fail fast too
     max_slippage_pct=5.0,
 )
 

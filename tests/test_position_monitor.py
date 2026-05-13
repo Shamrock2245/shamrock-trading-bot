@@ -175,12 +175,12 @@ class TestTPLadderConservative:
         assert 0.30 <= sell_pct <= 0.45, f"TP1 sell_pct should be ~0.35, got: {sell_pct}"
 
     def test_no_tp1_below_threshold(self):
-        """TP1 should NOT fire below 2.5x for conservative profile."""
+        """TP1 should NOT fire below 1.5x for conservative profile (tuned TP1 is 1.5x)."""
         pos = _pos(entry_price=1.0)
-        result = _eval(pos, current_price=2.0)  # 2.0x < 2.5x
+        result = _eval(pos, current_price=1.3)  # 1.3x < 1.5x
         if result is not None:
             assert "tp1" not in result.get("reason", "").lower(), \
-                f"TP1 should not fire at 2.0x, got: {result.get('reason')}"
+                f"TP1 should not fire at 1.3x, got: {result.get('reason')}"
 
     def test_tp2_fires_after_tp1(self):
         """TP2 should fire at 5x when TP1 already hit."""
@@ -320,12 +320,12 @@ class TestProfileIntegration:
     """Verify the profile system correctly routes to different TP/SL parameters."""
 
     def test_nuclear_uses_wider_tp1(self):
-        """Nuclear profile TP1 at 5x should NOT fire at 2x."""
+        """Nuclear profile TP1 at 2x should NOT fire at 1.5x (threshold is 2x)."""
         pos = _pos(entry_price=1.0, profile="nuclear")
-        result = _eval(pos, current_price=2.0)
+        result = _eval(pos, current_price=1.5)  # 1.5x < 2x nuclear TP1
         if result is not None:
             assert "tp1" not in result.get("reason", "").lower(), \
-                "Nuclear TP1 should not fire at 2x (threshold is 5x)"
+                "Nuclear TP1 should not fire at 1.5x (threshold is 2x)"
 
     def test_conservative_fires_tp1_at_lower_mult(self):
         """Conservative profile should fire TP1 at 2.5x where nuclear would not."""
