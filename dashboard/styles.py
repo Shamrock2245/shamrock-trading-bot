@@ -636,6 +636,123 @@ hr {
 /* ── Plotly modebar — hide extra buttons ─────────────────────────────────── */
 .modebar { display: none !important; }
 
+/* ── War Room / Trading Terminal Components ─────────────────────────────── */
+
+/* Pulse animation for live indicators */
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+    animation: pulse-live 1.8s ease-in-out infinite;
+}
+
+/* Heat bar for portfolio health visualization */
+.heat-bar {
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: rgba(48,54,61,0.5);
+}
+
+.heat-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s cubic-bezier(.4,0,.2,1);
+}
+
+/* Signal strength indicator (1-5 bars) */
+.signal-bars {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
+}
+
+.signal-bar {
+    width: 3px;
+    border-radius: 1px;
+    transition: height 0.3s ease, background 0.3s ease;
+}
+
+/* Quick action buttons row */
+.quick-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.quick-action-btn {
+    background: rgba(0,208,156,0.06);
+    border: 1px solid rgba(0,208,156,0.15);
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: #00D09C;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.quick-action-btn:hover {
+    background: rgba(0,208,156,0.12);
+    border-color: rgba(0,208,156,0.35);
+    transform: translateY(-1px);
+}
+
+.quick-action-btn.danger {
+    background: rgba(255,71,87,0.06);
+    border-color: rgba(255,71,87,0.15);
+    color: #FF4757;
+}
+
+.quick-action-btn.danger:hover {
+    background: rgba(255,71,87,0.12);
+    border-color: rgba(255,71,87,0.35);
+}
+
+/* Nuclear mode glow */
+@keyframes nuclear-glow {
+    0%, 100% { box-shadow: 0 0 8px rgba(255,215,0,0.15); }
+    50% { box-shadow: 0 0 24px rgba(255,215,0,0.3); }
+}
+
+.nuclear-active {
+    animation: nuclear-glow 2s ease-in-out infinite;
+    border-color: rgba(255,215,0,0.4) !important;
+}
+
+/* Section divider label */
+.section-label {
+    color: #30363D;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin: 18px 0 10px;
+    padding-left: 2px;
+}
+
+/* Compact info pill */
+.info-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(48,54,61,0.5);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #8B949E;
+}
+
 /* ── Responsive fixes for mobile ─────────────────────────────────────────── */
 @media (max-width: 768px) {
     .stat-card .stat-value { font-size: 1.2rem; }

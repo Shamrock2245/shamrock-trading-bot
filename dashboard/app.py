@@ -153,7 +153,7 @@ with st.sidebar:
     )
     st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:0 0 14px;">', unsafe_allow_html=True)
 
-    # Bot status badge (cached to avoid re-reads on widget interaction)
+    # Bot status badge
     @st.cache_data(ttl=15)
     def _get_status():
         return get_bot_status()
@@ -162,31 +162,29 @@ with st.sidebar:
     is_running = status.get("is_running", False)
 
     if is_running:
-        badge_class = "status-live"
         st.markdown(
-            f'<div class="{badge_class}">'
-            f'<span class="live-dot"></span> RUNNING · {mode}</div>',
+            f'<div style="display:flex;align-items:center;gap:7px;padding:6px 10px;'
+            f'background:rgba(0,208,156,0.06);border:1px solid rgba(0,208,156,0.2);'
+            f'border-radius:8px;">'
+            f'<span class="pulse-dot" style="background:#00D09C;"></span>'
+            f'<span style="color:#00D09C;font-weight:700;font-size:0.78rem;">'
+            f'RUNNING · {mode}</span></div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
             '<div style="display:flex;align-items:center;gap:7px;padding:6px 10px;'
-            'background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.2);'
+            'background:rgba(255,71,87,0.06);border:1px solid rgba(255,71,87,0.2);'
             'border-radius:8px;">'
-            '<span style="width:7px;height:7px;border-radius:50%;background:#FF4757;'
-            'display:inline-block;"></span>'
-            '<span style="color:#FF4757;font-weight:600;font-size:0.78rem;">OFFLINE</span>'
+            '<span class="pulse-dot" style="background:#FF4757;"></span>'
+            '<span style="color:#FF4757;font-weight:700;font-size:0.78rem;">OFFLINE</span>'
             '</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-label" style="margin-top:14px;">Controls</div>',
+                unsafe_allow_html=True)
 
-    # ── Force Scan + Manual Controls ──────────────────────────────────────────────────
-    st.markdown(
-        '<div class="sidebar-stat-label" style="margin-bottom:8px;">Manual Controls</div>',
-        unsafe_allow_html=True,
-    )
     pending = get_force_scan_request()
     if pending:
         st.markdown(
@@ -194,60 +192,44 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     else:
-        if st.button(
-            "🔍  Force Scan Now",
-            key="sb_force_scan",
-            use_container_width=True,
-            help="Trigger an immediate gem scan regardless of the scheduled interval",
-        ):
+        if st.button("⚡ Force scan", key="sb_force_scan", use_container_width=True,
+                      help="Trigger an immediate gem scan"):
             request_force_scan(reason="sidebar_button")
-            st.success("✅ Scan request sent!")
+            st.toast("Scan request sent!", icon="✅")
             st.rerun()
 
-    # ── Pending manual command queue indicator ────────────────────────────────
+    # Pending manual commands
     _pending_cmds = get_pending_manual_commands()
     if _pending_cmds:
         st.markdown(
-            f'<div style="background:rgba(255,184,77,0.08);border:1px solid rgba(255,184,77,0.25);'
+            f'<div style="background:rgba(255,184,77,0.06);border:1px solid rgba(255,184,77,0.2);'
             f'border-radius:8px;padding:7px 10px;margin-top:8px;">'
             f'<div style="color:#FFB84D;font-size:0.68rem;font-weight:700;margin-bottom:4px;">'
-            f'🎮 {len(_pending_cmds)} Manual Command(s) Queued</div>'
+            f'🎮 {len(_pending_cmds)} command(s) queued</div>'
             + "".join(
                 f'<div style="color:#8B949E;font-size:0.62rem;padding:1px 0;">'
                 f'• {c.get("type","").upper().replace("_"," ")}: '
                 f'<b style="color:#E6EDF3;">{c.get("symbol","?")}</b>'
-                f' on {c.get("chain","?")}'
-                f'</div>'
+                f' on {c.get("chain","?")}</div>'
                 for c in _pending_cmds[:5]
             )
-            + (f'<div style="color:#484F58;font-size:0.6rem;">+{len(_pending_cmds)-5} more...</div>'
-               if len(_pending_cmds) > 5 else "")
             + '</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)  # Active chains
+    # Active chains
     chains = status.get("chains_scanned", [])
     if chains:
-        st.markdown(
-            '<div class="sidebar-stat-label" style="margin-bottom:8px;">Active Chains</div>',
-            unsafe_allow_html=True,
+        st.markdown('<div class="section-label">Chains</div>', unsafe_allow_html=True)
+        chain_pills = " ".join(
+            f'<span class="info-pill" style="border-color:{CHAIN_COLORS.get(c,"#484F58")}44;">'
+            f'{CHAIN_EMOJI.get(c,"⬡")} {c[:3].upper()}</span>'
+            for c in chains
         )
-        chain_html = ""
-        for chain in chains:
-            color = CHAIN_COLORS.get(chain, "#8B949E")
-            emoji = CHAIN_EMOJI.get(chain, "⬡")
-            chain_html += (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">'
-                f'<span style="font-size:0.85rem;">{emoji}</span>'
-                f'<span style="color:{color};font-size:0.8rem;font-weight:500;">'
-                f'{chain.capitalize()}</span>'
-                f'</div>'
-            )
-        st.markdown(chain_html, unsafe_allow_html=True)
-        st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
+        st.markdown(f'<div style="display:flex;gap:4px;flex-wrap:wrap;">{chain_pills}</div>',
+                    unsafe_allow_html=True)
 
-    # Uptime + cycles
+    # Uptime + cycles — native metrics
     uptime = status.get("uptime_seconds", 0)
     days = uptime // 86400
     hours = (uptime % 86400) // 3600
@@ -259,19 +241,12 @@ with st.sidebar:
     )
     cycle = status.get("cycle_count", 0)
 
-    st.markdown(
-        f'<div class="sidebar-stat-row">'
-        f'<div class="sidebar-stat">'
-        f'<div class="sidebar-stat-label">Uptime</div>'
-        f'<div class="sidebar-stat-value">{uptime_str}</div>'
-        f'</div>'
-        f'<div class="sidebar-stat">'
-        f'<div class="sidebar-stat-label">Scan Cycles</div>'
-        f'<div class="sidebar-stat-value">{cycle:,}</div>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="section-label">Runtime</div>', unsafe_allow_html=True)
+    _sb1, _sb2 = st.columns(2)
+    with _sb1:
+        st.metric("Uptime", uptime_str, border=True)
+    with _sb2:
+        st.metric("Cycles", f"{cycle:,}", border=True)
 
     last_cycle = status.get("last_cycle_at", "")
     if last_cycle:
@@ -283,45 +258,44 @@ with st.sidebar:
                 else f"{int(ago/60)}m ago" if ago < 7200
                 else f"{int(ago/3600)}h ago"
             )
-            st.markdown(
-                f'<div style="color:#30363D;font-size:0.68rem;margin-top:8px;">'
-                f'Last scan: <span style="color:#484F58;">{ago_str}</span></div>',
-                unsafe_allow_html=True,
-            )
+            st.caption(f"Last scan: {ago_str}")
         except (ValueError, TypeError):
             pass
 
-    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
-
+    st.markdown('<div class="section-label">Refresh</div>', unsafe_allow_html=True)
     auto_refresh = st.toggle("Auto-refresh", value=True)
     refresh_rate = st.select_slider(
         "Interval", options=[5, 10, 15, 30, 60], value=15,
         format_func=lambda x: f"{x}s",
     )
 
-    st.markdown('<hr style="border-color:rgba(48,54,61,0.5);margin:14px 0;">', unsafe_allow_html=True)
-    st.markdown(
-        '<div style="color:#30363D;font-size:0.6rem;text-align:center;line-height:1.6;">'
-        'v4.5 · Full Moralis Intelligence Suite<br>'
-        'Cortex AI · Sniper Defense · Copy-Trade Fastlane · Manual Intervention<br>'
-        'Daily Floor Guardian · Blue-Chip Anchor · God Mode</div>',
-        unsafe_allow_html=True,
-    )
+    st.caption("v4.5 · Moralis Intelligence Suite")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Content
 # ─────────────────────────────────────────────────────────────────────────────
+# Mode badge for header
+_mode_badge = (
+    f'<span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;'
+    f'background:rgba(0,208,156,0.06);border:1px solid rgba(0,208,156,0.2);'
+    f'border-radius:20px;padding:4px 14px;font-size:0.72rem;font-weight:700;'
+    f'color:#00D09C;text-transform:uppercase;letter-spacing:0.08em;">'
+    f'<span class="pulse-dot" style="background:#00D09C;width:6px;height:6px;"></span>'
+    f'{mode}</span>'
+) if is_running else ''
+
 st.markdown(
-    '<div class="page-header">'
-    '<div style="display:flex;align-items:center;gap:12px;">'
-    '<span style="font-size:1.7rem;">☘️</span>'
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;">'
+    '<span style="font-size:2rem;">☘️</span>'
     '<div>'
-    '<h1>COMMAND CENTER</h1>'
-    '<div class="subtitle">'
-    'Full Moralis Intelligence Suite · Cortex AI · Sniper Defense · Copy-Trade Fastlane · Manual Intervention'
+    '<h1 style="margin:0;padding:0;font-size:1.6rem;font-weight:800;'
+    'background:linear-gradient(135deg,#00D09C,#00E6AC);'
+    '-webkit-background-clip:text;-webkit-text-fill-color:transparent;">'
+    'Command center</h1>'
+    '<span style="color:#484F58;font-size:0.75rem;">'
+    'Moralis Intelligence · Cortex AI · Copy-Trade · Sniper Defense</span>'
     '</div>'
-    '</div>'
-    '</div>'
+    f'{_mode_badge}'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -422,18 +396,46 @@ pnl_subtitle = (
     if total_trades > 0 else "Awaiting first trade"
 )
 
+# Calculate unrealized P&L from open positions
+_open_pos = [p for p in positions_data if p.get("status") == "open" or p.get("is_open", False)]
+_unr_pnl_pct = (
+    sum(float(p.get("unrealized_pnl_pct", 0)) for p in _open_pos) / max(len(_open_pos), 1)
+) if _open_pos else 0
+_unr_sign = "+" if _unr_pnl_pct >= 0 else ""
+_unr_color = "#00D09C" if _unr_pnl_pct >= 0 else "#FF4757"
+
+_unr_html = ""
+if _open_pos:
+    _unr_html = (
+        f'<div style="display:flex;justify-content:center;gap:28px;margin-top:12px;'
+        f'padding-top:12px;border-top:1px solid rgba(48,54,61,0.3);">'
+        f'<div style="text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;">Unrealized Avg</div>'
+        f'<div style="color:{_unr_color};font-size:1.05rem;font-weight:700;'
+        f'font-family:JetBrains Mono,monospace;">{_unr_sign}{_unr_pnl_pct:.1f}%</div>'
+        f'</div>'
+        f'<div style="text-align:center;">'
+        f'<div style="color:#484F58;font-size:0.58rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;">Open</div>'
+        f'<div style="color:#E6EDF3;font-size:1.05rem;font-weight:700;'
+        f'font-family:JetBrains Mono,monospace;">{len(_open_pos)}</div>'
+        f'</div></div>'
+    )
+
 _hc1, _hc2, _hc3 = st.columns([1, 2, 1])
 with _hc2:
     st.markdown(
         f'<div class="pnl-hero">'
-        f'<div class="pnl-label">Realized P&L (Session)</div>'
+        f'<div class="pnl-label">Realized P&L</div>'
         f'<div class="pnl-value {pnl_class}">{pnl_sign}${abs(realized_pnl):,.2f}</div>'
         f'<div class="pnl-subtitle">{pnl_subtitle}</div>'
+        f'{_unr_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
 # ── Guardian + Anchor Status Row ──────────────────────────────────────────────
 if guardian_status or anchor_status:
@@ -777,43 +779,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Stats Row ─────────────────────────────────────────────────────────────────
-avg_gems = (
-    sum(h.get("candidates_found", 0) for h in history[-50:]) / max(len(history[-50:]), 1)
-    if history else 0
-)
-
-sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
-
-def _stat(icon, label, value, delta, delta_class="neutral"):
-    return (
-        f'<div class="stat-card">'
-        f'<div class="stat-icon">{icon}</div>'
-        f'<div class="stat-label">{label}</div>'
-        f'<div class="stat-value">{value}</div>'
-        f'<div class="stat-delta {delta_class}">{delta}</div>'
-        f'</div>'
-    )
-
-with sc1:
-    st.markdown(_stat("📡", "Total Scans", f"{len(history):,}", f"~{avg_gems:.1f} gems/scan"), unsafe_allow_html=True)
-with sc2:
-    st.markdown(_stat("💎", "Gems Found", f"{len(gems):,}", "All chains"), unsafe_allow_html=True)
-with sc3:
-    exp_str = f"⚡ {express_count} express" if express_count > 0 else "No express"
-    exp_cls = "positive" if express_count > 0 else "neutral"
-    st.markdown(_stat("🚀", "Live Candidates", str(latest_count), exp_str, exp_cls), unsafe_allow_html=True)
-with sc4:
-    pos_cls = "positive" if active_positions > 0 else "neutral"
-    st.markdown(_stat("📍", "Active Positions", str(active_positions), f"{len(positions_data)} total", pos_cls), unsafe_allow_html=True)
-with sc5:
-    st.markdown(_stat("⚡", "Trades", str(total_trades), "Executed"), unsafe_allow_html=True)
-with sc6:
-    pnl_cls = "positive" if realized_pnl > 0 else ("negative" if realized_pnl < 0 else "neutral")
+# ── KPI Stats Row (native st.metric) ─────────────────────────────────────────
+with st.container(horizontal=True):
+    st.metric("Total scans", f"{len(history):,}", f"~{avg_gems:.1f} gems/scan", border=True)
+    st.metric("Gems found", f"{len(gems):,}", "All chains", border=True)
+    exp_delta = f"⚡ {express_count} express" if express_count > 0 else "No express"
+    st.metric("Live candidates", str(latest_count), exp_delta, border=True)
+    st.metric("Positions", str(active_positions), f"{len(positions_data)} total", border=True)
+    st.metric("Trades", str(total_trades), "Executed", border=True)
     pnl_s = "+" if realized_pnl > 0 else ""
-    st.markdown(_stat("💵", "Realized P&L", f"{pnl_s}${abs(realized_pnl):,.0f}", f"{win_rate:.0f}% win rate", pnl_cls), unsafe_allow_html=True)
+    st.metric("Realized P&L", f"{pnl_s}${abs(realized_pnl):,.0f}",
+              f"{win_rate:.0f}% win rate",
+              delta_color="normal" if realized_pnl >= 0 else "inverse",
+              border=True)
 
-st.markdown('<div style="height:18px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
 # ── Copy-Trade & Rebalance Live Feed ─────────────────────────────────────────
 ct_col, rb_col = st.columns([1, 1])
