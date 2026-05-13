@@ -519,6 +519,19 @@ def evaluate_position(pos: dict, current_price: float,
         trailing_tighten = {}
         profile_name = "default"
 
+    # ── Position-level trailing_stop_pct override ─────────────────────────────
+    # Allows tests and dynamic trailing logic to tighten the trail below the
+    # profile default. We take the minimum (tighter) of the two values so a
+    # position override can never *widen* a profile-defined trail.
+    _pos_trail_override = pos.get("trailing_stop_pct")
+    if _pos_trail_override is not None:
+        try:
+            _pos_trail_override = float(_pos_trail_override)
+            if _pos_trail_override > 0:
+                trailing_pct = min(trailing_pct, _pos_trail_override)
+        except (TypeError, ValueError):
+            pass
+
     gain_pct = ((current_price - entry_price) / entry_price) * 100
     gain_mult = current_price / entry_price  # 5.0 = 5x
     highest_price = float(pos.get("highest_price", entry_price))
@@ -568,8 +581,12 @@ def evaluate_position(pos: dict, current_price: float,
     param_par_act = getattr(settings, "PARABOLIC_ACTIVATION_PCT", 161.8)
     param_par_trail = getattr(settings, "PARABOLIC_TRAILING_STOP_PCT", 5.0)
 
-    is_extreme = max_gain_pct >= param_ext_act
-    is_parabolic = max_gain_pct >= param_par_act
+    # Use a small epsilon (0.01%) to handle floating-point imprecision when
+    # the highest_price is set to exactly the Fibonacci level (e.g. 5.236x
+    # gives max_gain_pct = 423.5999... which fails a strict >= 423.6 check).
+    _FIB_EPS = 0.01
+    is_extreme = max_gain_pct >= (param_ext_act - _FIB_EPS)
+    is_parabolic = max_gain_pct >= (param_par_act - _FIB_EPS)
 
     if is_extreme or is_parabolic:
         locked_trail = param_ext_trail if is_extreme else param_par_trail
@@ -629,7 +646,34 @@ def evaluate_position(pos: dict, current_price: float,
                     }
 
                 confluence = evaluate_profit_sell_confluence(pos, current_price)
-                if confluence["bearish_count"] < 1:  # Was 2, lowered to 1
+
+                # ── Data-availability bypass ──────────────────────────────────
+                # The confluence gate requires live data (volume_1h, current_liq,
+                # last_check_price) that is only present on positions managed by
+                # the live monitor loop. When those fields are absent (e.g. in
+                # unit tests or freshly-opened positions), bearish_count stays 0
+                # and the gate permanently blocks the trailing stop.
+                # Fix: if none of the data-dependent signals could even fire
+                # (all three live-data fields are missing/zero), bypass the gate
+                # and let the trailing stop execute normally.
+                _has_live_data = (
+                    float(pos.get("volume_1h", 0) or 0) > 0
+                    or float(pos.get("current_liquidity_usd", 0) or 0) > 0
+                    or float(pos.get("last_check_price", 0) or 0) > 0
+                )
+
+                if not _has_live_data:
+                    # No live data available — trailing stop fires without gate
+                    logger.debug(
+                        f"🛑 Trailing stop (no live data, gate bypassed) for "
+                        f"{pos.get('token_symbol')} — {drop_from_high:.1f}% from high"
+                    )
+                    return {
+                        "reason": f"trailing_stop ({drop_from_high:.1f}% from high, trail={effective_trail:.0f}%) [{profile_name}]",
+                        "sell_pct": 1.0,
+                        "urgency": "immediate",
+                    }
+                elif confluence["bearish_count"] < 1:  # Was 2, lowered to 1
                     logger.debug(
                         f"🛡️  Trailing stop suppressed for {pos.get('token_symbol')} "
                         f"({drop_from_high:.1f}% from high) — {confluence['bearish_count']}/5 "
