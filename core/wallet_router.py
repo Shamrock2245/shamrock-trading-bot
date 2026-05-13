@@ -583,50 +583,57 @@ def route_trade(
             )
             continue
 
-        # Fetch live balance
-        if chain_config.is_solana:
-            if not wallet.solana_address:
-                logger.warning(f"Wallet {wallet.alias} missing solana_address, skipping for Solana trade")
-                continue
-            balance_address = wallet.solana_address
-            min_balance_required = 0.005  # 0.005 SOL minimum for rent + priority fees
+        # ── Paper mode: skip real balance fetch, use simulated capital ────────
+        if settings.IS_PAPER:
+            wallet_balance_usd = settings.PAPER_WALLET_BALANCE_USD
+            logger.debug(
+                f"  {wallet.alias} [PAPER] simulated balance=${wallet_balance_usd:.2f} on {chain}"
+            )
         else:
-            balance_address = wallet.address
-            min_balance_required = wallet.min_eth_balance_alert
-
-        native_balance = get_native_balance(balance_address, chain)
-        usdc_balance = get_usdc_balance(balance_address, chain)
-        
-        # USDC-as-capital: if wallet has USDC > $25 on ANY EVM chain, use it
-        # Native balance only needs to cover gas (0.005 ETH/MATIC/BNB)
-        min_gas_balance = 0.005  # Just enough for gas fees
-        if not chain_config.is_solana and usdc_balance > 25.0:
-            wallet_balance_usd = usdc_balance
-            logger.info(f"  {wallet.alias} using USDC capital=${usdc_balance:.2f} on {chain} (native={native_balance:.4f} for gas)")
-            if native_balance < min_gas_balance:
-                logger.warning(
-                    f"Wallet {wallet.alias} needs gas on {chain}: "
-                    f"{native_balance:.4f} < {min_gas_balance} {chain_config.native_token} — skipping"
-                )
-                continue
-        else:
-            # AVAX requires larger 10% gas/manual reserve per user instructions
-            if chain.lower() == "avalanche":
-                # Ensure minimum absolute gas is respected alongside 10% reserve
-                local_min_balance = max(min_balance_required, native_balance * 0.10)
+            # Fetch live balance
+            if chain_config.is_solana:
+                if not wallet.solana_address:
+                    logger.warning(f"Wallet {wallet.alias} missing solana_address, skipping for Solana trade")
+                    continue
+                balance_address = wallet.solana_address
+                min_balance_required = 0.005  # 0.005 SOL minimum for rent + priority fees
             else:
-                local_min_balance = min_balance_required
+                balance_address = wallet.address
+                min_balance_required = wallet.min_eth_balance_alert
 
-            logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
-            if native_balance <= local_min_balance:
-                logger.warning(
-                    f"Wallet {wallet.alias} balance too low on {chain}: "
-                    f"{native_balance:.4f} <= {local_min_balance:.4f} {chain_config.native_token}"
-                )
-                continue
-            
-            # Use post-reserve balance for sizing to ensure accurate capital allocation percentages
-            wallet_balance_usd = (native_balance - (local_min_balance if chain.lower() == "avalanche" else 0)) * native_price
+            native_balance = get_native_balance(balance_address, chain)
+            usdc_balance = get_usdc_balance(balance_address, chain)
+
+            # USDC-as-capital: if wallet has USDC > $25 on ANY EVM chain, use it
+            # Native balance only needs to cover gas (0.005 ETH/MATIC/BNB)
+            min_gas_balance = 0.005  # Just enough for gas fees
+            if not chain_config.is_solana and usdc_balance > 25.0:
+                wallet_balance_usd = usdc_balance
+                logger.info(f"  {wallet.alias} using USDC capital=${usdc_balance:.2f} on {chain} (native={native_balance:.4f} for gas)")
+                if native_balance < min_gas_balance:
+                    logger.warning(
+                        f"Wallet {wallet.alias} needs gas on {chain}: "
+                        f"{native_balance:.4f} < {min_gas_balance} {chain_config.native_token} — skipping"
+                    )
+                    continue
+            else:
+                # AVAX requires larger 10% gas/manual reserve per user instructions
+                if chain.lower() == "avalanche":
+                    # Ensure minimum absolute gas is respected alongside 10% reserve
+                    local_min_balance = max(min_balance_required, native_balance * 0.10)
+                else:
+                    local_min_balance = min_balance_required
+
+                logger.debug(f"  {wallet.alias} balance={native_balance:.6f} on {chain} (addr={balance_address[:12]}...)")
+                if native_balance <= local_min_balance:
+                    logger.warning(
+                        f"Wallet {wallet.alias} balance too low on {chain}: "
+                        f"{native_balance:.4f} <= {local_min_balance:.4f} {chain_config.native_token}"
+                    )
+                    continue
+
+                # Use post-reserve balance for sizing to ensure accurate capital allocation percentages
+                wallet_balance_usd = (native_balance - (local_min_balance if chain.lower() == "avalanche" else 0)) * native_price
 
         # ── Phase-based capital scaling ───────────────────────────────────────
         phase = get_capital_phase(wallet_balance_usd)

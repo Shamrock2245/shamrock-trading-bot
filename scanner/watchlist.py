@@ -124,12 +124,20 @@ class GemWatchlist:
             return
         try:
             with open(self.filepath, "r") as f:
-                data = json.load(f)
+                content = f.read().strip()
+            if not content:
+                # Empty file — reset to clean state and continue
+                logger.info("Watchlist file is empty — starting fresh")
+                self._save()
+                return
+            data = json.loads(content)
             for key, raw in data.items():
                 self.entries[key] = WatchlistEntry(**raw)
             logger.info(f"Watchlist loaded: {len(self.entries)} entries")
         except Exception as e:
-            logger.warning(f"Watchlist load failed: {e}")
+            logger.warning(f"Watchlist load failed: {e} — starting with empty watchlist")
+            self.entries.clear()
+            self._save()  # Overwrite corrupt file with clean empty JSON
 
     def _save(self):
         """Persist watchlist to disk."""

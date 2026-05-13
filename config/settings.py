@@ -18,6 +18,10 @@ load_dotenv()
 MODE = os.getenv("MODE", "paper").lower()
 IS_LIVE = MODE == "live"
 IS_PAPER = MODE == "paper"
+# Simulated wallet balance per wallet in paper mode (USD equivalent).
+# Each wallet is treated as having this much capital for position sizing.
+# Set via PAPER_WALLET_BALANCE_USD env var or override in .env.
+PAPER_WALLET_BALANCE_USD = float(os.getenv("PAPER_WALLET_BALANCE_USD", "1000.0"))
 
 if IS_LIVE:
     import warnings
