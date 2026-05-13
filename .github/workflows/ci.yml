@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: preflight
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -75,10 +75,32 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
+            # ── Pre-deploy: disk space check + auto-prune ─────────────────
+            DISK_FREE_KB=$(df / | awk 'NR==2 {print $4}')
+            DISK_FREE_GB=$(echo "scale=1; $DISK_FREE_KB / 1048576" | bc)
+            echo "💾 Disk free before deploy: ${DISK_FREE_GB}GB"
+            if [ "$DISK_FREE_KB" -lt 3145728 ]; then
+              echo "⚠️  Low disk (<3GB free) — pruning Docker build cache and dangling images..."
+              docker builder prune -af 2>/dev/null || true
+              docker image prune -af 2>/dev/null || true
+              docker container prune -f 2>/dev/null || true
+              DISK_FREE_AFTER=$(df / | awk 'NR==2 {print $4}')
+              echo "💾 Disk free after prune: $(echo "scale=1; $DISK_FREE_AFTER / 1048576" | bc)GB"
+              if [ "$DISK_FREE_AFTER" -lt 1048576 ]; then
+                echo "❌ FATAL: Less than 1GB free after prune — aborting deploy to protect VPS stability"
+                exit 1
+              fi
+            fi
+            # ── Deploy ────────────────────────────────────────────────────
             cd ~/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down
+            docker builder prune -f 2>/dev/null || true
             docker compose build --no-cache
             docker compose up -d
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"
+            # ── Post-deploy: report disk and container status ─────────────
+            echo "💾 Post-deploy disk: $(df -h / | awk 'NR==2 {print $3"/"$2" used ("$5" full)"}')"
+            echo "🐳 Running containers:"
+            docker ps --format "  {{.Names}}: {{.Status}}"
