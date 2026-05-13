@@ -245,7 +245,7 @@ MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
 # Express lane: skip full TA pipeline and execute immediately if score >= this
-EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "82.0"))
+EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "72.0"))  # TUNED: 82→72 — more gems bypass TA gate; critical for paper trading volume
 
 # Volume spike threshold for breakout detection (multiplier vs 24h average)
 VOLUME_SPIKE_THRESHOLD = float(os.getenv("VOLUME_SPIKE_THRESHOLD", "5.0"))
@@ -254,7 +254,7 @@ VOLUME_SPIKE_THRESHOLD = float(os.getenv("VOLUME_SPIKE_THRESHOLD", "5.0"))
 # Technical Analysis & Fibonacci (Phase 2)
 # ─────────────────────────────────────────────────────────────────────────────
 REQUIRE_FIB_ALIGNMENT = os.getenv("REQUIRE_FIB_ALIGNMENT", "true").lower() == "true"
-MIN_SIGNAL_SCORE = float(os.getenv("MIN_SIGNAL_SCORE", "50.0"))
+MIN_SIGNAL_SCORE = float(os.getenv("MIN_SIGNAL_SCORE", "35.0"))  # TUNED: 50→35 — TA data sparse for micro-caps; gem_score is primary quality filter
 OHLCV_LOOKBACK_DAYS = int(os.getenv("OHLCV_LOOKBACK_DAYS", "7"))
 FIB_PROXIMITY_PCT = float(os.getenv("FIB_PROXIMITY_PCT", "3.0"))
 FIB_SWING_WINDOW = int(os.getenv("FIB_SWING_WINDOW", "3"))
