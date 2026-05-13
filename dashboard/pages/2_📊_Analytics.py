@@ -355,6 +355,128 @@ if fib_zones:
     )
     st.plotly_chart(fig_fib, use_container_width=True, config={"displayModeBar": False}, key="a_fib")
 
+# ── Strategy Performance Table ────────────────────────────────────────────
+if sells:
+    st.markdown("#### 🧠 Strategy Performance")
+    strat_data = defaultdict(lambda: {"wins": 0, "losses": 0, "pnl": 0.0, "count": 0, "hold_times": []})
+    for t in sells:
+        strat = t.get("strategy_tag", t.get("execution_path", "unknown"))
+        if not strat or strat == "":
+            strat = "unknown"
+        pnl = float(t.get("pnl_usd", t.get("amount_out", 0) - t.get("amount_in", 0)))
+        strat_data[strat]["count"] += 1
+        strat_data[strat]["pnl"] += pnl
+        if pnl > 0:
+            strat_data[strat]["wins"] += 1
+        else:
+            strat_data[strat]["losses"] += 1
+        # Hold time
+        entry_ts = t.get("entry_time") or t.get("buy_timestamp")
+        exit_ts = t.get("exit_time") or t.get("timestamp")
+        if entry_ts and exit_ts:
+            try:
+                if isinstance(entry_ts, (int, float)):
+                    et = datetime.fromtimestamp(entry_ts, tz=timezone.utc)
+                else:
+                    et = pd.to_datetime(entry_ts, utc=True)
+                if isinstance(exit_ts, (int, float)):
+                    xt = datetime.fromtimestamp(exit_ts, tz=timezone.utc)
+                else:
+                    xt = pd.to_datetime(exit_ts, utc=True)
+                hold_min = (xt - et).total_seconds() / 60
+                if 0 < hold_min < 10080:  # <7 days
+                    strat_data[strat]["hold_times"].append(hold_min)
+            except Exception:
+                pass
+
+    strat_sorted = sorted(strat_data.items(), key=lambda x: x[1]["pnl"], reverse=True)
+    _strat_html = ""
+    for sname, sd in strat_sorted:
+        wr = (sd["wins"] / max(sd["count"], 1)) * 100
+        _pc = ACCENT if sd["pnl"] >= 0 else DANGER
+        _ps = "+" if sd["pnl"] >= 0 else ""
+        _wr_color = ACCENT if wr >= 50 else (WARNING if wr >= 35 else DANGER)
+        avg_hold = sum(sd["hold_times"]) / max(len(sd["hold_times"]), 1)
+        hold_str = f"{avg_hold:.0f}m" if avg_hold < 60 else f"{avg_hold/60:.1f}h"
+        _strat_html += (
+            f'<div style="display:flex;align-items:center;padding:10px 14px;'
+            f'border-bottom:1px solid rgba(48,54,61,0.3);gap:12px;">'
+            f'<div style="flex:1;min-width:0;">'
+            f'<div style="color:#E6EDF3;font-size:0.82rem;font-weight:700;">'
+            f'{sname.replace("_"," ").title()}</div>'
+            f'<div style="color:#484F58;font-size:0.62rem;">'
+            f'{sd["count"]} trades · {sd["wins"]}W/{sd["losses"]}L · avg hold {hold_str}</div>'
+            f'</div>'
+            f'<div style="text-align:center;min-width:60px;">'
+            f'<div style="color:{_wr_color};font-size:0.85rem;font-weight:800;'
+            f'font-family:\'JetBrains Mono\',monospace;">{wr:.0f}%</div>'
+            f'<div style="color:#30363D;font-size:0.52rem;">WIN RATE</div>'
+            f'</div>'
+            f'<div style="text-align:right;min-width:80px;">'
+            f'<div style="color:{_pc};font-size:0.88rem;font-weight:800;'
+            f'font-family:\'JetBrains Mono\',monospace;">{_ps}${abs(sd["pnl"]):.4f}</div>'
+            f'<div style="color:#30363D;font-size:0.52rem;">P&L</div>'
+            f'</div></div>'
+        )
+    st.markdown(
+        f'<div class="glass-card" style="padding:0;overflow:hidden;">{_strat_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+
+# ── Best / Worst Trades ─────────────────────────────────────────────────
+if sells and len(sells) >= 3:
+    st.markdown("#### 🏆 Best & Worst Trades")
+    bw_c1, bw_c2 = st.columns(2)
+    sells_sorted = sorted(sells, key=lambda t: float(t.get("pnl_usd", t.get("amount_out", 0) - t.get("amount_in", 0))), reverse=True)
+
+    with bw_c1:
+        _best_html = ""
+        for t in sells_sorted[:5]:
+            pnl = float(t.get("pnl_usd", t.get("amount_out", 0) - t.get("amount_in", 0)))
+            sym = t.get("symbol", t.get("token_symbol", "???"))
+            chain = t.get("chain", "?")
+            ce = CHAIN_EMOJI.get(chain, "⬡")
+            _best_html += (
+                f'<div style="display:flex;align-items:center;padding:6px 12px;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);gap:8px;">'
+                f'<span style="font-size:0.72rem;">{ce}</span>'
+                f'<span style="color:#E6EDF3;font-size:0.78rem;font-weight:600;flex:1;">{sym}</span>'
+                f'<span style="color:{ACCENT};font-size:0.82rem;font-weight:800;'
+                f'font-family:\'JetBrains Mono\',monospace;">+${pnl:.4f}</span>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div style="color:#00D09C;font-size:0.62rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:0.1em;margin-bottom:6px;">🟢 Best Trades</div>'
+            f'<div class="glass-card" style="padding:0;overflow:hidden;">{_best_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with bw_c2:
+        _worst_html = ""
+        for t in sells_sorted[-5:]:
+            pnl = float(t.get("pnl_usd", t.get("amount_out", 0) - t.get("amount_in", 0)))
+            sym = t.get("symbol", t.get("token_symbol", "???"))
+            chain = t.get("chain", "?")
+            ce = CHAIN_EMOJI.get(chain, "⬡")
+            _worst_html += (
+                f'<div style="display:flex;align-items:center;padding:6px 12px;'
+                f'border-bottom:1px solid rgba(48,54,61,0.3);gap:8px;">'
+                f'<span style="font-size:0.72rem;">{ce}</span>'
+                f'<span style="color:#E6EDF3;font-size:0.78rem;font-weight:600;flex:1;">{sym}</span>'
+                f'<span style="color:{DANGER};font-size:0.82rem;font-weight:800;'
+                f'font-family:\'JetBrains Mono\',monospace;">${pnl:.4f}</span>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div style="color:#FF4757;font-size:0.62rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:0.1em;margin-bottom:6px;">🔴 Worst Trades</div>'
+            f'<div class="glass-card" style="padding:0;overflow:hidden;">{_worst_html}</div>',
+            unsafe_allow_html=True,
+        )
+
 # ── Session Summary ──────────────────────────────────────────────────────────
 st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 st.markdown("#### 📋 Session Summary")
