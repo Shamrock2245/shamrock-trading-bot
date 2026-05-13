@@ -22,9 +22,11 @@ from styles import (
     ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING, INFO,
 )
 from state import get_scan_history, get_gem_history, get_trades, get_positions, get_bot_status
+from nav import render_nav
 
 st.set_page_config(page_title="Analytics | Shamrock", page_icon="📊", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Analytics")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown(

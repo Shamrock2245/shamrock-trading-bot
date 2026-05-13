@@ -16,9 +16,11 @@ from pathlib import Path
 from datetime import datetime
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, DANGER, WARNING
+from nav import render_nav
 
 st.set_page_config(page_title="Paycheck Wallet | Shamrock", page_icon="🏦", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Paycheck")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown(

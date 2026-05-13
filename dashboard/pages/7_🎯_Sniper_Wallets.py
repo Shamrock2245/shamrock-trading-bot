@@ -17,14 +17,19 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Path setup (must precede dashboard-level imports)
+# ─────────────────────────────────────────────────────────────────────────────
+_DASHBOARD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+for _p in [_DASHBOARD_DIR, _ROOT]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import streamlit as st
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Path setup
-# ─────────────────────────────────────────────────────────────────────────────
-_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+from styles import PREMIUM_CSS
+from nav import render_nav
 
 st.set_page_config(
     page_title="🎯 Sniper Wallets — Shamrock",
@@ -102,6 +107,8 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Sniper")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Header

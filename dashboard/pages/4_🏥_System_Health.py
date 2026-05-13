@@ -17,10 +17,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, DANGER, WARNING, INFO
+from nav import render_nav
 from state import get_bot_status, get_scan_history, get_errors, get_pending_manual_commands, STATE_DIR
 
 st.set_page_config(page_title="System Health | Shamrock", page_icon="🏥", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Health")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown(

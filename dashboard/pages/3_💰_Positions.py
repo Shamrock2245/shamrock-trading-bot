@@ -21,6 +21,7 @@ import pandas as pd
 from datetime import datetime, timezone
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, DANGER, WARNING
+from nav import render_nav
 from state import (
     get_positions,
     get_trades,
@@ -32,6 +33,7 @@ from state import (
 
 st.set_page_config(page_title="Positions | Shamrock", page_icon="💰", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Positions")
 
 # ── Extra CSS for intervention controls ──────────────────────────────────────
 st.markdown("""

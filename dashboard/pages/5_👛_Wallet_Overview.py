@@ -16,6 +16,7 @@ import pandas as pd
 from datetime import datetime, timezone
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
+from nav import render_nav
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ def _hex_to_rgb(hex_color: str) -> str:
 
 st.set_page_config(page_title="Wallet Overview | Shamrock", page_icon="👛", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Wallets")
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown(

@@ -19,6 +19,7 @@ import streamlit as st
 from datetime import datetime, timezone
 
 from styles import PREMIUM_CSS, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
+from nav import render_nav
 from state import (
     get_latest_gems,
     get_positions,
@@ -30,6 +31,7 @@ from state import (
 
 st.set_page_config(page_title="Gem Advisor | Shamrock", page_icon="🧠", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Gem Advisor")
 
 # ── Extra CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""

@@ -18,6 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
+from nav import render_nav
 from state import get_trades, get_positions, get_bot_status, get_force_scan_request, request_force_scan
 
 st.set_page_config(
@@ -27,6 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Alpha")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Extra CSS

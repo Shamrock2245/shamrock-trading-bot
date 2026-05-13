@@ -21,9 +21,11 @@ from styles import (
     ACCENT, CHAIN_COLORS, DANGER, WARNING, INFO, PURPLE,
 )
 from state import get_trades, get_positions, get_bot_status
+from nav import render_nav
 
 st.set_page_config(page_title="Paper P&L | Shamrock", page_icon="📈", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Paper P&L")
 
 # ── Extra CSS ────────────────────────────────────────────────────────────────
 st.markdown("""

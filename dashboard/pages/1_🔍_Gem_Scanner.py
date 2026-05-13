@@ -20,6 +20,7 @@ import pandas as pd
 from datetime import datetime, timezone
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
+from nav import render_nav
 from state import (
     get_latest_gems,
     get_gem_history,
@@ -31,6 +32,7 @@ from state import (
 
 st.set_page_config(page_title="Gem Scanner | Shamrock", page_icon="🔍", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
+render_nav("Scanner")
 
 # ── GemSeeker-specific CSS ────────────────────────────────────────────────────
 st.markdown("""
