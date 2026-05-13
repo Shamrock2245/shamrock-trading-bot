@@ -1169,6 +1169,13 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     )
                 except Exception:
                     pass
+            # ── CRITICAL FIX: Do NOT close position on failed sell ─────────
+            # The old code fell through to the position-close logic below,
+            # marking the position as "closed" even though nothing was sold
+            # on-chain. This trapped capital in tokens the bot forgot about.
+            # Return the position as-is (still open) so it retries next cycle.
+            append_trade(trade_record)
+            return pos
     else:
         logger.info(
             f"PAPER SELL: {pos.get('token_symbol')} {sell_pct*100:.0f}% "

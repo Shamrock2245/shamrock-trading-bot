@@ -306,11 +306,11 @@ def execute_sell_evm(
     """
     Execute an EVM sell with aggressive retry and approval bypass.
 
-    For token→ETH/native sells, 1inch does NOT require a separate approve()
-    call when using the 'permit' or 'native' path. We use disableEstimate=true
-    and allowPartialFill=false to force execution even in volatile markets.
-
-    Falls back to Flashbots Protect RPC on Base/Arbitrum for MEV protection.
+    FIXES (v2 — May 2026):
+      1. Always fetches on-chain balanceOf() — stored quantity drifts from
+         actual balance due to float→int rounding, causing "Not enough balance"
+      2. Waits for approval tx confirmation before retrying swap
+      3. Detects balance mismatch errors and auto-retries with real amount
 
     Args:
         token_address: Token contract address to sell
@@ -332,6 +332,33 @@ def execute_sell_evm(
             success=False,
             error=f"Invalid token_amount_wei={token_amount_wei} — cannot sell 0 tokens",
         )
+
+    # ── FIX #1: Always use on-chain balance for EVM sells ─────────────────
+    # The stored remaining_quantity → int conversion drifts by a few wei,
+    # causing 1inch to reject with "Not enough balance".
+    if not is_paper:
+        try:
+            from web3 import Web3
+            wallet_addr = wallet.address or ""
+            on_chain_bal = get_evm_token_balance(wallet_addr, token_address, chain)
+            if on_chain_bal > 0:
+                if on_chain_bal != token_amount_wei:
+                    logger.info(
+                        f"🔧 Balance correction: stored={token_amount_wei} → "
+                        f"on-chain={on_chain_bal} (Δ={on_chain_bal - token_amount_wei})"
+                    )
+                token_amount_wei = on_chain_bal
+            elif on_chain_bal == 0:
+                logger.warning(
+                    f"⚠️ On-chain balance is 0 for {token_address[:10]}... — "
+                    f"token may already be sold or is a honeypot"
+                )
+                return SellResult(
+                    success=False,
+                    error=f"On-chain balance is 0 — nothing to sell",
+                )
+        except Exception as bal_err:
+            logger.warning(f"On-chain balance fetch failed, using stored amount: {bal_err}")
 
     logger.info(
         f"{'📄 PAPER' if is_paper else '🔴 LIVE'} EVM SELL ENGINE: "
@@ -396,39 +423,77 @@ def execute_sell_evm(
                 "includeProtocols": "false",
             }
 
+            # Update amount in params to use corrected balance
+            swap_params["amount"] = str(token_amount_wei)
+
             resp = get_session().get(url, headers=headers, params=swap_params, timeout=20)
 
             if resp.status_code == 400:
                 err_data = resp.json()
                 err_msg = err_data.get("description", resp.text[:200])
-                # Check for insufficient allowance — need to approve first
-                if "allowance" in err_msg.lower() or "approve" in err_msg.lower():
+
+                # ── FIX #3: Balance mismatch — re-fetch and retry ─────────
+                if "not enough" in err_msg.lower() and "balance" in err_msg.lower():
                     logger.warning(
-                        f"1inch requires approval for {token_address[:10]}... — "
-                        f"attempting ERC-20 approve"
+                        f"Balance mismatch on {token_address[:10]}... — "
+                        f"re-fetching on-chain balance"
                     )
                     try:
-                        _approve_token_for_1inch(
-                            token_address=token_address,
-                            wallet_address=account.address,
-                            private_key=private_key,
-                            chain_id=chain_config.chain_id,
-                            chain=chain,
+                        real_bal = get_evm_token_balance(
+                            account.address, token_address, chain
                         )
-                        # Retry after approval
-                        resp = get_session().get(
-                            url, headers=headers, params=swap_params, timeout=20
-                        )
-                    except Exception as approve_err:
-                        logger.error(f"Approval failed: {approve_err}")
-                        if attempt == MAX_SELL_ATTEMPTS - 1:
+                        if real_bal > 0 and real_bal != token_amount_wei:
+                            logger.info(
+                                f"🔧 Corrected: {token_amount_wei} → {real_bal}"
+                            )
+                            token_amount_wei = real_bal
+                            swap_params["amount"] = str(real_bal)
+                            resp = get_session().get(
+                                url, headers=headers, params=swap_params, timeout=20
+                            )
+                        elif real_bal == 0:
                             return SellResult(
                                 success=False,
-                                error=f"Approval failed: {approve_err}",
+                                error="On-chain balance is 0 after re-check",
                                 attempts=attempt + 1,
                             )
-                        time.sleep(2.0)
-                        continue
+                    except Exception as bal_err:
+                        logger.error(f"Balance re-fetch failed: {bal_err}")
+
+                # ── FIX #2: Allowance — approve then WAIT before retry ────
+                if resp.status_code == 400:  # Re-check after balance fix
+                    err_data = resp.json() if resp.status_code == 400 else {}
+                    err_msg = err_data.get("description", resp.text[:200])
+                    if "allowance" in err_msg.lower() or "approve" in err_msg.lower():
+                        logger.warning(
+                            f"1inch requires approval for {token_address[:10]}... — "
+                            f"sending ERC-20 approve tx"
+                        )
+                        try:
+                            _approve_token_for_1inch(
+                                token_address=token_address,
+                                wallet_address=account.address,
+                                private_key=private_key,
+                                chain_id=chain_config.chain_id,
+                                chain=chain,
+                            )
+                            # FIX: Wait for approval to propagate (1-2 blocks)
+                            logger.info("⏳ Waiting 5s for approval tx to confirm...")
+                            time.sleep(5.0)
+                            # Retry swap with fresh nonce awareness
+                            resp = get_session().get(
+                                url, headers=headers, params=swap_params, timeout=20
+                            )
+                        except Exception as approve_err:
+                            logger.error(f"Approval failed: {approve_err}")
+                            if attempt == MAX_SELL_ATTEMPTS - 1:
+                                return SellResult(
+                                    success=False,
+                                    error=f"Approval failed: {approve_err}",
+                                    attempts=attempt + 1,
+                                )
+                            time.sleep(2.0)
+                            continue
 
             if resp.status_code != 200:
                 logger.warning(
