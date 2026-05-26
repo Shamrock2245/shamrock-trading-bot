@@ -1080,9 +1080,10 @@ async def run_bot_loop():
         logger.warning(f"Startup heartbeat failed: {_boot_err}")
 
     while not _shutdown_requested:
+        is_paper = settings.MODE != "live"
         cycle += 1
         trades_this_cycle = 0
-        logger.info(f"--- Cycle {cycle} ---")
+        logger.info(f"--- Cycle {cycle} (mode={settings.MODE.upper()}) ---")
 
         try:
             # ── Gas Manager: auto-replenish gas tokens every 10 cycles ────────

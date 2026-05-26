@@ -1290,9 +1290,14 @@ class PositionMonitor:
     """
 
     def __init__(self, is_paper: bool = True):
-        self.is_paper = is_paper
+        self._is_paper = is_paper
         self._running = False
-        logger.info(f"PositionMonitor initialized (mode={'paper' if is_paper else 'LIVE'})")
+        logger.info(f"PositionMonitor initialized (mode={'paper' if self.is_paper else 'LIVE'})")
+
+    @property
+    def is_paper(self) -> bool:
+        """Dynamically fetch the real-time mode from global settings."""
+        return settings.IS_PAPER
 
     def run_once(self) -> dict:
         """

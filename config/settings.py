@@ -15,7 +15,23 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────────────────────
 # Trading Mode
 # ─────────────────────────────────────────────────────────────────────────────
-MODE = os.getenv("MODE", "paper").lower()
+def get_current_mode() -> str:
+    """Read the real-time mode override file, with safe fallbacks."""
+    import json
+    from pathlib import Path
+    import os
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    override_path = PROJECT_ROOT / "data" / "dashboard" / "live_mode_override.json"
+    if override_path.exists():
+        try:
+            with open(override_path, "r") as _f:
+                _override = json.load(_f)
+                return _override.get("mode", "paper").lower()
+        except Exception:
+            pass
+    return os.getenv("MODE", "paper").lower()
+
+MODE = get_current_mode()
 IS_LIVE = MODE == "live"
 IS_PAPER = MODE == "paper"
 # Simulated wallet balance per wallet in paper mode (USD equivalent).
@@ -559,7 +575,7 @@ def validate_settings() -> list[str]:
     """
     warnings_list = []
 
-    if IS_LIVE:
+    if get_current_mode() == "live":
         if not FLASHBOTS_SIGNING_KEY:
             warnings_list.append("LIVE MODE: FLASHBOTS_SIGNING_KEY not set — MEV protection disabled")
         if not ONEINCH_API_KEY:
@@ -659,3 +675,26 @@ def probe_api_keys() -> dict[str, bool]:
         results["dexscreener"] = False
 
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dynamic Mode Override (Seamless Zero-Downtime Toggling)
+# ─────────────────────────────────────────────────────────────────────────────
+def __getattr__(name: str):
+    """Dynamically serve MODE, IS_LIVE, and IS_PAPER attribute access."""
+    if name == "MODE":
+        return get_current_mode()
+    elif name == "IS_LIVE":
+        return get_current_mode() == "live"
+    elif name == "IS_PAPER":
+        return get_current_mode() == "paper"
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# Delete the static globals so lookups fallback to __getattr__
+if "MODE" in globals():
+    del globals()["MODE"]
+if "IS_LIVE" in globals():
+    del globals()["IS_LIVE"]
+if "IS_PAPER" in globals():
+    del globals()["IS_PAPER"]

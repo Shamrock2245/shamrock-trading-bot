@@ -51,6 +51,47 @@ st.set_page_config(
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
 render_nav("Command Center")
 
+# ── Check Current Mode ────────────────────────────────────────────────────────
+from pathlib import Path
+import json as _json
+override_file = Path(os.environ.get("DASHBOARD_STATE_DIR", "./data/dashboard")) / "live_mode_override.json"
+is_currently_live = False
+if override_file.exists():
+    try:
+        with open(override_file) as f:
+            is_currently_live = _json.load(f).get("mode") == "live"
+    except:
+        pass
+
+# ── Live Confirmation Dialog ──────────────────────────────────────────────────
+@st.dialog("🚨 Go Live Confirmation")
+def confirm_go_live():
+    st.warning("You are about to switch the Shamrock Bot from safe Paper simulation to LIVE trading. Real funds will be utilized.")
+    st.markdown("""
+    **Please complete this critical checklist before confirming:**
+    - [ ] Private keys are securely injected into the Hetzner server environment.
+    - [ ] RPC connections are stable and have a valid gas cushion (>0.05 ETH).
+    - [ ] The bot has successfully run for at least 48 hours in paper mode.
+    - [ ] All dynamic safety filters and circuit breakers are active.
+    """)
+    confirm_phrase = st.text_input("Type 'CONFIRM_LIVE' to unlock live trading:")
+    
+    if st.button("Unlock and Switch to Live", use_container_width=True):
+        if confirm_phrase == "CONFIRM_LIVE":
+            # Write JSON override
+            import json as _json
+            from pathlib import Path
+            override_file = Path(os.environ.get("DASHBOARD_STATE_DIR", "./data/dashboard")) / "live_mode_override.json"
+            override_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(override_file, "w") as f:
+                _json.dump({"mode": "live", "updated_at": datetime.now(timezone.utc).isoformat()}, f, indent=2)
+            st.success("Successfully flipped switch to LIVE trading!")
+            st.toast("Bot mode set to LIVE!", icon="🟢")
+            _time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Incorrect confirmation phrase.")
+
 # ── Brand-specific CSS additions ──────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -184,6 +225,43 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
+    # ── Trading Mode Selector ───────────────────────────────────────────────────
+    st.markdown('<div class="section-label" style="margin-top:14px;">Trading Mode</div>', unsafe_allow_html=True)
+    
+    if is_currently_live:
+        st.markdown(
+            '<div style="background:rgba(255,71,87,0.1);border:1px solid rgba(255,71,87,0.4);'
+            'border-radius:8px;padding:10px;margin-bottom:8px;text-align:center;">'
+            '<span style="color:#FF4757;font-weight:800;font-size:0.8rem;letter-spacing:0.05em;'
+            'text-transform:uppercase;">🚨 LIVE TRADING ACTIVE 🚨</span>'
+            '<div style="color:#8B949E;font-size:0.65rem;margin-top:4px;">Real funds are at risk. '
+            'MEV protection & daily loss limits are actively enforced.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("🔴 Return to Paper Trading", key="sb_deactivate_live", use_container_width=True,
+                      help="Instantly drop the bot back to risk-free paper simulation"):
+            if override_file.exists():
+                try:
+                    override_file.unlink()
+                except Exception as e:
+                    st.error(f"Failed to delete override: {e}")
+            st.toast("Switched back to safe Paper mode!", icon="ℹ️")
+            st.rerun()
+    else:
+        st.markdown(
+            '<div style="background:rgba(0,208,156,0.04);border:1px solid rgba(0,208,156,0.15);'
+            'border-radius:8px;padding:8px 10px;margin-bottom:8px;text-align:center;">'
+            '<span style="color:#00D09C;font-weight:700;font-size:0.75rem;">🛡️ PAPER SIMULATION RUNNING</span>'
+            '<div style="color:#8B949E;font-size:0.62rem;margin-top:2px;">Simulating trades locally. '
+            'Zero capital risk. Run for 48h to validate.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("🟢 Go Live", key="sb_activate_live", use_container_width=True,
+                      help="Transition the bot to live on-chain execution with safety checks"):
+            confirm_go_live()
+
     st.markdown('<div class="section-label" style="margin-top:14px;">Controls</div>',
                 unsafe_allow_html=True)
 
@@ -301,6 +379,24 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
+# Live warning banner if live trading is active
+if is_currently_live:
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(255,71,87,0.12), rgba(13,17,23,0.98));
+                border: 1px dashed #FF4757; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;
+                display: flex; align-items: center; gap: 14px;">
+        <span style="font-size: 1.8rem;">🚨</span>
+        <div>
+            <div style="color: #FF4757; font-size: 0.85rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;">
+                Live Trading Mode is Fully Active
+            </div>
+            <div style="color: #8B949E; font-size: 0.72rem; margin-top: 2px;">
+                Real swaps are being executed on active chains. Ensure private keys are secured and daily loss limits are monitored.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ── Data Loading (cached — Streamlit performance optimization) ───────────────
 # Using @st.cache_data(ttl=15) so data refreshes every 15s but widget
