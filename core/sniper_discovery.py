@@ -93,6 +93,7 @@ MICROCAP_MCAP_THRESHOLD_USD = float(os.getenv("SNIPER_MICROCAP_MCAP_USD", "5_000
 # Rate limiting
 _last_request_time: float = 0.0
 _REQUEST_DELAY = 0.35  # ~3 req/s — safe for Moralis paid tier
+_rate_limit_lock = threading.Lock()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,10 +139,11 @@ def _headers() -> dict:
 
 def _rate_limit() -> None:
     global _last_request_time
-    elapsed = time.monotonic() - _last_request_time
-    if elapsed < _REQUEST_DELAY:
-        time.sleep(_REQUEST_DELAY - elapsed)
-    _last_request_time = time.monotonic()
+    with _rate_limit_lock:
+        elapsed = time.monotonic() - _last_request_time
+        if elapsed < _REQUEST_DELAY:
+            time.sleep(_REQUEST_DELAY - elapsed)
+        _last_request_time = time.monotonic()
 
 
 def _get(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
@@ -1098,7 +1100,11 @@ def run_discovery_cycle() -> dict:
     promoted = 0
 
     for chain, addresses in candidates.items():
+        if scored >= 30:
+            break
         for address in addresses:
+            if scored >= 30:
+                break
             if address.lower() in existing_addresses:
                 continue  # Already tracked
             try:

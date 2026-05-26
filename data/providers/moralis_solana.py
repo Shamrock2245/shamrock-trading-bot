@@ -23,6 +23,7 @@ Usage:
 
 import logging
 import time
+import threading
 from typing import Optional
 
 from data.http_session import get_session
@@ -46,6 +47,7 @@ _cache: dict[str, dict] = {}
 _rate_window_start: float = time.time()
 _rate_calls_in_window: int = 0
 RATE_LIMIT_PER_MIN = 20  # Conservative to share with EVM
+_rate_lock = threading.Lock()
 
 
 def _headers() -> dict:
@@ -58,18 +60,19 @@ def _available() -> bool:
 
 def _rate_check() -> None:
     global _rate_window_start, _rate_calls_in_window
-    now = time.time()
-    if now - _rate_window_start >= 60:
-        _rate_window_start = now
-        _rate_calls_in_window = 0
-    _rate_calls_in_window += 1
-    if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
-        sleep_for = 60 - (now - _rate_window_start) + 1
-        if sleep_for > 0:
-            logger.debug(f"Moralis Solana rate limit: sleeping {sleep_for:.1f}s")
-            time.sleep(sleep_for)
-        _rate_window_start = time.time()
-        _rate_calls_in_window = 1
+    with _rate_lock:
+        now = time.time()
+        if now - _rate_window_start >= 60:
+            _rate_window_start = now
+            _rate_calls_in_window = 0
+        _rate_calls_in_window += 1
+        if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
+            sleep_for = 60 - (now - _rate_window_start) + 1
+            if sleep_for > 0:
+                logger.debug(f"Moralis Solana rate limit: sleeping {sleep_for:.1f}s")
+                time.sleep(sleep_for)
+            _rate_window_start = time.time()
+            _rate_calls_in_window = 1
 
 
 def _is_cached(key: str) -> bool:

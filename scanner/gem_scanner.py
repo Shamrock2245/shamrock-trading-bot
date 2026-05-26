@@ -293,7 +293,10 @@ class GemScanner:
         # ── Source 1: Latest token profiles ──────────────────────────────────
         profiles = get_latest_token_profiles()
         logger.info(f"Fetched {len(profiles)} latest token profiles")
+        count = 0
         for profile in profiles:
+            if count >= 10:
+                break
             token_addr = profile.get("tokenAddress", "")
             chain_id = profile.get("chainId", "")
             chain = self._dexscreener_to_chain(chain_id)
@@ -308,6 +311,7 @@ class GemScanner:
                 signals = extract_gem_signals(pair)
                 token = self._signals_to_token(signals, chain)
                 if token:
+                    count += 1
                     candidate = self._score_token(token, is_boosted=False)
                     if candidate is None:
                         break
@@ -323,7 +327,10 @@ class GemScanner:
         # ── Source 2: Latest boosts ───────────────────────────────────────────
         boosts = get_latest_boosts()
         logger.info(f"Fetched {len(boosts)} latest boosts")
+        count = 0
         for boost in boosts:
+            if count >= 10:
+                break
             token_addr = boost.get("tokenAddress", "")
             chain_id = boost.get("chainId", "")
             chain = self._dexscreener_to_chain(chain_id)
@@ -341,6 +348,7 @@ class GemScanner:
                 signals["boost_amount"] = boost_amount
                 token = self._signals_to_token(signals, chain)
                 if token:
+                    count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
@@ -356,7 +364,10 @@ class GemScanner:
         # ── Source 3: Top boosts (strongest community push) ───────────────────
         top_boosts = get_top_boosts()
         logger.info(f"Fetched {len(top_boosts)} top boosts")
+        count = 0
         for boost in top_boosts:
+            if count >= 10:
+                break
             token_addr = boost.get("tokenAddress", "")
             chain_id = boost.get("chainId", "")
             chain = self._dexscreener_to_chain(chain_id)
@@ -374,6 +385,7 @@ class GemScanner:
                 signals["boost_amount"] = boost_amount
                 token = self._signals_to_token(signals, chain)
                 if token:
+                    count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
@@ -392,7 +404,10 @@ class GemScanner:
         # full-conviction express lane candidate if volume + social confirm.
         ctos = get_latest_community_takeovers()
         logger.info(f"Fetched {len(ctos)} community takeovers")
+        count = 0
         for cto in ctos:
+            if count >= 10:
+                break
             token_addr = cto.get("tokenAddress", "")
             chain_id = cto.get("chainId", "")
             chain = self._dexscreener_to_chain(chain_id)
@@ -416,6 +431,7 @@ class GemScanner:
                     if age_h > 48:
                         logger.debug(f"CTO signal expired for {token.symbol} (age={age_h:.0f}h > 48h)")
                         break
+                    count += 1
                     candidate = self._score_token(token, is_boosted=True, is_cto=True)
                     if candidate is None:
                         break
@@ -431,7 +447,10 @@ class GemScanner:
         # ── Source 5: Ads (funded team with marketing budget) ───────────────
         ads = get_latest_ads()
         logger.info(f"Fetched {len(ads)} latest ads")
+        count = 0
         for ad in ads:
+            if count >= 10:
+                break
             token_addr = ad.get("tokenAddress", "")
             chain_id = ad.get("chainId", "")
             chain = self._dexscreener_to_chain(chain_id)
@@ -448,6 +467,7 @@ class GemScanner:
                 signals["boost_amount"] = 50   # Moderate boost for ads
                 token = self._signals_to_token(signals, chain)
                 if token:
+                    count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
@@ -465,7 +485,10 @@ class GemScanner:
         try:
             moralis_tokens = moralis_discover(chains=settings.ACTIVE_CHAINS)
             moralis_added = 0
+            count = 0
             for mt in moralis_tokens:
+                if count >= 10:
+                    break
                 token_addr = mt.get("token_address", "")
                 chain = mt.get("chain", "")
                 if not token_addr or not chain:
@@ -482,6 +505,7 @@ class GemScanner:
                     signals["boost_amount"] = 75  # Moralis trending weight
                     token = self._signals_to_token(signals, chain)
                     if token:
+                        count += 1
                         candidate = self._score_token(token, is_boosted=True)
                         if candidate is None:
                             break
@@ -553,7 +577,10 @@ class GemScanner:
                 graduated = get_pumpfun_graduated(limit=20)
                 graduated = [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
                 pumpfun_added = 0
+                count = 0
                 for grad in graduated:
+                    if count >= 10:
+                        break
                     token_addr = grad.get("token_address", "")
                     if not token_addr or token_addr.lower() in seen_addresses:
                         continue
@@ -571,6 +598,7 @@ class GemScanner:
                         signals["boost_amount"] = 100  # Pump.fun graduation = strong signal
                         token = self._signals_to_token(signals, "solana")
                         if token:
+                            count += 1
                             candidate = self._score_token(token, is_boosted=True)
                             if candidate is None:
                                 break
@@ -599,9 +627,14 @@ class GemScanner:
             try:
                 bp_chains = [c for c in settings.ACTIVE_CHAINS if c in binance_supported_chains()]
                 binance_added = 0
+                count = 0
                 for bp_chain in bp_chains:
+                    if count >= 10:
+                        break
                     trending = binance_trending(chain=bp_chain, rank_type=10, limit=15)
                     for bt in trending:
+                        if count >= 10:
+                            break
                         token_addr = bt.get("token_address", "")
                         if not token_addr or token_addr.lower() in seen_addresses:
                             continue
@@ -615,6 +648,7 @@ class GemScanner:
                             signals["boost_amount"] = 80  # Binance trending = strong signal
                             token_obj = self._signals_to_token(signals, bp_chain)
                             if token_obj:
+                                count += 1
                                 candidate = self._score_token(token_obj, is_boosted=True)
                                 if candidate is None:
                                     break
@@ -639,7 +673,10 @@ class GemScanner:
             try:
                 new_tokens = get_pumpfun_new_tokens(limit=25)
                 pumpfun_new_added = 0
+                count = 0
                 for nt in new_tokens:
+                    if count >= 10:
+                        break
                     token_addr = nt.get("address", "")
                     if not token_addr or token_addr.lower() in seen_addresses:
                         continue
@@ -660,6 +697,7 @@ class GemScanner:
                     }
                     token_obj = self._signals_to_token(signals, "solana")
                     if token_obj:
+                        count += 1
                         candidate = self._score_token(token_obj, is_boosted=False)
                         if candidate is None:
                             continue
@@ -684,7 +722,10 @@ class GemScanner:
             try:
                 bonding_tokens = get_pumpfun_bonding_tokens(limit=25)
                 pumpfun_bonding_added = 0
+                count = 0
                 for bt in bonding_tokens:
+                    if count >= 10:
+                        break
                     token_addr = bt.get("address", "")
                     if not token_addr or token_addr.lower() in seen_addresses:
                         continue
@@ -705,6 +746,7 @@ class GemScanner:
                     }
                     token_obj = self._signals_to_token(signals, "solana")
                     if token_obj:
+                        count += 1
                         candidate = self._score_token(token_obj, is_boosted=True)
                         if candidate is None:
                             continue
@@ -730,7 +772,10 @@ class GemScanner:
         try:
             convergence_tokens = _discover_sniper_convergence()
             sniper_conv_added = 0
+            count = 0
             for conv in convergence_tokens:
+                if count >= 10:
+                    break
                 token_addr = conv.get("token_address", "")
                 chain = conv.get("chain", "")
                 if not token_addr or not chain:
@@ -746,6 +791,7 @@ class GemScanner:
                     signals["boost_amount"] = 120  # Strong sniper convergence signal
                     token = self._signals_to_token(signals, chain)
                     if token:
+                        count += 1
                         candidate = self._score_token(token, is_boosted=True)
                         if candidate is None:
                             break
@@ -778,7 +824,10 @@ class GemScanner:
         try:
             grok_trending = _discover_grok_trending()
             grok_added = 0
+            count = 0
             for gt_signals in grok_trending:
+                if count >= 10:
+                    break
                 token_addr = gt_signals.get("base_token_address", "")
                 chain_id = gt_signals.get("chain_id", "")
                 chain = self._dexscreener_to_chain(chain_id)
@@ -790,6 +839,7 @@ class GemScanner:
                     continue
                 token = self._signals_to_token(gt_signals, chain)
                 if token:
+                    count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         continue
@@ -875,9 +925,18 @@ class GemScanner:
             tvl=5%, social_sentiment=5%, holder_conc=4%, unlock_risk=4%,
             grok_sentiment=4%
         """
-        candidate = GemCandidate(token=token)
+        # ── HARD GATE #1: Stablecoin & Fiat Exclusion ──────────────────────────
+        # Reject stablecoins/fiat pegs so we don't accidentally deploy capital 
+        # into pegged assets thinking they are gems.
+        _sym = token.symbol.upper()
+        if _sym in _EXCLUDED_SYMBOLS or any(sub in _sym for sub in _EXCLUDED_SUBSTRINGS):
+            logger.info(
+                f"🚫 EXCLUDED FIAT/STABLE: {token.symbol} [{token.chain}] "
+                f"— skipping (we avoid stablecoin pairs for gem sniping)"
+            )
+            return None
 
-        # ── HARD GATE #1: Solana tokens < 2h old → instant reject ─────────────
+        # ── HARD GATE #2: Solana tokens < 2h old → instant reject ─────────────
         # Tokens this fresh on Solana are still in the rug-pull danger window.
         # The 2h rule lets us see at least 2 candlesticks of real price action
         # before we commit capital. No exceptions — not even for boosted tokens.
@@ -888,7 +947,127 @@ class GemScanner:
             )
             return None
 
-        # ── HARD GATE #2: Block-0 Sniper / Bundle Detection ───────────────────────
+        # ── PRE-SCORE OPTIMIZATION (DexScreener/Local Data) ───────────────────
+        # Calculate local/free scores first to fast-reject garbage tokens
+        # ── Age score (12%)
+        is_moralis_trending = getattr(token, "is_moralis_trending", False)
+        if token.age_hours is None:
+            age_score = 50.0
+        elif token.age_hours <= 24:
+            age_score = 100.0
+        elif token.age_hours <= 48:
+            age_score = 85.0 if is_moralis_trending else 75.0
+        elif token.age_hours <= 72:
+            age_score = 70.0 if is_moralis_trending else 50.0
+        elif token.age_hours <= 168:
+            age_score = 50.0 if is_moralis_trending else 25.0
+        else:
+            age_score = 30.0 if is_moralis_trending else 10.0
+
+        # ── Volume spike score (15%)
+        volume_score = 0.0
+        if token.volume_1h > 0 and token.volume_24h > 0:
+            avg_hourly_vol = token.volume_24h / 24
+            if avg_hourly_vol > 0:
+                spike_ratio = token.volume_1h / avg_hourly_vol
+                if spike_ratio >= 10:
+                    volume_score = 100
+                elif spike_ratio >= 5:
+                    volume_score = 85
+                elif spike_ratio >= 3:
+                    volume_score = 70
+                elif spike_ratio >= 2:
+                    volume_score = 50
+                else:
+                    volume_score = 20
+        elif token.volume_24h >= 500_000:
+            volume_score = 60
+        elif token.volume_24h >= 100_000:
+            volume_score = 40
+
+        # ── Liquidity score (13%)
+        liq = token.liquidity_usd
+        if liq >= 500_000:
+            liquidity_score = 100
+        elif liq >= 200_000:
+            liquidity_score = 85
+        elif liq >= 100_000:
+            liquidity_score = 70
+        elif liq >= 50_000:
+            liquidity_score = 50
+        elif liq >= 20_000:
+            liquidity_score = 25
+        else:
+            liquidity_score = 0
+
+        # ── Tax score (8%)
+        max_tax = max(token.buy_tax, token.sell_tax)
+        if max_tax == 0:
+            tax_score = 100
+        elif max_tax <= 0.01:
+            tax_score = 85
+        elif max_tax <= 0.03:
+            tax_score = 60
+        elif max_tax <= 0.05:
+            tax_score = 30
+        else:
+            tax_score = 0
+
+        # ── Holder distribution score (8%)
+        if token.holder_count >= 1000:
+            holder_score = 100
+        elif token.holder_count >= 500:
+            holder_score = 80
+        elif token.holder_count >= 200:
+            holder_score = 60
+        elif token.holder_count >= 100:
+            holder_score = 40
+        elif token.holder_count >= 50:
+            holder_score = 20
+        else:
+            holder_score = 10
+
+        # ── DexScreener boost score (4%)
+        if is_boosted:
+            boost_amount = getattr(token, "boost_amount", 0)
+            if boost_amount >= 500:
+                boost_score = 100
+            elif boost_amount >= 200:
+                boost_score = 80
+            elif boost_amount >= 100:
+                boost_score = 60
+            elif boost_amount > 0:
+                boost_score = 40
+        else:
+            boost_score = 50
+
+        # ── Calculate local pre_score (60% weight total scaled to 100)
+        pre_score = (
+            age_score * 0.12
+            + volume_score * 0.15
+            + liquidity_score * 0.13
+            + tax_score * 0.08
+            + holder_score * 0.08
+            + boost_score * 0.04
+        ) / 0.60
+
+        if pre_score < 35.0:
+            logger.info(
+                f"⏭️ PRE-SCORE REJECT: {token.symbol} [{token.chain}] pre_score={pre_score:.1f} "
+                f"< 35.0 minimum — skipping all external API calls."
+            )
+            return None
+
+        # Pass pre-score gate! Now initialize GemCandidate and set pre-calculated values.
+        candidate = GemCandidate(token=token)
+        candidate.age_score = age_score
+        candidate.volume_score = volume_score
+        candidate.liquidity_score = liquidity_score
+        candidate.tax_score = tax_score
+        candidate.holder_score = holder_score
+        candidate.boost_score = boost_score
+
+        # ── HARD GATE #3: Block-0 Sniper / Bundle Detection ───────────────────────
         # Reject tokens where coordinated snipers acquired a disproportionate
         # share of supply at launch. This structural overhang means the top
         # holders are permanent sellers at any price uptick — no TA signal
@@ -914,17 +1093,6 @@ class GemScanner:
         except Exception as _bd_err:
             logger.debug(f"Bundle detection skipped for {token.symbol}: {_bd_err}")
             
-        # ── HARD GATE #3: Stablecoin & Fiat Exclusion ──────────────────────────
-        # Reject stablecoins/fiat pegs so we don't accidentally deploy capital 
-        # into pegged assets thinking they are gems.
-        _sym = token.symbol.upper()
-        if _sym in _EXCLUDED_SYMBOLS or any(sub in _sym for sub in _EXCLUDED_SUBSTRINGS):
-            logger.info(
-                f"🚫 EXCLUDED FIAT/STABLE: {token.symbol} [{token.chain}] "
-                f"— skipping (we avoid stablecoin pairs for gem sniping)"
-            )
-            return None
-
         # ── HARD GATE #4: Moralis Security Score & Metadata ────────────────────────
         try:
                         
@@ -961,45 +1129,6 @@ class GemScanner:
             candidate.moralis_security_score = 70
             candidate.moralis_token_score_composite = 0
 
-        # ── Age score (12%) ────────────────────────────────────────────────────────
-        # New tokens are better for sniping.
-        # < 24h = 100, < 48h = 75, < 72h = 50, < 168h = 25, > 168h = 10
-        # For Moralis trending tokens (which are often older), we are more lenient
-        is_moralis_trending = getattr(token, "is_moralis_trending", False)
-        
-        if token.age_hours is None:
-            candidate.age_score = 50.0
-        elif token.age_hours <= 24:
-            candidate.age_score = 100.0
-        elif token.age_hours <= 48:
-            candidate.age_score = 85.0 if is_moralis_trending else 75.0
-        elif token.age_hours <= 72:
-            candidate.age_score = 70.0 if is_moralis_trending else 50.0
-        elif token.age_hours <= 168:
-            candidate.age_score = 50.0 if is_moralis_trending else 25.0
-        else:
-            candidate.age_score = 30.0 if is_moralis_trending else 10.0
-
-        # ── Volume spike score (15%) ──────────────────────────────────────────────
-        if token.volume_1h > 0 and token.volume_24h > 0:
-            avg_hourly_vol = token.volume_24h / 24
-            if avg_hourly_vol > 0:
-                spike_ratio = token.volume_1h / avg_hourly_vol
-                if spike_ratio >= 10:
-                    candidate.volume_score = 100
-                elif spike_ratio >= 5:
-                    candidate.volume_score = 85
-                elif spike_ratio >= 3:
-                    candidate.volume_score = 70
-                elif spike_ratio >= 2:
-                    candidate.volume_score = 50
-                else:
-                    candidate.volume_score = 20
-        elif token.volume_24h >= 500_000:
-            candidate.volume_score = 60
-        elif token.volume_24h >= 100_000:
-            candidate.volume_score = 40
-
         # ── Volume trend adjustment (cross-cycle momentum) ────────────────
         try:
             _vtt = self._volume_tracker
@@ -1016,47 +1145,7 @@ class GemScanner:
         except Exception as _vt_err:
             logger.debug(f"Volume trend skipped for {token.symbol}: {_vt_err}")
 
-        # ── Liquidity score (13%) ─────────────────────────────────────────────
-        liq = token.liquidity_usd
-        if liq >= 500_000:
-            candidate.liquidity_score = 100
-        elif liq >= 200_000:
-            candidate.liquidity_score = 85
-        elif liq >= 100_000:
-            candidate.liquidity_score = 70
-        elif liq >= 50_000:
-            candidate.liquidity_score = 50
-        elif liq >= 20_000:
-            candidate.liquidity_score = 25
-        else:
-            candidate.liquidity_score = 0
 
-        # ── Tax score (8%) ────────────────────────────────────────────────────
-        max_tax = max(token.buy_tax, token.sell_tax)
-        if max_tax == 0:
-            candidate.tax_score = 100
-        elif max_tax <= 0.01:
-            candidate.tax_score = 85
-        elif max_tax <= 0.03:
-            candidate.tax_score = 60
-        elif max_tax <= 0.05:
-            candidate.tax_score = 30
-        else:
-            candidate.tax_score = 0
-
-        # ── Holder distribution score (8%) ────────────────────────────────────
-        if token.holder_count >= 1000:
-            candidate.holder_score = 100
-        elif token.holder_count >= 500:
-            candidate.holder_score = 80
-        elif token.holder_count >= 200:
-            candidate.holder_score = 60
-        elif token.holder_count >= 100:
-            candidate.holder_score = 40
-        elif token.holder_count >= 50:
-            candidate.holder_score = 20
-        else:
-            candidate.holder_score = 10
         # ── Dynamic Volume Decay & Holder Momentum (Upgrade 2) ────────────────
         # Incorporate Moralis Deep Analytics if available
         try:
@@ -1130,18 +1219,7 @@ class GemScanner:
             candidate.social_score = 50.0  # Neutral fallback on failure
 
         # ── DexScreener boost score (4%) ──────────────────────────────────────
-        if is_boosted:
-            boost_amount = getattr(token, "boost_amount", 0)
-            if boost_amount >= 500:
-                candidate.boost_score = 100
-            elif boost_amount >= 200:
-                candidate.boost_score = 80
-            elif boost_amount >= 100:
-                candidate.boost_score = 60
-            elif boost_amount > 0:
-                candidate.boost_score = 40
-        else:
-            candidate.boost_score = 50  # Neutral when not boosted — 0 was unfairly penalizing
+        # Already calculated in pre-score gate.
 
         # ── Smart money score (4%) — REAL wallet overlap ──────────────────────
         try:

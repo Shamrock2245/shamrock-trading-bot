@@ -510,16 +510,40 @@ def evaluate_position(pos: dict, current_price: float,
         trailing_tighten = sp.trailing_tighten  # {mult: trail%}
         profile_name = sp.name
     else:
-        hard_stop_pct = settings.HARD_STOP_LOSS_PERCENT
-        trailing_pct = settings.STOP_LOSS_PERCENT
-        tp1_mult = settings.TAKE_PROFIT_TP1_MULT
-        tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
-        tp2_mult = settings.TAKE_PROFIT_TP2_MULT
-        tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
-        tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)   # Global TP3 (moonshot capture)
-        tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
-        trailing_tighten = {}
-        profile_name = "default"
+        chain = pos.get("chain", "").lower()
+        if chain == "solana":
+            hard_stop_pct = 10.0
+            trailing_pct = 6.0
+            tp1_mult = 1.2
+            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+            tp2_mult = 1.8
+            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
+            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)
+            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            trailing_tighten = {}
+            profile_name = "solana_shadow_default"
+        elif chain == "base":
+            hard_stop_pct = 15.0
+            trailing_pct = 15.0
+            tp1_mult = 1.5
+            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+            tp2_mult = 2.5
+            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
+            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)
+            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            trailing_tighten = {}
+            profile_name = "base_shadow_default"
+        else:
+            hard_stop_pct = settings.HARD_STOP_LOSS_PERCENT
+            trailing_pct = settings.STOP_LOSS_PERCENT
+            tp1_mult = settings.TAKE_PROFIT_TP1_MULT
+            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+            tp2_mult = settings.TAKE_PROFIT_TP2_MULT
+            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
+            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)   # Global TP3 (moonshot capture)
+            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            trailing_tighten = {}
+            profile_name = "default"
 
     # ── Position-level trailing_stop_pct override ─────────────────────────────
     # Allows tests and dynamic trailing logic to tighten the trail below the
