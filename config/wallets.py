@@ -68,23 +68,17 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     # generating enough volume to validate the strategy.
     min_gem_score=68.0,
     express_lane_score=78.0,
-    # TP: 1.5x sell 40%, 2.5x sell 35%, 5x sell 25%
-    # TUNED: TP1 lowered 2.5x→1.5x — most meme/micro-cap gems peak at 1.5-2x
-    # before reversing. Capturing 40% at +50% gain locks in real profit and
-    # funds the trailing stop on the remainder. The old 2.5x TP1 meant the
-    # bot held through full reversals and hit the hard stop instead.
+    # TP: 1.5x sell 40%, 1.8x sell 35%, 5x sell 25% (Optimized via Shadow Account Backtest)
     tp1_mult=1.5,
     tp1_sell_pct=0.40,
-    tp2_mult=2.5,
+    tp2_mult=1.8,
     tp2_sell_pct=0.35,
     tp3_mult=5.0,
     tp3_sell_pct=0.25,
-    # Stops — TUNED: hard stop tightened 20%→15%, trailing 20%→12%
-    # Smaller losses on the ~60% of trades that don't work out is the
-    # single biggest lever on profit factor. R/R target: 1.5x gain vs 15% loss.
-    hard_stop_pct=15.0,
-    trailing_stop_pct=12.0,
-    trailing_tighten={2.5: 8.0, 5.0: 5.0},  # Tighten as it runs
+    # Stops — OPTIMIZED via Shadow Account Backtest
+    hard_stop_pct=10.0,
+    trailing_stop_pct=6.0,
+    trailing_tighten={1.8: 4.0, 2.5: 3.0},  # Tighten as it runs
     # Sizing — TUNED: 8% per trade (was 15%) — smaller bets, more diversification
     # 15% per trade on a losing streak = catastrophic drawdown.
     # 8% per trade with 8 concurrent = 64% deployed, 36% reserve.
@@ -277,20 +271,17 @@ ALPHA_SOL_PROFILE = StrategyProfile(
     # The problem was not the score floor but the position sizing.
     min_gem_score=85.0,
     express_lane_score=92.0,
-    # TP: TUNED — TP1 lowered 3x→2x to lock in profit on Solana memes
-    # Solana memes are high-velocity but also high-reversal. Getting 30% off
-    # at 2x (instead of waiting for 3x) dramatically improves win rate.
-    tp1_mult=2.0,
+    # TP: OPTIMIZED via Shadow Account Backtest for highly volatile Solana memes
+    tp1_mult=1.3,
     tp1_sell_pct=0.35,
-    tp2_mult=5.0,
+    tp2_mult=1.8,
     tp2_sell_pct=0.30,
-    tp3_mult=15.0,
+    tp3_mult=5.0,
     tp3_sell_pct=0.35,
-    # Stops — TUNED: hard stop 15%→12%, trailing 25%→18%
-    # Solana memes move fast — a 25% trailing stop gives back too much.
-    hard_stop_pct=12.0,
-    trailing_stop_pct=18.0,
-    trailing_tighten={3.0: 12.0, 8.0: 6.0},
+    # Stops — OPTIMIZED via Shadow Account Backtest
+    hard_stop_pct=10.0,
+    trailing_stop_pct=6.0,
+    trailing_tighten={1.8: 4.0, 2.5: 3.0},
     # Sizing — TUNED: 20% per trade (was 45%), max 3 concurrent (was 2)
     # 45% per trade on Solana memes = -$192 in losses. 20% × 3 = 60% deployed.
     # This is still aggressive but survivable when trades go wrong.

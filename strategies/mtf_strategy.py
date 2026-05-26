@@ -126,7 +126,7 @@ SCALP_1H_PROFILE = MTFPlayProfile(
     min_position_usd=20.0,
     min_gem_score=62.0,
     high_conviction_score=78.0,
-    expected_hold_hours=2.0,
+    expected_hold_hours=12.0,       # Optimized: Hold up to 12 hours (up from 2.0)
 )
 
 SWING_4H_PROFILE = MTFPlayProfile(
@@ -153,7 +153,7 @@ SWING_4H_PROFILE = MTFPlayProfile(
     min_position_usd=30.0,
     min_gem_score=65.0,
     high_conviction_score=80.0,
-    expected_hold_hours=12.0,
+    expected_hold_hours=72.0,       # Optimized: Hold up to 72 hours / 3 days (up from 12.0)
 )
 
 POSITION_12_24H_PROFILE = MTFPlayProfile(
@@ -180,7 +180,7 @@ POSITION_12_24H_PROFILE = MTFPlayProfile(
     min_position_usd=40.0,
     min_gem_score=68.0,
     high_conviction_score=82.0,
-    expected_hold_hours=18.0,
+    expected_hold_hours=48.0,       # Optimized: Hold up to 48 hours / 2 days (up from 18.0)
 )
 
 RUNNER_5D_PROFILE = MTFPlayProfile(
@@ -207,7 +207,7 @@ RUNNER_5D_PROFILE = MTFPlayProfile(
     min_position_usd=50.0,
     min_gem_score=70.0,
     high_conviction_score=85.0,
-    expected_hold_hours=72.0,
+    expected_hold_hours=120.0,      # Optimized: Hold up to 120 hours / 5 days (up from 72.0)
 )
 
 ALL_PROFILES = [SCALP_1H_PROFILE, SWING_4H_PROFILE, POSITION_12_24H_PROFILE, RUNNER_5D_PROFILE]
