@@ -586,6 +586,8 @@ def route_trade(
         # ── Paper mode: skip real balance fetch, use simulated capital ────────
         if settings.IS_PAPER:
             wallet_balance_usd = settings.PAPER_WALLET_BALANCE_USD
+            native_balance = wallet_balance_usd / native_price
+            usdc_balance = 0.0
             logger.debug(
                 f"  {wallet.alias} [PAPER] simulated balance=${wallet_balance_usd:.2f} on {chain}"
             )

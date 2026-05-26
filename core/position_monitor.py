@@ -41,6 +41,7 @@ from config.wallets import (
     CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE,
     MTF_1H_SCALP_PROFILE, MTF_4H_SWING_PROFILE,
     MTF_12H_MOMENTUM_PROFILE, MTF_5D_POSITION_PROFILE,
+    ALPHA_SOL_PROFILE,
 )
 from data.models import Position, Trade
 from core.offensive_guardrails import (
@@ -57,6 +58,7 @@ _PROFILE_MAP = {
     "conservative": CONSERVATIVE_PROFILE,
     "nuclear": NUCLEAR_PROFILE,
     "swing": SWING_SCALP_PROFILE,
+    "alpha_sol": ALPHA_SOL_PROFILE,
     # MTF profiles — multi-timeframe strategy engine
     "mtf_1h_scalp": MTF_1H_SCALP_PROFILE,
     "mtf_4h_swing": MTF_4H_SWING_PROFILE,
@@ -1448,7 +1450,8 @@ class PositionMonitor:
                 if not sell_action and pos.get("status") == "open":
                     remaining_qty = float(pos.get("remaining_quantity", 0))
                     pos_value_usd = remaining_qty * current_price if current_price else 0
-                    if 0 < pos_value_usd < settings.DUST_THRESHOLD_USD:
+                    entry_value_usd = float(pos.get("entry_value_usd", 0))
+                    if 0 < pos_value_usd < settings.DUST_THRESHOLD_USD and entry_value_usd >= settings.DUST_THRESHOLD_USD:
                         if pos_value_usd >= settings.DUST_MIN_SELL_USD:
                             # Worth more than gas cost — sell to reclaim capital
                             logger.info(
