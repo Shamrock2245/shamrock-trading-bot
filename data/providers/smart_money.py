@@ -329,7 +329,9 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
                 from data.providers.moralis_intelligence import get_wallet_defi_positions
                 defi_qualified_count = 0
                 for holder_addr in holders[:2]:
-                    positions = get_wallet_defi_positions(holder_addr, chain)
+                    positions = get_wallet_defi_positions(
+                        holder_addr, "all" if chain != "solana" else "solana"
+                    )
                     if positions:
                         total_defi_usd = sum(p.get("usd_value", 0) for p in positions)
                         unique_protocols = len(set(p.get("protocol_name", "") for p in positions))

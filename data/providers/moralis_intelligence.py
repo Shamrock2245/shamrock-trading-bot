@@ -883,14 +883,28 @@ def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
     """
     Get DeFi protocol positions for a wallet.
     Returns positions in Uniswap, Aave, Compound, Jito, Save, Kamino, etc.
+    Supports chain="all" to fetch and aggregate across all major EVM chains in one call.
     """
     if not wallet_address or wallet_address.lower() in _ZERO_ADDRESSES:
         return []
-    if not _available(chain):
-        return []
-    chain_param = "solana" if chain == "solana" else CHAIN_HEX.get(chain)
-    if not chain_param:
-        return []
+    
+    params = {}
+    if chain == "all":
+        if not MORALIS_API_KEY:
+            return []
+        params["chains"] = ",".join(CHAIN_MAP.values())
+    elif chain == "solana":
+        if not MORALIS_API_KEY:
+            return []
+        params["chain"] = "solana"
+    else:
+        if not _available(chain):
+            return []
+        chain_hex = CHAIN_HEX.get(chain)
+        if not chain_hex:
+            return []
+        params["chain"] = chain_hex
+
     cache_key = f"defi_pos_{chain}_{wallet_address.lower()}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
@@ -898,7 +912,7 @@ def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
     try:
         resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/defi/positions",
-            params={"chain": chain_param},
+            params=params,
             headers=_headers(),
             timeout=10,
         )
@@ -1078,8 +1092,8 @@ def search_tokens(query: str, chain: str = None, limit: int = 10) -> list[dict]:
     _rate_check()
     try:
         params: dict = {"q": query, "limit": limit}
-        if chain and chain in CHAIN_HEX:
-            params["chain"] = CHAIN_HEX[chain]
+        if chain:
+            params["chain"] = "solana" if chain == "solana" else CHAIN_HEX.get(chain, chain)
         resp = get_session().get(
             f"{BASE_URL}/tokens/search",
             params=params,
