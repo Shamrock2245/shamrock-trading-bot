@@ -1,5 +1,11 @@
 # Moralis Cortex API
 
+> [!WARNING]
+> **DEPRECATION & SUNSET NOTICE (June 4, 2026)**
+> Moralis is decommissioning the Hosted Cortex API REST endpoint (`POST /cortex/chat`) on **June 4, 2026** in favor of open-source, project-level **"Onchain Skills"** (designed for developer AI agents like Cursor or Claude).
+> 
+> **Code Status**: To avoid dead HTTP requests, potential timeouts, and rate-limit credit waste in our high-frequency scanner loop, in-bot calls to `cortex_analyze_token()` have been **permanently deactivated** and return `None` gracefully.
+
 > AI-native blockchain intelligence layer — natural language → on-chain insights.
 >
 > Docs: https://docs.moralis.com/cortex

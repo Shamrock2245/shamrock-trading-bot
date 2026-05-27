@@ -882,11 +882,14 @@ _ZERO_ADDRESSES = {
 def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
     """
     Get DeFi protocol positions for a wallet.
-    Returns positions in Uniswap, Aave, Compound, etc.
+    Returns positions in Uniswap, Aave, Compound, Jito, Save, Kamino, etc.
     """
     if not wallet_address or wallet_address.lower() in _ZERO_ADDRESSES:
         return []
-    if not _available(chain) or chain not in CHAIN_HEX:
+    if not _available(chain):
+        return []
+    chain_param = "solana" if chain == "solana" else CHAIN_HEX.get(chain)
+    if not chain_param:
         return []
     cache_key = f"defi_pos_{chain}_{wallet_address.lower()}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
@@ -895,7 +898,7 @@ def get_wallet_defi_positions(wallet_address: str, chain: str) -> list[dict]:
     try:
         resp = get_session().get(
             f"{BASE_URL}/wallets/{wallet_address}/defi/positions",
-            params={"chain": CHAIN_HEX[chain]},
+            params={"chain": chain_param},
             headers=_headers(),
             timeout=10,
         )
@@ -1884,68 +1887,11 @@ def cortex_analyze_token(
     question: str = "",
 ) -> Optional[dict]:
     """
-    Use Moralis Cortex AI to analyze a token with on-chain grounding.
-    Returns an AI analysis with sentiment score and key signals.
-
-    Used as a 3rd intelligence layer alongside Grok (X/Twitter) and
-    Perplexity (web search). Cortex is grounded in Moralis on-chain data.
-    Graceful no-op if endpoint not available on current plan tier.
+    DEPRECATED: Moralis sunset the hosted Cortex API (`/cortex/chat`) on June 4, 2026,
+    in favor of open-source "Onchain Skills".
+    
+    To avoid dead HTTP requests, potential timeouts, and rate-limit credit waste
+    in the real-time scanning loop, this has been permanently deactivated.
     """
-    if not MORALIS_API_KEY:
-        return None
-    if not question:
-        question = (
-            f"Analyze the on-chain activity for token {symbol or token_address} "
-            f"on {chain}. Is there evidence of whale accumulation, smart money entry, "
-            f"or suspicious activity? What is the risk level and should a trader enter now?"
-        )
-    _rate_check()
-    try:
-        chain_hex = CHAIN_HEX.get(chain, chain)
-        resp = get_session().post(
-            f"{BASE_URL}/cortex/chat",
-            json={
-                "messages": [{"role": "user", "content": question}],
-                "context": {
-                    "token_address": token_address,
-                    "chain": chain_hex,
-                },
-            },
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (400, 404, 422, 501, 403):
-            return None  # Cortex not available on this plan tier — graceful skip
-        if resp.status_code == 429:
-            time.sleep(3)
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            return None
-        content_lower = content.lower()
-        bullish_words = ["accumulation", "bullish", "strong", "whale entry", "smart money", "buy signal", "uptrend"]
-        bearish_words = ["suspicious", "rug", "dump", "sell", "risky", "avoid", "danger", "red flag", "bearish"]
-        bull_hits = sum(1 for w in bullish_words if w in content_lower)
-        bear_hits = sum(1 for w in bearish_words if w in content_lower)
-        if bull_hits > bear_hits:
-            sentiment = "bullish"
-            score_delta = min(8.0, bull_hits * 2.0)
-        elif bear_hits > bull_hits:
-            sentiment = "bearish"
-            score_delta = -min(10.0, bear_hits * 2.5)
-        else:
-            sentiment = "neutral"
-            score_delta = 0.0
-        return {
-            "analysis": content,
-            "sentiment": sentiment,
-            "score_delta": score_delta,
-            "bull_signals": bull_hits,
-            "bear_signals": bear_hits,
-            "skipped": False,
-        }
-    except Exception as e:
-        logger.debug(f"Cortex AI analysis error for {token_address[:10]}: {e}")
-        return None
+    logger.debug(f"Cortex AI query skipped for {symbol or token_address} (Hosted Cortex API sunset on June 4, 2026)")
+    return None

@@ -324,7 +324,7 @@ def get_smart_money_score(token_address: str, chain: str) -> float:
         # DeFi positions. A wallet farming $50K+ across multiple protocols
         # is a real DeFi player, not a bot or passive airdrop recipient.
         # This costs 2 API calls (one per holder) — only runs as last resort.
-        if score <= 30 and chain != "solana" and holders[:2]:
+        if score <= 30 and holders[:2]:
             try:
                 from data.providers.moralis_intelligence import get_wallet_defi_positions
                 defi_qualified_count = 0
