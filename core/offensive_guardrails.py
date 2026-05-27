@@ -92,9 +92,56 @@ class OffensiveState:
     # House money pool (USD available from locked profits for reinvestment)
     house_money_pool_usd: float = 0.0
 
+    # Fear & Greed Index
+    fear_and_greed_score: int = 50
+    fear_and_greed_sentiment: str = "Neutral"
+    fear_and_greed_last_updated: float = 0.0
+
 
 def _today_utc() -> str:
     return datetime.now(timezone.utc).date().isoformat()
+
+
+def update_fear_and_greed_index(state: OffensiveState) -> None:
+    """
+    Query the Alternative.me Fear & Greed Index API to get macro sentiment.
+    Updates the state with the latest score and sentiment name.
+    Updates are rate-limited to avoid hammering the endpoint (updates once per 12 hours).
+    """
+    if not settings.FEAR_GREED_ENABLED:
+        return
+
+    now_ts = time.time()
+    elapsed = now_ts - state.fear_and_greed_last_updated
+    if elapsed < settings.FEAR_GREED_UPDATE_INTERVAL_SECONDS and state.fear_and_greed_last_updated > 0:
+        return
+
+    logger.info("📡 Fetching Fear & Greed Index from Alternative.me...")
+    try:
+        import requests
+        response = requests.get(settings.FEAR_GREED_URL, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            data_list = result.get("data")
+            if data_list and len(data_list) > 0:
+                data = data_list[0]
+                score = int(data.get("value", 50))
+                sentiment = data.get("value_classification", "Neutral")
+                state.fear_and_greed_score = score
+                state.fear_and_greed_sentiment = sentiment
+                state.fear_and_greed_last_updated = now_ts
+                save_offensive_state(state)
+                logger.info(
+                    f"🎯 Fear & Greed Index updated: score={score} ({sentiment})"
+                )
+            else:
+                logger.warning("Empty data list from Fear & Greed API response")
+        else:
+            logger.warning(
+                f"Fear & Greed API returned HTTP status {response.status_code}"
+            )
+    except Exception as e:
+        logger.error(f"Failed to fetch Fear & Greed Index: {e}")
 
 
 def load_offensive_state() -> OffensiveState:
@@ -122,10 +169,15 @@ def load_offensive_state() -> OffensiveState:
                 state.god_mode_active = False
                 state.god_mode_activated_at = None
                 state.god_mode_peak_pnl_usd = 0.0
+            
+            update_fear_and_greed_index(state)
             return state
     except Exception as e:
         logger.warning(f"Could not load offensive state: {e} — starting fresh")
-    return OffensiveState(daily_pnl_date=_today_utc())
+    
+    fresh_state = OffensiveState(daily_pnl_date=_today_utc())
+    update_fear_and_greed_index(fresh_state)
+    return fresh_state
 
 
 def save_offensive_state(state: OffensiveState) -> None:
@@ -394,8 +446,8 @@ def get_house_money_bonus_usd(state: OffensiveState, base_position_usd: float) -
 
 def get_effective_min_gem_score(state: OffensiveState) -> float:
     """
-    Return the effective MIN_GEM_SCORE after applying cascade reduction
-    and loss streak cooling penalty.
+    Return the effective MIN_GEM_SCORE after applying cascade reduction,
+    loss streak cooling penalty, and Fear & Greed Index macro filters.
     """
     effective = settings.MIN_GEM_SCORE
 
@@ -418,6 +470,31 @@ def get_effective_min_gem_score(state: OffensiveState) -> float:
             f"❄️ Loss streak cooling: +{penalty:.0f} to MIN_GEM_SCORE "
             f"(streak: {state.consecutive_losses}L → effective min: {effective:.1f})"
         )
+
+    # Fear & Greed Index macro filter: raise score gates during high-risk conditions
+    if settings.FEAR_GREED_ENABLED:
+        fng_sentiment = state.fear_and_greed_sentiment.lower()
+        fng_score = state.fear_and_greed_score
+        fng_penalty = 0.0
+        if fng_sentiment == "extreme fear" or fng_score < 25:
+            fng_penalty = 10.0
+            logger.info(
+                f"🚨 FEAR & GREED MACRO GATE: Extreme Fear (score={fng_score}) → "
+                f"raising MIN_GEM_SCORE by +10.0 for capital protection"
+            )
+        elif fng_sentiment == "fear" or fng_score < 45:
+            fng_penalty = 5.0
+            logger.info(
+                f"⚠️ FEAR & GREED MACRO GATE: Fear (score={fng_score}) → "
+                f"raising MIN_GEM_SCORE by +5.0 to filter low-confidence tokens"
+            )
+        elif fng_sentiment == "extreme greed" or fng_score >= 75:
+            fng_penalty = 3.0
+            logger.info(
+                f"🎈 FEAR & GREED MACRO GATE: Extreme Greed (score={fng_score}) → "
+                f"raising MIN_GEM_SCORE by +3.0 to protect against late-cycle FOMO traps"
+            )
+        effective += fng_penalty
 
     return max(effective, settings.CASCADE_BOOST_FLOOR_SCORE)
 
@@ -857,6 +934,29 @@ def calculate_offensive_position_size(
             logger.info(
                 f"🚀 BLITZ MODE: {active_conditions} offensive conditions aligned → "
                 f"{settings.BLITZ_MODE_MULTIPLIER:.2f}x synergy bonus"
+            )
+
+    # 5d. Fear & Greed Index macro sentiment multiplier
+    if settings.FEAR_GREED_ENABLED:
+        fng_sentiment = state.fear_and_greed_sentiment.lower()
+        fng_score = state.fear_and_greed_score
+        fng_mult = 1.0
+        if fng_sentiment == "extreme fear" or fng_score < 25:
+            fng_mult = 0.50
+        elif fng_sentiment == "fear" or fng_score < 45:
+            fng_mult = 0.75
+        elif fng_sentiment == "extreme greed" or fng_score >= 75:
+            fng_mult = 0.85
+        elif fng_sentiment == "greed" or fng_score >= 55:
+            fng_mult = 1.25
+
+        if fng_mult != 1.0:
+            multiplier *= fng_mult
+            direction = "↑" if fng_mult > 1.0 else "↓"
+            reasons.append(f"fear_greed={fng_mult:.2f}x{direction}(score={fng_score})")
+            logger.info(
+                f"📊 FEAR & GREED SIZING: score={fng_score} ({state.fear_and_greed_sentiment}) → "
+                f"{fng_mult:.2f}x position size"
             )
 
     # Apply multiplier to base position

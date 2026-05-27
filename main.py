@@ -1085,6 +1085,13 @@ async def run_bot_loop():
         trades_this_cycle = 0
         logger.info(f"--- Cycle {cycle} (mode={settings.MODE.upper()}) ---")
 
+        # ── Update Fear & Greed Index sentiment and score periodically ────────
+        try:
+            from core.offensive_guardrails import update_fear_and_greed_index
+            update_fear_and_greed_index(offensive_state)
+        except Exception as fng_err:
+            logger.debug(f"Periodic Fear & Greed Index update failed: {fng_err}")
+
         try:
             # ── Gas Manager: auto-replenish gas tokens every 10 cycles ────────
             if cycle % 10 == 1:  # First cycle + every 10th

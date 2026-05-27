@@ -506,6 +506,11 @@ LOSS_STREAK_COOLING_ENABLED = os.getenv("LOSS_STREAK_COOLING_ENABLED", "true").l
 LOSS_STREAK_SCORE_PENALTY = float(os.getenv("LOSS_STREAK_SCORE_PENALTY", "2.0"))  # +2 pts per loss (was 5 — too aggressive)
 LOSS_STREAK_MAX_PENALTY = float(os.getenv("LOSS_STREAK_MAX_PENALTY", "10.0"))     # Max +10 pts
 
+# ── 13. Fear & Greed Index Integration (Macro Sentiment System) ─────────────────
+FEAR_GREED_ENABLED = os.getenv("FEAR_GREED_ENABLED", "true").lower() == "true"
+FEAR_GREED_URL = os.getenv("FEAR_GREED_URL", "https://api.alternative.me/fng/")
+FEAR_GREED_UPDATE_INTERVAL_SECONDS = int(os.getenv("FEAR_GREED_UPDATE_INTERVAL_SECONDS", "43200"))  # 12 hours
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Smart Money Tracking
