@@ -1028,8 +1028,9 @@ class GemScanner:
             holder_score = 10
 
         # ── DexScreener boost score (4%)
+        boost_score = 50
         if is_boosted:
-            boost_amount = getattr(token, "boost_amount", 0)
+            boost_amount = getattr(token, "boost_amount", 0) or 0
             if boost_amount >= 500:
                 boost_score = 100
             elif boost_amount >= 200:
@@ -1038,8 +1039,6 @@ class GemScanner:
                 boost_score = 60
             elif boost_amount > 0:
                 boost_score = 40
-        else:
-            boost_score = 50
 
         # ── Calculate local pre_score (60% weight total scaled to 100)
         pre_score = (
