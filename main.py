@@ -2584,9 +2584,9 @@ async def run_bot_loop():
                 _all_positions = load_positions()
                 _open_pos  = [p for p in _all_positions if p.get("status") == "open"]
                 _closed_pos = [p for p in _all_positions if p.get("status") == "closed"]
-                _wins   = [p for p in _closed_pos if float(p.get("pnl_usd", 0)) > 0]
-                _losses = [p for p in _closed_pos if float(p.get("pnl_usd", 0)) <= 0]
-                _total_realized = sum(float(p.get("pnl_usd", 0)) for p in _closed_pos)
+                _wins   = [p for p in _closed_pos if float(p.get("realized_pnl_usd", p.get("pnl_usd", 0))) > 0]
+                _losses = [p for p in _closed_pos if float(p.get("realized_pnl_usd", p.get("pnl_usd", 0))) <= 0]
+                _total_realized = sum(float(p.get("realized_pnl_usd", p.get("pnl_usd", 0))) for p in _closed_pos)
                 _win_rate = (len(_wins) / len(_closed_pos) * 100) if _closed_pos else 0.0
                 _os = get_offensive_state()
 
