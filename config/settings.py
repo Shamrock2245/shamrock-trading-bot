@@ -192,7 +192,7 @@ COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_S
 COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "45"))
 
 # Moralis Streams webhook ingestion (push-based low-latency detection)
-MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "false").lower() == "true"
+MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "true").lower() == "true"
 MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
 MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
 MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
@@ -204,11 +204,11 @@ MORALIS_STREAMS_AUTO_SYNC = os.getenv("MORALIS_STREAMS_AUTO_SYNC", "true").lower
 MORALIS_STREAMS_HEALTH_INTERVAL = int(os.getenv("MORALIS_STREAMS_HEALTH_INTERVAL", "300"))  # 5 min
 
 # Whale detection stream — requires Moralis Business plan (allAddresses=true)
-MORALIS_STREAMS_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "false").lower() == "true"
+MORALIS_STREAMS_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "true").lower() == "true"
 MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD", "50000"))  # $50K+ transfers
 
 # Liquidity event stream — monitors DEX factory contracts for new pools
-MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "false").lower() == "true"
+MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "true").lower() == "true"
 
 # Solana Zero-Latency Discovery Stream — monitors Pump.fun & Raydium
 MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED = os.getenv("MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED", "true").lower() == "true"
@@ -217,6 +217,10 @@ RAYDIUM_AMM_PROGRAM_ID = os.getenv("RAYDIUM_AMM_PROGRAM_ID", "675kPX9MHTjS2zt1qf
 
 # Hybrid mode — when streams are active, extend poll interval as fallback
 MORALIS_STREAMS_FALLBACK_POLL_INTERVAL = int(os.getenv("MORALIS_STREAMS_FALLBACK_POLL_INTERVAL", "120"))  # 2 min
+
+# Solana alpha wallet copy-trade stream
+MORALIS_STREAMS_SOLANA_ALPHA_ENABLED = os.getenv("MORALIS_STREAMS_SOLANA_ALPHA_ENABLED", "true").lower() == "true"
+SOLANA_SMART_MONEY_WALLETS = [w.strip() for w in os.getenv("SOLANA_SMART_MONEY_WALLETS", "").split(",") if w.strip()]
 # Solana alpha wallets — verified Pump.fun/Raydium snipers (seeded 2026-04-04)
 # .env ALPHA_WALLETS_SOLANA always takes priority over this hardcoded seed.
 ALPHA_WALLETS_SOLANA: list[str] = list(dict.fromkeys([
@@ -261,7 +265,7 @@ MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
 # Express lane: skip full TA pipeline and execute immediately if score >= this
-EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "72.0"))  # TUNED: 82→72 — more gems bypass TA gate; critical for paper trading volume
+EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "78.0"))  # TUNED: 72→78 — restore meaningful TA filter gap (MIN_GEM_SCORE=68, need 10pt gap)
 
 # Volume spike threshold for breakout detection (multiplier vs 24h average)
 VOLUME_SPIKE_THRESHOLD = float(os.getenv("VOLUME_SPIKE_THRESHOLD", "5.0"))
@@ -486,7 +490,7 @@ MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25
 # ── 10. Absolute Position Cap ─────────────────────────────────────────────────
 # Hard cap on any single trade after all offensive multipliers are applied.
 # Prevents runaway sizing even on a 6-win streak in God Mode.
-OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "5000.0"))
+OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "1000.0"))  # Default to Seed phase cap — compounder scales UP
 # Auto-scaling cap: max % of wallet balance per trade (overrides fixed USD cap when wallet grows)
 # e.g., 30% of a $20K wallet = $6K max position — grows with the wallet
 OFFENSIVE_MAX_POSITION_WALLET_PCT = float(os.getenv("OFFENSIVE_MAX_POSITION_WALLET_PCT", "30.0"))

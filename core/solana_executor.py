@@ -637,3 +637,132 @@ def execute_solana_sell(
         logger.error(f"❌ Solana sell failed for {token_mint}")
 
     return signature
+
+
+def execute_solana_transfer(
+    amount_sol: float,
+    to_address: str,
+    from_private_key_env: str,
+    is_paper: bool = True,
+) -> Optional[str]:
+    """
+    Transfer native SOL between wallets (e.g. nuclear → primary for compounding).
+
+    Unlike execute_solana_buy/sell which route through Jupiter, this is a direct
+    System Program transfer — minimal fees (~5000 lamports / $0.001).
+
+    Args:
+        amount_sol: Amount of SOL to transfer
+        to_address: Recipient wallet public key (base58)
+        from_private_key_env: Name of env var holding sender's private key
+        is_paper: If True, simulate but don't broadcast
+
+    Returns:
+        Transaction signature on success, "PAPER_TX" in paper mode, None on failure
+    """
+    lamports = int(amount_sol * 1_000_000_000)
+
+    logger.info(
+        f"{'📄 PAPER' if is_paper else '🔴 LIVE'} SOL Transfer: "
+        f"{amount_sol:.6f} SOL → {to_address[:8]}..."
+    )
+
+    if is_paper:
+        logger.info(f"📄 PAPER MODE: Simulated transfer of {amount_sol:.6f} SOL to {to_address[:8]}...")
+        return "PAPER_TX"
+
+    private_key = os.getenv(from_private_key_env)
+    if not private_key:
+        logger.error(f"Private key not found in env var: {from_private_key_env}")
+        return None
+
+    try:
+        from solders.keypair import Keypair  # type: ignore
+        from solders.pubkey import Pubkey  # type: ignore
+        from solders.system_program import transfer, TransferParams  # type: ignore
+        from solders.transaction import Transaction  # type: ignore
+        from solders.message import Message  # type: ignore
+        from solders.hash import Hash  # type: ignore
+        import base58 as _base58
+
+        # Load keypair
+        pk_bytes = _base58.b58decode(private_key)
+        keypair = Keypair.from_bytes(pk_bytes)
+        sender = keypair.pubkey()
+        receiver = Pubkey.from_string(to_address)
+
+        logger.debug(f"Transfer: {sender} → {receiver} ({lamports} lamports)")
+
+        # Fetch recent blockhash from RPC
+        blockhash_resp = get_session().post(
+            SOLANA_RPC_URL,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLatestBlockhash",
+                "params": [{"commitment": "confirmed"}],
+            },
+            timeout=10,
+        )
+        bh_data = blockhash_resp.json()
+        blockhash_str = bh_data["result"]["value"]["blockhash"]
+        recent_blockhash = Hash.from_string(blockhash_str)
+
+        # Build transfer instruction
+        ix = transfer(TransferParams(
+            from_pubkey=sender,
+            to_pubkey=receiver,
+            lamports=lamports,
+        ))
+
+        # Build and sign legacy transaction
+        msg = Message.new_with_blockhash([ix], sender, recent_blockhash)
+        tx = Transaction.new_unsigned(msg)
+        tx.sign([keypair], recent_blockhash)
+
+        # Serialize and send
+        tx_bytes = bytes(tx)
+        tx_b64 = base64.b64encode(tx_bytes).decode("utf-8")
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                tx_b64,
+                {
+                    "encoding": "base64",
+                    "skipPreflight": False,
+                    "preflightCommitment": "confirmed",
+                },
+            ],
+        }
+
+        resp = get_session().post(SOLANA_RPC_URL, json=payload, timeout=15)
+        result = resp.json()
+
+        if "error" in result:
+            logger.error(f"SOL transfer RPC error: {result['error']}")
+            return None
+
+        signature = result.get("result")
+        if signature:
+            confirmed = _poll_tx_confirmation(signature, SOLANA_RPC_URL, timeout=30)
+            if confirmed:
+                logger.info(f"✅ SOL transfer confirmed: https://solscan.io/tx/{signature}")
+            else:
+                logger.warning(f"⚠️ SOL transfer broadcast but unconfirmed: {signature}")
+            return signature
+
+        logger.error(f"SOL transfer: no signature returned: {result}")
+        return None
+
+    except ImportError:
+        logger.error(
+            "solders/base58 packages not installed for SOL transfer. "
+            "Run: pip install solders solana base58"
+        )
+        return None
+    except Exception as e:
+        logger.error(f"SOL transfer failed: {e}", exc_info=True)
+        return None

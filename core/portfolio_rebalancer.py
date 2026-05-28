@@ -56,10 +56,11 @@ GAS_RESERVE_PCT = float(os.getenv("GAS_RESERVE_PCT", "0.10"))  # Keep 10% native
 # Scoring weights
 WEIGHTS = {
     "liquidity": 0.25,
-    "volume_ratio": 0.20,
-    "momentum": 0.15,
-    "fib_support": 0.20,
+    "volume_ratio": 0.15,
+    "momentum": 0.10,
+    "fib_support": 0.15,
     "safety": 0.20,
+    "analytics_pressure": 0.15,  # Moralis buyer/seller dynamics (netBuyers, buyPressure)
 }
 
 # Known stablecoins / wrapped natives to never sell
@@ -87,6 +88,7 @@ class HoldingScore:
     momentum_score: float = 0.0
     fib_support_score: float = 50.0  # Neutral default
     safety_score: float = 50.0       # Neutral default
+    analytics_pressure_score: float = 50.0  # Moralis buyer/seller dynamics
     # Composite
     total_score: float = 0.0
     # Action
@@ -309,7 +311,47 @@ def compute_holding_score(holding: HoldingScore) -> float:
         + holding.momentum_score * WEIGHTS["momentum"]
         + holding.fib_support_score * WEIGHTS["fib_support"]
         + holding.safety_score * WEIGHTS["safety"]
+        + holding.analytics_pressure_score * WEIGHTS["analytics_pressure"]
     )
+
+
+def score_analytics_pressure(token_address: str, chain: str) -> float:
+    """Score a token based on Moralis buyer/seller analytics (0-100).
+
+    Uses netBuyers and buyPressureRatio from get_token_analytics.
+    - Net sellers dominating → score toward 0 (LIQUIDATE signal)
+    - Net buyers strong → score toward 100 (KEEP signal)
+    - Neutral → 50
+
+    This catches dump signals that liquidity/volume alone miss:
+    a token can have $500K liquidity and $2M volume but if 80% of
+    trades are sells, it's dumping hard.
+    """
+    try:
+        from data.providers.moralis_money import get_token_analytics
+        analytics = get_token_analytics(token_address, chain)
+        if not analytics:
+            return 50.0  # Neutral if no data
+
+        # Extract key metrics
+        net_buyers_1h = analytics.get("net_buyers_1h", 0)
+        buy_pressure = analytics.get("buy_pressure_ratio_1h", 0.5)
+
+        # Net buyers component (0-100)
+        # Range: -50 to +50 → mapped to 0-100
+        net_buyer_score = max(0, min(100, 50 + (net_buyers_1h * 2)))
+
+        # Buy pressure component (0-100)
+        # Range: 0.0 to 1.0 → mapped to 0-100
+        pressure_score = max(0, min(100, buy_pressure * 100))
+
+        # Weighted blend (60% pressure, 40% net count)
+        composite = pressure_score * 0.6 + net_buyer_score * 0.4
+
+        return max(0.0, min(100.0, composite))
+
+    except Exception:
+        return 50.0  # Neutral on error
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -451,8 +493,9 @@ def generate_rebalance_plan(
                 holding.action = "LIQUIDATE"
                 holding.reason = f"Score {holding.total_score:.0f} — dead token"
         elif holding.total_score < 40:
-            # Borderline — run safety check
+            # Borderline — run safety check + analytics
             holding.safety_score = score_safety_quick(address, chain)
+            holding.analytics_pressure_score = score_analytics_pressure(address, chain)
             holding.total_score = compute_holding_score(holding)
             if value_usd < MIN_LIQUIDATION_VALUE_USD * 2:
                 holding.action = "DUST"
@@ -461,9 +504,15 @@ def generate_rebalance_plan(
                 holding.action = "LIQUIDATE"
                 holding.reason = f"Score {holding.total_score:.0f} — underperforming"
         elif holding.total_score < 60:
+            # HOLD range — check analytics for dump signals
+            holding.analytics_pressure_score = score_analytics_pressure(address, chain)
+            holding.total_score = compute_holding_score(holding)
             holding.action = "HOLD"
             holding.reason = f"Score {holding.total_score:.0f} — monitoring"
         else:
+            # Strong — still check analytics to catch reversals
+            holding.analytics_pressure_score = score_analytics_pressure(address, chain)
+            holding.total_score = compute_holding_score(holding)
             holding.action = "KEEP"
             holding.reason = f"Score {holding.total_score:.0f} — strong position"
 

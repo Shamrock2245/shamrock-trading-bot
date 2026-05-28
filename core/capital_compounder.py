@@ -164,6 +164,7 @@ class CompoundState:
     daily_trades: int = 0
     daily_wins: int = 0
     consecutive_wins: int = 0
+    last_win_timestamps: list = field(default_factory=list)  # Rolling 12h window for God Mode
     paycheck_accumulator_usd: float = 0.0
 
     # Sweep log
@@ -199,7 +200,13 @@ def load_compound_state() -> CompoundState:
                 state.daily_sweeps_usd = 0.0
                 state.daily_trades = 0
                 state.daily_wins = 0
-                state.consecutive_wins = 0
+                # DON'T reset consecutive_wins at midnight — use rolling 12h window
+                now_ts = datetime.now(timezone.utc).timestamp()
+                state.last_win_timestamps = [
+                    ts for ts in getattr(state, 'last_win_timestamps', [])
+                    if now_ts - ts < 43200  # 12 hours
+                ]
+                state.consecutive_wins = len(state.last_win_timestamps)
             return state
         except Exception as e:
             logger.warning(f"CompoundState: Could not load state: {e}")
@@ -411,15 +418,27 @@ def record_trade_pnl(
         state.daily_sweeps_usd = 0.0
         state.daily_trades = 0
         state.daily_wins = 0
-        state.consecutive_wins = 0
+        # Rolling window prune (same as load_compound_state)
+        now_ts = datetime.now(timezone.utc).timestamp()
+        state.last_win_timestamps = [
+            ts for ts in getattr(state, 'last_win_timestamps', [])
+            if now_ts - ts < 43200
+        ]
+        state.consecutive_wins = len(state.last_win_timestamps)
 
     state.daily_pnl_usd += pnl_usd
     state.daily_trades += 1
+    now_ts = datetime.now(timezone.utc).timestamp()
     if pnl_usd > 0:
         state.daily_wins += 1
-        state.consecutive_wins += 1
+        # Rolling window: add timestamp, prune old ones
+        win_ts = getattr(state, 'last_win_timestamps', [])
+        win_ts.append(now_ts)
+        state.last_win_timestamps = [ts for ts in win_ts if now_ts - ts < 43200]  # 12h
+        state.consecutive_wins = len(state.last_win_timestamps)
     else:
         state.consecutive_wins = 0
+        state.last_win_timestamps = []  # Loss breaks the streak
 
     # Calculate sweep
     sweep_amount = calculate_sweep_amount(state, pnl_usd)

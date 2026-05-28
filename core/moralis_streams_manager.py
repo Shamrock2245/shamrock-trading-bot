@@ -35,6 +35,7 @@ TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
 TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
+TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
 
 # Uniswap V2 Router / Factory event signatures
 PAIR_CREATED_TOPIC = "PairCreated(address,address,address,uint256)"
@@ -148,6 +149,10 @@ class MoralisStreamsManager:
         if settings.MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED:
             self._ensure_solana_discovery_stream()
 
+        # 4.6. Optional: Solana alpha wallet copy-trade stream
+        if settings.MORALIS_STREAMS_SOLANA_ALPHA_ENABLED:
+            self._ensure_solana_alpha_wallet_stream()
+
         # 5. Start health check loop
         if settings.MORALIS_STREAMS_AUTO_SYNC:
             self._running = True
@@ -231,6 +236,22 @@ class MoralisStreamsManager:
                     "includeNativeTxs": True,
                 }
             ],
+            # Triggers: enrich webhook with receiver's post-transfer token balance
+            # This eliminates a separate API call per event — data arrives in the webhook
+            "triggers": [{
+                "type": "erc20transfer",
+                "contractAddress": "$contract",
+                "functionAbi": [{
+                    "constant": True,
+                    "inputs": [{"name": "account", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
+                    "type": "function",
+                }],
+                "inputs": [["$to"]],
+                "outputName": "receiverBalance",
+                "callFrom": "0x0000000000000000000000000000000000000000",
+            }],
         }
 
         stream_id = self._create_stream(body)
@@ -393,6 +414,8 @@ class MoralisStreamsManager:
             self._ensure_liquidity_stream()
         elif tag == TAG_SOLANA_DISCOVERY:
             self._ensure_solana_discovery_stream()
+        elif tag == TAG_SOLANA_ALPHA_WALLETS:
+            self._ensure_solana_alpha_wallet_stream()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Moralis API Calls
@@ -512,6 +535,49 @@ class MoralisStreamsManager:
         for s in streams:
             tag = s.get("tag", "")
             sid = s.get("id", "")
-            if tag in (TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY, TAG_SOLANA_DISCOVERY) and sid:
+            if tag in (TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY, TAG_SOLANA_DISCOVERY, TAG_SOLANA_ALPHA_WALLETS) and sid:
                 self._managed_streams[tag] = sid
                 logger.info(f"MoralisStreamsManager: Discovered existing stream {tag} → {sid} (status={s.get('status')})")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Solana Alpha Wallet Stream (copy-trading on Solana)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _ensure_solana_alpha_wallet_stream(self) -> None:
+        """Create or verify the Solana alpha wallet SPL transfer monitoring stream."""
+        if TAG_SOLANA_ALPHA_WALLETS in self._managed_streams:
+            logger.info(f"MoralisStreamsManager: Solana alpha wallet stream already exists: {self._managed_streams[TAG_SOLANA_ALPHA_WALLETS]}")
+            self._sync_solana_alpha_wallets()
+            return
+
+        webhook = f"{self.webhook_url}/moralis/streams"
+        addresses = list(settings.SOLANA_SMART_MONEY_WALLETS) if settings.SOLANA_SMART_MONEY_WALLETS else []
+
+        body = {
+            "webhookUrl": webhook,
+            "description": "Shamrock Trading Bot — Solana Alpha Wallet SPL Transfer Monitor",
+            "tag": TAG_SOLANA_ALPHA_WALLETS,
+            "network": ["mainnet"],
+            "address": addresses,
+        }
+
+        stream_id = self._create_stream(body, network="solana")
+        if stream_id:
+            self._managed_streams[TAG_SOLANA_ALPHA_WALLETS] = stream_id
+            logger.info(f"MoralisStreamsManager: ✅ Solana alpha wallet stream created: {stream_id}")
+
+    def _sync_solana_alpha_wallets(self) -> None:
+        """Push current SOLANA_SMART_MONEY_WALLETS to the Solana alpha stream."""
+        wallets = settings.SOLANA_SMART_MONEY_WALLETS
+        if wallets:
+            self.sync_solana_alpha_wallets(wallets)
+
+    def sync_solana_alpha_wallets(self, wallets: list[str]) -> None:
+        """Replace the address list on the Solana alpha wallet stream."""
+        stream_id = self._managed_streams.get(TAG_SOLANA_ALPHA_WALLETS)
+        if not stream_id:
+            logger.warning("MoralisStreamsManager: No Solana alpha wallet stream to sync")
+            return
+        self._replace_addresses(stream_id, wallets, network="solana")
+        self.metrics["addresses_synced"] += len(wallets)
+        logger.info(f"MoralisStreamsManager: Synced {len(wallets)} Solana alpha wallets")

@@ -30,6 +30,7 @@ TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
 TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
+TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
 
 
 class MoralisStreamsServer:
@@ -51,6 +52,7 @@ class MoralisStreamsServer:
         on_whale_event: Optional[Callable[[dict], None]] = None,
         on_liquidity_event: Optional[Callable[[dict], None]] = None,
         on_solana_discovery_event: Optional[Callable[[str], None]] = None,
+        on_solana_alpha_event: Optional[Callable[[str, dict], None]] = None,
     ):
         self.host = host
         self.port = port
@@ -59,6 +61,7 @@ class MoralisStreamsServer:
         self.on_whale_event = on_whale_event
         self.on_liquidity_event = on_liquidity_event
         self.on_solana_discovery_event = on_solana_discovery_event
+        self.on_solana_alpha_event = on_solana_alpha_event
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -272,6 +275,8 @@ class MoralisStreamsServer:
                             processed = _handle_liquidity_event(parent, payload)
                         elif tag == TAG_SOLANA_DISCOVERY:
                             processed = _handle_solana_discovery_event(parent, payload)
+                        elif tag == TAG_SOLANA_ALPHA_WALLETS:
+                            processed = _handle_solana_alpha_wallet_event(parent, payload)
                         else:
                             logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
                             processed = _handle_alpha_wallet_event(parent, payload)
@@ -500,6 +505,15 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
             "stream_tag": TAG_ALPHA_WALLETS,
         }
 
+        # Extract trigger-enriched receiver balance (if available via Streams Triggers)
+        # This eliminates a separate balanceOf API call — data arrives directly in the webhook
+        trigger_balance = ev.get("triggers", {}).get("receiverBalance", {}).get("value")
+        if trigger_balance is not None:
+            try:
+                swap["receiver_token_balance"] = int(trigger_balance) / (10 ** int(ev.get("tokenDecimals", 18)))
+            except (ValueError, TypeError):
+                pass
+
         try:
             server.on_swap_event(wallet, swap)
             processed += 1
@@ -678,6 +692,97 @@ def _handle_solana_discovery_event(server: MoralisStreamsServer, payload: dict) 
 
     if processed:
         logger.info(f"MoralisStreams: 🚀 {processed} new Solana tokens discovered via webhook")
+
+    return processed
+
+
+def _handle_solana_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> int:
+    """Process Solana alpha wallet SPL token transfers for copy-trading.
+
+    Uses pre/post token balance deltas to detect buys vs sells.
+    Only forwards buys to the gem evaluation pipeline.
+    """
+    if not server.on_solana_alpha_event:
+        return 0
+
+    transfers = payload.get("tokenTransfers", []) or []
+    slot = payload.get("slot") or payload.get("block", {}).get("number", "")
+    block_ts = payload.get("blockTimestamp") or payload.get("block", {}).get("timestamp", "")
+
+    # Use pre/post token balances for accurate delta calculation
+    pre_balances = {}
+    for b in (payload.get("preTokenBalances") or []):
+        key = (b.get("owner", ""), b.get("mint", ""))
+        try:
+            pre_balances[key] = float(b.get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+
+    post_balances = {}
+    for b in (payload.get("postTokenBalances") or []):
+        key = (b.get("owner", ""), b.get("mint", ""))
+        try:
+            post_balances[key] = float(b.get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+
+    processed = 0
+    seen_mints = set()
+
+    for ev in transfers:
+        mint = ev.get("mint") or ev.get("tokenMint") or ""
+        if not mint or mint in ("So11111111111111111111111111111111111111112", "11111111111111111111111111111111"):
+            continue
+
+        to_addr = ev.get("destination") or ev.get("to") or ""
+        from_addr = ev.get("source") or ev.get("from") or ""
+
+        # Determine which of our tracked wallets triggered this
+        triggered_by = ev.get("triggered_by") or []
+        wallet = triggered_by[0] if triggered_by else (to_addr or from_addr)
+
+        if not wallet:
+            continue
+
+        # Deduplicate by mint per webhook
+        dedup_key = f"{wallet}:{mint}"
+        if dedup_key in seen_mints:
+            continue
+        seen_mints.add(dedup_key)
+
+        # Calculate delta from pre/post balances
+        pre_amount = pre_balances.get((wallet, mint), 0)
+        post_amount = post_balances.get((wallet, mint), 0)
+        delta = post_amount - pre_amount
+
+        # Positive delta = buy, negative = sell — only forward buys
+        if delta <= 0:
+            continue
+
+        swap = {
+            "tx_hash": ev.get("transactionHash") or ev.get("signature") or "",
+            "token_address": mint,
+            "token_symbol": ev.get("tokenSymbol") or ev.get("symbol") or "UNKNOWN",
+            "token_name": ev.get("tokenName") or "",
+            "value_with_decimals": abs(delta),
+            "is_buy": True,
+            "pre_balance": pre_amount,
+            "post_balance": post_amount,
+            "timestamp": block_ts,
+            "chain": "solana",
+            "seen_via": "moralis_streams",
+            "stream_tag": TAG_SOLANA_ALPHA_WALLETS,
+        }
+
+        try:
+            server.on_solana_alpha_event(wallet, swap)
+            processed += 1
+        except Exception as e:
+            logger.error(f"MoralisStreams: Error processing Solana alpha swap for {mint[:8]}: {e}")
+            server.metrics["errors"] += 1
+
+    if processed:
+        logger.info(f"MoralisStreams: 🎯 {processed} Solana alpha wallet buy(s) detected (slot={slot})")
 
     return processed
 

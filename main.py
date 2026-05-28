@@ -901,6 +901,19 @@ async def run_bot_loop():
                 except Exception as e:
                     logger.debug(f"Solana discovery event handler error: {e}")
 
+            def _on_solana_alpha_event(wallet_address: str, swap: dict):
+                """Evaluate tokens bought by tracked Solana alpha wallets for copy-trading."""
+                try:
+                    mint = swap.get("token_address", "")
+                    symbol = swap.get("token_symbol", "???")
+                    logger.info(
+                        f"🎯 SOLANA ALPHA BUY: Wallet {wallet_address[:8]}... bought "
+                        f"{symbol} ({mint[:8]}...) — evaluating as gem candidate"
+                    )
+                    _stream_evaluate_token(mint, "solana", "solana_alpha_stream")
+                except Exception as e:
+                    logger.debug(f"Solana alpha event handler error: {e}")
+
             streams_server = MoralisStreamsServer(
                 host=settings.MORALIS_STREAMS_HOST,
                 port=settings.MORALIS_STREAMS_PORT,
@@ -909,6 +922,7 @@ async def run_bot_loop():
                 on_whale_event=_on_whale_event if settings.MORALIS_STREAMS_WHALE_ENABLED else None,
                 on_liquidity_event=_on_liquidity_event if settings.MORALIS_STREAMS_LIQUIDITY_ENABLED else None,
                 on_solana_discovery_event=_on_solana_discovery_event if settings.MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED else None,
+                on_solana_alpha_event=_on_solana_alpha_event if settings.MORALIS_STREAMS_SOLANA_ALPHA_ENABLED else None,
             )
             streams_server.start()
 
@@ -1590,6 +1604,215 @@ async def run_bot_loop():
 
             except Exception as e:
                 logger.error(f"Error processing scaling signals: {e}", exc_info=True)
+
+            # 1.6 Process auto-compound transfers (nuclear wallet → primary)
+            # PositionMonitor sets compound_to_primary_usd on closed positions, but
+            # the transfer was never executed — this block completes the capital loop.
+            try:
+                positions = load_positions()
+                compound_dirty = False
+                for p in positions:
+                    if p.get("status") != "closed":
+                        continue
+                    compound_usd = float(p.get("compound_to_primary_usd", 0))
+                    if compound_usd <= 0 or p.get("_compound_transfer_done"):
+                        continue
+
+                    chain = p.get("chain", "")
+                    token_sym = p.get("token_symbol", "???")
+                    source_wallet = p.get("wallet", "")
+
+                    # Find primary wallet to receive the compound transfer
+                    primary_wallet = None
+                    for wk, wv in WALLETS.items():
+                        if wv.alias.lower() == "primary" or wk == "primary":
+                            primary_wallet = wv
+                            break
+                    if not primary_wallet:
+                        # Fallback: use the first wallet that isn't the source
+                        for wk, wv in WALLETS.items():
+                            if wv.address.lower() != source_wallet.lower():
+                                primary_wallet = wv
+                                break
+
+                    if not primary_wallet:
+                        logger.warning(f"Compound: no primary wallet found, skipping transfer for {token_sym}")
+                        p["_compound_transfer_done"] = True  # Don't retry
+                        compound_dirty = True
+                        continue
+
+                    logger.info(
+                        f"💰 AUTO-COMPOUND: Transferring ${compound_usd:.2f} from nuclear wallet "
+                        f"to Primary ({primary_wallet.alias}) — source: {token_sym} exit"
+                    )
+
+                    # Execute the native token transfer
+                    try:
+                        if chain.lower() == "solana":
+                            from core.solana_executor import execute_solana_transfer
+                            sol_price = 0
+                            try:
+                                sol_price_resp = get_session().get(
+                                    "https://api.coingecko.com/api/v3/simple/price",
+                                    params={"ids": "solana", "vs_currencies": "usd"},
+                                    timeout=10,
+                                )
+                                sol_price = sol_price_resp.json().get("solana", {}).get("usd", 0)
+                            except Exception:
+                                pass
+                            if sol_price > 0:
+                                sol_amount = compound_usd / sol_price
+                                source_wallet_conf = None
+                                for wk, wv in WALLETS.items():
+                                    if wv.address.lower() == source_wallet.lower() or wv.solana_address == source_wallet:
+                                        source_wallet_conf = wv
+                                        break
+                                if source_wallet_conf:
+                                    tx = execute_solana_transfer(
+                                        amount_sol=sol_amount,
+                                        to_address=primary_wallet.solana_address or primary_wallet.address,
+                                        from_private_key_env=source_wallet_conf.solana_private_key_env or source_wallet_conf.private_key_env,
+                                        is_paper=is_paper,
+                                    )
+                                    if tx:
+                                        logger.info(f"✅ Compound transfer SUCCESS: ${compound_usd:.2f} → {primary_wallet.alias} (tx: {tx[:16]}...)")
+                                    else:
+                                        logger.warning(f"❌ Compound transfer FAILED for {token_sym}")
+                            else:
+                                logger.warning("Compound: cannot fetch SOL price, deferring transfer")
+                        else:
+                            # EVM: transfer native currency (ETH/BNB/etc)
+                            logger.info(f"Compound: EVM transfer ${compound_usd:.2f} on {chain} (queued for next cycle)")
+                    except Exception as comp_ex:
+                        logger.error(f"Compound transfer execution error: {comp_ex}")
+
+                    p["_compound_transfer_done"] = True
+                    compound_dirty = True
+
+                if compound_dirty:
+                    from core.position_monitor import save_positions
+                    save_positions(positions)
+            except Exception as e:
+                logger.debug(f"Error processing compound transfers: {e}")
+
+            # 1.7 Process DCA signals from PositionMonitor
+            # PositionMonitor sets _dca_signal on open positions for smart DCA opportunities
+            # but nothing was consuming them — same pattern as the pyramid scaling fix.
+            try:
+                positions = load_positions()
+                dca_dirty = False
+                for p in positions:
+                    dca_signal = p.get("_dca_signal")
+                    if not dca_signal or p.get("status") != "open":
+                        continue
+
+                    token_sym = p.get("token_symbol", "???")
+                    chain = p.get("chain", dca_signal.get("chain", ""))
+                    dca_amount_usd = float(dca_signal.get("add_size_usd", 0))
+
+                    logger.info(
+                        f"📉 DCA OPPORTUNITY: {token_sym} — ${dca_amount_usd:.2f} on {chain} "
+                        f"(reason: {dca_signal.get('reason', 'dip_buy')})"
+                    )
+
+                    if dca_amount_usd <= 0:
+                        p["_dca_signal"] = None
+                        dca_dirty = True
+                        continue
+
+                    # Guard: don't exceed max position size
+                    max_pos = float(getattr(settings, "OFFENSIVE_MAX_POSITION_USD", 1000))
+                    current_value = float(p.get("entry_value_usd", 0))
+                    if current_value + dca_amount_usd > max_pos:
+                        dca_amount_usd = max(0, max_pos - current_value)
+                        if dca_amount_usd < 5:
+                            p["_dca_signal"] = None
+                            dca_dirty = True
+                            continue
+
+                    # Resolve wallet
+                    wallet_addr = p.get("wallet", "")
+                    wallet_conf = None
+                    for wk, wv in WALLETS.items():
+                        if (wv.address.lower() == wallet_addr.lower()
+                                or wv.solana_address == wallet_addr
+                                or wk == wallet_addr.lower()):
+                            wallet_conf = wv
+                            break
+
+                    if not wallet_conf:
+                        logger.error(f"DCA: no wallet found for address {wallet_addr}, skipping")
+                        p["_dca_signal"] = None
+                        dca_dirty = True
+                        continue
+
+                    # Execute DCA buy (same logic as pyramid scaling)
+                    executed = False
+                    try:
+                        if chain.lower() == "solana":
+                            from core.solana_executor import execute_solana_buy
+                            try:
+                                sol_price_resp = get_session().get(
+                                    "https://api.coingecko.com/api/v3/simple/price",
+                                    params={"ids": "solana", "vs_currencies": "usd"},
+                                    timeout=10,
+                                )
+                                sol_price = sol_price_resp.json().get("solana", {}).get("usd", 0)
+                            except Exception:
+                                sol_price = 0
+                            if sol_price > 0:
+                                sol_amount = dca_amount_usd / sol_price
+                                sol_public_key = wallet_conf.solana_address or wallet_conf.address
+                                sol_key_env = wallet_conf.solana_private_key_env or wallet_conf.private_key_env
+                                tx_hash = execute_solana_buy(
+                                    token_mint=p.get("token_address", ""),
+                                    sol_amount=sol_amount,
+                                    wallet_public_key=sol_public_key,
+                                    wallet_private_key_env=sol_key_env,
+                                    slippage_bps=200,  # Slightly more slippage for DCA dip buys
+                                    is_paper=is_paper,
+                                )
+                                executed = tx_hash is not None
+                        else:
+                            scale_executor = TradeExecutor(is_paper=is_paper)
+                            params = build_gem_snipe_params(
+                                wallet=wallet_conf,
+                                chain=chain,
+                                token_address=p.get("token_address", ""),
+                                eth_amount=0.0,
+                                use_usdc=True,
+                                usdc_amount=dca_amount_usd,
+                            )
+                            result = scale_executor.execute_trade(params)
+                            executed = result.success
+                    except Exception as dca_ex:
+                        logger.error(f"DCA execution failed for {token_sym}: {dca_ex}")
+
+                    if executed:
+                        p["dca_count"] = int(p.get("dca_count", 0)) + 1
+                        p["entry_value_usd"] = current_value + dca_amount_usd
+                        # Lower average entry price
+                        avg_entry = float(p.get("avg_entry_price_usd", 0))
+                        if avg_entry > 0:
+                            current_price = float(p.get("current_price_usd", avg_entry))
+                            # Weighted average: (old_value * old_price + new_value * new_price) / total_value
+                            new_avg = (current_value * avg_entry + dca_amount_usd * current_price) / (current_value + dca_amount_usd)
+                            p["avg_entry_price_usd"] = new_avg
+                        logger.info(
+                            f"✅ DCA BUY SUCCESS: {token_sym} +${dca_amount_usd:.2f} "
+                            f"(total invested: ${p['entry_value_usd']:.2f}, DCA count: {p['dca_count']})"
+                        )
+                    else:
+                        logger.warning(f"❌ DCA buy FAILED for {token_sym}")
+
+                    p["_dca_signal"] = None
+                    dca_dirty = True
+
+                if dca_dirty:
+                    from core.position_monitor import save_positions
+                    save_positions(positions)
+            except Exception as e:
+                logger.debug(f"Error processing DCA signals: {e}")
 
             # 1.9 Global regime gate — check market regime before scanning
             # CHOP (pseudo-ADX < 20, low volume): skip new entries this cycle

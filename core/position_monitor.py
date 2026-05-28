@@ -1423,6 +1423,34 @@ class PositionMonitor:
                 if entry_price > 0:
                     pos["unrealized_pnl_pct"] = ((current_price - entry_price) / entry_price) * 100
 
+                # ── Analytics Trail Override: tight trail active but buyers turned bearish → sell NOW ──
+                # When analytics delayed TP1 (strong buyers), an 8% tight trail activates.
+                # But if buyers subsequently leave (netBuyers goes negative), the trail stays
+                # and the position rides down. This check force-sells to protect gains.
+                _analytics_reversal_sell = None
+                if pos.get("analytics_tight_trail_active"):
+                    net_buyers_1h = pos.get("moralis_net_buyers_1h", 0)
+                    if net_buyers_1h < 0:
+                        unrealized_pnl = float(pos.get("unrealized_pnl_pct", 0))
+                        if unrealized_pnl > 0:  # Only force-sell if still in profit
+                            logger.info(
+                                f"⚠️ ANALYTICS TRAIL OVERRIDE: {pos.get('token_symbol')} — "
+                                f"netBuyers turned negative ({net_buyers_1h}) while tight trail active | "
+                                f"PnL={unrealized_pnl:+.1f}% — force-selling to protect gains"
+                            )
+                            _analytics_reversal_sell = {
+                                "action": "sell",
+                                "percentage": 100,
+                                "reason": "analytics_reversal_exit",
+                                "details": f"Tight trail active but netBuyers_1h={net_buyers_1h} (bearish reversal)",
+                            }
+
+                if _analytics_reversal_sell:
+                    pos = execute_sell(pos, _analytics_reversal_sell, current_price, self.is_paper)
+                    sells_triggered += 1
+                    updated_positions.append(pos)
+                    continue
+
                 # ── Load offensive state for this cycle ─────────────────────────────────────────
                 offensive_state = get_offensive_state()
 
@@ -1702,53 +1730,118 @@ def register_position(
 
 def reconcile_onchain_positions(wallet_address: str, chain: str = "solana") -> None:
     """
-    Fetch on-chain swap history and compare against local positions.json.
+    Fetch on-chain balances/swap history and compare against local positions.json.
     Flags mismatches (e.g., bot thinks position is open but it was sold manually,
-    or bot missed a buy transaction).
+    or bot missed a buy transaction). Supports both Solana and EVM chains.
     """
-    if chain != "solana":
-        logger.debug(f"Reconciliation currently only supports Solana. Skipped {chain}.")
-        return
-        
     try:
-        from data.providers.moralis_solana import get_wallet_swaps
-        swaps = get_wallet_swaps(wallet_address, limit=50)
-        if not swaps:
-            return
-            
         local_positions = load_positions()
-        open_positions = {p["token_address"].lower(): p for p in local_positions if p["status"] == "open" and p["chain"] == "solana"}
-        
-        # Build a map of net token changes from recent swaps
-        token_flows = {}
-        for swap in swaps:
-            # Moralis swap format
-            token_in = swap.get("token_in", {}).get("token_address", "").lower()
-            token_out = swap.get("token_out", {}).get("token_address", "").lower()
-            
-            if token_in:
-                token_flows[token_in] = token_flows.get(token_in, 0) - float(swap.get("token_in", {}).get("amount", 0))
-            if token_out:
-                token_flows[token_out] = token_flows.get(token_out, 0) + float(swap.get("token_out", {}).get("amount", 0))
-                
-        # Check for mismatches
-        for token_addr, pos in open_positions.items():
-            if token_addr in token_flows and token_flows[token_addr] < 0:
-                # We have an open position, but on-chain shows a net sell recently
-                logger.warning(
-                    f"⚠️ RECONCILIATION MISMATCH: Bot shows open position for {pos['token_symbol']} "
-                    f"but on-chain history shows recent sells. Was it sold manually?"
-                )
-                try:
-                    from notifications.slack import send_slack_message
-                    send_slack_message(
-                        f"⚠️ *RECONCILIATION MISMATCH*: Bot shows open position for "
-                        f"`{pos.get('token_symbol')}` on `{pos.get('chain')}` but on-chain history "
-                        f"shows a recent sell. Was this sold manually? "
-                        f"Position may need manual close in the bot."
+        open_positions = [
+            p for p in local_positions
+            if p.get("status") == "open"
+            and p.get("chain", "").lower() == chain.lower()
+            and (p.get("wallet", "").lower() == wallet_address.lower()
+                 or p.get("wallet", "") == wallet_address)
+        ]
+
+        if not open_positions:
+            return
+
+        dirty = False
+
+        if chain.lower() == "solana":
+            # Solana: use swap history for net flow analysis
+            from data.providers.moralis_solana import get_wallet_swaps
+            swaps = get_wallet_swaps(wallet_address, limit=50)
+            if not swaps:
+                return
+
+            token_flows = {}
+            for swap in swaps:
+                token_in = swap.get("token_in", {}).get("token_address", "").lower()
+                token_out = swap.get("token_out", {}).get("token_address", "").lower()
+
+                if token_in:
+                    token_flows[token_in] = token_flows.get(token_in, 0) - float(swap.get("token_in", {}).get("amount", 0))
+                if token_out:
+                    token_flows[token_out] = token_flows.get(token_out, 0) + float(swap.get("token_out", {}).get("amount", 0))
+
+            for pos in open_positions:
+                token_addr = pos.get("token_address", "").lower()
+                if token_addr in token_flows and token_flows[token_addr] < 0:
+                    logger.warning(
+                        f"⚠️ RECONCILIATION MISMATCH: Bot shows open position for {pos['token_symbol']} "
+                        f"but on-chain history shows recent sells. Was it sold manually?"
                     )
-                except Exception:
-                    pass
-                
+                    try:
+                        from notifications.slack import send_slack_message
+                        send_slack_message(
+                            f"⚠️ *RECONCILIATION MISMATCH*: Bot shows open position for "
+                            f"`{pos.get('token_symbol')}` on `{pos.get('chain')}` but on-chain history "
+                            f"shows a recent sell. Was this sold manually? "
+                            f"Position may need manual close in the bot."
+                        )
+                    except Exception:
+                        pass
+        else:
+            # EVM: check actual token balances via Moralis wallet API
+            try:
+                from data.providers.moralis_wallet import get_wallet_token_balances
+                balances = get_wallet_token_balances(wallet_address, chain) or []
+
+                # Build lookup of on-chain balances by token address
+                onchain_balances = {}
+                for b in balances:
+                    addr = (b.get("token_address") or b.get("address", "")).lower()
+                    if addr:
+                        raw_bal = b.get("balance", "0")
+                        decimals = int(b.get("decimals", 18))
+                        try:
+                            onchain_balances[addr] = int(raw_bal) / (10 ** decimals) if raw_bal else 0.0
+                        except (ValueError, OverflowError):
+                            onchain_balances[addr] = 0.0
+
+                for pos in open_positions:
+                    token_addr = pos.get("token_address", "").lower()
+                    tracked_qty = float(pos.get("remaining_quantity", 0))
+                    onchain_qty = onchain_balances.get(token_addr, -1)  # -1 = not found
+
+                    if tracked_qty > 0 and onchain_qty == 0:
+                        # Token balance is definitively zero — position is phantom
+                        logger.warning(
+                            f"🔄 RECONCILIATION: {pos.get('token_symbol')} on {chain} — "
+                            f"on-chain balance is ZERO but tracked qty={tracked_qty:.4f}. "
+                            f"Marking position as closed (rug/manual sell/transfer)."
+                        )
+                        pos["status"] = "closed"
+                        pos["closed_at"] = datetime.now(timezone.utc).isoformat()
+                        pos["close_reason"] = "reconciled_onchain_zero"
+                        pos["remaining_quantity"] = 0
+                        dirty = True
+
+                        try:
+                            from notifications.slack import send_slack_message
+                            send_slack_message(
+                                f"🔄 *AUTO-RECONCILED*: `{pos.get('token_symbol')}` on `{chain}` "
+                                f"closed — on-chain balance is zero (tracked: {tracked_qty:.4f}). "
+                                f"Likely rug-pulled or manually sold."
+                            )
+                        except Exception:
+                            pass
+                    elif tracked_qty > 0 and onchain_qty > 0 and onchain_qty < tracked_qty * 0.1:
+                        # Balance is drastically lower than expected (>90% discrepancy)
+                        logger.warning(
+                            f"⚠️ RECONCILIATION WARNING: {pos.get('token_symbol')} on {chain} — "
+                            f"on-chain={onchain_qty:.4f} vs tracked={tracked_qty:.4f} (>90% discrepancy)"
+                        )
+            except ImportError:
+                logger.debug("moralis_wallet not available for EVM reconciliation")
+            except Exception as evm_err:
+                logger.debug(f"EVM reconciliation error for {chain}: {evm_err}")
+
+        if dirty:
+            save_positions(local_positions)
+
     except Exception as e:
         logger.error(f"Trade reconciliation failed: {e}")
+
