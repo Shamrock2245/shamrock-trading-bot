@@ -1552,15 +1552,18 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
     seen: set[str] = set()
 
     # DEX exchange slugs to poll for graduated/new token feeds.
-    # Keyed by chain — use the dominant DEX per chain.
-    _CHAIN_EXCHANGE_MAP: dict[str, str] = {
-        "ethereum": "uniswap-v2",
-        "base":     "aerodrome",
-        "arbitrum": "camelot",
-        "polygon":  "quickswap-v2",
-        "bsc":      "pancakeswap-v2",
-        "avalanche": "pangolin",
-        "solana":   "raydium",  # Solana: Raydium is the dominant DEX for graduated tokens
+    # Multi-DEX per chain: query ALL Moralis-supported DEXs for maximum alpha coverage.
+    # Previously we only queried the dominant DEX per chain and missed tokens graduating
+    # to secondary DEXs (e.g. Uniswap V3 on Ethereum, Meteora on Solana).
+    # Source: https://docs.moralis.com/data-api/data-features/integrations/supported-dexs
+    _CHAIN_EXCHANGES_MAP: dict[str, list[str]] = {
+        "ethereum": ["uniswap-v3", "uniswap-v2", "uniswap-v4", "sushiswap-v2", "fraxswap-v2"],
+        "base":     ["uniswap-v3", "aerodrome", "uniswap-v2", "uniswap-v4", "pancakeswap-v3", "sushiswap-v2", "baseswap"],
+        "arbitrum": ["uniswap-v3", "camelot-v2", "uniswap-v4"],
+        "polygon":  ["uniswap-v3", "quickswap-v2", "uniswap-v2", "uniswap-v4"],
+        "bsc":      ["pancakeswap-v3", "pancakeswap-v2", "uniswap-v3", "uniswap-v2", "uniswap-v4"],
+        "avalanche": ["trader-joe", "pangolin", "uniswap-v4"],
+        "solana":   ["raydium", "meteora", "orca", "pumpswap"],
     }
 
     for chain in chains:
@@ -1569,10 +1572,11 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
             _dedup_add(t, chain, seen, all_tokens)
 
         # 1. GRADUATED TOKENS — post-bonding-curve (Sprint 1 — highest alpha)
-        #    Only for EVM chains with a known exchange mapping
-        if chain in _CHAIN_EXCHANGE_MAP:
-            for t in get_graduated_tokens_by_exchange(chain, exchange=_CHAIN_EXCHANGE_MAP[chain]):
-                _dedup_add(t, chain, seen, all_tokens)
+        #    Query ALL supported DEXs per chain for complete coverage
+        if chain in _CHAIN_EXCHANGES_MAP:
+            for exchange in _CHAIN_EXCHANGES_MAP[chain]:
+                for t in get_graduated_tokens_by_exchange(chain, exchange=exchange):
+                    _dedup_add(t, chain, seen, all_tokens)
 
         # 2. Filtered tokens — highest signal quality (experienced buyers + security)
         for t in get_filtered_tokens(chain):
@@ -1597,9 +1601,12 @@ def discover_tokens(chains: list[str] = None) -> list[dict]:
 
         # 7. NEW LISTINGS — earliest discovery signal (Sprint 1 — lowest priority)
         #    Apply extra scrutiny in scorer (new_listing=True flag)
-        if chain in _CHAIN_EXCHANGE_MAP:
-            for t in get_new_tokens_by_exchange(chain, exchange=_CHAIN_EXCHANGE_MAP[chain]):
-                _dedup_add(t, chain, seen, all_tokens)
+        #    Query ALL supported DEXs per chain
+        if chain in _CHAIN_EXCHANGES_MAP:
+            for exchange in _CHAIN_EXCHANGES_MAP[chain]:
+                for t in get_new_tokens_by_exchange(chain, exchange=exchange):
+                    _dedup_add(t, chain, seen, all_tokens)
+
 
     logger.info(
         f"🍀 Moralis Money (PRIMARY): {len(all_tokens)} unique tokens discovered "
