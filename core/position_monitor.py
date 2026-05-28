@@ -1052,6 +1052,9 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         "is_paper": is_paper,
         "tx_hash": None,  # Set by live executor
         "signal_scores": pos.get("signal_scores", {}),
+        "gem_score": pos.get("gem_score", 0),
+        "entry_time": pos.get("entry_time", ""),
+        "strategy_profile": pos.get("strategy_profile", ""),
     }
 
     if not is_paper:

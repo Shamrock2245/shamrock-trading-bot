@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -114,12 +115,15 @@ def _encode_observation(
     chainaware_risk: float,
     perplexity_risk: float,
     is_express: bool,
+    fear_greed_score: float = 50.0,
+    portfolio_heat: float = 0.0,
+    hourly_volatility: float = 0.0,
 ) -> np.ndarray:
     """
     Encode trade context into a normalized observation vector.
     All values normalized to [0, 1] range.
 
-    Observation vector (10 features):
+    Observation vector (13 features):
       [0] gem_score / 100
       [1] macro_regime_encoded (BEAR=0, NEUTRAL=0.5, BULL=1.0, EXTREME_FEAR=0.2, EXTREME_GREED=0.8)
       [2] win_streak / 10 (capped)
@@ -130,6 +134,9 @@ def _encode_observation(
       [7] chainaware_risk / 100
       [8] perplexity_risk / 100
       [9] is_express (0 or 1)
+      [10] fear_greed_score / 100 (macro sentiment 0-100)
+      [11] portfolio_heat / 20 (total open risk as % of equity, capped)
+      [12] hourly_volatility / 100 (ATR-based volatility 0-100)
     """
     _regime_map = {
         "EXTREME_FEAR": 0.1, "BEAR": 0.2, "NEUTRAL": 0.5,
@@ -152,6 +159,9 @@ def _encode_observation(
         min(1.0, chainaware_risk / 100.0),
         min(1.0, perplexity_risk / 100.0),
         1.0 if is_express else 0.0,
+        min(1.0, fear_greed_score / 100.0),
+        min(1.0, abs(portfolio_heat) / 20.0),  # Normalize: 20% = max
+        min(1.0, hourly_volatility / 100.0),
     ], dtype=np.float32)
 
 
@@ -186,10 +196,10 @@ def _build_training_env():
                     high=np.array([_MAX_MULTIPLIER], dtype=np.float32),
                     dtype=np.float32,
                 )
-                # Observation space: 10 features, all [0, 1]
+                # Observation space: 13 features, all [0, 1]
                 self.observation_space = spaces.Box(
-                    low=np.zeros(10, dtype=np.float32),
-                    high=np.ones(10, dtype=np.float32),
+                    low=np.zeros(13, dtype=np.float32),
+                    high=np.ones(13, dtype=np.float32),
                     dtype=np.float32,
                 )
 
@@ -200,7 +210,7 @@ def _build_training_env():
 
             def _get_obs(self):
                 if self.idx >= len(self.trades):
-                    return np.zeros(10, dtype=np.float32)
+                    return np.zeros(13, dtype=np.float32)
                 t = self.trades[self.idx]
                 return _encode_observation(
                     gem_score=t.get("gem_score", 65.0),
@@ -213,22 +223,40 @@ def _build_training_env():
                     chainaware_risk=t.get("chainaware_risk", 0.0),
                     perplexity_risk=t.get("perplexity_risk", 0.0),
                     is_express=t.get("is_express", False),
+                    fear_greed_score=t.get("fear_greed_score", 50.0),
+                    portfolio_heat=t.get("portfolio_heat", 0.0),
+                    hourly_volatility=t.get("hourly_volatility", 0.0),
                 )
 
             def step(self, action):
                 if self.idx >= len(self.trades):
-                    return np.zeros(10, dtype=np.float32), 0.0, True, False, {}
+                    return np.zeros(13, dtype=np.float32), 0.0, True, False, {}
 
                 t = self.trades[self.idx]
                 multiplier = float(action[0])
                 pnl_pct = t.get("pnl_pct", 0.0)  # e.g., 0.5 = +50%
 
-                # Reward: PnL scaled by multiplier
-                # Penalize large positions on losing trades more than small positions
-                if pnl_pct >= 0:
-                    reward = pnl_pct * multiplier  # Profit: bigger position = bigger reward
+                # ── FinRL-inspired composite reward ──────────────────────
+                # Base: log return (better conditioned for neural nets)
+                if pnl_pct > -99:
+                    log_return = math.log(1 + pnl_pct / 100)
                 else:
-                    reward = pnl_pct * multiplier * 1.5  # Loss: penalize oversizing more
+                    log_return = -4.6  # floor for catastrophic loss
+
+                # Volatility penalty: penalize large multipliers in volatile trades
+                trade_volatility = abs(pnl_pct) / 100  # proxy for volatility
+                vol_penalty = -0.2 * max(0, trade_volatility - 0.15) * multiplier
+
+                # Drawdown penalty: progressive penalty for losses
+                dd_penalty = 0.0
+                if pnl_pct < -5:
+                    dd_penalty = -0.5 * ((abs(pnl_pct) - 5) / 100) * multiplier
+
+                # Transaction cost awareness: penalize extreme sizing
+                cost_penalty = -0.05 * abs(multiplier - 1.0)
+
+                # Composite reward
+                reward = (log_return * multiplier) + vol_penalty + dd_penalty + cost_penalty
 
                 self.idx += 1
                 done = self.idx >= len(self.trades)
@@ -370,6 +398,9 @@ def get_position_multiplier(
     chainaware_risk: float = 0.0,
     perplexity_risk: float = 0.0,
     is_express: bool = False,
+    fear_greed_score: float = 50.0,
+    portfolio_heat: float = 0.0,
+    hourly_volatility: float = 0.0,
 ) -> tuple[float, str]:
     """
     Get the RL-recommended position size multiplier.
@@ -401,6 +432,9 @@ def get_position_multiplier(
             chainaware_risk=chainaware_risk,
             perplexity_risk=perplexity_risk,
             is_express=is_express,
+            fear_greed_score=fear_greed_score,
+            portfolio_heat=portfolio_heat,
+            hourly_volatility=hourly_volatility,
         )
         action, _ = _model.predict(obs, deterministic=True)
         multiplier = float(np.clip(action[0], _MIN_MULTIPLIER, _MAX_MULTIPLIER))

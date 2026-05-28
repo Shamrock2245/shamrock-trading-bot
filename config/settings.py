@@ -171,6 +171,19 @@ ML_WEIGHT_MIN_TRADES = int(os.getenv("ML_WEIGHT_MIN_TRADES", "20"))             
 ML_WEIGHT_RETRAIN_HOURS = int(os.getenv("ML_WEIGHT_RETRAIN_HOURS", "6"))        # Retrain every 6 hours
 DYNAMIC_WEIGHTS_PATH = os.getenv("DYNAMIC_WEIGHTS_PATH", "output/dynamic_weights.json")
 
+# ── Upgrade 3b: Optuna Hyperparameter Optimizer ──────────────────────────────
+# Bayesian optimization of ALL trading parameters (TP tiers, stop-losses,
+# scoring weights, entry quality) using multi-objective optimization.
+# Replays output/trades.json with different params to find Pareto-optimal sets.
+OPTUNA_ENABLED = os.getenv("OPTUNA_ENABLED", "true").lower() == "true"
+OPTUNA_TRIALS = int(os.getenv("OPTUNA_TRIALS", "300"))                       # Trials per optimization cycle
+OPTUNA_INTERVAL_HOURS = float(os.getenv("OPTUNA_INTERVAL_HOURS", "12"))      # Run every 12 hours
+OPTUNA_MIN_TRADES = int(os.getenv("OPTUNA_MIN_TRADES", "30"))                # Min trades before optimizer activates
+OPTUNA_MAX_PARAM_CHANGE_PCT = float(os.getenv("OPTUNA_MAX_PARAM_CHANGE_PCT", "25.0"))  # Safety: max 25% change per cycle
+OPTUNA_AUTO_APPLY = os.getenv("OPTUNA_AUTO_APPLY", "true").lower() == "true"  # Auto-apply best params
+OPTUNA_DB_PATH = os.getenv("OPTUNA_DB_PATH", "data/optuna_studies.db")       # SQLite persistence
+OPTUNA_LOOKBACK_DAYS = int(os.getenv("OPTUNA_LOOKBACK_DAYS", "60"))          # Trade history window
+
 # ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
 WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30"))      # seconds between polls

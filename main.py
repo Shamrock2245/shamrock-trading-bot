@@ -999,6 +999,26 @@ async def run_bot_loop():
         "retrains scoring weights on completed trades every 6h"
     )
 
+    # ── Optuna Auto-Tuner: background optimization daemon ─────────────────────────────────────────────────────────────────────────────
+    def _optuna_tuner_daemon():
+        """Background thread: runs Optuna hyperparameter optimization every 12h."""
+        import time as _time
+        _time.sleep(300)  # Wait 5 min for bot to fully initialize + collect first trades
+        while True:
+            try:
+                from ml.optuna_optimizer import run_optuna_cycle
+                run_optuna_cycle(force=False)
+            except Exception as _optuna_err:
+                logger.debug(f"Optuna tuner daemon cycle error: {_optuna_err}")
+            _time.sleep(3600)  # Check hourly (run_optuna_cycle enforces 12h interval internally)
+
+    _optuna_thread = threading.Thread(target=_optuna_tuner_daemon, daemon=True, name="optuna-autotuner")
+    _optuna_thread.start()
+    logger.info(
+        "✅ Optuna Auto-Tuner daemon started — "
+        "optimizes ALL trading parameters every 12h via Bayesian optimization (Sharpe ↑ + Drawdown ↓)"
+    )
+
     # ── Check for Base USDC deployment plan ─────────────────────────────────────────────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):

@@ -29,6 +29,8 @@ numpy>=1.24.0                # Numerical operations
 # ── Machine Learning ─────────────────────────────────────────────────────
 xgboost>=2.0.0               # XGBoost classifier for ML weight optimization
 scikit-learn>=1.3.0          # StandardScaler, cross_val_score for ML pipeline
+optuna>=4.0.0                # Bayesian hyperparameter optimization (TPE, NSGAIIISampler)
+optuna-dashboard             # Interactive web dashboard for optimization studies
 
 # ── Configuration ────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0         # Load .env file into environment variables
