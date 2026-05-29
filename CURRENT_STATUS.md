@@ -1,4 +1,4 @@
-# Shamrock Trading Bot — Current Status (March 26, 2026)
+# Shamrock Trading Bot — Current Status (May 29, 2026)
 
 ## 🟢 Pipeline Status: FULLY LIVE — 14-Signal Scanner + 29-Indicator TA + 12 Offensive Guardrails
 
@@ -103,7 +103,7 @@ Jupiter (SOL) / 1inch (EVM) / Trader Joe (AVAX) → Sign → Broadcast
 | Container | Status | Purpose |
 |-----------|--------|---------|
 | `shamrock-bot` | 🟢 Healthy | Main trading bot (LIVE mode) |
-| `shamrock-cosmos` | 🟢 Healthy | Cosmos yield staking module |
 | `shamrock-dashboard` | 🟢 Healthy | Streamlit UI on :8501 |
 | `shamrock-health` | 🟢 Healthy | 5-min health checks |
-| `shamrock-db` | 🟢 Running | Shared data volume |
+| `shamrock-db` | 🟢 Running | Shared data volume (Alpine + SQLite) |
+| `shamrock-paper` | ⚪ Profile-gated | Paper trading mode (opt-in via `--profile paper`) |
