@@ -260,38 +260,10 @@ def _apply_params_to_env(params: dict) -> None:
     if applied:
         logger.info(f"Optuna: Applied {len(applied)} params to env: {', '.join(applied[:5])}...")
 
-    # Also update scoring weights in the dynamic weights file
-    weight_keys = ["w_volume", "w_holder", "w_liquidity", "w_safety", "w_momentum"]
-    if any(k in params for k in weight_keys):
-        raw_weights = {
-            "volume": params.get("w_volume", 0.22),
-            "whale_holder": params.get("w_holder", 0.18),
-            "liquidity": params.get("w_liquidity", 0.14),
-            "safety": params.get("w_safety", 0.12),
-            "momentum_ta": params.get("w_momentum", 0.10),
-            "boost_cto": 0.07,
-            "fibonacci": 0.05,
-            "grok_sentiment": 0.05,
-            "age": 0.04,
-            "social": 0.03,
-        }
-        # Normalize to sum = 1.0
-        total = sum(raw_weights.values())
-        normalized = {k: round(v / total, 4) for k, v in raw_weights.items()}
-
-        weights_path = _ROOT / "output" / "dynamic_weights.json"
-        try:
-            weights_data = {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "source": "optuna_optimizer",
-                "weights": normalized,
-            }
-            weights_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(weights_path, "w") as f:
-                json.dump(weights_data, f, indent=2)
-            logger.info(f"Optuna: Updated scoring weights in {weights_path}")
-        except Exception as e:
-            logger.warning(f"Optuna: Failed to update scoring weights: {e}")
+    # NOTE: Scoring weights (w_volume, w_holder, etc.) are NOT written to dynamic_weights.json
+    # to avoid race condition with XGBoost weight_optimizer (which writes every 6h).
+    # XGBoost has 12-feature granularity vs Optuna's 5 categories — let it own that file.
+    # Optuna's optimized weights are stored in output/optuna_best_params.json for reference.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -545,7 +517,7 @@ def get_optimizer_status() -> dict:
     status = {
         "trades_available": len(trades),
         "last_run": (
-            datetime.utcfromtimestamp(_last_run_time).isoformat()
+            datetime.fromtimestamp(_last_run_time, tz=timezone.utc).isoformat()
             if _last_run_time > 0 else "Never"
         ),
         "best_params_exists": BEST_PARAMS_PATH.exists(),

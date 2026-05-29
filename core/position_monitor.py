@@ -138,7 +138,7 @@ def save_positions(positions: list[dict]) -> None:
 
 
 def append_trade(trade: dict) -> None:
-    """Append a completed trade to the trades log."""
+    """Append a completed trade to the trades log (atomic write)."""
     try:
         trades = []
         if TRADES_FILE.exists():
@@ -148,8 +148,13 @@ def append_trade(trade: dict) -> None:
         # Keep last 10,000 trades
         if len(trades) > 10_000:
             trades = trades[-10_000:]
-        with open(TRADES_FILE, "w") as f:
+        # Atomic write: tmp → fsync → rename (prevents corrupt reads by ML daemons)
+        tmp_path = TRADES_FILE.with_suffix(".tmp")
+        with open(tmp_path, "w") as f:
             json.dump(trades, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(TRADES_FILE)
     except Exception as e:
         logger.error(f"Failed to append trade: {e}")
 
@@ -1442,10 +1447,8 @@ class PositionMonitor:
                                 f"PnL={unrealized_pnl:+.1f}% — force-selling to protect gains"
                             )
                             _analytics_reversal_sell = {
-                                "action": "sell",
-                                "percentage": 100,
-                                "reason": "analytics_reversal_exit",
-                                "details": f"Tight trail active but netBuyers_1h={net_buyers_1h} (bearish reversal)",
+                                "sell_pct": 1.0,
+                                "reason": f"analytics_reversal_exit (netBuyers_1h={net_buyers_1h}, tight trail active)",
                             }
 
                 if _analytics_reversal_sell:

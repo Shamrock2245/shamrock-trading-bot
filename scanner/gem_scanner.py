@@ -266,6 +266,13 @@ class GemScanner:
         3. Filter by minimum score threshold
         4. Return ranked list (highest score first)
         """
+        # ── Refresh ML weights each cycle (XGBoost updates every 6h) ──────
+        if _ML_WEIGHTS_AVAILABLE:
+            try:
+                self._weights = load_dynamic_weights()
+            except Exception:
+                pass  # Keep previous weights on error
+
         logger.info("Starting gem scan cycle...")
         candidates: list[GemCandidate] = []
         seen_addresses: set[str] = set()

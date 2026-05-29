@@ -970,7 +970,7 @@ async def run_bot_loop():
                 from ml.rl_position_sizer import train_rl_agent
                 train_rl_agent(force=False)
             except Exception as _rl_daemon_err:
-                logger.debug(f"RL training daemon cycle error: {_rl_daemon_err}")
+                logger.warning(f"RL training daemon cycle error: {_rl_daemon_err}")
             _time.sleep(3600)  # Check every hour (train_rl_agent enforces 24h interval internally)
 
     _rl_thread = threading.Thread(target=_rl_training_daemon, daemon=True, name="rl-position-sizer")
@@ -990,7 +990,7 @@ async def run_bot_loop():
                 from ml.weight_optimizer import run_training_cycle
                 run_training_cycle()
             except Exception as _xgb_daemon_err:
-                logger.debug(f"XGBoost training daemon cycle error: {_xgb_daemon_err}")
+                logger.warning(f"XGBoost training daemon cycle error: {_xgb_daemon_err}")
             _time.sleep(21600)  # Check every 6 hours (6 * 3600)
     _xgb_thread = threading.Thread(target=_xgboost_training_daemon, daemon=True, name="xgboost-optimizer")
     _xgb_thread.start()
@@ -1009,7 +1009,7 @@ async def run_bot_loop():
                 from ml.optuna_optimizer import run_optuna_cycle
                 run_optuna_cycle(force=False)
             except Exception as _optuna_err:
-                logger.debug(f"Optuna tuner daemon cycle error: {_optuna_err}")
+                logger.warning(f"Optuna tuner daemon cycle error: {_optuna_err}")
             _time.sleep(3600)  # Check hourly (run_optuna_cycle enforces 12h interval internally)
 
     _optuna_thread = threading.Thread(target=_optuna_tuner_daemon, daemon=True, name="optuna-autotuner")
@@ -2376,7 +2376,7 @@ async def run_bot_loop():
                     # Neutral (1.0x) until 50 completed trades are available for training.
                     try:
                         from ml.rl_position_sizer import get_position_multiplier as _rl_size
-                        from core.macro_filter import get_current_regime as _get_regime
+                        from core.macro_filter import get_macro_regime as _get_regime
                         _macro_r = _get_regime()
                         _rl_mult, _rl_reason = _rl_size(
                             gem_score=candidate.gem_score,
