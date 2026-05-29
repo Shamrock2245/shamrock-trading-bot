@@ -185,14 +185,14 @@ class TestProfileConfig:
         assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
 
     def test_conservative_profile_values(self):
-        # TUNED values: TP1 1.5x (was 2.5x), sell 40% (was 35%), hard stop 15% (was 20%)
+        # TUNED values: TP1 1.5x, sell 40%, TP2 1.8x, hard stop 10%
         assert CONSERVATIVE_PROFILE.name == "conservative"
         assert CONSERVATIVE_PROFILE.tp1_mult == 1.5
         assert CONSERVATIVE_PROFILE.tp1_sell_pct == 0.40
-        assert CONSERVATIVE_PROFILE.tp2_mult == 2.5
+        assert CONSERVATIVE_PROFILE.tp2_mult == 1.8
         assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.35
         assert CONSERVATIVE_PROFILE.tp3_mult == 5.0
-        assert CONSERVATIVE_PROFILE.hard_stop_pct == 15.0
+        assert CONSERVATIVE_PROFILE.hard_stop_pct == 10.0
 
     def test_profile_map_lookups(self):
         """Verify the _PROFILE_MAP used by position_monitor resolves correctly."""

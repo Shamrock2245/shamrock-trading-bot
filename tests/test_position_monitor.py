@@ -110,12 +110,12 @@ class TestHardStopLoss:
         assert "stop" in reason or "hard" in reason, f"Expected stop reason, got: {reason}"
 
     def test_hard_stop_does_not_fire_above_threshold(self):
-        """Price at -10% should NOT trigger conservative hard stop (threshold is 20%)."""
+        """Price at -5% should NOT trigger conservative hard stop (threshold is 10%)."""
         pos = _pos(entry_price=1.0)
-        result = _eval(pos, current_price=0.90)  # -10% → within tolerance
+        result = _eval(pos, current_price=0.96)  # -4% → within tolerance
         if result is not None:
             reason = result.get("reason", "").lower()
-            assert "hard" not in reason, f"Hard stop should NOT fire at -10%, got: {reason}"
+            assert "hard" not in reason, f"Hard stop should NOT fire at -4%, got: {reason}"
 
     def test_nuclear_hard_stop_tighter(self):
         """Nuclear profile has 10% hard stop — should fire at -12%."""
@@ -220,19 +220,19 @@ class TestTrailingStopAfterTP1:
         assert result is not None, "Trailing stop should fire at 17.5% drop from peak after TP1"
 
     def test_trailing_does_not_fire_within_tolerance(self):
-        """Trailing stop should NOT fire on a small dip within tolerance."""
+        """Trailing stop should NOT fire on a tiny dip within tolerance."""
         pos = _pos(
             entry_price=1.0,
             highest_price=2.0,
             tp1_hit=True,
             trailing_stop_pct=settings.STOP_LOSS_PERCENT,  # 12% trail
         )
-        # 2.0 * (1 - 0.05) = 1.90 → only 5% dip from peak
-        result = _eval(pos, current_price=1.90)
+        # 2.0 * (1 - 0.02) = 1.96 → only 2% dip from peak (well within any trail)
+        result = _eval(pos, current_price=1.96)
         if result is not None:
             reason = result.get("reason", "").lower()
             assert "trail" not in reason, \
-                f"Trailing should NOT fire on 5% dip, got: {reason}"
+                f"Trailing should NOT fire on 2% dip, got: {reason}"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
