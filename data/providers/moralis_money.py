@@ -214,16 +214,15 @@ def get_filtered_tokens(
             },
             "limit": limit,
             "metricsToReturn": [
-                # Time-series metrics only — point-in-time metrics (totalLiquidityUsd,
-                # totalHolders, securityScore) must NOT be here; they live in metadata
-                # and cause 400 when the API tries to map them to timeFramesToReturn.
+                # Time-series metrics only — point-in-time snapshots live in metadata.
+                # NOTE: "usdPrice" is NOT a valid metricsToReturn value (causes 400);
+                # price is available in metadata.usdPrice instead.
                 "experiencedBuyers",
                 "netBuyers",
                 "volumeUsd",
                 "buyVolumeUsd",
                 "sellVolumeUsd",
                 "netVolumeUsd",
-                "usdPrice",
                 "usdPricePercentChange",
                 "liquidityChangeUSD",
             ],
@@ -371,11 +370,14 @@ def get_whale_accumulation_tokens(
                 "type": "DESC",
             },
             "limit": limit,
-            "categories": {"exclude": ["stablecoin"]},
+            # NOTE: "categories": {"exclude": ["stablecoin"]} removed — "stablecoin"
+            # is not a valid category ID and causes 400.  Stablecoins are filtered
+            # downstream by the gem scanner (price_usd ≈ $1 → skip).
             "metricsToReturn": [
                 # Time-series metrics only — point-in-time snapshots (totalLiquidityUsd,
-                # totalHolders, securityScore, fullyDilutedValuation) live in metadata
-                # and cause 400 when sliced by timeFramesToReturn.
+                # totalHolders, securityScore, fullyDilutedValuation) live in metadata.
+                # NOTE: "usdPrice" is NOT a valid metricsToReturn value (causes 400);
+                # price is available in metadata.usdPrice instead.
                 "netExperiencedBuyers",
                 "experiencedBuyers",
                 "experiencedSellers",
@@ -383,7 +385,6 @@ def get_whale_accumulation_tokens(
                 "netVolumeUsd",
                 "volumeUsd",
                 "holders",
-                "usdPrice",
                 "usdPricePercentChange",
             ],
             "timeFramesToReturn": ["oneDay", "oneWeek"],
@@ -434,11 +435,11 @@ def get_whale_accumulation_tokens(
                 "holder_change_1w": _safe_int(
                     (metrics.get("holders") or {}).get("oneWeek", 0)
                 ),
-                "total_holders": _safe_int(
-                    (metrics.get("totalHolders") or {}).get("oneDay", 0)
-                ),
+                # totalHolders and FDV are point-in-time metadata fields, not
+                # time-series metrics — read from metadata, not metrics dict.
+                "total_holders": _safe_int(meta.get("totalHolders", 0)),
                 "fdv": _safe_float(
-                    (metrics.get("fullyDilutedValuation") or {}).get("oneDay", 0)
+                    meta.get("fullyDilutedValue", meta.get("fullyDilutedValuation", 0))
                 ),
                 "price_change_1d": _safe_float(
                     (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)

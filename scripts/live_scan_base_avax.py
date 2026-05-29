@@ -128,7 +128,7 @@ def moralis_filtered(chain_hex: str) -> list:
         "chain": chain_hex,
         "filters": [
             {"metric": "experiencedBuyers", "timeFrame": "oneHour", "gt": 3},
-            {"metric": "totalLiquidityUsd", "timeFrame": "oneHour", "gt": MIN_LIQUIDITY},
+            {"metric": "totalLiquidityUsd", "gt": MIN_LIQUIDITY},
         ],
         "sortBy": {"metric": "experiencedBuyers", "timeFrame": "oneHour", "type": "DESC"},
         "limit": 30,
