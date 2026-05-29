@@ -562,7 +562,9 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 _set_cached(token_address, chain, result)
                 return result
     except Exception as _pplx_err:
-        logger.debug(f"Perplexity rug check skipped: {_pplx_err}")    # ── Step 8: Moralis Token Security API (EVM only) ──────────────────────
+        logger.debug(f"Perplexity rug check skipped: {_pplx_err}")
+
+    # ── Step 8: Moralis Token Security API (EVM only) ──────────────────────
     # Cross-validates GoPlus results with Moralis-native security data.
     # Catches honeypots and high-tax tokens that GoPlus may miss.
     # Graceful no-op on Solana (EVM-only endpoint) and if key not set.

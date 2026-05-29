@@ -1,0 +1,57 @@
+# Secrets & credentials — NEVER copy into image
+.env
+.env.*
+!.env.example
+.shamrock_deploy_key
+.shamrock_deploy_key.pub
+deploy_bot.exp
+install_key.exp
+deploy_now.sh
+
+# Git
+.git/
+.gitignore
+
+# Python artifacts
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Runtime data & logs
+logs/
+output/
+data/*.csv
+data/*.json
+data/**/*.json
+data/dashboard/
+*.log
+*.db
+*.sqlite3
+
+# Agent & workflow configs
+.agent/
+.agents/
+.gemini/
+
+# Documentation (not needed in container)
+docs/
+reports/
+*.md
+!requirements.txt
+
+# Scripts not needed in container
+scripts/
+tests/

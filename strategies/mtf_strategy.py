@@ -271,7 +271,7 @@ class MTFDecision:
     mtf_analysis: Optional[MTFAnalysis] = None
 
     def __str__(self) -> str:
-        if self.action == "buy":
+        if self.action == "buy" and self.entry_price > 0:
             return (
                 f"MTFDecision(✅ BUY [{self.profile_name}] {self.symbol}/{self.chain} | "
                 f"confidence={self.confidence:.0f} | "
@@ -279,6 +279,11 @@ class MTFDecision:
                 f"TP2=+{((self.tp2_price/self.entry_price)-1)*100:.0f}% | "
                 f"SL=-{((1-(self.stop_loss_price/self.entry_price))*100):.0f}% | "
                 f"hold≈{self.expected_hold_hours:.0f}h)"
+            )
+        elif self.action == "buy":
+            return (
+                f"MTFDecision(✅ BUY [{self.profile_name}] {self.symbol}/{self.chain} | "
+                f"confidence={self.confidence:.0f} | entry_price=N/A)"
             )
         return f"MTFDecision(⏭ SKIP [{self.profile_name}] {self.symbol} | {self.reason})"
 

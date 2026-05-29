@@ -60,7 +60,7 @@ if override_file.exists():
     try:
         with open(override_file) as f:
             is_currently_live = _json.load(f).get("mode") == "live"
-    except:
+    except Exception:
         pass
 
 # ── Live Confirmation Dialog ──────────────────────────────────────────────────

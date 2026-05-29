@@ -54,7 +54,7 @@ def get_net_worth(addr):
         if r.status_code != 200:
             return 0.0
         return float(r.json().get("total_networth_usd", 0))
-    except:
+    except Exception:
         return 0.0
 
 if not MORALIS_KEY:

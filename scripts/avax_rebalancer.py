@@ -87,7 +87,7 @@ def get_avax_price() -> float:
             timeout=10
         )
         return r.json().get("avalanche-2", {}).get("usd", 25.0)
-    except:
+    except Exception:
         return 25.0
 
 def get_token_market_data(token_addr: str) -> dict:

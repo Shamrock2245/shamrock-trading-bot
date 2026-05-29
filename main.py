@@ -81,7 +81,7 @@ try:
             environment=os.environ.get("MODE", "paper"),
             release=f"shamrock-bot@{os.environ.get('GIT_SHA', 'dev')}",
             enable_tracing=True,
-            send_default_pii=True,    # Include request headers, IPs for context
+            send_default_pii=False,   # SECURITY: Don't send request headers (may contain API keys)
             enable_logs=True,         # Auto-forward Python logging to Sentry
         )
         logger.info("🛡️  Sentry initialized — production error tracking active")

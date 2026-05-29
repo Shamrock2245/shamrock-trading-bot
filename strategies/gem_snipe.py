@@ -73,7 +73,7 @@ class GemSnipeStrategy:
         require_fib_alignment: bool = None,
         ohlcv_days: int = 7,
     ):
-        self.min_signal_score = min_signal_score or getattr(settings, "MIN_SIGNAL_SCORE", 55.0)
+        self.min_signal_score = min_signal_score if min_signal_score is not None else getattr(settings, "MIN_SIGNAL_SCORE", 55.0)
         self.require_fib_alignment = require_fib_alignment if require_fib_alignment is not None else getattr(settings, "REQUIRE_FIB_ALIGNMENT", True)
         self.ohlcv_days = ohlcv_days
 

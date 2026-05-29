@@ -30,7 +30,7 @@ except Exception as e:
 def native(addr, rpc):
     try:
         return int(requests.post(rpc,json={'jsonrpc':'2.0','method':'eth_getBalance','params':[addr,'latest'],'id':1},timeout=6).json().get('result','0x0'),16)/1e18
-    except:
+    except Exception:
         return 0.0
 
 def usdc_bal(addr, ctr, rpc):
@@ -38,7 +38,7 @@ def usdc_bal(addr, ctr, rpc):
     try:
         res = requests.post(rpc,json={'jsonrpc':'2.0','method':'eth_call','params':[{'to':ctr,'data':data},'latest'],'id':1},timeout=6).json().get('result','0x0')
         return int(res,16)/1e6 if res and res != '0x' else 0.0
-    except:
+    except Exception:
         return 0.0
 
 total = 0.0

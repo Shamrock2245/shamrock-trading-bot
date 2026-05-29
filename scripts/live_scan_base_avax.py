@@ -91,11 +91,11 @@ def safe_post(url, payload, headers=None, timeout=15):
 
 def sf(v, d=0.0):
     try: return float(v) if v is not None else d
-    except: return d
+    except Exception: return d
 
 def si(v, d=0):
     try: return int(v) if v is not None else d
-    except: return d
+    except Exception: return d
 
 def age_hours(created_ms):
     if not created_ms: return 9999.0
