@@ -14,6 +14,7 @@ Chain ID mapping:
 """
 
 import logging
+import requests
 import time
 from typing import Optional
 
@@ -129,9 +130,8 @@ def get_smart_money_inflow(
         data = resp.json()
 
         if not data.get("success") or data.get("code") != "000000":
-            logger.debug(f"Binance SM Inflow: non-success response for {chain} — using GeckoTerminal fallback")
-            fallback = _gecko_trending_fallback(chain, limit=limit)
-            return _store(cache_key, fallback if fallback else [])
+            logger.debug(f"Binance SM Inflow: non-success response for {chain}")
+            return _store(cache_key, [])
 
         results = []
         for item in (data.get("data") or [])[:limit]:
@@ -159,13 +159,11 @@ def get_smart_money_inflow(
         return _store(cache_key, results)
 
     except requests.Timeout:
-        logger.debug(f"Binance SM Inflow timeout for {chain}/{period} — using GeckoTerminal fallback")
-        fallback = _gecko_trending_fallback(chain, limit=limit)
-        return _store(cache_key, fallback if fallback else [])
+        logger.debug(f"Binance SM Inflow timeout for {chain}/{period}")
+        return _store(cache_key, [])
     except Exception as e:
-        logger.debug(f"Binance SM Inflow error for {chain}/{period}: {e} — using GeckoTerminal fallback")
-        fallback = _gecko_trending_fallback(chain, limit=limit)
-        return _store(cache_key, fallback if fallback else [])
+        logger.debug(f"Binance SM Inflow error for {chain}/{period}: {e}")
+        return _store(cache_key, [])
 
 
 def is_smart_money_buying(
@@ -301,9 +299,8 @@ def get_social_hype(
         return _store(cache_key, results)
 
     except Exception as e:
-        logger.debug(f"Binance Social Hype error for {chain}: {e} — using CoinGecko fallback")
-        fallback = _coingecko_trending_fallback()
-        return _store(cache_key, fallback if fallback else [])
+        logger.debug(f"Binance Social Hype error for {chain}: {e}")
+        return _store(cache_key, [])
 
 
 def get_social_hype_score(token_address: str, chain: str = "bsc") -> float:

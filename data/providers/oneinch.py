@@ -9,6 +9,7 @@ Rate limit: 1 req/sec on free tier.
 """
 
 import logging
+import requests
 import time
 from typing import Optional
 

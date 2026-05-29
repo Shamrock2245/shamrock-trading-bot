@@ -234,8 +234,8 @@ def _score_coin(symbol: str, closes: list[float]) -> CoinRegime:
     price = closes[-1]
     ema50 = _ema(closes[-50:], 50)
     ema200 = _ema(closes, 200) if len(closes) >= 200 else _ema(closes, len(closes))
-    chg_7d = (price / closes[-7] - 1) * 100 if len(closes) >= 7 else 0
-    chg_30d = (price / closes[-30] - 1) * 100 if len(closes) >= 30 else 0
+    chg_7d = (price / closes[-7] - 1) * 100 if len(closes) >= 7 and closes[-7] > 0 else 0
+    chg_30d = (price / closes[-30] - 1) * 100 if len(closes) >= 30 and closes[-30] > 0 else 0
 
     above50 = price > ema50
     above200 = price > ema200
