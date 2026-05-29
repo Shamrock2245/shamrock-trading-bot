@@ -363,10 +363,12 @@ def load_dynamic_weights() -> dict:
         if not weights:
             return dict(STATIC_WEIGHTS)
 
+        _wr = data.get("win_rate")
+        _acc = data.get("model_accuracy")
         logger.info(
             f"ML: Loaded dynamic weights (trade_count={data.get('trade_count', '?')}, "
-            f"win_rate={data.get('win_rate', '?'):.1%}, "
-            f"accuracy={data.get('model_accuracy', '?'):.1%})"
+            f"win_rate={f'{_wr:.1%}' if isinstance(_wr, (int, float)) else '?'}, "
+            f"accuracy={f'{_acc:.1%}' if isinstance(_acc, (int, float)) else '?'})"
         )
         return weights
 
