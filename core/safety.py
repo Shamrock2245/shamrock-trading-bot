@@ -606,12 +606,12 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
     # Checks if the deployer/owner address is a known entity (exchange, protocol,
     # VC, or verified team). Known good entities get a trust boost stored on the
     # result. Unknown or suspicious entities get a mild penalty.
-    # Uses Moralis Entity Search API: GET /entities/search?query={address}
+    # Uses moralis_entity.py (dedicated Entity API module with 24h cache).
     _deployer_addr = getattr(result, "owner_address", "") or ""
     if _deployer_addr and _deployer_addr not in ("0x0000000000000000000000000000000000000000", ""):
         try:
-            from data.providers.moralis_intelligence import get_entity_label
-            _entity = get_entity_label(_deployer_addr)
+            from data.providers.moralis_entity import get_entity_by_address
+            _entity = get_entity_by_address(_deployer_addr)
             if _entity:
                 result.deployer_entity_name = _entity.get("name", "")   # type: ignore[attr-defined]
                 result.deployer_entity_type = _entity.get("type", "")   # type: ignore[attr-defined]
@@ -623,7 +623,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                         f"Entity API: deployer {_deployer_addr[:10]}... is "
                         f"'{_entity.get('name')}' ({_etype}) — +5 trust boost"
                     )
-                elif _etype in ("mixer", "scam", "hack", "darkweb"):
+                elif _etype in ("mixer", "scam", "hack", "darkweb") or _entity.get("risk_flag"):
                     result.is_safe = False
                     result.block_reason = (
                         f"Entity API: deployer is labeled '{_entity.get('name')}' "

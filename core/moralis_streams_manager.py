@@ -36,6 +36,7 @@ TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
+TAG_BTC_WHALE_WATCH = "shamrock-btc-whale-watch"
 
 # Uniswap V2 Router / Factory event signatures
 PAIR_CREATED_TOPIC = "PairCreated(address,address,address,uint256)"
@@ -152,6 +153,10 @@ class MoralisStreamsManager:
         # 4.6. Optional: Solana alpha wallet copy-trade stream
         if settings.MORALIS_STREAMS_SOLANA_ALPHA_ENABLED:
             self._ensure_solana_alpha_wallet_stream()
+
+        # 4.7. Optional: Bitcoin Whale Watch stream
+        if getattr(settings, "MORALIS_STREAMS_BTC_WHALE_ENABLED", True):
+            self._ensure_btc_stream()
 
         # 5. Start health check loop
         if settings.MORALIS_STREAMS_AUTO_SYNC:
@@ -416,6 +421,8 @@ class MoralisStreamsManager:
             self._ensure_solana_discovery_stream()
         elif tag == TAG_SOLANA_ALPHA_WALLETS:
             self._ensure_solana_alpha_wallet_stream()
+        elif tag == TAG_BTC_WHALE_WATCH:
+            self._ensure_btc_stream()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Moralis API Calls
@@ -542,6 +549,32 @@ class MoralisStreamsManager:
     # ─────────────────────────────────────────────────────────────────────────
     # Solana Alpha Wallet Stream (copy-trading on Solana)
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _ensure_btc_stream(self) -> None:
+        """Create or verify the Bitcoin whale watch stream."""
+        if TAG_BTC_WHALE_WATCH in self._managed_streams:
+            logger.info(f"MoralisStreamsManager: BTC stream already exists: {self._managed_streams[TAG_BTC_WHALE_WATCH]}")
+            return
+
+        webhook = f"{self.webhook_url}/moralis/streams"
+        # We watch the top 100 Bitcoin whale addresses
+        # Let's pull some prominent whale addresses or watch all transfers > 50 BTC
+        # Moralis Bitcoin Streams supports 'allAddresses' or a list of addresses.
+        # We will use allAddresses: True and a custom filter for large values
+        body = {
+            "webhookUrl": webhook,
+            "description": "Shamrock Trading Bot — Bitcoin Whale Watch (all transfers > 10 BTC)",
+            "tag": TAG_BTC_WHALE_WATCH,
+            "allAddresses": True,
+            "chainIds": ["btc-mainnet"],
+            "includeInputs": True,
+        }
+
+        # Create stream under 'bitcoin' network (EVM streams use 'evm', Solana 'solana', Bitcoin 'bitcoin')
+        stream_id = self._create_stream(body, network="bitcoin")
+        if stream_id:
+            self._managed_streams[TAG_BTC_WHALE_WATCH] = stream_id
+            logger.info(f"MoralisStreamsManager: ✅ Bitcoin whale watch stream created: {stream_id}")
 
     def _ensure_solana_alpha_wallet_stream(self) -> None:
         """Create or verify the Solana alpha wallet SPL transfer monitoring stream."""

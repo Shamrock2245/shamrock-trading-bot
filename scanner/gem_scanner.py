@@ -1135,6 +1135,23 @@ class GemScanner:
             candidate.moralis_security_score = 70
             candidate.moralis_token_score_composite = 0
 
+        # ── HARD GATE #5: Entity API Deployer Check ─────────────────────────────
+        # Reject tokens deployed by known bad actors (scammers, hackers, rug pullers)
+        # using the Moralis Entity API. This is a cheap 50 CU call cached for 24h.
+        try:
+            from data.providers.moralis_entity import is_known_bad_actor
+            deployer = getattr(token, "deployer_address", "") or ""
+            owner = getattr(token, "owner_address", "") or ""
+            for _check_addr in filter(None, [deployer, owner]):
+                if is_known_bad_actor(_check_addr):
+                    logger.warning(
+                        f"⛔ ENTITY GATE: {token.symbol} [{token.chain}] rejected — "
+                        f"deployer/owner {_check_addr[:10]}... is a known bad actor (Moralis Entity API)"
+                    )
+                    return None
+        except Exception as _ent_err:
+            logger.debug(f"Entity deployer check skipped for {token.symbol}: {_ent_err}")
+
         # ── Volume trend adjustment (cross-cycle momentum) ────────────────
         try:
             _vtt = self._volume_tracker
@@ -1591,6 +1608,26 @@ class GemScanner:
             candidate.moralis_is_bonding = False
             candidate.moralis_pair_buyers_5m = 0
             candidate.moralis_pair_sellers_5m = 0
+
+        # ── DeFi Exposure Check (alpha wallet DeFi positions) ─────────────────────────────
+        # Only run for tokens that already look promising (base_score >= 55)
+        # DeFi positions are expensive (5000 CU) so we gate tightly.
+        try:
+            if base_score >= 55 and getattr(settings, "MORALIS_DEFI_ENABLED", True):
+                from data.providers.moralis_defi import get_token_defi_exposure
+                from core.sniper_discovery import get_active_sniper_addresses
+                _alpha_wallets = get_active_sniper_addresses(chain=token.chain)[:3]
+                if _alpha_wallets:
+                    _defi_exp = get_token_defi_exposure(token.address, token.chain, _alpha_wallets)
+                    _defi_score = _defi_exp.get("defi_exposure_score", 0.0)
+                    if _defi_score > 0:
+                        candidate.smart_money_score = min(100.0, candidate.smart_money_score + _defi_score * 0.3)
+                        logger.info(
+                            f"💰 DeFi Exposure: {token.symbol} — {_defi_exp['exposed_wallets']} alpha wallets "
+                            f"locked ${_defi_exp['total_usd_value']:,.0f} in {_defi_exp.get('protocols', [])}"
+                        )
+        except Exception as _defi_err:
+            logger.debug(f"DeFi exposure check skipped for {token.symbol}: {_defi_err}")
 
         # ── GROK SENTIMENT (conditional second pass — 5% weight) ──────────────
         # Only call the slow Grok LLM (~6-8s) if the token still looks

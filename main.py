@@ -947,6 +947,31 @@ async def run_bot_loop():
     except Exception as stream_err:
         logger.warning(f"Moralis Streams server failed to start: {stream_err}")
 
+    # ── Moralis CU Budget Manager: log initial status ──────────────────────────────────────
+    try:
+        from core.moralis_cu_budget import cu_budget as _cu_budget
+        _cu_budget.log_status()
+        logger.info(
+            f"✅ Moralis CU Budget Manager active — "
+            f"Budget: {_cu_budget.get_remaining_budget():,} CU remaining | "
+            f"Mode: {_cu_budget._state.throttle_mode}"
+        )
+    except Exception as _cu_err:
+        logger.warning(f"CU Budget Manager init failed: {_cu_err}")
+
+    # ── BTC Wealth Engine: start accumulation daemon ──────────────────────────────────────
+    try:
+        from core.btc_wealth_engine import btc_wealth_engine as _btc_engine
+        _btc_engine.start()
+        logger.info(
+            f"✅ BTC Wealth Engine started — "
+            f"BTC price: ${_btc_engine.get_btc_price_usd():,.0f} | "
+            f"Rotation pct: {_btc_engine.get_rotation_pct():.0%} | "
+            f"Whale mode: {_btc_engine._whale_mode}"
+        )
+    except Exception as _btc_err:
+        logger.warning(f"BTC Wealth Engine failed to start: {_btc_err}")
+
     # ── Sniper Discovery Daemon (proactive microcap whale wallet discovery) ───────────────
     _sniper_discovery_daemon = None
     try:

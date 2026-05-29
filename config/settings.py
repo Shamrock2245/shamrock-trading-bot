@@ -247,6 +247,53 @@ ALPHA_WALLETS_SOLANA: list[str] = list(dict.fromkeys([
     "AMRsSeU5JpqwQWJGNLMpZzRCZSFEwYQYbMnms3dD4311",   # Raydium gem hunter
 ]))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Moralis Bitcoin Whale Watch Stream
+# ─────────────────────────────────────────────────────────────────────────────
+MORALIS_STREAMS_BTC_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_BTC_WHALE_ENABLED", "true").lower() == "true"
+MORALIS_BTC_WHALE_MIN_BTC = float(os.getenv("MORALIS_BTC_WHALE_MIN_BTC", "10.0"))  # Min BTC in tx to flag
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moralis DeFi API
+# ─────────────────────────────────────────────────────────────────────────────
+MORALIS_DEFI_ENABLED = os.getenv("MORALIS_DEFI_ENABLED", "true").lower() == "true"
+# DeFi positions are expensive (5000 CU) — only check for tokens with base_score >= this
+MORALIS_DEFI_MIN_BASE_SCORE = float(os.getenv("MORALIS_DEFI_MIN_BASE_SCORE", "55.0"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moralis Market Metrics API
+# ─────────────────────────────────────────────────────────────────────────────
+MORALIS_MARKET_METRICS_ENABLED = os.getenv("MORALIS_MARKET_METRICS_ENABLED", "true").lower() == "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moralis CU Budget Enforcer
+# ─────────────────────────────────────────────────────────────────────────────
+# Monthly CU budget for Moralis API calls.
+# Set this to your plan's monthly CU limit:
+#   Starter:    25,000 | Growth: 100,000 | Business: 500,000
+MORALIS_MONTHLY_CU_BUDGET = int(os.getenv("MORALIS_MONTHLY_CU_BUDGET", "100000"))
+# Safety buffer — stop expensive calls at this % of budget remaining (0.15 = 15%)
+MORALIS_SAFETY_BUFFER_PCT = float(os.getenv("MORALIS_SAFETY_BUFFER_PCT", "0.15"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BTC Wealth Retention Engine
+# ─────────────────────────────────────────────────────────────────────────────
+# Enable/disable BTC profit sweep (sweeps trading profits into BTC)
+BTC_WEALTH_ENGINE_ENABLED = os.getenv("BTC_WEALTH_ENGINE_ENABLED", "true").lower() == "true"
+# Minimum USD profit to trigger a BTC sweep (avoid micro-sweeps)
+BTC_WEALTH_MIN_SWEEP_USD = float(os.getenv("BTC_WEALTH_MIN_SWEEP_USD", "50.0"))
+# % of realized profit to convert to BTC (0.0–1.0)
+BTC_WEALTH_SWEEP_PCT = float(os.getenv("BTC_WEALTH_SWEEP_PCT", "0.30"))  # 30% of profits
+# BTC price source: 'moralis' | 'coingecko' | 'coinpaprika'
+BTC_WEALTH_PRICE_SOURCE = os.getenv("BTC_WEALTH_PRICE_SOURCE", "moralis")
+# BTC cold wallet address for sweep destination (Wallet C)
+BTC_WEALTH_COLD_WALLET = os.getenv("BTC_WEALTH_COLD_WALLET", "0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860")
+# Whale multiplier thresholds (from BTC stream)
+# If whales are accumulating, reduce BTC sweep (hold more for trading)
+# If whales are distributing, increase BTC sweep (take profits into BTC)
+BTC_WEALTH_WHALE_ACCUM_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_ACCUM_MULTIPLIER", "0.7"))  # 70% of normal sweep
+BTC_WEALTH_WHALE_DIST_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_DIST_MULTIPLIER", "1.3"))   # 130% of normal sweep
+
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))
 MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "50"))

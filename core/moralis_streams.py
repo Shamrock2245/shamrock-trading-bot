@@ -31,6 +31,7 @@ TAG_WHALE_DETECTOR = "shamrock-whale-detector"
 TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
+TAG_BTC_WHALE_WATCH = "shamrock-btc-whale-watch"
 
 
 class MoralisStreamsServer:
@@ -291,6 +292,8 @@ class MoralisStreamsServer:
                             processed = _handle_solana_discovery_event(parent, payload)
                         elif tag == TAG_SOLANA_ALPHA_WALLETS:
                             processed = _handle_solana_alpha_wallet_event(parent, payload)
+                        elif tag == TAG_BTC_WHALE_WATCH:
+                            processed = _handle_btc_whale_event(parent, payload)
                         else:
                             logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
                             processed = _handle_alpha_wallet_event(parent, payload)
@@ -542,6 +545,65 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
     else:
         logger.info(f"MoralisStreams: ⚠️ Alpha handler — 0 swaps processed from {len(events)} transfers")
 
+    return processed
+
+
+def _handle_btc_whale_event(server: MoralisStreamsServer, payload: dict) -> int:
+    """
+    Process real-time Bitcoin Streams webhook payloads.
+    Tracks large BTC UTXO movements and updates the btc_wealth_engine multiplier.
+    """
+    txs = payload.get("txs", []) or []
+    confirmed = payload.get("confirmed", False)
+    
+    if not txs:
+        return 0
+        
+    logger.info(f"MoralisStreams: BTC Whale handler processing {len(txs)} transactions (confirmed={confirmed})")
+    
+    processed = 0
+    large_tx_threshold = 10.0  # 10 BTC
+    
+    accum_count = 0
+    dist_count = 0
+    
+    for tx in txs:
+        txid = tx.get("txid", "")
+        vouts = tx.get("vout", []) or []
+        vins = tx.get("vin", []) or []
+        
+        # Calculate total value in BTC
+        total_value_btc = sum(float(out.get("value", 0.0)) for out in vouts if out.get("value") is not None)
+        
+        if total_value_btc >= large_tx_threshold:
+            processed += 1
+            
+            # Simple flow heuristic:
+            # If inputs (vin) are from a known cold wallet/exchange or have fewer addresses
+            # and outputs are many/scattered, it might be distribution.
+            # If inputs are many and outputs are concentrated to single large addresses, it's accumulation.
+            vin_count = len(vins)
+            vout_count = len(vouts)
+            
+            if vout_count < vin_count:
+                accum_count += 1
+            else:
+                dist_count += 1
+                
+            logger.info(
+                f"🐳 BTC Whale Tx detected: {txid[:12]}... | "
+                f"Value: {total_value_btc:.4f} BTC | vins: {vin_count} | vouts: {vout_count}"
+            )
+            
+    # Trigger state updates on btc_wealth_engine
+    from core.btc_wealth_engine import btc_wealth_engine
+    if accum_count > dist_count:
+        btc_wealth_engine.update_whale_multiplier("accumulate")
+    elif dist_count > accum_count:
+        btc_wealth_engine.update_whale_multiplier("distribute")
+    else:
+        btc_wealth_engine.update_whale_multiplier("neutral")
+        
     return processed
 
 

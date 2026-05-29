@@ -450,6 +450,17 @@ def record_trade_pnl(
     phase_changed = _check_phase_transition(state)
     current_phase = get_current_phase(state.current_capital_usd)
 
+    # ── BTC Wealth Rotation (before cold storage sweep) ─────────────────────────────────
+    # Route a portion of realized profits into BTC accumulation
+    # before the remainder goes to cold storage sweep.
+    btc_rotation_amount = 0.0
+    if pnl_usd > 0:
+        try:
+            from core.btc_wealth_engine import btc_wealth_engine
+            btc_rotation_amount = btc_wealth_engine.evaluate_rotation(pnl_usd)
+        except Exception as _btc_err:
+            logger.debug(f"BTC rotation skipped: {_btc_err}")
+
     # Apply sweep
     if sweep_amount > 0:
         reason = (
@@ -477,6 +488,7 @@ def record_trade_pnl(
         "new_offensive_max_usd": current_phase.offensive_max_usd,
         "daily_pnl_usd": round(state.daily_pnl_usd, 2),
         "daily_win_rate": round(state.daily_wins / max(state.daily_trades, 1) * 100, 1),
+        "btc_rotation_usd": round(btc_rotation_amount, 2),
     }
 
     if new_milestones or phase_changed:

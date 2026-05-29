@@ -486,21 +486,21 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
     active_chains = get_wallet_active_chains(address) if chain != "solana" else ["solana"]
 
     # 4. Moralis Wallet Entity Labels — know WHO is buying
-    # GET /wallets/{addr}/labels — returns labels like 'Whale', 'Bot', 'Exchange'
-    # Known MEV/sandwich bots are filtered out. Known whales get a score boost.
+    # Uses moralis_entity.py (dedicated Entity API module with 24h cache).
+    # Also falls back to moralis_intelligence.get_wallet_labels for Moralis-native labels.
     entity_label = ""
     entity_type = ""
     entity_boost = 0.0
     try:
-        from data.providers.moralis_intelligence import get_wallet_labels
-        _labels = get_wallet_labels(address)
-        if _labels:
-            entity_label = _labels.get("primary_label", "")
-            entity_type = _labels.get("entity_type", "")
+        from data.providers.moralis_entity import get_entity_by_address, classify_wallet
+        _entity = get_entity_by_address(address)
+        if _entity:
+            entity_label = _entity.get("name", "")
+            entity_type = _entity.get("type", "")
             _etype = entity_type.lower()
-            # Filter out bot wallets — they front-run, not alpha
-            if _etype in ("mev_bot", "sandwich_bot", "arbitrage_bot", "flashbot"):
-                logger.debug(f"Skipping bot wallet {address[:10]}... ({entity_type})")
+            # Filter out known bad actors
+            if _entity.get("risk_flag"):
+                logger.debug(f"Skipping bad actor wallet {address[:10]}... ({entity_label})")
                 return None
             # Known whales or smart money — strong signal
             if _etype in ("whale", "fund", "smart_money", "vc", "defi_protocol"):
@@ -510,6 +510,21 @@ def _score_wallet(address: str, chain: str, discovery_source: str = "") -> Optio
                 )
             elif _etype in ("exchange", "cex", "market_maker"):
                 entity_boost = 3.0
+        else:
+            # Fallback to moralis_intelligence wallet labels
+            from data.providers.moralis_intelligence import get_wallet_labels
+            _labels = get_wallet_labels(address)
+            if _labels:
+                entity_label = _labels.get("primary_label", "")
+                entity_type = _labels.get("entity_type", "")
+                _etype = entity_type.lower()
+                if _etype in ("mev_bot", "sandwich_bot", "arbitrage_bot", "flashbot"):
+                    logger.debug(f"Skipping bot wallet {address[:10]}... ({entity_type})")
+                    return None
+                if _etype in ("whale", "fund", "smart_money", "vc", "defi_protocol"):
+                    entity_boost = 8.0
+                elif _etype in ("exchange", "cex", "market_maker"):
+                    entity_boost = 3.0
     except Exception as _lbl_err:
         logger.debug(f"Wallet entity labels skipped: {_lbl_err}")
 
