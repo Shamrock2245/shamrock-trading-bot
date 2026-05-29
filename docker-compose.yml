@@ -12,7 +12,9 @@ services:
 
   # ── Main Trading Bot ─────────────────────────────────────────────────────
   bot:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: shamrock-bot
     restart: unless-stopped
     env_file:
@@ -46,7 +48,9 @@ services:
 
   # ── Paper Trading Mode (safe default) ────────────────────────────────────
   paper-trader:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: shamrock-paper
     restart: unless-stopped
     env_file:
@@ -76,7 +80,9 @@ services:
 
   # ── Streamlit Dashboard ───────────────────────────────────────────────────
   dashboard:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: shamrock-dashboard
     restart: unless-stopped
     env_file:
@@ -101,7 +107,9 @@ services:
 
   # ── Health Check Cron ─────────────────────────────────────────────────────
   health:
-    build: .
+    build:
+      context: .
+      target: runtime
     container_name: shamrock-health
     restart: unless-stopped
     env_file:
