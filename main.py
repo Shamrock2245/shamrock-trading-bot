@@ -2389,6 +2389,9 @@ async def run_bot_loop():
                             chainaware_risk=getattr(candidate, "chainaware_risk", 0.0),
                             perplexity_risk=getattr(candidate, "perplexity_risk", 0.0),
                             is_express=is_express,
+                            fear_greed_score=getattr(offensive_state, "fear_and_greed_score", 50.0),
+                            portfolio_heat=getattr(offensive_state, "portfolio_heat", 0.0),
+                            hourly_volatility=getattr(candidate, "hourly_volatility", 0.0),
                         )
                         if _rl_mult != 1.0:
                             final_position_usd = round(final_position_usd * _rl_mult, 2)
