@@ -745,8 +745,10 @@ def probe_api_keys() -> dict[str, bool]:
     # Moralis
     if MORALIS_API_KEY:
         try:
+            # dateToBlock is the lightest Moralis v2.2 call (1 CU) and validates the key.
+            # Note: block/latest is NOT a valid path and returns 400.
             _r = _req.get(
-                "https://deep-index.moralis.io/api/v2.2/block/latest?chain=eth",
+                "https://deep-index.moralis.io/api/v2.2/dateToBlock?chain=eth&date=2024-01-01",
                 headers={"X-API-Key": MORALIS_API_KEY},
                 timeout=8,
             )
