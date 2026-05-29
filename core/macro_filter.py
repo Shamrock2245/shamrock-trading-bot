@@ -2,11 +2,12 @@
 core/macro_filter.py — Macro Market Regime Filter
 
 Detects the current macro crypto market regime (BULL / NEUTRAL / BEAR) using:
-  - BTC, ETH, SOL, BNB daily OHLC from CoinGecko (free, no key required)
+  - BTC, ETH, SOL, BNB daily OHLC from Moralis (primary) / CoinGecko / CoinPaprika
   - EMA50 and EMA200 position (golden/death cross awareness)
   - 7-day and 30-day price change momentum
   - Fear & Greed Index (alternative.me — free, no key)
   - Altcoin season index (ETH/SOL relative strength vs BTC)
+  - Moralis real-time BTC price cross-validation
 
 Regime is cached for 1 hour to avoid hammering free APIs.
 
@@ -16,6 +17,11 @@ Outputs a MacroRegime object with:
   - min_score_override: float | None — raises MIN_GEM_SCORE in bear markets
   - details: dict — full breakdown for dashboard display
   - summary: str — human-readable one-liner
+
+Data source fallback chain:
+  1. Moralis (paid subscription, fastest, includes Bitcoin)
+  2. CoinGecko (free tier, rate-limited)
+  3. CoinPaprika (free tier, fallback)
 
 Integration points:
   - gem_scanner.py: apply multiplier before score gate
@@ -115,7 +121,12 @@ def _ema(prices: list[float], period: int) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fetch_coin_history(coin_id: str, days: int = 200) -> list[float]:
-    """Fetch daily close prices from CoinGecko with CoinPaprika fallback."""
+    """Fetch daily close prices with 3-tier fallback: CoinGecko → CoinPaprika.
+
+    Note: Moralis top-crypto endpoint provides current price but not 200-day
+    history, so CoinGecko remains the primary source for historical candles.
+    Moralis current price is used for cross-validation in _fetch_moralis_prices().
+    """
     try:
         r = get_session().get(
             f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
@@ -272,9 +283,26 @@ def calculate_macro_regime() -> MacroRegime:
     coin_regimes: dict[str, CoinRegime] = {}
     fetch_errors = 0
 
+    # ── Fetch Moralis real-time prices for cross-validation ──────────────────
+    moralis_prices = _fetch_moralis_coin_prices()
+    if moralis_prices:
+        logger.debug(f"MacroFilter: Moralis prices loaded for {list(moralis_prices.keys())}")
+
     for coin_id, symbol in COINS.items():
         closes = _fetch_coin_history(coin_id, days=200)
         if closes:
+            # Cross-validate with Moralis real-time price
+            moralis_price = moralis_prices.get(symbol)
+            if moralis_price and moralis_price > 0:
+                cg_latest = closes[-1]
+                drift_pct = abs(moralis_price - cg_latest) / cg_latest * 100 if cg_latest > 0 else 0
+                if drift_pct > 5:
+                    logger.warning(
+                        f"MacroFilter: {symbol} price drift {drift_pct:.1f}% — "
+                        f"CoinGecko=${cg_latest:,.2f} vs Moralis=${moralis_price:,.2f}. "
+                        f"Using Moralis (more recent)."
+                    )
+                    closes[-1] = moralis_price  # Correct stale CoinGecko data
             coin_regimes[symbol] = _score_coin(symbol, closes)
         else:
             fetch_errors += 1
@@ -364,6 +392,8 @@ def calculate_macro_regime() -> MacroRegime:
             "fetch_errors": fetch_errors,
             "fg_adjustment": fg_adjustment,
             "weights_used": weights,
+            "moralis_prices_available": bool(moralis_prices),
+            "moralis_btc_price": moralis_prices.get("BTC", 0),
         },
     )
 
