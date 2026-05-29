@@ -294,6 +294,49 @@ BTC_WEALTH_COLD_WALLET = os.getenv("BTC_WEALTH_COLD_WALLET", "0x32a71a0b8f10f263
 BTC_WEALTH_WHALE_ACCUM_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_ACCUM_MULTIPLIER", "0.7"))  # 70% of normal sweep
 BTC_WEALTH_WHALE_DIST_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_DIST_MULTIPLIER", "1.3"))   # 130% of normal sweep
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Arbitrage Engine Settings
+# ─────────────────────────────────────────────────────────────────────────────
+ARB_ENABLED = os.getenv("ARB_ENABLED", "true").lower() == "true"
+# Cross-DEX: minimum spread % between two DEXes on same chain to execute
+ARB_MIN_SPREAD_PCT = float(os.getenv("ARB_MIN_SPREAD_PCT", "0.8"))
+# Triangular: minimum cycle profit % across 3-hop path
+ARB_TRIANGULAR_MIN_PROFIT_PCT = float(os.getenv("ARB_TRIANGULAR_MIN_PROFIT_PCT", "1.2"))
+# Cross-chain: minimum spread % between two chains to execute
+ARB_CROSS_CHAIN_MIN_SPREAD_PCT = float(os.getenv("ARB_CROSS_CHAIN_MIN_SPREAD_PCT", "2.5"))
+# Minimum net profit in USD after gas to execute any arb
+ARB_MIN_PROFIT_USD = float(os.getenv("ARB_MIN_PROFIT_USD", "8.0"))
+# Maximum position size per arb trade in USD
+ARB_MAX_POSITION_USD = float(os.getenv("ARB_MAX_POSITION_USD", "5000.0"))
+# Maximum gas cost as a fraction of expected profit (e.g. 0.50 = gas can eat up to 50% of profit)
+ARB_MAX_GAS_TO_PROFIT_RATIO = float(os.getenv("ARB_MAX_GAS_TO_PROFIT_RATIO", "0.50"))
+# Re-verify spread is still valid before committing capital
+ARB_RECHECK_SPREAD_BEFORE_EXEC = os.getenv("ARB_RECHECK_SPREAD_BEFORE_EXEC", "true").lower() == "true"
+# Minimum spread % to proceed after re-check
+ARB_MIN_SPREAD_TO_EXECUTE_PCT = float(os.getenv("ARB_MIN_SPREAD_TO_EXECUTE_PCT", "0.5"))
+# Slippage tolerance for arb trades (basis points)
+ARB_SLIPPAGE_BPS = int(os.getenv("ARB_SLIPPAGE_BPS", "50"))
+# Wallet alias to use for arb trades (uses primary by default)
+ARB_WALLET_ALIAS = os.getenv("ARB_WALLET_ALIAS", "primary")
+# Output CSV file for arb trade log
+ARB_OUTPUT_FILE = os.getenv("ARB_OUTPUT_FILE", "output/arb_trades.csv")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily Goal Engine Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# Persistent state file for daily goal tracking
+DAILY_GOAL_STATE_FILE = os.getenv("DAILY_GOAL_STATE_FILE", "output/daily_goal_state.json")
+# Hour UTC at which catch-up mode activates if behind pace
+DAILY_GOAL_CATCH_UP_HOUR_UTC = int(os.getenv("DAILY_GOAL_CATCH_UP_HOUR_UTC", "18"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paper-to-Live Auto-Promotion Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# Paper profit threshold (USD in 24h) to trigger live mode promotion
+LIVE_PROMOTION_THRESHOLD_USD = float(os.getenv("LIVE_PROMOTION_THRESHOLD_USD", "500.0"))
+# Set to "true" to permanently lock paper mode (prevents auto-promotion)
+PAPER_MODE_LOCKED = os.getenv("PAPER_MODE_LOCKED", "false").lower() == "true"
+
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))
 MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "50"))

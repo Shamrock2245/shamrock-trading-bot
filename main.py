@@ -143,6 +143,7 @@ from dashboard.state import (
 from core.daily_floor_guardian import DailyFloorGuardian
 from core.bluechip_anchor import BluechipAnchor
 from core.capital_rotator import CapitalRotator
+from core.daily_goal_engine import get_daily_goal_engine
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -985,6 +986,71 @@ async def run_bot_loop():
     except Exception as _sd_err:
         logger.warning(f"Sniper Discovery daemon failed to start: {_sd_err}")
 
+    # ── Daily Goal Engine: $500/day floor with dynamic tier escalation ──────────────────────
+    _daily_goal_engine = None
+    try:
+        _daily_goal_engine = get_daily_goal_engine()
+        _dge_dashboard = _daily_goal_engine.get_dashboard()
+        logger.info(
+            f"✅ Daily Goal Engine started — "
+            f"target=${_dge_dashboard['today_target_usd']:.0f}/day | "
+            f"tier={_dge_dashboard['current_tier']} ({_dge_dashboard['tier_label']}) | "
+            f"today=${_dge_dashboard['today_profit_usd']:.2f} ({_dge_dashboard['progress_pct']:.1f}%) | "
+            f"streak={_dge_dashboard['consecutive_hits']} hits"
+        )
+    except Exception as _dge_err:
+        logger.warning(f"Daily Goal Engine failed to start: {_dge_err}")
+
+    # ── Arbitrage Scanner Daemon: cross-DEX, triangular, cross-chain ─────────────────────
+    def _arb_scan_daemon():
+        """Background thread: continuously scans for arbitrage opportunities."""
+        import time as _time
+        _time.sleep(30)  # Wait 30s for bot to fully initialize
+        try:
+            from scanner.arb_scanner import ArbScanner
+            from core.arb_executor import get_arb_executor
+            _arb_scanner_inst = ArbScanner()
+            _arb_exec_inst = get_arb_executor()
+            logger.info("✅ Arbitrage Scanner daemon initialized")
+        except Exception as _arb_init_err:
+            logger.warning(f"Arb scanner init failed: {_arb_init_err}")
+            return
+        while True:
+            try:
+                # Get dynamic scan interval from daily goal engine
+                _dge = get_daily_goal_engine()
+                _arb_cfg = _dge.get_arb_config_overrides()
+                _scan_interval = _arb_cfg.get("scan_interval_seconds", 15)
+                # Scan for opportunities
+                opportunities = _arb_scanner_inst.scan_all(
+                    min_spread_pct=_arb_cfg.get("ARB_MIN_SPREAD_PCT", 0.8),
+                    min_profit_usd=_arb_cfg.get("ARB_MIN_PROFIT_USD", 8.0),
+                    max_position_usd=_arb_cfg.get("ARB_MAX_POSITION_USD", 5000.0),
+                )
+                if opportunities:
+                    logger.info(
+                        f"🔍 ARB SCAN: {len(opportunities)} opportunities found | "
+                        f"mode={_dge.strategy_mode} | interval={_scan_interval}s"
+                    )
+                    for opp in opportunities[:5]:  # Execute top 5 per cycle
+                        result = _arb_exec_inst.execute(opp)
+                        if result.success:
+                            # Feed profit into daily goal engine
+                            _dge.record_profit(
+                                result.net_profit_usd,
+                                source=f"arb_{opp.strategy}",
+                            )
+                _time.sleep(_scan_interval)
+            except Exception as _arb_cycle_err:
+                logger.warning(f"Arb scan cycle error: {_arb_cycle_err}")
+                _time.sleep(30)
+    _arb_thread = threading.Thread(target=_arb_scan_daemon, daemon=True, name="arb-scanner")
+    _arb_thread.start()
+    logger.info(
+        "✅ Arbitrage Scanner daemon started — "
+        "cross-DEX | triangular | cross-chain | $500/day floor active"
+    )
+
     # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
     def _rl_training_daemon():
         """Background thread: trains RL position sizer every 24h."""
@@ -1479,6 +1545,14 @@ async def run_bot_loop():
                     offensive_state, realized_pnl_usd, token_symbol
                 )
                 profit_boost_remaining = offensive_state.profit_boost_remaining
+                # Feed gem PnL into daily goal engine (triggers paper-to-live check)
+                if realized_pnl_usd != 0:
+                    try:
+                        _dge_inst = get_daily_goal_engine()
+                        _trade_type = "gem_swing" if p.get("strategy") == "swing" else "gem_snipe"
+                        _dge_inst.record_profit(realized_pnl_usd, source=_trade_type)
+                    except Exception as _dge_feed_err:
+                        logger.debug(f"Daily goal feed error: {_dge_feed_err}")
 
                 # Check for momentum reentry (TP1 hit with volume still surging)
                 if p.get("tp1_hit") and settings.MOMENTUM_REENTRY_ENABLED:
