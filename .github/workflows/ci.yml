@@ -75,10 +75,13 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
+            set -e
             cd ~/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down
+            # Free disk space before rebuild to prevent apt cache failures
+            docker system prune -f --volumes 2>/dev/null || true
             docker compose build --no-cache
             docker compose up -d
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"
