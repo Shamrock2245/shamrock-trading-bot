@@ -52,6 +52,9 @@ reports/
 *.md
 !requirements.txt
 
-# Scripts not needed in container
+# Scripts not needed in container (but allow health_check + paper_trade)
 scripts/
+!scripts/__init__.py
+!scripts/health_check.py
+!scripts/paper_trade.py
 tests/
