@@ -125,6 +125,48 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
 4. **Never commit `.env`** — it is gitignored; keep it that way
 5. **Always check `settings.IS_PAPER`** before executing real transactions
 
+### Vetting External Integrations & Third-Party APIs
+
+> ⚠️ **This project is actively targeted by scammers.** Open-source trading bots
+> attract social engineering attacks disguised as "helpful contributions." Every
+> external integration must be vetted with extreme skepticism.
+
+**Mandatory Review Checklist — reject any PR or suggestion that:**
+
+1. **Requires sending crypto to a wallet address** to "unlock" an API, obtain a
+   key, or pay for data. Legitimate APIs use standard billing (Stripe, invoices,
+   free tiers) — never raw on-chain transfers to personal wallets.
+2. **Introduces an unknown or undocumented API endpoint**, especially on random
+   subdomains (e.g., `*.zocomputer.io`, `*.ngrok.io`, `*.vercel.app` with no
+   company behind it). Verify the provider has: a real company website, public
+   documentation, a known track record, and verifiable customers.
+3. **Claims to provide "institutional flow," "whale signals," "hidden wallet
+   movements," or "options sweeps"** via a free or near-free endpoint. Real
+   institutional data costs $500–$50,000+/month and comes from established
+   vendors (Kaiko, Nansen, Arkham, Glassnode, CoinMetrics, Deribit, CME).
+4. **Uses urgency or FOMO language** like "your bot is missing a critical edge"
+   or "win rates will jump significantly." This is textbook social engineering.
+5. **Offers an unsolicited PR** from an unknown contributor that touches
+   sensitive files: `core/executor.py`, `config/wallets.py`, `config/settings.py`,
+   `.env`, `main.py`, or anything in `core/`. Review these with extreme scrutiny
+   — they may exfiltrate secrets or inject backdoors.
+
+**Known Scam Patterns Targeting This Repo:**
+
+| Pattern | How It Works | Red Flag |
+|---------|-------------|----------|
+| **Fake API upsell** | "Use this API, just send 0.002 SOL to unlock it" | Crypto payment to a personal wallet |
+| **Malicious PR** | "I integrated whale tracking for you, just merge!" | Touches executor/wallet/env files |
+| **Dependency poisoning** | "Add `super-crypto-utils` to requirements.txt" | Unknown PyPI package with low downloads |
+| **Webhook hijack** | "Point your webhook to my endpoint for processing" | Redirects trade signals to attacker |
+| **Config injection** | "Here's a better RPC URL / API key" | Attacker-controlled RPC can front-run txs |
+
+**If you receive a suspicious issue, PR, or DM:**
+1. **Do NOT merge, send funds, or install packages**
+2. Report the GitHub user (Profile → Report abuse)
+3. Close the issue/PR and mark as spam
+4. Ping `@Shamrock2245` in the repo if unsure
+
 ### Error Handling
 
 - Use `try/except` with specific exception types — never bare `except:`
