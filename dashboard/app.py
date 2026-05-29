@@ -476,6 +476,7 @@ win_rate = (len(wins) / max(len(sells), 1)) * 100
 # Derived counts for nav badges & KPI row
 latest_count = len(history[-1].get("candidates", [])) if history and isinstance(history[-1], dict) else len(gems)
 express_count = sum(1 for g in gems if g.get("express_lane", False))
+avg_gems = len(gems) / max(len(history), 1)  # Average gems discovered per scan cycle
 
 # ── Guardian + Anchor Status (read from output files) ─────────────────────────
 guardian_status = {}
