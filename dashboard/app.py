@@ -5,7 +5,10 @@ Fortune 50-grade dark-mode dashboard.
 Navigation card grid · Force Scan IPC · Daily Floor Guardian status ·
 Blue-Chip Anchor status · Full Moralis intelligence display.
 """
-
+# ⚠️  SECURITY: This dashboard has no built-in authentication.
+# For production, run with: streamlit run dashboard/app.py --server.address 127.0.0.1
+# and access via SSH tunnel: ssh -L 8501:localhost:8501 user@server
+# Alternatively, set DASHBOARD_BIND_ADDRESS=127.0.0.1 in your .env
 import sys
 import os
 

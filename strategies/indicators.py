@@ -626,15 +626,9 @@ def calculate_obv(df: pd.DataFrame) -> IndicatorResult:
     close = df["close"]
     volume = df["volume"]
 
-    # Calculate OBV
-    obv = pd.Series(0.0, index=df.index)
-    for i in range(1, len(close)):
-        if close.iloc[i] > close.iloc[i - 1]:
-            obv.iloc[i] = obv.iloc[i - 1] + volume.iloc[i]
-        elif close.iloc[i] < close.iloc[i - 1]:
-            obv.iloc[i] = obv.iloc[i - 1] - volume.iloc[i]
-        else:
-            obv.iloc[i] = obv.iloc[i - 1]
+    # Vectorized OBV — direction × volume, then cumulative sum
+    direction = np.sign(close.diff())
+    obv = (direction * volume).fillna(0).cumsum()
 
     # Trend of OBV (using short EMA)
     obv_ema = _manual_ema(obv, 5)

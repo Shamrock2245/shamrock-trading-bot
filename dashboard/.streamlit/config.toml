@@ -7,7 +7,9 @@ font = "sans serif"
 
 [server]
 headless = true
-address = "0.0.0.0"
+# SECURITY: Bind to localhost by default. To expose externally, set DASHBOARD_BIND_ADDRESS=0.0.0.0
+# For remote access, use an SSH tunnel: ssh -L 8501:localhost:8501 user@server
+address = "127.0.0.1"
 port = 8501
 enableCORS = false
 enableXsrfProtection = false

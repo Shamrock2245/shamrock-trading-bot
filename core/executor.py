@@ -323,7 +323,7 @@ class TradeExecutor:
             else:
                 logger.warning(f"1inch allowance check failed ({resp.status_code}), proceeding with approval")
 
-            # Send approve(MAX_UINT256) transaction
+            # Send approve(exact amount + 5% buffer) transaction
             logger.info(f"Approving {token_address[:10]}... for 1inch router on chain {chain_id}")
             token_contract = w3.eth.contract(
                 address=w3.to_checksum_address(token_address),
@@ -345,8 +345,11 @@ class TradeExecutor:
 
             account = Account.from_key(private_key)
             nonce = self._get_nonce(w3, account.address)
+            # Approve exact amount + 5% buffer instead of MAX_UINT256.
+            # This limits exposure if the router contract is ever compromised.
+            approval_amount = int(amount * 1.05)
             approve_tx = token_contract.functions.approve(
-                w3.to_checksum_address(spender), self.MAX_UINT256
+                w3.to_checksum_address(spender), approval_amount
             ).build_transaction({
                 "from": account.address,
                 "nonce": nonce,
@@ -361,7 +364,7 @@ class TradeExecutor:
             if receipt.status == 1:
                 logger.info(
                     f"✅ Token approved: {token_address[:10]}... → "
-                    f"spender {spender[:10]}... | tx={tx_hash.hex()[:12]}..."
+                    f"spender {spender[:10]}... | amount={approval_amount} | tx={tx_hash.hex()[:12]}..."
                 )
                 return True
             else:

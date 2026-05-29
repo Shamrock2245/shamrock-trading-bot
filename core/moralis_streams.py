@@ -57,6 +57,12 @@ class MoralisStreamsServer:
         self.host = host
         self.port = port
         self.webhook_secret = webhook_secret or ""
+        if not self.webhook_secret:
+            logger.critical(
+                "⚠️  MORALIS_STREAMS_WEBHOOK_SECRET is not set! "
+                "Webhook signature verification is DISABLED. "
+                "Set MORALIS_STREAMS_WEBHOOK_SECRET in your .env to secure the endpoint."
+            )
         self.on_swap_event = on_swap_event
         self.on_whale_event = on_whale_event
         self.on_liquidity_event = on_liquidity_event
@@ -166,6 +172,14 @@ class MoralisStreamsServer:
                         self.end_headers()
                         self.wfile.write(b"invalid signature")
                         return
+                else:
+                    # No secret configured — reject all webhooks to prevent abuse
+                    logger.warning("MoralisStreams: ❌ Rejecting webhook — no secret configured")
+                    parent.metrics["webhooks_invalid_sig"] += 1
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b"webhook secret not configured")
+                    return
 
                 # ── Parse Payload ─────────────────────────────────────────
                 try:

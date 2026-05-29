@@ -475,10 +475,11 @@ def check_fibonacci_alignment(
 
     if result.error:
         logger.warning(f"Fibonacci check failed: {result.error}")
-        # On error, we don't block — insufficient data shouldn't prevent trading
-        # But confidence is low
-        result.aligned = True  # Permissive on data errors
-        result.confidence = 10.0
+        # Insufficient data = cannot confirm Fibonacci alignment = fail the gate.
+        # Tokens without OHLCV history should NOT bypass the hard gate.
+        # They can still enter via Express Lane (score >= 82) which skips TA entirely.
+        result.aligned = False
+        result.confidence = 0.0
         result.current_zone = "insufficient_data"
         return result
 
