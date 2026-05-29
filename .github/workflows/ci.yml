@@ -9,9 +9,6 @@
 #   HETZNER_HOST      → Server IP or hostname
 #   HETZNER_USER      → SSH username (e.g., shamrock)
 #   HETZNER_SSH_KEY   → Private SSH key for deployment
-#
-# Action versions pinned to exact SHA for supply-chain security.
-# Node.js 24 opted in ahead of the June 2, 2026 forced cutover.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI/CD
@@ -20,10 +17,6 @@ on:
   pull_request:
   push:
     branches: ["main", "master", "work"]
-
-# Opt into Node.js 24 now — avoids warning and is ready for June 2 cutover
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -36,9 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -55,9 +48,9 @@ jobs:
     needs: lint-and-test
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -73,22 +66,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: preflight
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2  # v1.2.5
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            set -e
             cd ~/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down
-            # Free disk space before rebuild to prevent apt cache failures
-            docker system prune -f --volumes 2>/dev/null || true
             docker compose build --no-cache
             docker compose up -d
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"
