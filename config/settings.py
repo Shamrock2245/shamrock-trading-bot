@@ -107,7 +107,7 @@ MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "12.0"))  # Playbook: 12% trailing after TP1 (must be < hard stop)
-HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "18.0"))  # Hard floor: cut losers at 18% from entry
+HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # TUNED: 18→15% — cap single-trade max loss for tighter risk control
 
 # ── Parabolic Parachute (Fibonacci Over-Extension Exit) ──────────────────────
 # Triggers hyper-tight trailing stops when price goes vertical beyond typical Fibonacci extensions.
@@ -201,8 +201,8 @@ WALLET_MONITOR_DEFAULT_COPY_USD = float(os.getenv("WALLET_MONITOR_DEFAULT_COPY_U
 WALLET_MONITOR_FASTLANE_ENABLED = os.getenv("WALLET_MONITOR_FASTLANE_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_FASTLANE_QUEUE_MAX = int(os.getenv("WALLET_MONITOR_FASTLANE_QUEUE_MAX", "200"))
 COPYTRADE_LATENCY_SLO_SECONDS = float(os.getenv("COPYTRADE_LATENCY_SLO_SECONDS", "20"))
-COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "180"))
-COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "45"))
+COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "300"))  # TUNED: 180→300s — alpha signals being rejected at 208s
+COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "60"))  # TUNED: 45→60s — start size reduction later
 
 # Moralis Streams webhook ingestion (push-based low-latency detection)
 MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "true").lower() == "true"

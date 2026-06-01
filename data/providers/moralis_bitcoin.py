@@ -102,10 +102,10 @@ def _safe_int(val: Any) -> int:
 def get_bitcoin_price() -> Optional[dict]:
     """
     Fetch the real-time Bitcoin price and 24h change.
-    Uses Moralis ERC20 price endpoint for Wrapped Bitcoin (WBTC) as proxy
-    or Top Cryptocurrencies by Market Cap (chain=bitcoin).
+    Uses WBTC ERC-20 price endpoint as primary source (reliable, 17 CU).
+    Falls back to CoinGecko free API if Moralis fails.
     
-    CU Cost: 50
+    CU Cost: 17
     """
     if not _available():
         return None
@@ -116,92 +116,80 @@ def get_bitcoin_price() -> Optional[dict]:
         
     _rate_check()
     try:
-        # Use top-cryptocurrencies endpoint to fetch Bitcoin specifically
-        resp = get_session().get(
-            f"{BASE_URL}/market-data/top-cryptocurrencies-by-market-cap",
-            params={"top": 5},
-            headers=_headers(),
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        coins = data.get("result", []) if isinstance(data, dict) else []
-        
-        for c in coins:
-            if c.get("symbol") == "BTC":
-                result = {
-                    "price_usd": _safe_float(c.get("price_usd")),
-                    "market_cap_usd": _safe_float(c.get("market_cap_usd")),
-                    "price_change_24h_pct": _safe_float(c.get("price_24h_percent_change")),
-                    "price_change_7d_pct": _safe_float(c.get("price_7d_percent_change")),
-                    "volume_24h_usd": _safe_float(c.get("volume_usd")),
-                    "last_updated": time.time()
-                }
-                _set_cache(cache_key, result)
-                return result
-                
-        # Fallback to WBTC price if BTC not found in top 5
-        # WBTC on Ethereum: 0x2260fac5e5542a773aa44fbcfedf7c193bc2c599
-        _rate_check()
+        # Primary: WBTC price on Ethereum (reliable endpoint, 17 CU)
+        # WBTC address: 0x2260fac5e5542a773aa44fbcfedf7c193bc2c599
         resp = get_session().get(
             f"{BASE_URL}/erc20/0x2260fac5e5542a773aa44fbcfedf7c193bc2c599/price",
-            params={"chain": "eth"},
+            params={"chain": "eth", "include": "percent_change"},
             headers=_headers(),
-            timeout=10
+            timeout=10,
         )
         resp.raise_for_status()
         price_data = resp.json()
         result = {
             "price_usd": _safe_float(price_data.get("usdPrice")),
-            "market_cap_usd": 1_300_000_000_000.0,  # Approximate default
-            "price_change_24h_pct": _safe_float(price_data.get("24h_percent_change", 0.0)),
+            "market_cap_usd": 0.0,  # Not available from this endpoint
+            "price_change_24h_pct": _safe_float(price_data.get("24hrPercentChange", 0.0)),
             "price_change_7d_pct": 0.0,
             "volume_24h_usd": 0.0,
             "last_updated": time.time()
         }
-        _set_cache(cache_key, result)
-        return result
-        
+        if result["price_usd"] > 0:
+            _set_cache(cache_key, result)
+            return result
     except Exception as e:
-        logger.error(f"Error fetching Bitcoin price from Moralis: {e}")
-        return None
+        logger.debug(f"WBTC price fetch failed: {e}")
+
+    # Fallback: CoinGecko free API (no key required)
+    try:
+        resp = get_session().get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin", "vs_currencies": "usd", "include_24hr_change": "true"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("bitcoin", {})
+        result = {
+            "price_usd": _safe_float(data.get("usd")),
+            "market_cap_usd": 0.0,
+            "price_change_24h_pct": _safe_float(data.get("usd_24h_change", 0.0)),
+            "price_change_7d_pct": 0.0,
+            "volume_24h_usd": 0.0,
+            "last_updated": time.time()
+        }
+        if result["price_usd"] > 0:
+            _set_cache(cache_key, result)
+            return result
+    except Exception as e:
+        logger.error(f"Error fetching Bitcoin price (all sources failed): {e}")
+    
+    return None
 
 
 def get_bitcoin_sparkline() -> list[float]:
     """
     Fetch historical price context for Bitcoin (daily close prices for moving averages).
-    Fetches the last 200 days to calculate EMA20, EMA50, EMA200.
+    Uses CoinGecko free API (no key needed) for 200-day daily closes.
     
-    CU Cost: 150 (getPairCandlesticks for WBTC/WETH or WBTC/USDC)
+    CU Cost: 0 (uses CoinGecko, not Moralis)
     """
-    if not _available():
-        return []
-        
     cache_key = "btc_sparkline_200d"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
         
-    _rate_check()
     try:
-        # WBTC/USDC pool on Ethereum Uniswap V3 (0x99ac8ca5137cd267472f130e7043d6d49158db40 or similar)
-        # We can use Moralis OHLCV endpoint for WBTC: 0x2260fac5e5542a773aa44fbcfedf7c193bc2c599
+        # CoinGecko free API: /coins/{id}/market_chart with 200 days
         resp = get_session().get(
-            f"{BASE_URL}/erc20/0x2260fac5e5542a773aa44fbcfedf7c193bc2c599/ohlcv",
-            params={
-                "chain": "eth",
-                "timeframe": "1d",
-                "limit": 200
-            },
-            headers=_headers(),
-            timeout=10
+            "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
+            params={"vs_currency": "usd", "days": 200, "interval": "daily"},
+            timeout=15,
         )
         resp.raise_for_status()
         data = resp.json()
-        result_list = data.get("result", [])
+        prices = data.get("prices", [])
         
-        # Extract close prices (Moralis returns newest first, so reverse to chronological)
-        closes = [_safe_float(candle.get("close")) for candle in result_list]
-        closes.reverse()
+        # prices is [[timestamp_ms, price], ...] in chronological order
+        closes = [float(p[1]) for p in prices if len(p) >= 2]
         
         if closes:
             _set_cache(cache_key, closes)
