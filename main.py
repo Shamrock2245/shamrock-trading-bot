@@ -526,6 +526,9 @@ async def run_bot_loop():
             logger.warning("Fastlane queue full — dropping copy-trade candidate")
 
     def _execute_fastlane_candidate(candidate, signal) -> None:
+        from memory.recursive_decision_ledger import decision_ledger
+        from core.ito_trade_planner import trade_planner
+        
         token = candidate.token
         signal.candidate_built_at = datetime.now(timezone.utc)
 
@@ -533,12 +536,14 @@ async def run_bot_loop():
         safety = check_token_safety(token.address, token.chain)
         if not safety.is_safe:
             logger.info(f"Fastlane skip {token.symbol}: {safety.block_reason}")
+            decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", safety.block_reason, {"gem_score": candidate.gem_score})
             return
 
         # Dedup against existing open positions
         for p in load_positions():
             if p.get("status") == "open" and (p.get("token_address", "").lower() == token.address.lower()):
                 logger.info(f"Fastlane dedup skip {token.symbol}: already open")
+                decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", "Already open", {"gem_score": candidate.gem_score})
                 return
 
         allocation = route_trade(chain=token.chain, gem_score=candidate.gem_score,
@@ -578,10 +583,13 @@ async def run_bot_loop():
                         f"fill=${hl_result['fill_price']:.4f} | "
                         f"SL=${hl_result['stop_loss']:.4f} / TP=${hl_result['take_profit']:.4f}"
                     )
+                    decision_ledger.record_decision(token.symbol, token.address, token.chain, "ACCEPT", "Hyperliquid fallback", {"gem_score": candidate.gem_score})
                     return
                 else:
                     logger.info(f"Hyperliquid fallback skipped for {token.symbol}")
+                    decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", "HL fallback skipped", {"gem_score": candidate.gem_score})
             logger.info(f"Fastlane skip {token.symbol}: no wallet route")
+            decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", "No wallet route", {"gem_score": candidate.gem_score})
             return
         wallet = allocation.wallet
 
@@ -590,6 +598,7 @@ async def run_bot_loop():
         size_mult = _delay_risk_multiplier(delay_s)
         if size_mult <= 0:
             logger.info(f"Fastlane reject {token.symbol}: stale signal ({delay_s:.1f}s)")
+            decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", "Stale signal", {"delay_s": delay_s})
             return
 
         # Use position size from allocation (already Kelly-sized), scaled by delay
@@ -606,6 +615,7 @@ async def run_bot_loop():
         )
         if not risk.approved:
             logger.info(f"Fastlane risk blocked {token.symbol}: {risk.reason}")
+            decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", risk.reason, {"position_usd": position_usd})
             return
         signal.risk_passed_at = datetime.now(timezone.utc)
 
@@ -709,6 +719,17 @@ async def run_bot_loop():
                 level="warning",
             )
 
+        # Apply Ito Trade Planner sizing recommendations
+        trade_plan = trade_planner.calculate_trade_plan(
+            gem_score=candidate.gem_score,
+            token_age_hours=token.age_hours if token.age_hours else 24.0,
+            current_price=token.price_usd,
+            volatility_proxy=1.2 # Assume high volatility for copy trades
+        )
+        
+        # Optionally adjust position size based on Kelly criterion recommendation
+        position_usd = position_usd * trade_plan["recommended_kelly_sizing"]
+
         register_position(
             token_address=token.address,
             token_symbol=token.symbol,
@@ -724,6 +745,8 @@ async def run_bot_loop():
             entry_value_usd=position_usd,
             strategy_profile=getattr(wallet.strategy_profile, "name", ""),
         )
+        decision_ledger.record_decision(token.symbol, token.address, token.chain, "ACCEPT", "Fastlane execute", {"gem_score": candidate.gem_score, "position_usd": position_usd, "latency": total_latency})
+
         logger.info(
             f"✅ Fastlane copy trade: {token.symbol} [{token.chain}] tx={tx_hash} "
             f"wallet={wallet.alias} size=${position_usd:.2f} "
