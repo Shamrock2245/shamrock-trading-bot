@@ -79,6 +79,17 @@ STABLECOINS: dict[str, str] = {
     "bsc":      "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",   # USDC on BSC
 }
 
+# Estimated gas cost per swap in USD — imported by arb_executor.py to avoid
+# a circular dependency on scanner.arb_scanner. Values mirror arb_scanner.py.
+ARB_GAS_COST_USD: dict[str, float] = {
+    "ethereum": 15.0,    # ~$15 per swap on ETH mainnet
+    "base":      0.20,   # ~$0.20 on Base (L2)
+    "arbitrum":  0.35,   # ~$0.35 on Arbitrum
+    "polygon":   0.05,   # ~$0.05 on Polygon
+    "bsc":       0.15,   # ~$0.15 on BSC
+    "solana":    0.001,  # ~$0.001 on Solana
+}
+
 # WETH / wrapped native per chain
 WRAPPED_NATIVE: dict[str, str] = {
     "ethereum": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",

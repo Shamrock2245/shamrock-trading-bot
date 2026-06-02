@@ -3,6 +3,13 @@ import time
 from data.http_session import get_session
 from loguru import logger
 
+# Rate limiter — shared with all other Moralis providers
+try:
+    from data.providers.moralis_rate_limiter import rate_check as _rate_check
+except ImportError:
+    def _rate_check() -> None:  # type: ignore[misc]
+        pass
+
 MORALIS_API_KEY = os.environ.get("MORALIS_API_KEY", "")
 MORALIS_API_BASE = "https://deep-index.moralis.io/api/v2.2"
 SOLANA_API_BASE = "https://solana-gateway.moralis.io"
@@ -33,7 +40,7 @@ def get_token_score(token_address: str, chain: str) -> dict:
     """
     if not MORALIS_API_KEY:
         return {}
-    
+
     try:
         chain_lower = chain.lower()
         if chain_lower == "solana":
@@ -42,6 +49,7 @@ def get_token_score(token_address: str, chain: str) -> dict:
             hex_chain = _chain_to_hex(chain_lower)
             url = f"{MORALIS_API_BASE}/erc20/{token_address}/score?chain={hex_chain}"
 
+        _rate_check()
         res = get_session().get(url, headers=_get_headers(), timeout=4)
         if res.status_code == 200:
             return res.json()
@@ -58,6 +66,8 @@ def get_token_score(token_address: str, chain: str) -> dict:
 def get_token_analytics(token_address: str, chain: str) -> dict:
     """
     Get deep token analytics (net buyers, volume USD, experienced buyers).
+    Returns period-keyed dict: {"1d": {...}, "1w": {...}, "1m": {...}}
+    Endpoint: /erc20/{address}/analytics  (NOT /tokens/{address}/analytics)
     https://docs.moralis.com/data-api/evm/reference/get-token-analytics
     """
     if not MORALIS_API_KEY:
@@ -71,6 +81,7 @@ def get_token_analytics(token_address: str, chain: str) -> dict:
             hex_chain = _chain_to_hex(chain_lower)
             url = f"{MORALIS_API_BASE}/erc20/{token_address}/analytics?chain={hex_chain}"
 
+        _rate_check()
         res = get_session().get(url, headers=_get_headers(), timeout=5)
         if res.status_code == 200:
             return res.json()
@@ -95,6 +106,7 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
         chain_lower = chain.lower()
         if chain_lower == "solana":
             url = f"{SOLANA_API_BASE}/token/mainnet/{token_addresses[0]}/metadata"
+            _rate_check()
             res = get_session().get(url, headers=_get_headers(), timeout=4)
             if res.status_code == 200:
                 data = res.json()
@@ -106,7 +118,8 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
             url = f"{MORALIS_API_BASE}/erc20/metadata?chain={hex_chain}"
             for addr in token_addresses:
                 url += f"&addresses={addr}"
-            
+
+            _rate_check()
             res = get_session().get(url, headers=_get_headers(), timeout=4)
             if res.status_code == 200:
                 return res.json()

@@ -163,9 +163,15 @@ class ArbOpportunity:
     confidence: float = 0.0          # 0–1
     detected_at: float = field(default_factory=time.time)
     expires_at: float = 0.0          # Unix timestamp — opportunity window
+    # Backward-compat aliases (tests and older callers may use these names)
+    discovered_at: float = 0.0       # Alias for detected_at; 0 = use detected_at
+    ttl_seconds: float = 0.0         # If > 0, expiry = discovered_at + ttl_seconds
 
     @property
     def is_expired(self) -> bool:
+        # Support both expires_at (production) and discovered_at+ttl_seconds (tests)
+        if self.ttl_seconds > 0 and self.discovered_at > 0:
+            return time.time() > (self.discovered_at + self.ttl_seconds)
         return self.expires_at > 0 and time.time() > self.expires_at
 
     @property
