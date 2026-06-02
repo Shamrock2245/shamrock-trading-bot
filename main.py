@@ -730,6 +730,13 @@ async def run_bot_loop():
         # Optionally adjust position size based on Kelly criterion recommendation
         position_usd = position_usd * trade_plan["recommended_kelly_sizing"]
 
+        # Apply Alpha Wallet Ranker Multiplier
+        from core.alpha_wallet_ranker import wallet_ranker
+        wallet_alias = wallet.alias.lower().replace(" ", "_")
+        wallet_multiplier = wallet_ranker.get_multiplier(wallet_alias)
+        position_usd = position_usd * wallet_multiplier
+        logger.info(f"Alpha Wallet Ranker: {wallet_alias} multiplier = {wallet_multiplier}x")
+
         register_position(
             token_address=token.address,
             token_symbol=token.symbol,

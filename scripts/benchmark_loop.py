@@ -20,6 +20,11 @@ def run_benchmark():
     """
     logger.info("Starting Benchmark Optimization Loop...")
     
+    # Recalculate alpha wallet scores
+    from core.alpha_wallet_ranker import wallet_ranker
+    logger.info("Recalculating Alpha Wallet Rankings...")
+    wallet_ranker.recalculate_scores()
+    
     if not LEDGER_DIR.exists():
         logger.warning(f"No ledger directory found at {LEDGER_DIR}")
         return
