@@ -1,7 +1,9 @@
 import os
 import time
 from data.http_session import get_session
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Rate limiter — shared with all other Moralis providers
 try:
