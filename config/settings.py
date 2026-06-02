@@ -364,8 +364,8 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "68.0"))              # TUNED: 65→68 — match conservative profile floor, reduce noise entries
-MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "50000"))       # TUNED: 25k→50k — require more liquidity to reduce slippage losses
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # TUNED: 68→62 — reduce garbage entries while keeping quality bar (task/strategy-tuning)
+MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))       # TUNED: 50k→25k — avoid illiquid traps; 25k is minimum viable pool depth
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED: 168h→72h — focus on fresh tokens (3 days max)
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
@@ -578,7 +578,7 @@ PYRAMID_TIER3_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER3_TRAILING_STOP_P
 # Cuts momentum-dead positions quickly to free capital for live opportunities.
 # Replaces the 12-hour underperformer rotation with faster, smarter exits.
 FAST_FAIL_ENABLED = os.getenv("FAST_FAIL_ENABLED", "true").lower() == "true"
-FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "1.0"))               # TUNED: 2h→1h — check for failure sooner
+FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "3.0"))               # TUNED: 1h→3h — exit no-movers faster (strategy-tuning task)
 FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "8.0"))          # TUNED: 10%→8% — cut losers earlier
 FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "2.0"))    # TUNED: 3h→2h — cut stalls faster
 FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "10.0"))       # TUNED: 20%→10% — lower momentum bar to survive

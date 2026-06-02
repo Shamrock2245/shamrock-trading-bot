@@ -289,6 +289,20 @@ def _load_trades() -> list[dict]:
         return []
 
 
+# ── Drift detection integration ──────────────────────────────────────────────
+# Import lazily to avoid circular imports and allow the module to load even
+# if drift_detector dependencies (numpy/scipy) are not yet installed.
+def _check_drift() -> bool:
+    """Run feature drift check; returns True if drift detected."""
+    try:
+        from ml.drift_detector import check_feature_drift
+        return check_feature_drift()
+    except Exception as _de:
+        import logging as _log
+        _log.getLogger(__name__).debug(f"Drift check unavailable: {_de}")
+        return False  # Assume no drift if detector unavailable
+
+
 def train_rl_agent(force: bool = False) -> bool:
     """
     Train the RL position sizing agent on historical trades.
@@ -360,6 +374,15 @@ def train_rl_agent(force: bool = False) -> bool:
             f"{total_steps:,} steps | {time.time()-t0:.1f}s | "
             f"saved to {_MODEL_PATH}"
         )
+
+        # After a successful retrain, snapshot the current TA distribution as
+        # the new baseline so drift_detector.py has an up-to-date reference.
+        try:
+            from ml.drift_detector import save_training_stats
+            save_training_stats()  # reads ta_cache.json automatically
+        except Exception as _dst_err:
+            logger.debug(f"Training stats snapshot failed (non-critical): {_dst_err}")
+
         return True
 
     except Exception as e:
@@ -409,6 +432,16 @@ def get_position_multiplier(
         (multiplier: float, reason: str)
         multiplier is 1.0 if model not trained yet (neutral — no effect)
     """
+    # ── Drift guard: fall back to static Kelly if feature distribution has shifted ──
+    # This prevents the RL model from making sizing decisions based on a feature
+    # space it was not trained on, which can cause systematic over/under-sizing.
+    if _check_drift():
+        logger.info(
+            f"🔄 RL drift fallback: feature distribution shifted — "
+            f"using conservative static Kelly sizing for {gem_score:.0f}-score token"
+        )
+        return 1.0, "rl_drift_fallback"
+
     # Try to load model if not loaded
     if not _model_loaded:
         _load_model()

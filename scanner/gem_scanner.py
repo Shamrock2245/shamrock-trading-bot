@@ -1123,28 +1123,73 @@ class GemScanner:
         except Exception as _vt_err:
             logger.debug(f"Volume trend skipped for {token.symbol}: {_vt_err}")
 
+        # ── PARALLEL PRE-ENRICHMENT FETCH (Task 1: scoring parallelization) ──────
+        # analytics, social, and smart_money are independent — run concurrently
+        # with a 10-second per-call timeout to avoid blocking the scan cycle.
+        # Each call already has an internal fallback value on failure.
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
+
+        def _fetch_analytics():
+            return _get_token_analytics(token.address, token.chain)
+
+        def _fetch_social():
+            return get_social_score(
+                symbol=token.symbol,
+                websites=getattr(token, "websites", []),
+                socials=getattr(token, "socials", []),
+                buys_1h=getattr(token, "buys_1h", 0),
+                sells_1h=getattr(token, "sells_1h", 0),
+                volume_1h=token.volume_1h,
+                market_cap=token.market_cap,
+                is_boosted=is_boosted,
+                boost_amount=getattr(token, "boost_amount", 0),
+            )
+
+        def _fetch_smart_money():
+            return get_smart_money_score(token.address, token.chain)
+
+        _pre_enrich: dict = {}
+        _pre_futures: dict = {}
+        with _TPE(max_workers=5, thread_name_prefix="pre_enrich") as _pre_pool:
+            _pre_futures = {
+                _pre_pool.submit(_fetch_analytics): "analytics",
+                _pre_pool.submit(_fetch_social): "social",
+                _pre_pool.submit(_fetch_smart_money): "smart_money",
+            }
+            try:
+                for _fut in _as_completed(_pre_futures, timeout=10):
+                    _key = _pre_futures[_fut]
+                    try:
+                        _pre_enrich[_key] = _fut.result()
+                    except Exception as _fe:
+                        logger.debug(f"Pre-enrich '{_key}' failed for {token.symbol}: {_fe}")
+                        _pre_enrich[_key] = None
+            except TimeoutError:
+                for _f, _n in _pre_futures.items():
+                    if not _f.done():
+                        _f.cancel()
+                        logger.debug(f"Pre-enrich '{_n}' timed out for {token.symbol} — using fallback")
 
         # ── Dynamic Volume Decay & Holder Momentum (Upgrade 2) ────────────────
-        # Incorporate Moralis Deep Analytics if available
-        try:
-            analytics_data = _get_token_analytics(token.address, token.chain)
-            
-            if analytics_data:
+        # Results from parallel fetch above — no sequential API call needed.
+        analytics_data = _pre_enrich.get("analytics")
+        if analytics_data:
+            try:
                 # 1. Net Buyers & Volume (1 Day or 1 Month based on token age)
                 # If < 12h use '1d' fallback, else use 1w or 1m
                 if token.age_hours < 12:
                     period_key = "1d"
                 else:
                     period_key = "1w" if "1w" in analytics_data else "1m"
-                    
+
                 net_buyers = analytics_data.get(period_key, {}).get("net_buyers", 0)
                 exp_net_buyers = analytics_data.get(period_key, {}).get("experienced_net_buyers", 0)
                 buy_vol = analytics_data.get(period_key, {}).get("buy_volume_usd", 0)
                 sell_vol = analytics_data.get(period_key, {}).get("sell_volume_usd", 0)
-                
+
                 candidate.moralis_buy_pressure = net_buyers
                 candidate.moralis_exp_net_buyers_1w = exp_net_buyers
-                
+
                 # Overwhelming sell pressure penalty
                 if net_buyers < 0:
                     penalty = 30.0
@@ -1154,7 +1199,7 @@ class GemScanner:
                     bonus = 15.0
                     candidate.holder_score = min(100, candidate.holder_score + bonus)
                     logger.info(f"🚀 Massive Net Buyers Bonus: {token.symbol} (net_buyers={net_buyers}) -> +{bonus} holder score")
-                    
+
                 # Volume Acceleration/Decay
                 if buy_vol > 0 and sell_vol > 0:
                     buy_sell_ratio = buy_vol / sell_vol
@@ -1166,44 +1211,36 @@ class GemScanner:
                         bonus = 15.0
                         candidate.volume_score = min(100, candidate.volume_score + bonus)
                         logger.info(f"📈 Volume Acceleration Bonus: {token.symbol} (buy:sell={buy_sell_ratio:.2f}) -> +{bonus} vol score")
-
-        except Exception as e:
-            logger.debug(f"Moralis analytics skipped for {token.symbol}: {e}")
+            except Exception as e:
+                logger.debug(f"Moralis analytics processing failed for {token.symbol}: {e}")
+        else:
+            logger.debug(f"Moralis analytics skipped for {token.symbol} (no data or timeout)")
 
         # Smart Money Convergence (Whale + Sniper Confluence)
         whale_buyers = getattr(candidate, 'moralis_exp_net_buyers_1w', 0) or 0
         sniper_count = getattr(candidate, 'sniper_count', 0) or 0
-        
+
         if whale_buyers >= 5 and sniper_count >= 2 and getattr(candidate, 'sniper_risk', 'unknown') != 'critical':
             candidate.smart_money_score = min(100, getattr(candidate, 'smart_money_score', 50) + 25)
             logger.info(f"🐋🎯 Smart Money Confluence: {token.symbol} (whales={whale_buyers}, snipers={sniper_count}) -> +25 smart money score")
 
-        # ── Social score (6%) — REAL social scoring ───────────────────────────
-        # Uses social_scoring.py: DexScreener profile links + LunarCrush + CoinGecko
-        try:
-            candidate.social_score = get_social_score(
-                symbol=token.symbol,
-                websites=getattr(token, "websites", []),
-                socials=getattr(token, "socials", []),
-                buys_1h=getattr(token, "buys_1h", 0),
-                sells_1h=getattr(token, "sells_1h", 0),
-                volume_1h=token.volume_1h,
-                market_cap=token.market_cap,
-                is_boosted=is_boosted,
-                boost_amount=getattr(token, "boost_amount", 0),
-            )
-        except Exception as e:
-            logger.debug(f"Social scoring failed for {token.symbol}: {e}")
+        # ── Social score (6%) — results from parallel fetch ───────────────────
+        _social_result = _pre_enrich.get("social")
+        if _social_result is not None:
+            candidate.social_score = float(_social_result)
+        else:
+            logger.debug(f"Social scoring fallback for {token.symbol}")
             candidate.social_score = 50.0  # Neutral fallback on failure
 
         # ── DexScreener boost score (4%) ──────────────────────────────────────
         # Already calculated in pre-score gate.
 
-        # ── Smart money score (4%) — REAL wallet overlap ──────────────────────
-        try:
-            candidate.smart_money_score = get_smart_money_score(token.address, token.chain)
-        except Exception as e:
-            logger.debug(f"Smart money scoring failed for {token.symbol}: {e}")
+        # ── Smart money score (4%) — results from parallel fetch ──────────────
+        _sm_result = _pre_enrich.get("smart_money")
+        if _sm_result is not None:
+            candidate.smart_money_score = float(_sm_result)
+        else:
+            logger.debug(f"Smart money scoring fallback for {token.symbol}")
             candidate.smart_money_score = 50.0  # Neutral fallback — 0 was dragging scores down
 
         # ── Contract verified score (8%) ──────────────────────────────────────
@@ -1383,7 +1420,7 @@ class GemScanner:
         # ⚡ MORALIS-FIRST ENRICHMENT: 5 lean parallel calls replace the old 9.
         # Removed: DefiLlama TVL, LunarCrush social, holder_analysis, token_unlocks
         # All replaced by Moralis ecosystem signals (discovery, analytics, pair stats).
-        # Grok sentiment (6-8s LLM call, 5% weight) still deferred to 2nd pass.
+        # Grok sentiment (5% weight) now runs IN the parallel pool (Task 1 parallelization).
         if base_score >= 45:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1449,10 +1486,23 @@ class GemScanner:
                     pass
                 return {}
 
-            # Submit 8 enrichment calls — added entity conviction + Solana pair stats
+            def _get_grok_parallel():
+                """Grok sentiment (5% weight) — runs in parallel with enrichment pool.
+                Falls back to neutral 50.0 on any failure or if not available.
+                NOTE: Grok provider has a 60s internal timeout; the pool's 15s outer
+                timeout will cancel it early if the LLM is slow, preserving cycle time.
+                """
+                if not _GROK_SENTIMENT_AVAILABLE:
+                    return 50.0
+                try:
+                    return _get_grok_sentiment_score(token.symbol, token.chain)
+                except Exception:
+                    return 50.0
+
+            # Submit 9 enrichment calls — Grok sentiment now runs in parallel (Task 1)
             enrichment_results = {}
             future_map = {}
-            with ThreadPoolExecutor(max_workers=8, thread_name_prefix="enrich") as pool:
+            with ThreadPoolExecutor(max_workers=9, thread_name_prefix="enrich") as pool:
                 future_map = {
                     pool.submit(_get_dev): "dev",
                     pool.submit(_get_copycat): "copycat",
@@ -1462,6 +1512,7 @@ class GemScanner:
                     pool.submit(_get_intelligence): "moralis_intelligence",
                     pool.submit(_get_entity_conviction): "entity_conviction",
                     pool.submit(_get_solana_pair_stats): "solana_pair_stats",
+                    pool.submit(_get_grok_parallel): "grok_sentiment",
                 }
                 try:
                     for future in as_completed(future_map, timeout=15):
@@ -1484,7 +1535,13 @@ class GemScanner:
             candidate.social_sentiment_score = 50.0  # Now inside Moralis (on_chain_strength)
             candidate.holder_concentration_score = 50.0  # Now inside Moralis (pair stats)
             candidate.unlock_risk_score = 50.0       # Removed — negligible for micro-caps
-            candidate.grok_sentiment_score = 50.0    # Deferred to 2nd pass
+            # Grok sentiment: use parallel result if available, else neutral default
+            _grok_parallel_result = enrichment_results.get("grok_sentiment")
+            candidate.grok_sentiment_score = (
+                float(_grok_parallel_result)
+                if _grok_parallel_result is not None
+                else 50.0
+            )
 
             # Dev wallet
             dev_result = enrichment_results.get("dev")
@@ -1584,12 +1641,19 @@ class GemScanner:
         except Exception as _defi_err:
             logger.debug(f"DeFi exposure check skipped for {token.symbol}: {_defi_err}")
 
-        # ── GROK SENTIMENT (conditional second pass — 5% weight) ──────────────
-        # Only call the slow Grok LLM (~6-8s) if the token still looks
-        # promising after all the fast enrichment signals. This saves API
-        # credits and shaves ~6s off ~80% of tokens that won't pass anyway.
-        if base_score >= 45 and candidate.grok_sentiment_score == 50.0:
-            # Quick preliminary score to decide if Grok is worth calling
+        # ── GROK SENTIMENT (5% weight) ──────────────────────────────────────────
+        # Task 1 parallelization: Grok now runs in the Phase 3 enrichment pool
+        # (see _get_grok_parallel above). The sequential fallback below only fires
+        # for tokens that scored < 45 (skipped the pool) and still need a Grok call.
+        # For tokens that went through the pool, grok_sentiment_score is already set.
+        if base_score >= 45:
+            # Grok result already populated from the parallel enrichment pool.
+            logger.debug(
+                f"Grok sentiment [{token.symbol}]: {candidate.grok_sentiment_score:.1f} "
+                f"(parallel pool result)"
+            )
+        elif base_score >= 40 and candidate.grok_sentiment_score == 50.0:
+            # Low-base-score path: sequential fallback for tokens that didn't enter the pool
             prelim_score = (
                 candidate.age_score * 0.08
                 + candidate.volume_score * 0.10
@@ -1614,7 +1678,7 @@ class GemScanner:
                         token.symbol, token.chain
                     )
                 except Exception as e:
-                    logger.debug(f"Grok sentiment failed for {token.symbol}: {e}")
+                    logger.debug(f"Grok sentiment fallback failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
 
             # ── Moralis Cortex AI — on-chain grounded analysis (P6) ─────────
