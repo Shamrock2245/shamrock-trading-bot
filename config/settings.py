@@ -201,8 +201,8 @@ WALLET_MONITOR_DEFAULT_COPY_USD = float(os.getenv("WALLET_MONITOR_DEFAULT_COPY_U
 WALLET_MONITOR_FASTLANE_ENABLED = os.getenv("WALLET_MONITOR_FASTLANE_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_FASTLANE_QUEUE_MAX = int(os.getenv("WALLET_MONITOR_FASTLANE_QUEUE_MAX", "200"))
 COPYTRADE_LATENCY_SLO_SECONDS = float(os.getenv("COPYTRADE_LATENCY_SLO_SECONDS", "20"))
-COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "300"))  # TUNED: 180→300s — alpha signals being rejected at 208s
-COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "60"))  # TUNED: 45→60s — start size reduction later
+COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_SECONDS", "600"))  # TUNED: 300→600s — 14-min scan cycles need headroom; 1-24h candle trades tolerate 10-min-old signals
+COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "180"))  # TUNED: 60→180s — start size reduction at 3 min (signals are still actionable)
 
 # Moralis Streams webhook ingestion (push-based low-latency detection)
 MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "true").lower() == "true"
@@ -353,7 +353,9 @@ CONVICTION_LOW_MULTIPLIER = float(os.getenv("CONVICTION_LOW_MULTIPLIER", "0.50")
 # ─────────────────────────────────────────────────────────────────────────────
 # Chain Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-_active_chains_env = os.getenv("ACTIVE_CHAINS", "ethereum,base,arbitrum,polygon,bsc,solana")
+# Dropped avalanche + polygon — 0 gems found on AVAX, polygon has minimal alpha.
+# Focus on the 4 highest-value chains + Solana.
+_active_chains_env = os.getenv("ACTIVE_CHAINS", "ethereum,base,bsc,solana")
 ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(",") if c.strip()]
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -41,6 +41,8 @@ Scoring weights (rebalanced, 14 signals, sum = 100%):
 """
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from config.chains import DEXSCREENER_CHAIN_MAP
@@ -274,6 +276,7 @@ class GemScanner:
                 pass  # Keep previous weights on error
 
         logger.info("Starting gem scan cycle...")
+        _scan_start = time.monotonic()
         candidates: list[GemCandidate] = []
         seen_addresses: set[str] = set()
 
@@ -297,243 +300,257 @@ class GemScanner:
             except Exception as _mf_err:
                 logger.debug(f"MacroFilter unavailable: {_mf_err}")
 
-        # ── Source 1: Latest token profiles ──────────────────────────────────
-        profiles = get_latest_token_profiles()
-        logger.info(f"Fetched {len(profiles)} latest token profiles")
-        count = 0
-        for profile in profiles:
-            if count >= 10:
-                break
-            token_addr = profile.get("tokenAddress", "")
-            chain_id = profile.get("chainId", "")
-            chain = self._dexscreener_to_chain(chain_id)
-            if not chain or not token_addr:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
-            if token_addr.lower() in seen_addresses:
-                continue
-            pairs = get_token_pairs(token_addr) or []
-            for pair in pairs:
-                signals = extract_gem_signals(pair)
-                token = self._signals_to_token(signals, chain)
-                if token:
-                    count += 1
-                    candidate = self._score_token(token, is_boosted=False)
-                    if candidate is None:
-                        break
-                    _adjusted_score = candidate.gem_score * _macro_multiplier
-                    candidate.gem_score = _adjusted_score
-                    if _adjusted_score >= _macro_min_score:
-                        candidates.append(candidate)
-                        seen_addresses.add(token_addr.lower())
-                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "profiles")
-                    break  # Use first (most liquid) pair only
+        # ──────────────────────────────────────────────────────────────────────
+        # PHASE 1: PARALLEL DATA FETCHING
+        # Fire all 14 source fetchers simultaneously. Each returns a list of
+        # (raw_items, source_name, source_config) tuples.
+        # Timeout: 30s per source — if a source is slow, we skip it.
+        # ──────────────────────────────────────────────────────────────────────
 
-        # ── Source 2: Latest boosts ───────────────────────────────────────────
-        boosts = get_latest_boosts()
-        logger.info(f"Fetched {len(boosts)} latest boosts")
-        count = 0
-        for boost in boosts:
-            if count >= 10:
-                break
-            token_addr = boost.get("tokenAddress", "")
-            chain_id = boost.get("chainId", "")
-            chain = self._dexscreener_to_chain(chain_id)
-            boost_amount = int(boost.get("amount", 0) or 0)
-            if not chain or not token_addr:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
-            if token_addr.lower() in seen_addresses:
-                continue
-            pairs = get_token_pairs(token_addr) or []
-            for pair in pairs:
-                signals = extract_gem_signals(pair)
-                signals["is_boosted"] = True
-                signals["boost_amount"] = boost_amount
-                token = self._signals_to_token(signals, chain)
-                if token:
-                    count += 1
-                    candidate = self._score_token(token, is_boosted=True)
-                    if candidate is None:
-                        break
-                    _adjusted_score = candidate.gem_score * _macro_multiplier
-                    candidate.gem_score = _adjusted_score
-                    if _adjusted_score >= _macro_min_score:
-                        candidates.append(candidate)
-                        seen_addresses.add(token_addr.lower())
-                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "boosts")
-                    break
+        def _fetch_profiles():
+            """Source 1: DexScreener latest token profiles."""
+            return get_latest_token_profiles()
 
-        # ── Source 3: Top boosts (strongest community push) ───────────────────
-        top_boosts = get_top_boosts()
-        logger.info(f"Fetched {len(top_boosts)} top boosts")
-        count = 0
-        for boost in top_boosts:
-            if count >= 10:
-                break
-            token_addr = boost.get("tokenAddress", "")
-            chain_id = boost.get("chainId", "")
-            chain = self._dexscreener_to_chain(chain_id)
-            boost_amount = int(boost.get("amount", 0) or 0)
-            if not chain or not token_addr:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
-            if token_addr.lower() in seen_addresses:
-                continue
-            pairs = get_token_pairs(token_addr) or []
-            for pair in pairs:
-                signals = extract_gem_signals(pair)
-                signals["is_boosted"] = True
-                signals["boost_amount"] = boost_amount
-                token = self._signals_to_token(signals, chain)
-                if token:
-                    count += 1
-                    candidate = self._score_token(token, is_boosted=True)
-                    if candidate is None:
-                        break
-                    _adjusted_score = candidate.gem_score * _macro_multiplier
-                    candidate.gem_score = _adjusted_score
-                    if _adjusted_score >= _macro_min_score:
-                        candidates.append(candidate)
-                        seen_addresses.add(token_addr.lower())
-                    elif _adjusted_score >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "top_boosts")
-                    break
+        def _fetch_boosts():
+            """Source 2: DexScreener latest boosts."""
+            return get_latest_boosts()
 
-        # ── Source 4: Community takeovers (CTO Revival — top-tier signal) ──────
-        # CTO = original dev abandoned, community took over and is pumping it.
-        # Per docs/SIGNALS.md: CTO Revival is a high-profit setup — treat as
-        # full-conviction express lane candidate if volume + social confirm.
-        ctos = get_latest_community_takeovers()
-        logger.info(f"Fetched {len(ctos)} community takeovers")
-        count = 0
-        for cto in ctos:
-            if count >= 10:
-                break
-            token_addr = cto.get("tokenAddress", "")
-            chain_id = cto.get("chainId", "")
-            chain = self._dexscreener_to_chain(chain_id)
-            if not chain or not token_addr:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
-            if token_addr.lower() in seen_addresses:
-                continue
-            pairs = get_token_pairs(token_addr) or []
-            for pair in pairs:
-                signals = extract_gem_signals(pair)
-                signals["is_boosted"] = True
-                signals["boost_amount"] = 200   # CTO gets higher boost weight than regular boosts
-                signals["is_cto"] = True        # CTO flag for scoring bonus
-                token = self._signals_to_token(signals, chain)
-                if token:
-                    # CTO signal decay: only valid within 48h of CTO claim
-                    # (per docs/SIGNALS.md stale-data window)
-                    age_h = token.age_hours or 0
-                    if age_h > 48:
-                        logger.debug(f"CTO signal expired for {token.symbol} (age={age_h:.0f}h > 48h)")
-                        break
-                    count += 1
-                    candidate = self._score_token(token, is_boosted=True, is_cto=True)
-                    if candidate is None:
-                        break
-                    _adj = candidate.gem_score * _macro_multiplier
-                    candidate.gem_score = _adj
-                    if _adj >= _macro_min_score:
-                        candidates.append(candidate)
-                    elif _adj >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "cto_revival")
-                        seen_addresses.add(token_addr.lower())
-                    break
+        def _fetch_top_boosts():
+            """Source 3: DexScreener top boosts."""
+            return get_top_boosts()
 
-        # ── Source 5: Ads (funded team with marketing budget) ───────────────
-        ads = get_latest_ads()
-        logger.info(f"Fetched {len(ads)} latest ads")
-        count = 0
-        for ad in ads:
-            if count >= 10:
-                break
-            token_addr = ad.get("tokenAddress", "")
-            chain_id = ad.get("chainId", "")
-            chain = self._dexscreener_to_chain(chain_id)
-            if not chain or not token_addr:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
-            if token_addr.lower() in seen_addresses:
-                continue
-            pairs = get_token_pairs(token_addr) or []
-            for pair in pairs:
-                signals = extract_gem_signals(pair)
-                signals["is_boosted"] = True  # Ads = paid visibility signal
-                signals["boost_amount"] = 50   # Moderate boost for ads
-                token = self._signals_to_token(signals, chain)
-                if token:
-                    count += 1
-                    candidate = self._score_token(token, is_boosted=True)
-                    if candidate is None:
-                        break
-                    _adj = candidate.gem_score * _macro_multiplier
-                    candidate.gem_score = _adj
-                    if _adj >= _macro_min_score:
-                        candidates.append(candidate)
-                        seen_addresses.add(token_addr.lower())
-                    break
+        def _fetch_ctos():
+            """Source 4: Community takeovers."""
+            return get_latest_community_takeovers()
 
-        # ── Source 6: Moralis trending + buying pressure ──────────────────────
-        # Moralis surfaces tokens with volume spikes and rising buy:sell ratios
-        # across all chains. Each token gets pair data from DexScreener and
-        # enters the same 14-signal scoring pipeline.
-        try:
-            moralis_tokens = moralis_discover(chains=settings.ACTIVE_CHAINS)
-            moralis_added = 0
+        def _fetch_ads():
+            """Source 5: DexScreener ads."""
+            return get_latest_ads()
+
+        def _fetch_moralis():
+            """Source 6: Moralis trending + buying pressure."""
+            try:
+                return moralis_discover(chains=settings.ACTIVE_CHAINS)
+            except Exception as e:
+                logger.warning(f"Moralis discovery error: {e}")
+                return []
+
+        def _fetch_pumpfun_graduated():
+            """Source 8: Pump.fun graduated tokens."""
+            if "solana" not in settings.ACTIVE_CHAINS:
+                return []
+            try:
+                graduated = get_pumpfun_graduated(limit=20)
+                return [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
+            except Exception as e:
+                logger.warning(f"Pump.fun discovery error: {e}")
+                return []
+
+        def _fetch_binance():
+            """Source 9: Binance Pulse trending."""
+            if not settings.BINANCE_PULSE_ENABLED:
+                return []
+            try:
+                result = []
+                bp_chains = [c for c in settings.ACTIVE_CHAINS if c in binance_supported_chains()]
+                for bp_chain in bp_chains:
+                    trending = binance_trending(chain=bp_chain, rank_type=10, limit=15)
+                    for bt in trending:
+                        bt["_bp_chain"] = bp_chain
+                        result.append(bt)
+                return result
+            except Exception as e:
+                logger.warning(f"Binance Pulse discovery error: {e}")
+                return []
+
+        def _fetch_pumpfun_new():
+            """Source 10: Pump.fun NEW tokens."""
+            if "solana" not in settings.ACTIVE_CHAINS:
+                return []
+            try:
+                return get_pumpfun_new_tokens(limit=25)
+            except Exception as e:
+                logger.warning(f"Pump.fun NEW discovery error: {e}")
+                return []
+
+        def _fetch_pumpfun_bonding():
+            """Source 11: Pump.fun bonding tokens."""
+            if "solana" not in settings.ACTIVE_CHAINS:
+                return []
+            try:
+                return get_pumpfun_bonding_tokens(limit=25)
+            except Exception as e:
+                logger.warning(f"Pump.fun BONDING discovery error: {e}")
+                return []
+
+        def _fetch_sniper_convergence():
+            """Source 12: Moralis sniper convergence."""
+            try:
+                return _discover_sniper_convergence()
+            except Exception as e:
+                logger.warning(f"Sniper convergence discovery error: {e}")
+                return []
+
+        def _fetch_grok_trending():
+            """Source 14: Grok CT trending."""
+            try:
+                return _discover_grok_trending()
+            except Exception as e:
+                logger.warning(f"Grok trending discovery error: {e}")
+                return []
+
+        # Map source name → fetcher function
+        _SOURCE_TIMEOUT = 30  # seconds per source
+        fetchers = {
+            "profiles": _fetch_profiles,
+            "boosts": _fetch_boosts,
+            "top_boosts": _fetch_top_boosts,
+            "ctos": _fetch_ctos,
+            "ads": _fetch_ads,
+            "moralis": _fetch_moralis,
+            "pumpfun_graduated": _fetch_pumpfun_graduated,
+            "binance": _fetch_binance,
+            "pumpfun_new": _fetch_pumpfun_new,
+            "pumpfun_bonding": _fetch_pumpfun_bonding,
+            "sniper_convergence": _fetch_sniper_convergence,
+            "grok_trending": _fetch_grok_trending,
+        }
+
+        # Fire all fetchers in parallel
+        raw_data: dict[str, list] = {}
+        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="scan") as pool:
+            future_to_name = {
+                pool.submit(fn): name for name, fn in fetchers.items()
+            }
+            for future in as_completed(future_to_name, timeout=_SOURCE_TIMEOUT + 5):
+                name = future_to_name[future]
+                try:
+                    raw_data[name] = future.result(timeout=_SOURCE_TIMEOUT)
+                except Exception as e:
+                    logger.warning(f"Source '{name}' failed/timed out: {e}")
+                    raw_data[name] = []
+
+        _fetch_elapsed = time.monotonic() - _scan_start
+        logger.info(
+            f"⚡ Parallel fetch complete in {_fetch_elapsed:.1f}s — "
+            f"{sum(len(v) for v in raw_data.values())} raw items from "
+            f"{sum(1 for v in raw_data.values() if v)} sources"
+        )
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PHASE 2: SERIAL SCORING & FILTERING
+        # Process fetched data source-by-source. Scoring uses shared state
+        # (seen_addresses, candidates) so must remain serial.
+        # ──────────────────────────────────────────────────────────────────────
+
+        def _process_dex_items(items, source_name, is_boosted=False,
+                               boost_amount=0, is_cto=False, max_items=10):
+            """Process DexScreener-style items (profiles, boosts, ads, CTOs)."""
             count = 0
-            for mt in moralis_tokens:
-                if count >= 10:
+            for item in items:
+                if count >= max_items:
                     break
-                token_addr = mt.get("token_address", "")
-                chain = mt.get("chain", "")
-                if not token_addr or not chain:
+                token_addr = item.get("tokenAddress", "")
+                chain_id = item.get("chainId", "")
+                chain = self._dexscreener_to_chain(chain_id)
+                if not chain or not token_addr:
                     continue
                 if chain not in settings.ACTIVE_CHAINS:
                     continue
                 if token_addr.lower() in seen_addresses:
                     continue
+                item_boost = int(item.get("amount", 0) or boost_amount)
                 pairs = get_token_pairs(token_addr) or []
                 for pair in pairs:
                     signals = extract_gem_signals(pair)
-                    # Moralis trending = moderate boost signal
-                    signals["is_boosted"] = True
-                    signals["boost_amount"] = 75  # Moralis trending weight
+                    if is_boosted or is_cto:
+                        signals["is_boosted"] = True
+                        signals["boost_amount"] = item_boost
+                    if is_cto:
+                        signals["is_cto"] = True
                     token = self._signals_to_token(signals, chain)
                     if token:
+                        # CTO stale check
+                        if is_cto and (token.age_hours or 0) > 48:
+                            break
                         count += 1
-                        candidate = self._score_token(token, is_boosted=True)
+                        candidate = self._score_token(token, is_boosted=is_boosted, is_cto=is_cto)
                         if candidate is None:
                             break
                         _adj = candidate.gem_score * _macro_multiplier
                         candidate.gem_score = _adj
                         if _adj >= _macro_min_score:
-                            candidate.strategy_tag = "moralis_trending"
                             candidates.append(candidate)
                             seen_addresses.add(token_addr.lower())
-                            moralis_added += 1
                         elif _adj >= WATCHLIST_MIN_SCORE:
-                            self.add_near_miss(token, candidate.gem_score, "moralis")
+                            self.add_near_miss(token, candidate.gem_score, source_name)
                         break
-            if moralis_added:
-                logger.info(f"Moralis: {moralis_added} tokens passed scoring")
-        except Exception as e:
-            logger.warning(f"Moralis discovery error: {e}")
 
-        # ── Source 7: Watchlist re-evaluation (near-miss promotions) ───────────
-        # Re-score watched tokens using fresh DexScreener data. Tokens that
-        # improved since last cycle get promoted to full candidates.
+        # Source 1: Profiles
+        _process_dex_items(raw_data.get("profiles", []), "profiles")
+        logger.info(f"Fetched {len(raw_data.get('profiles', []))} latest token profiles")
+
+        # Source 2: Boosts
+        _process_dex_items(raw_data.get("boosts", []), "boosts", is_boosted=True)
+        logger.info(f"Fetched {len(raw_data.get('boosts', []))} latest boosts")
+
+        # Source 3: Top boosts
+        _process_dex_items(raw_data.get("top_boosts", []), "top_boosts", is_boosted=True)
+        logger.info(f"Fetched {len(raw_data.get('top_boosts', []))} top boosts")
+
+        # Source 4: CTOs
+        _process_dex_items(
+            raw_data.get("ctos", []), "cto_revival",
+            is_boosted=True, boost_amount=200, is_cto=True,
+        )
+        logger.info(f"Fetched {len(raw_data.get('ctos', []))} community takeovers")
+
+        # Source 5: Ads
+        _process_dex_items(
+            raw_data.get("ads", []), "ads",
+            is_boosted=True, boost_amount=50,
+        )
+        logger.info(f"Fetched {len(raw_data.get('ads', []))} latest ads")
+
+        # Source 6: Moralis trending
+        moralis_added = 0
+        count = 0
+        for mt in raw_data.get("moralis", []):
+            if count >= 10:
+                break
+            token_addr = mt.get("token_address", "")
+            chain = mt.get("chain", "")
+            if not token_addr or not chain:
+                continue
+            if chain not in settings.ACTIVE_CHAINS:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr) or []
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True
+                signals["boost_amount"] = 75
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    count += 1
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        break
+                    _adj = candidate.gem_score * _macro_multiplier
+                    candidate.gem_score = _adj
+                    if _adj >= _macro_min_score:
+                        candidate.strategy_tag = "moralis_trending"
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                        moralis_added += 1
+                    elif _adj >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "moralis")
+                    break
+        if moralis_added:
+            logger.info(f"Moralis: {moralis_added} tokens passed scoring")
+
+        # Source 7: Watchlist re-evaluation (local data, no fetch needed)
         try:
             promoted = self.watchlist.re_evaluate(
                 score_fn=self._watchlist_score_fn
@@ -549,7 +566,7 @@ class GemScanner:
                     candidate = self._score_token(token, is_boosted=False)
                     if candidate is None:
                         continue
-                    candidate.gem_score = promo["score"]  # Use watchlist score
+                    candidate.gem_score = promo["score"]
                     candidate.strategy_tag = "watchlist_promotion"
                     candidates.append(candidate)
                     seen_addresses.add(token_addr.lower())
@@ -558,9 +575,8 @@ class GemScanner:
                         f"(score {promo['initial_score']:.1f} → {promo['score']:.1f}) "
                         f"after {promo['checks']} checks"
                     )
-                    # ── Telegram threshold breach alert ─────────────────────
                     try:
-                                                _notify_threshold(
+                                            _notify_threshold(
                             symbol=promo['symbol'],
                             chain=promo['chain'],
                             old_score=promo['initial_score'],
@@ -576,312 +592,251 @@ class GemScanner:
         except Exception as e:
             logger.warning(f"Watchlist re-evaluation error: {e}")
 
-        # ── Source 8: Pump.fun Graduated Tokens (Solana only) ──────────────────
-        # Tokens that just graduated from Pump.fun bonding curve to Raydium.
-        # This is THE highest-conviction moment for early Solana meme entry.
-        if "solana" in settings.ACTIVE_CHAINS:
-            try:
-                graduated = get_pumpfun_graduated(limit=20)
-                graduated = [g for g in graduated if g.get("moralis_exp_net_buyers_1w", 0) >= 15]
-                pumpfun_added = 0
-                count = 0
-                for grad in graduated:
-                    if count >= 10:
-                        break
-                    token_addr = grad.get("token_address", "")
-                    if not token_addr or token_addr.lower() in seen_addresses:
-                        continue
-
-                    # Need minimum liquidity
-                    liq_usd = grad.get("liquidity_usd", 0)
-                    if liq_usd < settings.MIN_LIQUIDITY_USD:
-                        continue
-
-                    # Get DexScreener data for full scoring
-                    pairs = get_token_pairs(token_addr) or []
-                    for pair in pairs:
-                        signals = extract_gem_signals(pair)
-                        signals["is_boosted"] = True
-                        signals["boost_amount"] = 100  # Pump.fun graduation = strong signal
-                        token = self._signals_to_token(signals, "solana")
-                        if token:
-                            count += 1
-                            candidate = self._score_token(token, is_boosted=True)
-                            if candidate is None:
-                                break
-                            candidate.is_pumpfun_graduate = True
-                            candidate.strategy_tag = "pumpfun_graduate"
-                            # +5 bonus for Pump.fun graduation (capped at 100)
-                            candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
-                            if candidate.gem_score >= settings.MIN_GEM_SCORE:
-                                candidates.append(candidate)
-                                seen_addresses.add(token_addr.lower())
-                                pumpfun_added += 1
-                            elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                                self.add_near_miss(token, candidate.gem_score, "pumpfun")
-                            break
-
-                if pumpfun_added:
-                    logger.info(f"🚀 Pump.fun graduates: {pumpfun_added} tokens passed scoring")
-            except Exception as e:
-                logger.warning(f"Pump.fun discovery error: {e}")
-
-        # ── Source 9: Binance Pulse Trending (Multi-chain) ─────────────────────
-        # Free discovery from Binance's Web3 wallet platform.
-        # Fetch trending tokens for chains Binance supports, cross-reference
-        # with DexScreener for full scoring.
-        if settings.BINANCE_PULSE_ENABLED:
-            try:
-                bp_chains = [c for c in settings.ACTIVE_CHAINS if c in binance_supported_chains()]
-                binance_added = 0
-                count = 0
-                for bp_chain in bp_chains:
-                    if count >= 10:
-                        break
-                    trending = binance_trending(chain=bp_chain, rank_type=10, limit=15)
-                    for bt in trending:
-                        if count >= 10:
-                            break
-                        token_addr = bt.get("token_address", "")
-                        if not token_addr or token_addr.lower() in seen_addresses:
-                            continue
-                        # Skip ultra-low mcap (< $10k) — likely noise
-                        if bt.get("market_cap", 0) < 10_000:
-                            continue
-                        pairs = get_token_pairs(token_addr) or []
-                        for pair in pairs:
-                            signals = extract_gem_signals(pair)
-                            signals["is_boosted"] = True
-                            signals["boost_amount"] = 80  # Binance trending = strong signal
-                            token_obj = self._signals_to_token(signals, bp_chain)
-                            if token_obj:
-                                count += 1
-                                candidate = self._score_token(token_obj, is_boosted=True)
-                                if candidate is None:
-                                    break
-                                candidate.strategy_tag = "binance_trending"
-                                if candidate.gem_score >= settings.MIN_GEM_SCORE:
-                                    candidates.append(candidate)
-                                    seen_addresses.add(token_addr.lower())
-                                    binance_added += 1
-                                elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                                    self.add_near_miss(token_obj, candidate.gem_score, "binance")
-                                break
-                if binance_added:
-                    logger.info(f"🟡 Binance Pulse: {binance_added} trending tokens passed scoring")
-            except Exception as e:
-                logger.warning(f"Binance Pulse discovery error: {e}")
-
-        # ── Source 10: Pump.fun NEW Tokens (Solana — earliest possible entry) ────
-        # Tokens just created on Pump.fun, still on the bonding curve.
-        # Filtered by age gate (≥2h) + safety + score floor.
-        # Gives us the earliest possible Solana entry before DexScreener lists them.
-        if "solana" in settings.ACTIVE_CHAINS:
-            try:
-                new_tokens = get_pumpfun_new_tokens(limit=25)
-                pumpfun_new_added = 0
-                count = 0
-                for nt in new_tokens:
-                    if count >= 10:
-                        break
-                    token_addr = nt.get("address", "")
-                    if not token_addr or token_addr.lower() in seen_addresses:
-                        continue
-                    # Skip tokens with zero volume (pure noise)
-                    if nt.get("volume_24h", 0) < 500:
-                        continue
-                    signals = {
-                        "address": token_addr,
-                        "symbol": nt.get("symbol", ""),
-                        "name": nt.get("name", ""),
-                        "chain": "solana",
-                        "market_cap": nt.get("market_cap", 0),
-                        "volume_24h": nt.get("volume_24h", 0),
-                        "bonding_pct": nt.get("bonding_pct", 0),
-                        "is_boosted": False,
-                        "boost_amount": 0,
-                        "source": "pumpfun_new",
-                    }
-                    token_obj = self._signals_to_token(signals, "solana")
-                    if token_obj:
-                        count += 1
-                        candidate = self._score_token(token_obj, is_boosted=False)
-                        if candidate is None:
-                            continue
-                        candidate.strategy_tag = "pumpfun_new"
-                        # +3 bonus for being caught pre-graduation (early entry premium)
-                        candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
-                        if candidate.gem_score >= _macro_min_score:
-                            candidates.append(candidate)
-                            seen_addresses.add(token_addr.lower())
-                            pumpfun_new_added += 1
-                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_new")
-                if pumpfun_new_added:
-                    logger.info(f"🌱 Pump.fun NEW: {pumpfun_new_added} pre-graduation tokens passed scoring")
-            except Exception as e:
-                logger.warning(f"Pump.fun NEW discovery error: {e}")
-
-        # ── Source 11: Pump.fun BONDING Tokens (near-graduation, highest momentum) ─
-        # Tokens at 80%+ bonding curve progress — about to graduate to Raydium.
-        # These are the highest-momentum pre-graduation plays with whale confirmation.
-        if "solana" in settings.ACTIVE_CHAINS:
-            try:
-                bonding_tokens = get_pumpfun_bonding_tokens(limit=25)
-                pumpfun_bonding_added = 0
-                count = 0
-                for bt in bonding_tokens:
-                    if count >= 10:
-                        break
-                    token_addr = bt.get("address", "")
-                    if not token_addr or token_addr.lower() in seen_addresses:
-                        continue
-                    # Only take tokens near graduation (≥80% bonding curve)
-                    if not bt.get("near_graduation", False):
-                        continue
-                    signals = {
-                        "address": token_addr,
-                        "symbol": bt.get("symbol", ""),
-                        "name": bt.get("name", ""),
-                        "chain": "solana",
-                        "market_cap": bt.get("market_cap", 0),
-                        "volume_24h": bt.get("volume_24h", 0),
-                        "bonding_pct": bt.get("bonding_pct", 0),
-                        "is_boosted": True,
-                        "boost_amount": 60,
-                        "source": "pumpfun_bonding",
-                    }
-                    token_obj = self._signals_to_token(signals, "solana")
-                    if token_obj:
-                        count += 1
-                        candidate = self._score_token(token_obj, is_boosted=True)
-                        if candidate is None:
-                            continue
-                        candidate.strategy_tag = "pumpfun_bonding"
-                        # +8 bonus for near-graduation — highest pre-grad signal
-                        candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
-                        if candidate.gem_score >= _macro_min_score:
-                            candidates.append(candidate)
-                            seen_addresses.add(token_addr.lower())
-                            pumpfun_bonding_added += 1
-                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                            self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_bonding")
-
-                if pumpfun_bonding_added:
-                    logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
-            except Exception as e:
-                logger.warning(f"Pump.fun BONDING discovery error: {e}")
-
-        # ── Source 12: Moralis Sniper Convergence (≥3 snipers → express lane) ──
-        # When ≥3 known profitable sniper wallets buy the same token within
-        # 5 minutes, that convergence is the strongest possible signal.
-        # These get a +10 bonus and are flagged as express-lane candidates.
-        try:
-            convergence_tokens = _discover_sniper_convergence()
-            sniper_conv_added = 0
-            count = 0
-            for conv in convergence_tokens:
-                if count >= 10:
-                    break
-                token_addr = conv.get("token_address", "")
-                chain = conv.get("chain", "")
-                if not token_addr or not chain:
-                    continue
-                if chain not in settings.ACTIVE_CHAINS:
-                    continue
-                if token_addr.lower() in seen_addresses:
-                    continue
-                pairs = get_token_pairs(token_addr) or []
-                for pair in pairs:
-                    signals = extract_gem_signals(pair)
-                    signals["is_boosted"] = True
-                    signals["boost_amount"] = 120  # Strong sniper convergence signal
-                    token = self._signals_to_token(signals, chain)
-                    if token:
-                        count += 1
-                        candidate = self._score_token(token, is_boosted=True)
-                        if candidate is None:
-                            break
-                        # +10 bonus for multi-sniper convergence
-                        candidate.gem_score = min(100.0, round(candidate.gem_score + 10.0, 2))
-                        candidate.strategy_tag = "sniper_convergence"
-                        candidate.express_lane = conv.get("express_lane", True)
-                        if candidate.gem_score >= _macro_min_score:
-                            candidates.append(candidate)
-                            seen_addresses.add(token_addr.lower())
-                            sniper_conv_added += 1
-                            logger.info(
-                                f"🎯 SNIPER CONVERGENCE HIT: {token.symbol} — "
-                                f"{conv['sniper_count']} snipers, "
-                                f"${conv.get('total_usd_value', 0):,.0f} total, "
-                                f"score={candidate.gem_score:.1f} → EXPRESS LANE"
-                            )
-                        elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                            self.add_near_miss(token, candidate.gem_score, "sniper_convergence")
-                        break
-            if sniper_conv_added:
-                logger.info(f"🎯 Sniper convergence: {sniper_conv_added} tokens passed scoring")
-        except Exception as e:
-            logger.warning(f"Sniper convergence discovery error: {e}")
-
-        # ── Source 14: Grok CT Trending (top 5 X/Twitter discussed tokens) ─────
-        # Social narrative precedes price action in meme/micro-cap markets.
-        # Grok identifies the hottest CT discussions and we check if those
-        # tokens are tradeable. +5 social momentum bonus.
-        try:
-            grok_trending = _discover_grok_trending()
-            grok_added = 0
-            count = 0
-            for gt_signals in grok_trending:
-                if count >= 10:
-                    break
-                token_addr = gt_signals.get("base_token_address", "")
-                chain_id = gt_signals.get("chain_id", "")
-                chain = self._dexscreener_to_chain(chain_id)
-                if not chain or not token_addr:
-                    continue
-                if chain not in settings.ACTIVE_CHAINS:
-                    continue
-                if token_addr.lower() in seen_addresses:
-                    continue
-                token = self._signals_to_token(gt_signals, chain)
+        # Source 8: Pump.fun graduated
+        pumpfun_added = 0
+        count = 0
+        for grad in raw_data.get("pumpfun_graduated", []):
+            if count >= 10:
+                break
+            token_addr = grad.get("token_address", "")
+            if not token_addr or token_addr.lower() in seen_addresses:
+                continue
+            liq_usd = grad.get("liquidity_usd", 0)
+            if liq_usd < settings.MIN_LIQUIDITY_USD:
+                continue
+            pairs = get_token_pairs(token_addr) or []
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True
+                signals["boost_amount"] = 100
+                token = self._signals_to_token(signals, "solana")
                 if token:
                     count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
-                        continue
-                    # +5 social momentum bonus for CT trending
+                        break
+                    candidate.is_pumpfun_graduate = True
+                    candidate.strategy_tag = "pumpfun_graduate"
                     candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
-                    candidate.strategy_tag = "grok_trending"
-                    buzz = gt_signals.get("grok_buzz_level", "?")
-                    narrative = gt_signals.get("grok_narrative", "")[:50]
-                    # Viral buzz gets extra +5 (total +10)
-                    if buzz == "viral":
-                        candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                        pumpfun_added += 1
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token, candidate.gem_score, "pumpfun")
+                    break
+        if pumpfun_added:
+            logger.info(f"🚀 Pump.fun graduates: {pumpfun_added} tokens passed scoring")
+
+        # Source 9: Binance Pulse
+        binance_added = 0
+        count = 0
+        for bt in raw_data.get("binance", []):
+            if count >= 10:
+                break
+            token_addr = bt.get("token_address", "")
+            bp_chain = bt.get("_bp_chain", "")
+            if not token_addr or token_addr.lower() in seen_addresses:
+                continue
+            if bt.get("market_cap", 0) < 10_000:
+                continue
+            pairs = get_token_pairs(token_addr) or []
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True
+                signals["boost_amount"] = 80
+                token_obj = self._signals_to_token(signals, bp_chain)
+                if token_obj:
+                    count += 1
+                    candidate = self._score_token(token_obj, is_boosted=True)
+                    if candidate is None:
+                        break
+                    candidate.strategy_tag = "binance_trending"
+                    if candidate.gem_score >= settings.MIN_GEM_SCORE:
+                        candidates.append(candidate)
+                        seen_addresses.add(token_addr.lower())
+                        binance_added += 1
+                    elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                        self.add_near_miss(token_obj, candidate.gem_score, "binance")
+                    break
+        if binance_added:
+            logger.info(f"🟡 Binance Pulse: {binance_added} trending tokens passed scoring")
+
+        # Source 10: Pump.fun NEW tokens
+        pumpfun_new_added = 0
+        count = 0
+        for nt in raw_data.get("pumpfun_new", []):
+            if count >= 10:
+                break
+            token_addr = nt.get("address", "")
+            if not token_addr or token_addr.lower() in seen_addresses:
+                continue
+            if nt.get("volume_24h", 0) < 500:
+                continue
+            signals = {
+                "address": token_addr,
+                "symbol": nt.get("symbol", ""),
+                "name": nt.get("name", ""),
+                "chain": "solana",
+                "market_cap": nt.get("market_cap", 0),
+                "volume_24h": nt.get("volume_24h", 0),
+                "bonding_pct": nt.get("bonding_pct", 0),
+                "is_boosted": False,
+                "boost_amount": 0,
+                "source": "pumpfun_new",
+            }
+            token_obj = self._signals_to_token(signals, "solana")
+            if token_obj:
+                count += 1
+                candidate = self._score_token(token_obj, is_boosted=False)
+                if candidate is None:
+                    continue
+                candidate.strategy_tag = "pumpfun_new"
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 3.0, 2))
+                if candidate.gem_score >= _macro_min_score:
+                    candidates.append(candidate)
+                    seen_addresses.add(token_addr.lower())
+                    pumpfun_new_added += 1
+                elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_new")
+        if pumpfun_new_added:
+            logger.info(f"🌱 Pump.fun NEW: {pumpfun_new_added} pre-graduation tokens passed scoring")
+
+        # Source 11: Pump.fun bonding
+        pumpfun_bonding_added = 0
+        count = 0
+        for bt in raw_data.get("pumpfun_bonding", []):
+            if count >= 10:
+                break
+            token_addr = bt.get("address", "")
+            if not token_addr or token_addr.lower() in seen_addresses:
+                continue
+            if not bt.get("near_graduation", False):
+                continue
+            signals = {
+                "address": token_addr,
+                "symbol": bt.get("symbol", ""),
+                "name": bt.get("name", ""),
+                "chain": "solana",
+                "market_cap": bt.get("market_cap", 0),
+                "volume_24h": bt.get("volume_24h", 0),
+                "bonding_pct": bt.get("bonding_pct", 0),
+                "is_boosted": True,
+                "boost_amount": 60,
+                "source": "pumpfun_bonding",
+            }
+            token_obj = self._signals_to_token(signals, "solana")
+            if token_obj:
+                count += 1
+                candidate = self._score_token(token_obj, is_boosted=True)
+                if candidate is None:
+                    continue
+                candidate.strategy_tag = "pumpfun_bonding"
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+                if candidate.gem_score >= _macro_min_score:
+                    candidates.append(candidate)
+                    seen_addresses.add(token_addr.lower())
+                    pumpfun_bonding_added += 1
+                elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    self.add_near_miss(token_obj, candidate.gem_score, "pumpfun_bonding")
+        if pumpfun_bonding_added:
+            logger.info(f"🔥 Pump.fun BONDING: {pumpfun_bonding_added} near-graduation tokens passed scoring")
+
+        # Source 12: Sniper convergence
+        sniper_conv_added = 0
+        count = 0
+        for conv in raw_data.get("sniper_convergence", []):
+            if count >= 10:
+                break
+            token_addr = conv.get("token_address", "")
+            chain = conv.get("chain", "")
+            if not token_addr or not chain:
+                continue
+            if chain not in settings.ACTIVE_CHAINS:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            pairs = get_token_pairs(token_addr) or []
+            for pair in pairs:
+                signals = extract_gem_signals(pair)
+                signals["is_boosted"] = True
+                signals["boost_amount"] = 120
+                token = self._signals_to_token(signals, chain)
+                if token:
+                    count += 1
+                    candidate = self._score_token(token, is_boosted=True)
+                    if candidate is None:
+                        break
+                    candidate.gem_score = min(100.0, round(candidate.gem_score + 10.0, 2))
+                    candidate.strategy_tag = "sniper_convergence"
+                    candidate.express_lane = conv.get("express_lane", True)
                     if candidate.gem_score >= _macro_min_score:
                         candidates.append(candidate)
                         seen_addresses.add(token_addr.lower())
-                        grok_added += 1
+                        sniper_conv_added += 1
                         logger.info(
-                            f"🐦 GROK TRENDING: {token.symbol} on {chain} — "
-                            f"buzz={buzz}, score={candidate.gem_score:.1f}, "
-                            f"narrative=\"{narrative}...\""
+                            f"🎯 SNIPER CONVERGENCE HIT: {token.symbol} — "
+                            f"{conv['sniper_count']} snipers, "
+                            f"${conv.get('total_usd_value', 0):,.0f} total, "
+                            f"score={candidate.gem_score:.1f} → EXPRESS LANE"
                         )
                     elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
-                        self.add_near_miss(token, candidate.gem_score, "grok_trending")
-            if grok_added:
-                logger.info(f"🐦 Grok trending: {grok_added} CT-hot tokens passed scoring")
-        except Exception as e:
-            logger.warning(f"Grok trending discovery error: {e}")
+                        self.add_near_miss(token, candidate.gem_score, "sniper_convergence")
+                    break
+        if sniper_conv_added:
+            logger.info(f"🎯 Sniper convergence: {sniper_conv_added} tokens passed scoring")
+
+        # Source 14: Grok CT trending
+        grok_added = 0
+        count = 0
+        for gt_signals in raw_data.get("grok_trending", []):
+            if count >= 10:
+                break
+            token_addr = gt_signals.get("base_token_address", "")
+            chain_id = gt_signals.get("chain_id", "")
+            chain = self._dexscreener_to_chain(chain_id)
+            if not chain or not token_addr:
+                continue
+            if chain not in settings.ACTIVE_CHAINS:
+                continue
+            if token_addr.lower() in seen_addresses:
+                continue
+            token = self._signals_to_token(gt_signals, chain)
+            if token:
+                count += 1
+                candidate = self._score_token(token, is_boosted=True)
+                if candidate is None:
+                    continue
+                candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                candidate.strategy_tag = "grok_trending"
+                buzz = gt_signals.get("grok_buzz_level", "?")
+                narrative = gt_signals.get("grok_narrative", "")[:50]
+                if buzz == "viral":
+                    candidate.gem_score = min(100.0, round(candidate.gem_score + 5.0, 2))
+                if candidate.gem_score >= _macro_min_score:
+                    candidates.append(candidate)
+                    seen_addresses.add(token_addr.lower())
+                    grok_added += 1
+                    logger.info(
+                        f"🐦 GROK TRENDING: {token.symbol} on {chain} — "
+                        f"buzz={buzz}, score={candidate.gem_score:.1f}, "
+                        f"narrative=\"{narrative}...\""
+                    )
+                elif candidate.gem_score >= WATCHLIST_MIN_SCORE:
+                    self.add_near_miss(token, candidate.gem_score, "grok_trending")
+        if grok_added:
+            logger.info(f"🐦 Grok trending: {grok_added} CT-hot tokens passed scoring")
 
         # ── Sort by score descending ──────────────────────────────────────────
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
+        _total_elapsed = time.monotonic() - _scan_start
         logger.info(
-            f"Scan complete: {len(candidates)} candidates above "
+            f"Scan complete in {_total_elapsed:.1f}s: {len(candidates)} candidates above "
             f"score threshold {settings.MIN_GEM_SCORE} "
             f"({express_count} express lane) "
-            f"| watchlist: {self.watchlist.size} tokens watched"
+            f"| watchlist: {self.watchlist.size} tokens watched "
+            f"| fetch={_fetch_elapsed:.1f}s scoring={_total_elapsed - _fetch_elapsed:.1f}s"
         )
 
         # ── Telegram alerts for all high-conviction gems ─────────────────────
