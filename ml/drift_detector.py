@@ -1,17 +1,25 @@
 """
 ml/drift_detector.py — Feature Drift Detection for RL Position Sizer
 =====================================================================
-Detects statistical drift in the live 29-indicator TA feature distribution
-before the RL position sizer's 24h retrain cycle. When significant drift is
-detected, the position sizer falls back to conservative static Kelly Criterion
-sizing instead of ML-derived sizing to avoid acting on stale model weights.
+Detects statistical drift in the RL position sizer's actual observation vector
+(the 13 features passed to _encode_observation) before the 24h retrain cycle.
+When significant drift is detected, the position sizer falls back to
+conservative static Kelly Criterion sizing to avoid stale model weights.
+
+Critical design note (Codex P2 fix):
+  The RL model consumes 13 features: gem_score, macro_regime, win/loss streaks,
+  capital_phase, chain, timesfm_direction, chainaware_risk, perplexity_risk,
+  is_express, fear_greed_score, portfolio_heat, hourly_volatility.
+  These are NOT the 29 TA indicators — monitoring the wrong features would cause
+  both false positives (TA drifts but RL inputs stable) and false negatives
+  (RL inputs drift but TA is stable).
 
 How it works:
-  1. Load the last 24h of live 29-indicator TA data from output/ta_cache.json
-  2. Load the historical training data distribution stats from output/training_stats.json
-  3. Calculate Kolmogorov-Smirnov (KS) distance for each indicator
-  4. If >30% of indicators show significant drift (p < 0.05):
-       - Log a WARNING with per-indicator breakdown
+  1. Load recent trades from output/trades.json (same source RL trains on)
+  2. Load the historical training baseline from output/training_stats.json
+  3. Calculate Kolmogorov-Smirnov (KS) distance for each RL input feature
+  4. If >30% of features show significant drift (p < 0.05):
+       - Log a WARNING with per-feature breakdown
        - Set DRIFT_DETECTED flag → position sizer uses conservative static Kelly
 
 Integration with rl_position_sizer.py:
@@ -21,7 +29,7 @@ Integration with rl_position_sizer.py:
       return 1.0, "rl_drift_fallback"
 
 Artifacts:
-  output/ta_cache.json        — Live 24h indicator snapshots (written by signal_engine.py)
+  output/trades.json          — Trade log with RL observation features
   output/training_stats.json  — Historical distribution stats (written by this module after
                                 each successful retrain to establish the baseline)
   output/drift_report.json    — Last drift check results for dashboard display
@@ -41,7 +49,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-_TA_CACHE_PATH = Path("output/ta_cache.json")
+_TRADES_PATH = Path("output/trades.json")
 _TRAINING_STATS_PATH = Path("output/training_stats.json")
 _DRIFT_REPORT_PATH = Path("output/drift_report.json")
 
@@ -57,39 +65,68 @@ _MIN_HIST_SAMPLES = int(os.getenv("DRIFT_MIN_HIST_SAMPLES", "50"))
 # Cache drift check result for this many seconds to avoid repeated computation.
 _CACHE_TTL_SECONDS = float(os.getenv("DRIFT_CACHE_TTL_SECONDS", "1800"))  # 30 min
 
-# ── The 29 TA indicators tracked by the scoring engine ────────────────────────
-# These must match the keys written to ta_cache.json by signal_engine.py.
-_INDICATOR_NAMES: list[str] = [
-    "rsi",
-    "macd",
-    "macd_signal",
-    "macd_hist",
-    "bb_upper",
-    "bb_lower",
-    "bb_pct",
-    "ema_12",
-    "ema_26",
-    "ema_cross",
-    "adx",
-    "stoch_k",
-    "stoch_d",
-    "obv",
-    "vwap",
-    "atr",
-    "volume_spike",
-    "price_change_1h",
-    "price_change_24h",
-    "buy_sell_ratio",
-    "holder_growth_rate",
-    "whale_score",
-    "moralis_score",
-    "social_score",
-    "fib_zone",
-    "liquidity_usd",
-    "market_cap",
-    "age_hours",
-    "boost_score",
+# ── The 13 RL observation features (must match _encode_observation) ───────────
+# These are the actual inputs the RL model sees. Monitoring these for drift
+# ensures we detect shifts in the feature space the model was trained on.
+_RL_FEATURE_NAMES: list[str] = [
+    "gem_score",
+    "macro_regime",
+    "win_streak",
+    "loss_streak",
+    "capital_phase",
+    "chain",
+    "timesfm_direction",
+    "chainaware_risk",
+    "perplexity_risk",
+    "is_express",
+    "fear_greed_score",
+    "portfolio_heat",
+    "hourly_volatility",
 ]
+
+# Encoding maps (must match _encode_observation in rl_position_sizer.py)
+_REGIME_MAP = {
+    "EXTREME_FEAR": 0.1, "BEAR": 0.2, "NEUTRAL": 0.5,
+    "BULL": 0.8, "EXTREME_GREED": 0.9,
+}
+_CHAIN_MAP = {
+    "ethereum": 0.1, "base": 0.2, "arbitrum": 0.3,
+    "polygon": 0.4, "bsc": 0.5, "solana": 1.0,
+}
+_DIR_MAP = {"DOWN": 0.0, "FLAT": 0.5, "UP": 1.0}
+
+
+def _encode_feature(name: str, raw_val) -> float:
+    """Encode a raw trade feature value to the same [0,1] scale as _encode_observation."""
+    if raw_val is None:
+        return 0.5  # neutral default
+    try:
+        if name == "gem_score":
+            return min(1.0, float(raw_val) / 100.0)
+        elif name == "macro_regime":
+            return _REGIME_MAP.get(str(raw_val), 0.5)
+        elif name in ("win_streak", "loss_streak"):
+            return min(1.0, float(raw_val) / 10.0)
+        elif name == "capital_phase":
+            return min(1.0, float(raw_val) / 5.0)
+        elif name == "chain":
+            return _CHAIN_MAP.get(str(raw_val), 0.5)
+        elif name == "timesfm_direction":
+            return _DIR_MAP.get(str(raw_val), 0.5)
+        elif name in ("chainaware_risk", "perplexity_risk"):
+            return min(1.0, float(raw_val) / 100.0)
+        elif name == "is_express":
+            return 1.0 if raw_val else 0.0
+        elif name == "fear_greed_score":
+            return min(1.0, float(raw_val) / 100.0)
+        elif name == "portfolio_heat":
+            return min(1.0, abs(float(raw_val)) / 20.0)
+        elif name == "hourly_volatility":
+            return min(1.0, float(raw_val) / 100.0)
+        else:
+            return float(raw_val)
+    except (TypeError, ValueError):
+        return 0.5
 
 # ── Module-level state ────────────────────────────────────────────────────────
 DRIFT_DETECTED: bool = False
@@ -153,57 +190,56 @@ def _ks_manual(a: list[float], b: list[float]) -> tuple[float, float]:
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
-def _load_ta_cache() -> dict[str, list[float]]:
+def _load_recent_trades() -> dict[str, list[float]]:
     """
-    Load the last 24h of live TA indicator snapshots from ta_cache.json.
+    Load recent trades and extract RL observation features.
 
-    Expected format:
-    [
-        {"timestamp": 1234567890, "rsi": 55.2, "macd": 0.003, ...},
-        ...
-    ]
+    Reads from trades.json (the same file the RL agent trains on)
+    and encodes each trade's features using the same normalization as
+    _encode_observation in rl_position_sizer.py.
 
-    Returns a dict mapping indicator_name → list of float values.
-    Returns an empty dict if the file doesn't exist or is malformed.
+    Returns a dict mapping feature_name → list of encoded float values.
+    Returns an empty dict if the file doesn't exist or has no recent trades.
     """
-    if not _TA_CACHE_PATH.exists():
-        logger.debug(f"TA cache not found at {_TA_CACHE_PATH} — drift check skipped")
+    if not _TRADES_PATH.exists():
+        logger.debug(f"Trades file not found at {_TRADES_PATH} — drift check skipped")
         return {}
 
     try:
-        with open(_TA_CACHE_PATH) as f:
+        with open(_TRADES_PATH) as f:
             raw = json.load(f)
 
         if not isinstance(raw, list):
-            logger.debug("ta_cache.json is not a list — skipping drift check")
+            logger.debug("trades.json is not a list — skipping drift check")
             return {}
 
-        # Filter to last 24h
-        cutoff = time.time() - 86_400
+        # Use the most recent trades (last 100 or last 7 days)
+        cutoff = time.time() - 7 * 86_400
         recent = [
-            entry for entry in raw
-            if isinstance(entry, dict) and entry.get("timestamp", 0) >= cutoff
+            t for t in raw
+            if isinstance(t, dict) and t.get("timestamp", t.get("opened_at", 0)) >= cutoff
         ]
+        # Also include recent completed trades without timestamp filter if few recent
+        if len(recent) < _MIN_LIVE_SAMPLES and len(raw) >= _MIN_LIVE_SAMPLES:
+            recent = raw[-100:]  # Last 100 trades as fallback
 
         if not recent:
-            logger.debug("No TA cache entries in last 24h — drift check skipped")
+            logger.debug("No recent trades for drift check")
             return {}
 
-        # Pivot: indicator_name → list of values
-        indicator_data: dict[str, list[float]] = {name: [] for name in _INDICATOR_NAMES}
-        for entry in recent:
-            for name in _INDICATOR_NAMES:
-                val = entry.get(name)
-                if val is not None:
-                    try:
-                        indicator_data[name].append(float(val))
-                    except (TypeError, ValueError):
-                        pass
+        # Pivot: feature_name → list of encoded values
+        feature_data: dict[str, list[float]] = {name: [] for name in _RL_FEATURE_NAMES}
+        for trade in recent:
+            for name in _RL_FEATURE_NAMES:
+                raw_val = trade.get(name)
+                if raw_val is not None:
+                    encoded = _encode_feature(name, raw_val)
+                    feature_data[name].append(encoded)
 
-        return indicator_data
+        return feature_data
 
     except Exception as e:
-        logger.debug(f"Failed to load ta_cache.json: {e}")
+        logger.debug(f"Failed to load trades.json for drift check: {e}")
         return {}
 
 
@@ -211,14 +247,14 @@ def _load_training_stats() -> dict[str, list[float]]:
     """
     Load historical training data distribution from training_stats.json.
 
-    Expected format:
+    Expected format (now uses RL feature names, not TA indicators):
     {
-        "rsi": [55.2, 48.1, 62.3, ...],
-        "macd": [0.003, -0.001, ...],
+        "gem_score": [0.65, 0.72, 0.58, ...],
+        "macro_regime": [0.5, 0.8, 0.2, ...],
         ...
     }
 
-    Returns a dict mapping indicator_name → list of historical float values.
+    Returns a dict mapping feature_name → list of historical float values.
     Returns an empty dict if the file doesn't exist or is malformed.
     """
     if not _TRAINING_STATS_PATH.exists():
@@ -238,7 +274,7 @@ def _load_training_stats() -> dict[str, list[float]]:
 
         # Validate and convert
         result: dict[str, list[float]] = {}
-        for name in _INDICATOR_NAMES:
+        for name in _RL_FEATURE_NAMES:
             vals = data.get(name, [])
             if isinstance(vals, list) and vals:
                 try:
@@ -279,13 +315,13 @@ def check_feature_drift(force: bool = False) -> bool:
     logger.debug("Running feature drift check...")
     t0 = time.time()
 
-    live_data = _load_ta_cache()
+    live_data = _load_recent_trades()
     hist_data = _load_training_stats()
 
     if not live_data or not hist_data:
         # Cannot check without both datasets — assume no drift
         logger.debug(
-            "Drift check skipped: missing live TA cache or training stats baseline. "
+            "Drift check skipped: missing recent trade data or training stats baseline. "
             "Assuming no drift — RL sizing proceeds normally."
         )
         DRIFT_DETECTED = False
@@ -298,7 +334,7 @@ def check_feature_drift(force: bool = False) -> bool:
     skipped_indicators: list[str] = []
     per_indicator: dict[str, dict] = {}
 
-    for name in _INDICATOR_NAMES:
+    for name in _RL_FEATURE_NAMES:
         live_vals = live_data.get(name, [])
         hist_vals = hist_data.get(name, [])
 
@@ -420,18 +456,16 @@ def save_training_stats(ta_records: Optional[list[dict]] = None) -> bool:
             logger.debug("Cannot save training stats: empty or invalid ta_records")
             return False
 
-        # Build distribution per indicator
-        stats: dict[str, list[float]] = {name: [] for name in _INDICATOR_NAMES}
+        # Build distribution per RL feature (encoded to [0,1] scale)
+        stats: dict[str, list[float]] = {name: [] for name in _RL_FEATURE_NAMES}
         for entry in ta_records:
             if not isinstance(entry, dict):
                 continue
-            for name in _INDICATOR_NAMES:
-                val = entry.get(name)
-                if val is not None:
-                    try:
-                        stats[name].append(float(val))
-                    except (TypeError, ValueError):
-                        pass
+            for name in _RL_FEATURE_NAMES:
+                raw_val = entry.get(name)
+                if raw_val is not None:
+                    encoded = _encode_feature(name, raw_val)
+                    stats[name].append(encoded)
 
         # Only save indicators with enough data
         filtered_stats = {
@@ -477,7 +511,7 @@ def get_drift_status() -> dict:
         "drifted_count": report.get("drifted_count", 0),
         "tested_count": report.get("tested_count", 0),
         "drifted_indicators": report.get("drifted_indicators", []),
-        "ta_cache_exists": _TA_CACHE_PATH.exists(),
+        "trades_file_exists": _TRADES_PATH.exists(),
         "training_stats_exists": _TRAINING_STATS_PATH.exists(),
         "drift_report_exists": _DRIFT_REPORT_PATH.exists(),
         "ks_p_threshold": _KS_P_VALUE_THRESHOLD,

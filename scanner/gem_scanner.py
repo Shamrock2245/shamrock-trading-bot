@@ -151,11 +151,9 @@ try:
 except ImportError:
     _GROK_SENTIMENT_AVAILABLE = False
 
-try:
-    from data.providers.moralis_intelligence import cortex_analyze_token as _cortex_analyze_token
-    _CORTEX_AVAILABLE = True
-except ImportError:
-    _CORTEX_AVAILABLE = False
+# NOTE: Moralis Cortex API deprecated — removed June 2, 2026.
+# Replacement: Moralis "Onchain Skills" (when available).
+# See: https://moralis.com changelog — sunset date June 4, 2026.
 
 try:
     from data.providers.moralis_money import get_historical_price_context as _get_historical_price_context
@@ -1681,31 +1679,8 @@ class GemScanner:
                     logger.debug(f"Grok sentiment fallback failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
 
-            # ── Moralis Cortex AI — on-chain grounded analysis (P6) ─────────
-            # Runs only if prelim_score >= 48 AND token is on EVM chain
-            # Cortex is grounded in Moralis data — different from Grok (X/Twitter)
-            # and Perplexity (web search). Score delta applied to grok_sentiment_score.
-            if token.chain != "solana" and prelim_score >= 48:
-                try:
-                    _cortex = _cortex_analyze_token(
-                        token_address=token.address,
-                        chain=token.chain,
-                        symbol=token.symbol,
-                    )
-                    if _cortex and not _cortex.get("skipped"):
-                        # Blend Cortex delta into grok_sentiment_score (both are sentiment signals)
-                        # Cortex is on-chain grounded; Grok is social. Average them.
-                        cortex_adj = _cortex.get("score_delta", 0.0)
-                        candidate.grok_sentiment_score = min(
-                            100.0,
-                            max(0.0, candidate.grok_sentiment_score + cortex_adj * 0.5)
-                        )
-                        logger.debug(
-                            f"Cortex AI [{token.symbol}]: {_cortex['sentiment']} "
-                            f"delta={cortex_adj:+.1f} → grok_score={candidate.grok_sentiment_score:.1f}"
-                        )
-                except Exception as _cx_err:
-                    logger.debug(f"Cortex AI skipped for {token.symbol}: {_cx_err}")
+            # NOTE: Moralis Cortex AI was removed — API deprecated June 4, 2026.
+            # When Moralis "Onchain Skills" API is available, add it here.
 
         # ── Moralis Money Enrichment (PRIMARY source — 27% weight) ─────────────
         # ⚡ Now runs IN the parallel pool above. Results from enrichment_results.
