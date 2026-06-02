@@ -44,9 +44,8 @@ CACHE_TTL = 120  # 2 minutes
 _cache: dict[str, dict] = {}
 
 # Rate limiting (shared budget with EVM calls — be conservative)
-_rate_window_start: float = time.time()
-_rate_calls_in_window: int = 0
-RATE_LIMIT_PER_MIN = 20  # Conservative to share with EVM
+# Rate limiter — shared Pro-tier global limiter (60 RPS, CU-budget-aware)
+from data.providers.moralis_rate_limiter import rate_check as _rate_check
 _rate_lock = threading.Lock()
 
 
@@ -58,21 +57,6 @@ def _available() -> bool:
     return bool(MORALIS_API_KEY)
 
 
-def _rate_check() -> None:
-    global _rate_window_start, _rate_calls_in_window
-    with _rate_lock:
-        now = time.time()
-        if now - _rate_window_start >= 60:
-            _rate_window_start = now
-            _rate_calls_in_window = 0
-        _rate_calls_in_window += 1
-        if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
-            sleep_for = 60 - (now - _rate_window_start) + 1
-            if sleep_for > 0:
-                logger.debug(f"Moralis Solana rate limit: sleeping {sleep_for:.1f}s")
-                time.sleep(sleep_for)
-            _rate_window_start = time.time()
-            _rate_calls_in_window = 1
 
 
 def _is_cached(key: str) -> bool:
@@ -702,8 +686,8 @@ def get_sol_balance_usd(address: str, sol_price: float = 0) -> float:
 def get_usage_stats() -> dict:
     """Return current rate limiter state for dashboard display."""
     return {
-        "calls_this_minute": _rate_calls_in_window,
-        "limit_per_minute": RATE_LIMIT_PER_MIN,
+        "rate_limiter": "shared_pro_tier",
+        "rate_limiter": "shared_pro_tier",
         "cache_entries": len(_cache),
         "cache_ttl_seconds": CACHE_TTL,
     }

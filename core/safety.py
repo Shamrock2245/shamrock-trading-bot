@@ -400,6 +400,31 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             _set_cached(token_address, chain, result)
             return result
 
+    # ── Step 4.5: Moralis Instant Score — cheap early-out gate (EVM only) ─────
+    # 5 CU per call — much cheaper than GoPlus + Honeypot. Block garbage early.
+    if chain != "solana":
+        try:
+            from data.providers.moralis_intelligence import get_token_score_instant
+            instant = get_token_score_instant(token_address, chain)
+            if instant:
+                moralis_score = instant.get("moralis_score", 50)
+                result.moralis_score = moralis_score  # type: ignore[attr-defined]
+                if moralis_score < 25:
+                    result.block_reason = (
+                        f"Moralis instant score too low: {moralis_score}/100 "
+                        f"(threshold: 25)"
+                    )
+                    _log_blocked(result)
+                    _set_cached(token_address, chain, result)
+                    return result
+                elif moralis_score < 40:
+                    safety_logger.warning(
+                        f"CAUTION (low Moralis score: {moralis_score}/100) | "
+                        f"{token_address[:10]}... | {chain}"
+                    )
+        except Exception as e:
+            logger.debug(f"Moralis instant score check skipped: {e}")
+
     # ── Step 5: GoPlus Security check ────────────────────────────────────────
     goplus_chain_id = GOPLUS_CHAIN_MAP.get(chain, "1")
     try:
@@ -634,6 +659,35 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                     return result
         except Exception as _ent_err:
             logger.debug(f"Entity API deployer check skipped: {_ent_err}")
+
+    # ── Step 10: Moralis Bonding Status — block non-graduated tokens ────────
+    # Tokens still in a bonding curve (e.g., pump.fun on Solana, Uniswap V3
+    # launch pools on EVM) haven't passed their liquidity graduation threshold.
+    # These are extremely high-risk for rug pulls — the creator can pull LP
+    # before graduation completes. We block trades on non-graduated tokens.
+    try:
+        from data.providers.moralis_intelligence import get_token_bonding_status
+        _bonding = get_token_bonding_status(
+            token_address, chain, is_solana=(chain == "solana")
+        )
+        if _bonding:
+            _is_graduated = _bonding.get("is_graduated", True)
+            _bonding_status = _bonding.get("bonding_status", "unknown")
+            _grad_pct = _bonding.get("graduation_pct", 100.0)
+            result.bonding_status = _bonding_status   # type: ignore[attr-defined]
+            result.graduation_pct = _grad_pct         # type: ignore[attr-defined]
+            if not _is_graduated and _bonding_status != "unknown":
+                result.is_safe = False
+                result.block_reason = (
+                    f"Bonding curve not graduated "
+                    f"({_bonding_status}, {_grad_pct:.0f}% complete) — "
+                    f"LP can be pulled before graduation"
+                )
+                _log_blocked(result)
+                _set_cached(token_address, chain, result)
+                return result
+    except Exception as _bond_err:
+        logger.debug(f"Bonding status check skipped: {_bond_err}")
 
     # ── All checks passed ─────────────────────────────────────────────────────
     result.is_safe = True

@@ -49,10 +49,8 @@ TIMEFRAME_MAP = {
 CACHE_TTL = 300  # 5 minutes
 _cache: dict[str, dict] = {}
 
-# Rate limiter (25 calls/min — shared with moralis_money.py conceptually)
-_rate_window_start: float = time.time()
-_rate_calls_in_window: int = 0
-RATE_LIMIT_PER_MIN = 25
+# Rate limiter — shared Pro-tier global limiter (60 RPS, CU-budget-aware)
+from data.providers.moralis_rate_limiter import rate_check as _rate_check, get_stats as _get_rate_stats
 
 
 def _headers() -> dict:
@@ -65,22 +63,6 @@ def _json_headers() -> dict:
         "Content-Type": "application/json",
         "X-API-Key": MORALIS_API_KEY,
     }
-
-
-def _rate_check() -> None:
-    global _rate_window_start, _rate_calls_in_window
-    now = time.time()
-    if now - _rate_window_start >= 60:
-        _rate_window_start = now
-        _rate_calls_in_window = 0
-    _rate_calls_in_window += 1
-    if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
-        sleep_for = 60 - (now - _rate_window_start) + 1
-        if sleep_for > 0:
-            logger.debug(f"Moralis price rate limit: sleeping {sleep_for:.1f}s")
-            time.sleep(sleep_for)
-        _rate_window_start = time.time()
-        _rate_calls_in_window = 1
 
 
 def _is_cached(key: str) -> bool:
@@ -431,8 +413,9 @@ def get_price_usd(token_address: str, chain: str) -> float:
 
 def get_usage_stats() -> dict:
     """Return cache stats for monitoring."""
+    stats = _get_rate_stats()
     return {
         "api_key_configured": bool(MORALIS_API_KEY),
         "cached_keys": len(_cache),
-        "rate_calls_in_window": _rate_calls_in_window,
+        "rate_limiter": stats,
     }

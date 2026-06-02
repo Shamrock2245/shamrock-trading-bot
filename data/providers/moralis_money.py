@@ -80,10 +80,8 @@ CHAIN_HEX: dict[str, str] = {
 CACHE_TTL = 600  # 10 minutes
 _cache: dict[str, dict] = {}
 
-# Simple rate limiter — 25 calls/min
-_rate_window_start: float = time.time()
-_rate_calls_in_window: int = 0
-RATE_LIMIT_PER_MIN = 25
+# Rate limiter — shared Pro-tier global limiter (60 RPS, CU-budget-aware)
+from data.providers.moralis_rate_limiter import rate_check as _rate_check
 
 
 def _headers() -> dict:
@@ -99,24 +97,6 @@ def _json_headers() -> dict:
         "Content-Type": "application/json",
         "X-API-Key": MORALIS_API_KEY,
     }
-
-
-def _rate_check() -> None:
-    """Block briefly if we're approaching the rate limit."""
-    global _rate_window_start, _rate_calls_in_window
-    now = time.time()
-    if now - _rate_window_start >= 60:
-        _rate_window_start = now
-        _rate_calls_in_window = 0
-    _rate_calls_in_window += 1
-    if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
-        sleep_for = 60 - (now - _rate_window_start) + 1
-        if sleep_for > 0:
-            logger.debug(f"Moralis rate limit: sleeping {sleep_for:.1f}s")
-            time.sleep(sleep_for)
-        _rate_window_start = time.time()
-        _rate_calls_in_window = 1
-
 
 def _is_cached(key: str) -> bool:
     entry = _cache.get(key)

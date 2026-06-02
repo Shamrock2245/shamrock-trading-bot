@@ -94,10 +94,8 @@ SLOW_CACHE_TTL = 600    # 10 min — structural data (holders, chain metrics)
 
 _cache: dict[str, dict] = {}
 
-# Rate limiter — shared 25 calls/min
-_rate_window_start: float = time.time()
-_rate_calls_in_window: int = 0
-RATE_LIMIT_PER_MIN = 25
+# Rate limiter — shared Pro-tier global limiter (60 RPS, CU-budget-aware)
+from data.providers.moralis_rate_limiter import rate_check as _rate_check
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,20 +116,6 @@ def _available(chain: str = "ethereum") -> bool:
     if not MORALIS_API_KEY:
         return False
     return chain in CHAIN_HEX or chain == "solana"
-
-def _rate_check() -> None:
-    global _rate_window_start, _rate_calls_in_window
-    now = time.time()
-    if now - _rate_window_start >= 60:
-        _rate_window_start = now
-        _rate_calls_in_window = 0
-    _rate_calls_in_window += 1
-    if _rate_calls_in_window >= RATE_LIMIT_PER_MIN:
-        sleep_for = 60 - (now - _rate_window_start) + 0.5
-        if sleep_for > 0:
-            time.sleep(sleep_for)
-        _rate_window_start = time.time()
-        _rate_calls_in_window = 1
 
 def _is_cached(key: str, ttl: int = SLOW_CACHE_TTL) -> bool:
     if key not in _cache:
@@ -1397,6 +1381,8 @@ def enrich_token_intelligence(
         # Holder Intelligence
         "intel_holder_trend":          "stable",
         "intel_holder_growth_pct":     0.0,
+        "intel_holder_growth_7d_pct":  0.0,
+        "intel_holder_growth_30d_pct": 0.0,
         "intel_holder_concentration":  50.0,
         "intel_concentration_risk":    "unknown",
         "intel_total_holders":         0,
@@ -1407,6 +1393,23 @@ def enrich_token_intelligence(
         "intel_net_flow_usd":          0.0,
         # Chain Heat
         "intel_chain_heat":            50.0,
+        # Pro: Bonding Status (rug prevention)
+        "intel_bonding_status":        "unknown",
+        "intel_is_graduated":          True,  # Default True = assume graduated if no data
+        "intel_graduation_pct":        100.0,
+        # Pro: Top Profitable Wallets (smart money conviction)
+        "intel_smart_money_conviction": 0.0,
+        "intel_profitable_wallet_count": 0,
+        "intel_total_realized_profit":  0.0,
+        # Pro: Instant Token Score (early safety gate)
+        "intel_moralis_score":          50,
+        # Pro: DEX Pair Stats (buy/sell analysis)
+        "intel_pair_buy_sell_ratio":    1.0,
+        "intel_pair_unique_traders":    0,
+        "intel_pair_is_accumulating":   False,
+        # Pro: Single Token Analytics (stealth accumulation)
+        "intel_stealth_accumulation":   False,
+        "intel_buy_sell_vol_ratio":     1.0,
     }
 
     # ── Run all API calls in parallel with a hard 5-second total timeout ────────
@@ -1414,7 +1417,7 @@ def enrich_token_intelligence(
     # Each individual call already has an 8s timeout — but running 8 sequentially
     # could take 64s. With parallel execution + 5s wall-clock cap, worst case is 5s.
     from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
-    INTEL_TIMEOUT = 5.0  # Hard wall-clock cap for the entire enrichment
+    INTEL_TIMEOUT = 8.0  # Pro-tier: 8s wall-clock cap (was 5s on Starter)
 
     try:
         if is_solana:
@@ -1423,8 +1426,11 @@ def enrich_token_intelligence(
                 "holder_growth": lambda: get_solana_holder_growth(token_address),
                 "score_ts":      lambda: get_solana_score_timeseries(token_address),
                 "chain_heat":    lambda: get_chain_heat("solana") if MORALIS_API_KEY else 50.0,
+                "bonding":       lambda: get_token_bonding_status(token_address, "solana", is_solana=True),
+                "holders_v2":    lambda: get_historical_token_holders_v2(token_address, "solana", is_solana=True),
+                "top_holders":   lambda: get_solana_top_holders_detailed(token_address),
             }
-            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="intel_sol") as pool:
+            with ThreadPoolExecutor(max_workers=7, thread_name_prefix="intel_sol") as pool:
                 fmap = {pool.submit(fn): name for name, fn in tasks.items()}
                 done = {}
                 for fut in _as_completed(fmap, timeout=INTEL_TIMEOUT):
@@ -1433,14 +1439,26 @@ def enrich_token_intelligence(
             holder_growth = done.get("holder_growth", {})
             score_ts      = done.get("score_ts", {})
             chain_heat    = done.get("chain_heat", 50.0)
+            bonding       = done.get("bonding") or {}
+            holders_v2    = done.get("holders_v2") or {}
+            top_holders   = done.get("top_holders") or {}
             result["intel_total_holders"]       = holder_stats.get("total_holders", 0)
             result["intel_holder_concentration"] = holder_stats.get("holder_score", 50.0)
-            result["intel_concentration_risk"]  = holder_stats.get("concentration_risk", "unknown")
-            result["intel_holder_trend"]        = holder_growth.get("holder_trend", "stable")
-            result["intel_holder_growth_pct"]   = holder_growth.get("growth_rate_pct", 0.0)
+            result["intel_concentration_risk"]  = top_holders.get("concentration_risk",
+                                                     holder_stats.get("concentration_risk", "unknown"))
+            result["intel_holder_trend"]        = holders_v2.get("holder_trend",
+                                                     holder_growth.get("holder_trend", "stable"))
+            result["intel_holder_growth_pct"]   = holders_v2.get("holder_growth_7d_pct",
+                                                     holder_growth.get("growth_rate_pct", 0.0))
+            result["intel_holder_growth_7d_pct"]  = holders_v2.get("holder_growth_7d_pct", 0.0)
+            result["intel_holder_growth_30d_pct"] = holders_v2.get("holder_growth_30d_pct", 0.0)
             result["intel_score_trend"]         = score_ts.get("score_trend", "stable")
             result["intel_score_delta"]         = score_ts.get("score_delta", 0.0)
             result["intel_chain_heat"]          = chain_heat if isinstance(chain_heat, float) else 50.0
+            # Pro: Bonding status
+            result["intel_bonding_status"]      = bonding.get("bonding_status", "unknown")
+            result["intel_is_graduated"]        = bonding.get("is_graduated", True)
+            result["intel_graduation_pct"]      = bonding.get("graduation_pct", 100.0)
 
         else:
             if chain in CHAIN_HEX:
@@ -1453,8 +1471,16 @@ def enrich_token_intelligence(
                     "holder_growth":lambda: get_holder_growth(token_address, chain),
                     "swap_flow":    lambda: analyze_swap_flow(token_address, chain),
                     "chain_heat":   lambda: get_chain_heat(chain),
+                    # Pro endpoints
+                    "bonding":       lambda: get_token_bonding_status(token_address, chain),
+                    "profit_wallets":lambda: get_top_profitable_wallets(token_address, chain),
+                    "holders_v2":    lambda: get_historical_token_holders_v2(token_address, chain),
+                    # New Pro endpoints (Sprint 2)
+                    "instant_score": lambda: get_token_score_instant(token_address, chain),
+                    "pair_stats":    lambda: get_pair_stats(pair_address, chain) if pair_address else None,
+                    "tok_analytics": lambda: get_single_token_analytics(token_address, chain),
                 }
-                with ThreadPoolExecutor(max_workers=8, thread_name_prefix="intel_evm") as pool:
+                with ThreadPoolExecutor(max_workers=14, thread_name_prefix="intel_evm") as pool:
                     fmap = {pool.submit(fn): name for name, fn in tasks.items()}
                     done = {}
                     for fut in _as_completed(fmap, timeout=INTEL_TIMEOUT):
@@ -1467,6 +1493,9 @@ def enrich_token_intelligence(
                 holder_growth = done.get("holder_growth", {})
                 swap_flow     = done.get("swap_flow", {})
                 chain_heat    = done.get("chain_heat", 50.0)
+                bonding       = done.get("bonding") or {}
+                profit_wallets = done.get("profit_wallets") or {}
+                holders_v2    = done.get("holders_v2") or {}
                 result["intel_smart_money_buying"]    = trader_signal.get("smart_money_buying", False)
                 result["intel_smart_money_score"]     = trader_signal.get("smart_money_score", 50.0)
                 result["intel_top_trader_count"]      = trader_signal.get("top_trader_count", 0)
@@ -1483,13 +1512,37 @@ def enrich_token_intelligence(
                 result["intel_total_holders"]         = holder_stats.get("total_holders", 0)
                 result["intel_holder_concentration"]  = holder_stats.get("holder_score", 50.0)
                 result["intel_concentration_risk"]   = holder_stats.get("concentration_risk", "unknown")
-                result["intel_holder_trend"]          = holder_growth.get("holder_trend", "stable")
-                result["intel_holder_growth_pct"]     = holder_growth.get("growth_rate_pct", 0.0)
+                result["intel_holder_trend"]          = holders_v2.get("holder_trend",
+                                                           holder_growth.get("holder_trend", "stable"))
+                result["intel_holder_growth_pct"]     = holders_v2.get("holder_growth_7d_pct",
+                                                           holder_growth.get("growth_rate_pct", 0.0))
+                result["intel_holder_growth_7d_pct"]  = holders_v2.get("holder_growth_7d_pct", 0.0)
+                result["intel_holder_growth_30d_pct"] = holders_v2.get("holder_growth_30d_pct", 0.0)
                 result["intel_whale_buying"]          = swap_flow.get("whale_buying", False)
                 result["intel_swap_flow_score"]       = swap_flow.get("swap_flow_score", 50.0)
                 result["intel_large_buy_count"]       = swap_flow.get("large_buy_count", 0)
                 result["intel_net_flow_usd"]          = swap_flow.get("net_flow_usd", 0.0)
                 result["intel_chain_heat"]            = chain_heat if isinstance(chain_heat, float) else 50.0
+                # Pro: Bonding status
+                result["intel_bonding_status"]        = bonding.get("bonding_status", "unknown")
+                result["intel_is_graduated"]          = bonding.get("is_graduated", True)
+                result["intel_graduation_pct"]        = bonding.get("graduation_pct", 100.0)
+                # Pro: Smart money conviction from profitable wallets
+                result["intel_smart_money_conviction"] = profit_wallets.get("smart_money_conviction", 0.0)
+                result["intel_profitable_wallet_count"] = profit_wallets.get("total_profitable_wallets", 0)
+                result["intel_total_realized_profit"]  = profit_wallets.get("total_realized_profit_usd", 0.0)
+                # Pro: Instant score
+                instant_score = done.get("instant_score") or {}
+                result["intel_moralis_score"] = instant_score.get("moralis_score", 50)
+                # Pro: Pair stats
+                pair_data = done.get("pair_stats") or {}
+                result["intel_pair_buy_sell_ratio"]  = pair_data.get("buy_sell_ratio", 1.0)
+                result["intel_pair_unique_traders"]  = pair_data.get("unique_traders", 0)
+                result["intel_pair_is_accumulating"] = pair_data.get("is_accumulating", False)
+                # Pro: Single token analytics
+                tok_analytics = done.get("tok_analytics") or {}
+                result["intel_stealth_accumulation"] = tok_analytics.get("stealth_accumulation", False)
+                result["intel_buy_sell_vol_ratio"]   = tok_analytics.get("buy_sell_vol_ratio", 1.0)
 
     except Exception as e:
         logger.warning(f"Intelligence enrichment timeout/error for {token_address[:8]}/{chain}: {e}")
@@ -1596,6 +1649,28 @@ def calculate_intelligence_score_boost(intel: dict) -> tuple[float, list[str]]:
         delta -= 3.0
         reasons.append("whale_swap_selling -3")
 
+    # ── Smart Money Conviction from Profitable Wallets (+6 max) ───────────────
+    conviction = intel.get("intel_smart_money_conviction", 0.0)
+    if conviction >= 70:
+        boost = min(6.0, (conviction - 50) / 5)
+        delta += boost
+        pcount = intel.get("intel_profitable_wallet_count", 0)
+        reasons.append(f"smart_money_conviction +{boost:.1f} ({pcount} profitable wallets)")
+
+    # ── Pair-Level Accumulation (+4 max) ─────────────────────────────────────
+    if intel.get("intel_pair_is_accumulating"):
+        ratio = intel.get("intel_pair_buy_sell_ratio", 1.0)
+        boost = min(4.0, (ratio - 1.0) * 4)
+        delta += boost
+        reasons.append(f"pair_accumulating +{boost:.1f} (ratio={ratio:.1f})")
+
+    # ── Stealth Accumulation (+5) ────────────────────────────────────────────
+    if intel.get("intel_stealth_accumulation"):
+        vol_ratio = intel.get("intel_buy_sell_vol_ratio", 1.0)
+        boost = min(5.0, vol_ratio)
+        delta += boost
+        reasons.append(f"stealth_accumulation +{boost:.1f} (vol_ratio={vol_ratio:.1f}x)")
+
     # ── Chain Heat Multiplier (scales all bonuses) ───────────────────────────
     chain_heat = intel.get("intel_chain_heat", 50.0)
     if chain_heat >= 80 and delta > 0:
@@ -1662,7 +1737,7 @@ def get_usage_stats() -> dict:
     return {
         "api_key_configured": bool(MORALIS_API_KEY),
         "cached_keys":        len(_cache),
-        "rate_calls_in_window": _rate_calls_in_window,
+        "rate_limiter": "shared_pro_tier",
         "endpoints_covered": [
             "top_traders", "evm_snipers", "score_timeseries", "analytics_timeseries",
             "holder_stats", "holder_growth", "token_swaps", "swap_flow",
@@ -1670,6 +1745,13 @@ def get_usage_stats() -> dict:
             "wallet_defi_positions", "chain_metrics", "category_metrics",
             "token_search", "pumpfun_new", "pumpfun_bonding",
             "solana_holder_stats", "solana_holder_growth", "solana_score_timeseries",
+            # Pro endpoints (Sprint 1)
+            "bonding_status", "top_profitable_wallets", "wallet_insight",
+            "wallet_profitability", "wallet_net_worth", "token_security",
+            "wallet_labels", "entity_search", "historical_holders_v2",
+            "solana_top_holders", "token_categories",
+            # Pro endpoints (Sprint 2)
+            "instant_token_score", "pair_stats", "single_token_analytics",
         ],
     }
 
@@ -1909,3 +1991,755 @@ def cortex_analyze_token(
     """
     logger.debug(f"Cortex AI query skipped for {symbol or token_address} (Hosted Cortex API sunset on June 4, 2026)")
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 20. TOKEN BONDING STATUS — Pre-trade rug prevention
+# GET /erc20/{address}/bonding-status?chain={chain}       (EVM)
+# GET /token/{network}/{address}/bonding-status            (Solana)
+# Returns: graduation %, bonding curve exchange, bonding status, market cap
+# Use case: Block trades on tokens still in bonding curve (pre-graduation)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_bonding_status(
+    token_address: str,
+    chain: str,
+    is_solana: bool = False,
+) -> Optional[dict]:
+    """
+    Check if a token is still in a bonding curve (pre-graduation).
+    Returns bonding progress and graduation status.
+
+    Actionable signal:
+      - graduation_pct < 100 → token hasn't graduated to DEX yet (risky)
+      - bonding_status == "bonding" → actively in bonding curve
+      - bonding_status == "graduated" → safe to trade on DEX
+
+    Pro-only endpoint. Returns None if not on Pro plan.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"bonding_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        if is_solana or chain == "solana":
+            url = f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/bonding-status"
+            params = {}
+        else:
+            hex_chain = CHAIN_HEX.get(chain, "0x1")
+            url = f"{BASE_URL}/erc20/{token_address}/bonding-status"
+            params = {"chain": hex_chain}
+
+        resp = get_session().get(url, params=params, headers=_headers(), timeout=8)
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+
+        result = {
+            "bonding_status": data.get("status", data.get("bonding_status", "unknown")),
+            "graduation_pct": _safe_float(data.get("graduation", data.get("graduation_percent", 0))),
+            "exchange": data.get("exchange", ""),
+            "market_cap_usd": _safe_float(data.get("market_cap_usd", data.get("marketCap", 0))),
+            "is_graduated": data.get("status", "").lower() == "graduated"
+                            or _safe_float(data.get("graduation", 0)) >= 100,
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Token bonding status error {token_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 21. TOP PROFITABLE WALLETS PER TOKEN — Smart money signal
+# GET /erc20/{address}/top-profitable-wallets?chain={chain}
+# Returns: ranked list of most profitable traders for a specific token
+# Use case: If top traders are accumulating → strong buy signal
+# ─────────────────────────────────────────────────────────────────────────────
+def get_top_profitable_wallets(
+    token_address: str,
+    chain: str,
+    limit: int = 10,
+) -> Optional[dict]:
+    """
+    Get the most profitable wallets trading a specific token.
+    This is the BEST smart money signal available on Moralis Pro.
+
+    Returns:
+      - total_profitable_wallets: int
+      - avg_realized_profit_usd: float
+      - top_wallets: list of {address, realized_profit_usd, avg_buy_price, count_of_trades}
+      - smart_money_conviction: float (0-100, our score)
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain)
+    if not hex_chain:
+        return None
+    cache_key = f"top_profit_wallets_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/erc20/{token_address}/top-profitable-wallets",
+            params={"chain": hex_chain, "limit": limit},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        wallets = data.get("result", data) if isinstance(data, dict) else data
+        if not isinstance(wallets, list):
+            wallets = []
+
+        profitable_wallets = []
+        total_profit = 0.0
+        for w in wallets[:limit]:
+            profit = _safe_float(w.get("realized_profit_usd", w.get("total_sold_usd", 0))
+                                 - w.get("total_bought_usd", 0))
+            if profit <= 0:
+                profit = _safe_float(w.get("realized_profit_usd", 0))
+            total_profit += profit
+            profitable_wallets.append({
+                "address": w.get("address", w.get("wallet_address", "")),
+                "realized_profit_usd": round(profit, 2),
+                "count_of_trades": _safe_int(w.get("count_of_trades", w.get("total_trades", 0))),
+                "avg_buy_price": _safe_float(w.get("avg_buy_price_usd", 0)),
+            })
+
+        n = len(profitable_wallets)
+        avg_profit = total_profit / n if n else 0
+        # Conviction = normalized score based on # of profitable wallets and avg profit
+        conviction = min(100.0, (n * 10) + min(50.0, avg_profit / 500.0 * 50.0))
+
+        result = {
+            "total_profitable_wallets": n,
+            "avg_realized_profit_usd": round(avg_profit, 2),
+            "total_realized_profit_usd": round(total_profit, 2),
+            "top_wallets": profitable_wallets[:5],  # Keep top 5 for copy-trade signals
+            "smart_money_conviction": round(conviction, 1),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Top profitable wallets error {token_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 22. WALLET INSIGHT — Quality scoring for whale wallets
+# GET /wallets/{address}/insight?chain={chain}
+# Returns: activity age, transfer counts, counterparties, swap volume
+# Use case: Qualify whale wallets as "real" vs bot/wash-trade accounts
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_insight(address: str, chain: str = "ethereum") -> Optional[dict]:
+    """
+    Get insight metrics for a wallet address.
+    Use to qualify whale/smart-money wallets as legitimate.
+
+    Returns:
+      - wallet_age_days: int
+      - total_transactions: int
+      - total_counterparties: int
+      - total_swap_volume_usd: float
+      - quality_score: float (0-100, our computed score)
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain, "0x1")
+    cache_key = f"wallet_insight_{chain}_{address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/wallets/{address}/insight",
+            params={"chain": hex_chain},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+
+        age_days = _safe_int(data.get("wallet_age_in_days", data.get("age_in_days", 0)))
+        total_txs = _safe_int(data.get("total_transactions", data.get("total_count_transactions", 0)))
+        counterparties = _safe_int(data.get("total_counterparties", data.get("unique_counterparties", 0)))
+        swap_vol = _safe_float(data.get("total_swap_volume_usd", data.get("swap_volume_usd", 0)))
+
+        # Quality score: old wallet + many txs + many counterparties + swap volume
+        age_score = min(30.0, age_days / 365.0 * 30.0)  # max 30 for 1yr+
+        tx_score = min(25.0, total_txs / 1000.0 * 25.0)  # max 25 for 1k+ txs
+        cp_score = min(20.0, counterparties / 200.0 * 20.0)  # max 20 for 200+ counterparties
+        vol_score = min(25.0, swap_vol / 100_000.0 * 25.0)  # max 25 for $100k+ swap volume
+        quality = min(100.0, age_score + tx_score + cp_score + vol_score)
+
+        result = {
+            "wallet_age_days": age_days,
+            "total_transactions": total_txs,
+            "total_counterparties": counterparties,
+            "total_swap_volume_usd": round(swap_vol, 2),
+            "quality_score": round(quality, 1),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Wallet insight error {address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 23. WALLET PnL SUMMARY — Our own trade performance tracking
+# GET /wallets/{address}/profitability/summary?chain={chain}&days={days}
+# Returns: total_realized_pnl_usd, total_trades, win_rate, avg_profit_per_trade
+# Use case: Track our bot wallet's actual performance (the money metric)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_pnl_summary(
+    address: str,
+    chain: str = "ethereum",
+    days: int = 30,
+) -> Optional[dict]:
+    """
+    Get profit & loss summary for a wallet.
+    Use to track OUR bot's trading performance.
+
+    Returns:
+      - total_realized_pnl_usd: float (net P&L in USD)
+      - total_trades: int
+      - profitable_trades: int
+      - losing_trades: int
+      - win_rate_pct: float (0-100)
+      - avg_profit_per_trade_usd: float
+      - total_bought_usd: float
+      - total_sold_usd: float
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain, "0x1")
+    cache_key = f"wallet_pnl_{chain}_{address.lower()}_{days}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/wallets/{address}/profitability/summary",
+            params={"chain": hex_chain, "days": days},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+
+        total_trades = _safe_int(data.get("total_count_of_trades", data.get("total_trades", 0)))
+        profitable = _safe_int(data.get("total_profitable_trades", 0))
+        losing = _safe_int(data.get("total_losing_trades", 0))
+        total_bought = _safe_float(data.get("total_bought_usd", 0))
+        total_sold = _safe_float(data.get("total_sold_usd", 0))
+        realized_pnl = _safe_float(data.get("total_realized_profit_usd",
+                                              data.get("total_pnl_usd", total_sold - total_bought)))
+
+        win_rate = (profitable / total_trades * 100) if total_trades > 0 else 0.0
+        avg_profit = realized_pnl / total_trades if total_trades > 0 else 0.0
+
+        result = {
+            "total_realized_pnl_usd": round(realized_pnl, 2),
+            "total_trades": total_trades,
+            "profitable_trades": profitable,
+            "losing_trades": losing,
+            "win_rate_pct": round(win_rate, 1),
+            "avg_profit_per_trade_usd": round(avg_profit, 2),
+            "total_bought_usd": round(total_bought, 2),
+            "total_sold_usd": round(total_sold, 2),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Wallet PnL summary error {address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 24. WALLET NET WORTH — Automated capital tracking
+# GET /wallets/{address}/net-worth?chains[]={chain}
+# Returns: total_networth_usd, chains breakdown
+# Use case: Track total wallet value across chains (our capital base)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_wallet_net_worth(
+    address: str,
+    chains: Optional[list[str]] = None,
+) -> Optional[dict]:
+    """
+    Get total net worth of a wallet across chains.
+    Use to track our bot's total capital automatically.
+
+    Returns:
+      - total_networth_usd: float
+      - chains: dict[chain_name, usd_value]
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"wallet_networth_{address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        params: dict = {"exclude_spam": "true", "exclude_unverified_contracts": "true"}
+        if chains:
+            for c in chains:
+                hex_c = CHAIN_HEX.get(c)
+                if hex_c:
+                    params.setdefault("chains[]", [])
+                    if isinstance(params["chains[]"], list):
+                        params["chains[]"].append(hex_c)
+
+        resp = get_session().get(
+            f"{BASE_URL}/wallets/{address}/net-worth",
+            params=params,
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+
+        total_worth = _safe_float(data.get("total_networth_usd", 0))
+        chain_breakdown = {}
+        for chain_data in data.get("chains", []):
+            chain_name = chain_data.get("chain", "unknown")
+            chain_usd = _safe_float(chain_data.get("networth_usd", 0))
+            if chain_usd > 0:
+                chain_breakdown[chain_name] = round(chain_usd, 2)
+
+        result = {
+            "total_networth_usd": round(total_worth, 2),
+            "chains": chain_breakdown,
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Wallet net worth error {address[:8]}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 25. HISTORICAL TOKEN HOLDERS V2 — Timeseries holder data (Pro)
+# GET /erc20/{address}/holders/historical?chain={chain}  (EVM)
+# GET /token/{network}/{address}/holders/historical       (Solana)
+# Returns: structured time buckets with holder counts and changes
+# Use case: Replaces holder_growth with richer structured timeseries
+# ─────────────────────────────────────────────────────────────────────────────
+def get_historical_token_holders_v2(
+    token_address: str,
+    chain: str,
+    is_solana: bool = False,
+) -> Optional[dict]:
+    """
+    Get structured timeseries holder data with growth metrics.
+    Better than single-shot holder count — shows accumulation vs distribution.
+
+    Returns:
+      - holder_trend: str ("accumulating", "distributing", "stable")
+      - holder_growth_7d_pct: float
+      - holder_growth_30d_pct: float
+      - current_holders: int
+      - data_points: int (number of timeseries entries)
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"hist_holders_v2_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        if is_solana or chain == "solana":
+            url = f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/historical"
+            params = {}
+        else:
+            hex_chain = CHAIN_HEX.get(chain, "0x1")
+            url = f"{BASE_URL}/erc20/{token_address}/holders/historical"
+            params = {"chain": hex_chain}
+
+        resp = get_session().get(url, params=params, headers=_headers(), timeout=10)
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        entries = data.get("result", data) if isinstance(data, dict) else data
+        if not isinstance(entries, list) or len(entries) < 2:
+            return None
+
+        # Sort by timestamp ascending
+        entries.sort(key=lambda x: x.get("timestamp", x.get("date", "")))
+        current = _safe_int(entries[-1].get("total_holders", entries[-1].get("count", 0)))
+        oldest = _safe_int(entries[0].get("total_holders", entries[0].get("count", 0)))
+
+        # 7-day lookback
+        seven_day_ago = None
+        if len(entries) >= 7:
+            seven_day_ago = _safe_int(entries[-7].get("total_holders", entries[-7].get("count", 0)))
+        growth_7d = ((current - seven_day_ago) / seven_day_ago * 100) if seven_day_ago and seven_day_ago > 0 else 0.0
+        growth_30d = ((current - oldest) / oldest * 100) if oldest > 0 else 0.0
+
+        # Trend classification
+        if growth_7d >= 10:
+            trend = "accumulating"
+        elif growth_7d <= -10:
+            trend = "distributing"
+        elif growth_7d >= 3:
+            trend = "growing"
+        elif growth_7d <= -3:
+            trend = "shrinking"
+        else:
+            trend = "stable"
+
+        result = {
+            "holder_trend": trend,
+            "holder_growth_7d_pct": round(growth_7d, 1),
+            "holder_growth_30d_pct": round(growth_30d, 1),
+            "current_holders": current,
+            "data_points": len(entries),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Historical holders v2 error {token_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 26. TOP HOLDERS (SOLANA) — Whale analysis for Solana tokens
+# GET /token/{network}/{address}/top-holders
+# Returns: paginated top holders with balances and percentages
+# Use case: Identify whale concentration on Solana (EVM already has this)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_solana_top_holders_detailed(
+    token_address: str,
+    limit: int = 20,
+) -> Optional[dict]:
+    """
+    Get detailed top holders for a Solana token (Pro endpoint).
+    Returns whale addresses with percentage of supply held.
+
+    Returns:
+      - top_10_pct: float (% of supply held by top 10)
+      - whale_count: int (holders with > 1% supply)
+      - top_holders: list of {address, percentage, usd_value}
+      - concentration_risk: str ("low", "medium", "high", "critical")
+    """
+    if not MORALIS_API_KEY:
+        return None
+    cache_key = f"sol_top_holders_{token_address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/top-holders",
+            params={"limit": limit},
+            headers=_headers(),
+            timeout=10,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        holders = data.get("result", data) if isinstance(data, dict) else data
+        if not isinstance(holders, list):
+            return None
+
+        top_holders = []
+        total_top10_pct = 0.0
+        whale_count = 0
+        for i, h in enumerate(holders[:limit]):
+            pct = _safe_float(h.get("percentage_relative_to_total_supply",
+                                     h.get("percentage", h.get("share", 0))))
+            usd = _safe_float(h.get("usd_value", h.get("balance_usd", 0)))
+            addr = h.get("owner_address", h.get("address", ""))
+            top_holders.append({"address": addr, "percentage": round(pct, 2), "usd_value": round(usd, 2)})
+            if i < 10:
+                total_top10_pct += pct
+            if pct >= 1.0:
+                whale_count += 1
+
+        # Concentration risk
+        if total_top10_pct >= 80:
+            risk = "critical"
+        elif total_top10_pct >= 50:
+            risk = "high"
+        elif total_top10_pct >= 25:
+            risk = "medium"
+        else:
+            risk = "low"
+
+        result = {
+            "top_10_pct": round(total_top10_pct, 1),
+            "whale_count": whale_count,
+            "top_holders": top_holders[:10],
+            "concentration_risk": risk,
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Solana top holders error {token_address[:8]}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 27. TOKEN CATEGORIES — Auto-tag tokens (meme, defi, l2, stablecoin, etc.)
+# GET /discovery/tokens/categories
+# Returns: list of {category, description}
+# GET /erc20/{address}/metadata includes categories in metadata
+# Use case: Auto-filter by category (e.g., only trade meme coins, skip stables)
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_categories() -> list[dict]:
+    """
+    Get all available token categories from Moralis.
+    Used to auto-classify tokens and filter by category preference.
+    """
+    if not MORALIS_API_KEY:
+        return []
+    cache_key = "token_categories_all"
+    if _is_cached(cache_key, 3600):  # 1hr cache — categories don't change often
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/discovery/tokens/categories",
+            headers=_headers(),
+            timeout=8,
+        )
+        if resp.status_code in (400, 404, 429):
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        categories = data.get("result", data) if isinstance(data, dict) else data
+        if not isinstance(categories, list):
+            return []
+        result = [
+            {"id": c.get("id", c.get("category", "")), "name": c.get("name", c.get("category", ""))}
+            for c in categories
+        ]
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Token categories error: {e}")
+        return []
+
+
+def get_token_category(token_address: str, chain: str) -> Optional[str]:
+    """
+    Get the primary category for a specific token.
+    Returns category string like "meme", "defi", "l2", "stablecoin", etc.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain)
+    if not hex_chain:
+        return None
+    cache_key = f"token_cat_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/erc20/metadata",
+            params={"chain": hex_chain, "addresses[]": token_address},
+            headers=_headers(),
+            timeout=8,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        tokens = data if isinstance(data, list) else [data]
+        if not tokens:
+            return None
+        token = tokens[0]
+        categories = token.get("categories", token.get("category", []))
+        if isinstance(categories, list) and categories:
+            cat = categories[0] if isinstance(categories[0], str) else categories[0].get("name", "")
+        elif isinstance(categories, str):
+            cat = categories
+        else:
+            cat = None
+        if cat:
+            _set_cache(cache_key, cat)
+        return cat
+    except Exception as e:
+        logger.debug(f"Token category error {token_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 27. INSTANT TOKEN SCORE — Single-call safety gate
+#    GET /tokens/{address}/score?chain={chain}
+#    Returns a 0-100 composite score with sub-metrics.
+#    Use as EARLY-OUT before heavy enrichment — score < 30 = block immediately.
+#    CU cost: ~5 CU (very cheap).
+# ─────────────────────────────────────────────────────────────────────────────
+def get_token_score_instant(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Get instant 0-100 safety score for a token.
+    Returns: {score: int, price_usd, volume_24h, liquidity_usd, txn_count, ...}
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain)
+    if not hex_chain:
+        return None
+    cache_key = f"score_inst_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/tokens/{token_address}/score",
+            params={"chain": hex_chain},
+            headers=_headers(),
+            timeout=6,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "moralis_score":   _safe_int(data.get("moralis_score", data.get("score", 50))),
+            "price_usd":       _safe_float(data.get("price_usd", data.get("usdPrice", 0))),
+            "volume_24h":      _safe_float(data.get("volume_24h", data.get("volume_usd", 0))),
+            "liquidity_usd":   _safe_float(data.get("liquidity_usd", data.get("total_liquidity_usd", 0))),
+            "txn_count_24h":   _safe_int(data.get("transaction_count_24h", data.get("transactions", 0))),
+            "holders":         _safe_int(data.get("holders", data.get("holder_count", 0))),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Instant score error {token_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 28. DEX PAIR STATS — Buy/sell analysis per pair
+#    GET /pairs/{pairAddress}/stats?chain={chain}
+#    Returns: buyer/seller counts, buy/sell volumes per timeframe (5m,1h,4h,24h)
+#    Trading signal: buy_volume > sell_volume + rising unique buyers = accumulation
+# ─────────────────────────────────────────────────────────────────────────────
+def get_pair_stats(pair_address: str, chain: str) -> Optional[dict]:
+    """
+    Get DEX pair-level trading statistics.
+    Returns parsed dict with buy/sell ratios and unique trader counts.
+    """
+    if not MORALIS_API_KEY or not pair_address:
+        return None
+    hex_chain = CHAIN_HEX.get(chain)
+    if not hex_chain:
+        return None
+    cache_key = f"pair_stats_{chain}_{pair_address.lower()}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/pairs/{pair_address}/stats",
+            params={"chain": hex_chain},
+            headers=_headers(),
+            timeout=6,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        # Parse the stats — field names may vary between versions
+        buyers_24h  = _safe_int(data.get("buyers_24h", data.get("unique_buyers_24h", 0)))
+        sellers_24h = _safe_int(data.get("sellers_24h", data.get("unique_sellers_24h", 0)))
+        buy_vol     = _safe_float(data.get("buy_volume_24h_usd", data.get("buy_volume_24h", 0)))
+        sell_vol    = _safe_float(data.get("sell_volume_24h_usd", data.get("sell_volume_24h", 0)))
+        total_traders = buyers_24h + sellers_24h
+        buy_sell_ratio = (buyers_24h / sellers_24h) if sellers_24h > 0 else (
+            2.0 if buyers_24h > 0 else 1.0
+        )
+        buy_vol_ratio = (buy_vol / sell_vol) if sell_vol > 0 else (
+            2.0 if buy_vol > 0 else 1.0
+        )
+        result = {
+            "buyers_24h":       buyers_24h,
+            "sellers_24h":      sellers_24h,
+            "buy_sell_ratio":   round(buy_sell_ratio, 2),
+            "buy_volume_24h":   buy_vol,
+            "sell_volume_24h":  sell_vol,
+            "buy_vol_ratio":    round(buy_vol_ratio, 2),
+            "unique_traders":   total_traders,
+            "is_accumulating":  buy_sell_ratio > 1.3 and buy_vol_ratio > 1.2,
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Pair stats error {pair_address[:8]}/{chain}: {e}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 29. SINGLE TOKEN ANALYTICS — Rich per-token analytics (GET version)
+#    GET /tokens/{address}/analytics?chain={chain}
+#    Returns: buy/sell volumes, buyer/seller counts, FDV trends, liquidity
+#    Trading signal: buy_volume surging while price flat = stealth accumulation
+# ─────────────────────────────────────────────────────────────────────────────
+def get_single_token_analytics(token_address: str, chain: str) -> Optional[dict]:
+    """
+    Get rich trading analytics for a single token.
+    Returns parsed dict with volume breakdowns and FDV trends.
+    """
+    if not MORALIS_API_KEY:
+        return None
+    hex_chain = CHAIN_HEX.get(chain)
+    if not hex_chain:
+        return None
+    cache_key = f"tok_analytics_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key, FAST_CACHE_TTL):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/tokens/{token_address}/analytics",
+            params={"chain": hex_chain},
+            headers=_headers(),
+            timeout=6,
+        )
+        if resp.status_code in (400, 404, 429):
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        buy_vol   = _safe_float(data.get("totalBuyVolume", data.get("buy_volume_usd", 0)))
+        sell_vol  = _safe_float(data.get("totalSellVolume", data.get("sell_volume_usd", 0)))
+        buyers    = _safe_int(data.get("totalBuyers", data.get("unique_buyers", 0)))
+        sellers   = _safe_int(data.get("totalSellers", data.get("unique_sellers", 0)))
+        txn_count = _safe_int(data.get("totalTransactions", data.get("transaction_count", 0)))
+        liquidity = _safe_float(data.get("totalLiquidityUSD",
+                        data.get("liquidity_usd", data.get("total_liquidity_usd", 0))))
+        fdv       = _safe_float(data.get("fullyDilutedValuation", data.get("fdv", 0)))
+        # Stealth accumulation: buy volume > 2x sell volume while not pumping
+        stealth_accumulation = (buy_vol > sell_vol * 2.0 and buyers > sellers * 1.3) if sell_vol > 0 else False
+        result = {
+            "buy_volume_usd":        buy_vol,
+            "sell_volume_usd":       sell_vol,
+            "unique_buyers":         buyers,
+            "unique_sellers":        sellers,
+            "txn_count":             txn_count,
+            "liquidity_usd":         liquidity,
+            "fdv":                   fdv,
+            "stealth_accumulation":  stealth_accumulation,
+            "buy_sell_vol_ratio":    round((buy_vol / sell_vol) if sell_vol > 0 else 1.0, 2),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Single token analytics error {token_address[:8]}/{chain}: {e}")
+        return None

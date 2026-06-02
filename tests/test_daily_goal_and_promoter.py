@@ -162,8 +162,8 @@ class TestDailyGoalEngine:
     def test_arb_config_overrides_catch_up(self, tmp_path):
         """Catch-up mode returns lower spread thresholds and faster scan."""
         engine, _ = make_fresh_engine(tmp_path)
-        engine._state.strategy_mode = "catch_up"
-        cfg = engine.get_arb_config_overrides()
+        with patch.object(engine, "get_strategy_mode", return_value="catch_up"):
+            cfg = engine.get_arb_config_overrides()
         assert cfg["ARB_MIN_SPREAD_PCT"] < 0.8  # Lower than normal
         assert cfg["scan_interval_seconds"] < 15  # Faster than normal
 
@@ -190,10 +190,10 @@ class TestDailyGoalEngine:
     def test_gem_score_override_catch_up_lowers_floor(self, tmp_path):
         """Catch-up mode lowers the gem score floor."""
         engine, _ = make_fresh_engine(tmp_path)
-        engine._state.strategy_mode = "catch_up"
-        with patch("core.daily_goal_engine.settings") as mock_settings:
-            mock_settings.MIN_GEM_SCORE = 68.0
-            override = engine.get_gem_score_override()
+        with patch.object(engine, "get_strategy_mode", return_value="catch_up"):
+            with patch("core.daily_goal_engine.settings") as mock_settings:
+                mock_settings.MIN_GEM_SCORE = 68.0
+                override = engine.get_gem_score_override()
         assert override < 68.0
 
     def test_gem_score_override_protect_raises_floor(self, tmp_path):
