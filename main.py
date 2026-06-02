@@ -2849,7 +2849,6 @@ async def run_bot_loop():
 
                             # Route to best wallet
                             routed = route_trade_all(
-                                token_address=sc.address,
                                 chain=sc.chain,
                                 gem_score=decision.ta_composite,
                                 is_express=False,
