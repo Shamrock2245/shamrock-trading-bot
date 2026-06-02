@@ -1022,11 +1022,7 @@ async def run_bot_loop():
                 _arb_cfg = _dge.get_arb_config_overrides()
                 _scan_interval = _arb_cfg.get("scan_interval_seconds", 15)
                 # Scan for opportunities
-                opportunities = _arb_scanner_inst.scan_all(
-                    min_spread_pct=_arb_cfg.get("ARB_MIN_SPREAD_PCT", 0.8),
-                    min_profit_usd=_arb_cfg.get("ARB_MIN_PROFIT_USD", 8.0),
-                    max_position_usd=_arb_cfg.get("ARB_MAX_POSITION_USD", 5000.0),
-                )
+                opportunities = _arb_scanner_inst.scan_all()
                 if opportunities:
                     logger.info(
                         f"🔍 ARB SCAN: {len(opportunities)} opportunities found | "
