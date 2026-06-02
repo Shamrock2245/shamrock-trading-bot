@@ -28,7 +28,7 @@ BOT_STATUS_FILE = Path(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json
 HEALTH_OUTPUT_FILE = Path(os.getenv("HEALTH_OUTPUT_FILE", "/app/output/health.json"))
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://dashboard:8501")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-MAX_CYCLE_AGE_SECONDS = int(os.getenv("MAX_CYCLE_AGE_SECONDS", "300"))  # 5 min
+MAX_CYCLE_AGE_SECONDS = int(os.getenv("MAX_CYCLE_AGE_SECONDS", "900"))  # 15 min (cycles take 8-12 min with webhook processing)
 
 # Ensure output dir exists
 HEALTH_OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)

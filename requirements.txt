@@ -25,6 +25,7 @@ pandas>=2.0.0                # DataFrames for OHLCV and signal processing
 # Bot works fully without it via strategies/indicators.py fallbacks
 # pandas-ta @ git+https://github.com/twopirllc/pandas-ta.git@development
 numpy>=1.24.0                # Numerical operations
+networkx>=3.1                # Graph algorithms for Bellman-Ford triangular arb detection
 
 # ── Machine Learning ─────────────────────────────────────────────────────
 xgboost>=2.0.0               # XGBoost classifier for ML weight optimization

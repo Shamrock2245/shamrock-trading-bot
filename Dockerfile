@@ -73,7 +73,7 @@ RUN mkdir -p /app/logs /app/output /app/data && \
 USER shamrock
 
 # Health check: verify bot is actively running (not just importable)
-HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=3 \
+HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=5 \
     CMD python3 -c "\
 import json, time; \
 f=open('/app/data/dashboard/bot_status.json'); \
@@ -83,7 +83,7 @@ ts_raw=d.get('last_cycle_at') or d.get('timestamp') or d.get('started_at',''); \
 ts=datetime.fromisoformat(ts_raw.replace('Z','+00:00')); \
 age=(datetime.now(timezone.utc)-ts).total_seconds(); \
 print(f'Bot cycle age: {age:.0f}s'); \
-exit(0 if age < 300 else 1)" || exit 1
+exit(0 if age < 900 else 1)" || exit 1
 
 # Default: run the main bot
 CMD ["python3", "main.py"]
