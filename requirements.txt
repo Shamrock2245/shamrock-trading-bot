@@ -48,8 +48,7 @@ slack-sdk>=3.21.0            # Slack alerts
 python-telegram-bot>=20.0    # Telegram bot alerts
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
-streamlit>=1.28.0            # Portfolio dashboard UI
-plotly>=5.17.0               # Interactive charts
+reflex>=0.4.0                # Premium React/Next.js UI dashboard
 
 # ── Observability ─────────────────────────────────────────────────────────────
 sentry-sdk>=2.0.0            # Production error tracking & performance monitoring
