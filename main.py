@@ -990,18 +990,21 @@ async def run_bot_loop():
     except Exception as _cu_err:
         logger.warning(f"CU Budget Manager init failed: {_cu_err}")
 
-    # ── BTC Wealth Engine: start accumulation daemon ──────────────────────────────────────
+    # ── BTC Wealth Engine: initialize accumulation evaluator ──────────────────────────────────
     try:
         from core.btc_wealth_engine import btc_wealth_engine as _btc_engine
-        _btc_engine.start()
+        from data.providers.moralis_bitcoin import get_bitcoin_price as _get_btc_price
+        _btc_info = _get_btc_price()
+        _btc_price_str = f"${_btc_info['price_usd']:,.0f}" if _btc_info else "unavailable"
         logger.info(
-            f"✅ BTC Wealth Engine started — "
-            f"BTC price: ${_btc_engine.get_btc_price_usd():,.0f} | "
-            f"Rotation pct: {_btc_engine.get_rotation_pct():.0%} | "
-            f"Whale mode: {_btc_engine._whale_mode}"
+            f"✅ BTC Wealth Engine initialized — "
+            f"BTC price: {_btc_price_str} | "
+            f"Base rotation: {_btc_engine.base_pct*100:.0f}% | "
+            f"Whale multiplier: {_btc_engine.state.whale_multiplier}x | "
+            f"Total rotated: ${_btc_engine.state.total_usd_rotated:,.2f}"
         )
     except Exception as _btc_err:
-        logger.warning(f"BTC Wealth Engine failed to start: {_btc_err}")
+        logger.warning(f"BTC Wealth Engine failed to initialize: {_btc_err}")
 
     # ── Sniper Discovery Daemon (proactive microcap whale wallet discovery) ───────────────
     _sniper_discovery_daemon = None
