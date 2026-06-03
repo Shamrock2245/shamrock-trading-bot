@@ -248,7 +248,7 @@ def discover_moonshot_candidates(chain: str) -> list[MoonshotCandidate]:
         if moralis_chain:
             try:
                 r = get_session().get(
-                    "https://deep-index.moralis.io/api/v2.2/discovery/tokens/trending",
+                    "https://deep-index.moralis.io/api/v2.2/tokens/trending",
                     params={"chain": moralis_chain},
                     headers={"X-API-Key": moralis_key, "accept": "application/json"},
                     timeout=15,

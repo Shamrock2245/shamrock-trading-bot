@@ -106,7 +106,7 @@ def age_hours(created_ms):
 # ─────────────────────────────────────────────────────────────────────────────
 def moralis_top_gainers(chain_slug: str) -> list:
     if not MORALIS_KEY: return []
-    data = safe_get(f"{MORALIS_BASE}/discovery/tokens/top-gainers",
+    data = safe_get(f"{MORALIS_BASE}/tokens/top-gainers",
                     params={"chain": chain_slug, "time_frame": "1h"},
                     headers=MORALIS_HEADERS)
     tokens = (data or {}).get("result", data if isinstance(data, list) else [])
@@ -115,7 +115,7 @@ def moralis_top_gainers(chain_slug: str) -> list:
 
 def moralis_trending(chain_slug: str) -> list:
     if not MORALIS_KEY: return []
-    data = safe_get(f"{MORALIS_BASE}/discovery/tokens/trending",
+    data = safe_get(f"{MORALIS_BASE}/tokens/trending",
                     params={"chain": chain_slug},
                     headers=MORALIS_HEADERS)
     tokens = (data or {}).get("result", data if isinstance(data, list) else [])
@@ -139,7 +139,7 @@ def moralis_filtered(chain_hex: str) -> list:
         "timeFramesToReturn": ["oneHour", "oneDay"],
         "excludeMetadata": False,
     }
-    data = safe_post(f"{MORALIS_BASE}/discovery/tokens", payload, headers=MORALIS_HEADERS)
+    data = safe_post(f"{MORALIS_BASE}/tokens/search", payload, headers=MORALIS_HEADERS)
     items = (data or {}).get("result", data if isinstance(data, list) else [])
     logger.info(f"[Moralis] filtered {chain_hex}: {len(items)}")
     return items

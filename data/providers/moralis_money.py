@@ -4,14 +4,14 @@ data/providers/moralis_money.py — Moralis Money: PRIMARY data source for the S
 Moralis Money is one of the most powerful on-chain intelligence platforms available.
 This module wires in EVERY relevant Moralis endpoint as a first-class data source:
 
-  Discovery (Pro):
-    POST /discovery/tokens                       → Filtered Tokens (experienced buyers × liquidity × security)
-    GET  /discovery/tokens/trending              → Trending tokens by chain
-    GET  /discovery/tokens/top-gainers           → Top price gainers with on-chain strength
-    GET  /discovery/tokens/top-losers            → Oversold tokens (mean-reversion candidates)
-    GET  /discovery/tokens/buying-pressure       → Rising buy:sell ratio (momentum signal)
-    GET  /discovery/tokens/graduated-by-exchange → Post-bonding graduated tokens (NEW — Sprint 1)
-    GET  /discovery/tokens/new-by-exchange       → Brand-new token listings (NEW — Sprint 1)
+  Discovery (Pro) — migrated from /discovery/* to /tokens/* (June 2026):
+    POST /tokens/search                          → Filtered Tokens (experienced buyers × liquidity × security)
+    GET  /tokens/trending                        → Trending tokens by chain
+    GET  /tokens/top-gainers                     → Top price gainers with on-chain strength
+    GET  /tokens/top-losers                      → Oversold tokens (mean-reversion candidates)
+    GET  /tokens/buying-pressure                 → Rising buy:sell ratio (momentum signal)
+    GET  /tokens/graduated-by-exchange           → Post-bonding graduated tokens (NEW — Sprint 1)
+    GET  /tokens/new-by-exchange                 → Brand-new token listings (NEW — Sprint 1)
 
   Intelligence (Pro):
     GET  /tokens/{address}/score                 → Moralis token score (0–100) with volume/tx/supply metrics
@@ -133,7 +133,7 @@ def _available(chain: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Filtered Tokens  (POST /discovery/tokens)
+# 1. Filtered Tokens  (POST /tokens/search — migrated from /discovery/tokens)
 #    PRIMARY discovery — custom filter by experienced buyers, volume, liquidity
 # ─────────────────────────────────────────────────────────────────────────────
 def get_filtered_tokens(
@@ -210,7 +210,7 @@ def get_filtered_tokens(
             "excludeMetadata": False,
         }
         resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
+            f"{BASE_URL}/tokens/search",
             json=payload,
             headers=_json_headers(),
             timeout=20,
@@ -292,7 +292,7 @@ def get_filtered_tokens(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1b. Whale Accumulation Discovery  (POST /discovery/tokens)
+# 1b. Whale Accumulation Discovery  (POST /tokens/search — migrated from /discovery/tokens)
 #     Uses netExperiencedBuyers — the most powerful smart-money signal.
 #     Finds tokens where experienced wallets are net BUYING heavily.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ def get_whale_accumulation_tokens(
             "excludeMetadata": False,
         }
         resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
+            f"{BASE_URL}/tokens/search",
             json=payload,
             headers=_json_headers(),
             timeout=20,
@@ -448,7 +448,7 @@ def get_whale_accumulation_tokens(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Trending Tokens  (GET /discovery/tokens/trending)
+# 2. Trending Tokens  (GET /tokens/trending — migrated from /discovery/tokens/trending)
 #    HIGH PRIORITY — tokens with the most momentum right now
 # ─────────────────────────────────────────────────────────────────────────────
 def get_trending_tokens(chain: str) -> list[dict]:
@@ -463,7 +463,7 @@ def get_trending_tokens(chain: str) -> list[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/trending",
+            f"{BASE_URL}/tokens/trending",
             params={"chain": moralis_chain},
             headers=_headers(),
             timeout=15,
@@ -485,7 +485,7 @@ def get_trending_tokens(chain: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Top Gainers  (GET /discovery/tokens/top-gainers)
+# 3. Top Gainers  (GET /tokens/top-gainers — migrated from /discovery/tokens/top-gainers)
 #    Tokens with the highest price % gain — breakout detection
 # ─────────────────────────────────────────────────────────────────────────────
 def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
@@ -503,7 +503,7 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/top-gainers",
+            f"{BASE_URL}/tokens/top-gainers",
             params={"chain": moralis_chain, "time_frame": time_frame},
             headers=_headers(),
             timeout=15,
@@ -549,7 +549,7 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Top Losers  (GET /discovery/tokens/top-losers)
+# 4. Top Losers  (GET /tokens/top-losers — migrated from /discovery/tokens/top-losers)
 #    Oversold tokens — mean-reversion / dip-buy candidates for Wallet B
 # ─────────────────────────────────────────────────────────────────────────────
 def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
@@ -567,7 +567,7 @@ def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/top-losers",
+            f"{BASE_URL}/tokens/top-losers",
             params={"chain": moralis_chain, "time_frame": time_frame},
             headers=_headers(),
             timeout=15,
@@ -606,7 +606,7 @@ def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Buying Pressure  (GET /discovery/tokens/buying-pressure)
+# 5. Buying Pressure  (GET /tokens/buying-pressure — migrated from /discovery/tokens/buying-pressure)
 #    Rising buy:sell ratio — momentum signal before price moves
 # ─────────────────────────────────────────────────────────────────────────────
 def get_buying_pressure_tokens(chain: str) -> list[dict]:
@@ -621,7 +621,7 @@ def get_buying_pressure_tokens(chain: str) -> list[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/buying-pressure",
+            f"{BASE_URL}/tokens/buying-pressure",
             params={"chain": moralis_chain},
             headers=_headers(),
             timeout=15,
@@ -978,7 +978,7 @@ def get_holder_count(token_address: str, chain: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 11. Discovery Token Details (GET /discovery/token)
+# 11. Discovery Token Details (GET /token — migrated from /discovery/token)
 #     Deep per-token intel — works for BOTH EVM and Solana (chain=solana)
 #     Returns security_score, holders_change, experienced_net_buyers_change,
 #     liquidity_change_usd, on_chain_strength_index, and social links.
@@ -1002,7 +1002,7 @@ def get_discovery_token_details(token_address: str, chain: str) -> Optional[dict
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/token",
+            f"{BASE_URL}/token",
             params={"chain": moralis_chain, "token_address": token_address},
             headers=_headers(),
             timeout=15,
@@ -1160,7 +1160,7 @@ def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 14. Graduated Tokens  (GET /discovery/tokens/graduated-by-exchange)  — Pro
+# 14. Graduated Tokens  (GET /tokens/graduated-by-exchange — migrated)  — Pro
 #     Catches tokens the instant they graduate from a bonding curve (pump.fun,
 #     moonshot, etc.) onto a real DEX — the most time-sensitive discovery signal.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1193,7 +1193,7 @@ def get_graduated_tokens_by_exchange(
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/graduated-by-exchange",
+            f"{BASE_URL}/tokens/graduated-by-exchange",
             params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
             headers=_headers(),
             timeout=15,
@@ -1223,7 +1223,7 @@ def get_graduated_tokens_by_exchange(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 15. New Tokens by Exchange  (GET /discovery/tokens/new-by-exchange)  — Pro
+# 15. New Tokens by Exchange  (GET /tokens/new-by-exchange — migrated)  — Pro
 #     Brand-new token listings — the earliest-possible discovery signal.
 #     These are higher risk but highest potential reward.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1255,7 +1255,7 @@ def get_new_tokens_by_exchange(
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/new-by-exchange",
+            f"{BASE_URL}/tokens/new-by-exchange",
             params={"chain": moralis_chain, "exchange": exchange, "limit": limit},
             headers=_headers(),
             timeout=15,

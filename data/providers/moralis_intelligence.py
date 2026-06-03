@@ -2495,7 +2495,7 @@ def get_solana_top_holders_detailed(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 27. TOKEN CATEGORIES — Auto-tag tokens (meme, defi, l2, stablecoin, etc.)
-# GET /discovery/tokens/categories
+# GET /tokens/categories  (migrated from /discovery/tokens/categories)
 # Returns: list of {category, description}
 # GET /erc20/{address}/metadata includes categories in metadata
 # Use case: Auto-filter by category (e.g., only trade meme coins, skip stables)
@@ -2513,7 +2513,7 @@ def get_token_categories() -> list[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/discovery/tokens/categories",
+            f"{BASE_URL}/tokens/categories",
             headers=_headers(),
             timeout=8,
         )
