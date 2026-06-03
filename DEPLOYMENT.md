@@ -14,7 +14,7 @@ This guide covers deploying the Shamrock Trading Bot to the provisioned Hetzner 
 | Location | Ashburn, VA (ash) |
 | Server type | CPX21 (3 vCPU / 4 GB RAM / 80 GB SSD) |
 | OS | Ubuntu 22.04 LTS |
-| IP | `178.156.179.237` |
+| IP | `5.161.126.32` |
 
 ---
 

@@ -3,7 +3,7 @@
 # Run as: bash deploy.sh
 set -e
 
-REPO_DIR="/opt/shamrock-trading-bot"
+REPO_DIR="/root/shamrock-trading-bot"
 COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
 
 echo "🚀 Shamrock Trading Bot — Deploy Script"

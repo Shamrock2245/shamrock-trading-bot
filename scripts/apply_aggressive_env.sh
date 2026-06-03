@@ -1,9 +1,9 @@
 #!/bin/bash
 # Apply aggressive paper-mode .env settings on Hetzner
-# Run: ssh -i $KEY $SERVER 'bash /opt/shamrock-trading-bot/scripts/apply_aggressive_env.sh'
+# Run: ssh -i $KEY $SERVER 'bash /root/shamrock-trading-bot/scripts/apply_aggressive_env.sh'
 
 set -e
-cd /opt/shamrock-trading-bot
+cd /root/shamrock-trading-bot
 
 echo "🔥 Applying AGGRESSIVE paper-mode settings..."
 

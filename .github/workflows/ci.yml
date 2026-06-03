@@ -78,7 +78,7 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            cd /opt/shamrock-trading-bot
+            cd ~/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down
