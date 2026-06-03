@@ -8,8 +8,8 @@
 set -e  # Stop on first error
 
 KEY="/Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key"
-SERVER="root@5.161.126.32"
-REPO="/root/shamrock-trading-bot"
+SERVER="root@178.156.179.237"
+REPO="/opt/shamrock-trading-bot"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"

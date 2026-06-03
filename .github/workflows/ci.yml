@@ -43,7 +43,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest -q --tb=short
+        run: pytest -q --tb=short --ignore=scripts/
 
   # ── Job 2: Preflight Smoke Test ───────────────────────────────────────────
   preflight:
@@ -78,11 +78,13 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            cd ~/shamrock-trading-bot
+            cd /opt/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down
             docker system prune -f --volumes 2>/dev/null || true
             docker compose build --no-cache
             docker compose up -d
+            sleep 10
+            docker compose ps
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"

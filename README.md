@@ -87,7 +87,7 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
 - [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) / [MEV Blocker](https://mevblocker.io/) for MEV protection
 
 ### 📊 Portfolio Dashboard (9 Pages)
-Streamlit-powered UI at `http://5.161.126.32:8501`:
+Streamlit-powered UI at `http://178.156.179.237:8501`:
 
 | Page | Purpose |
 |------|---------|
@@ -385,7 +385,7 @@ The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS. It is always sca
 |----------|-------|
 | **Server** | CPX21 — 3 vCPU / 4 GB RAM / 80 GB SSD |
 | **Server ID** | #124347708 |
-| **IP** | `5.161.126.32` |
+| **IP** | `178.156.179.237` |
 | **Location** | Ashburn, VA (us-east, datacenter `ash-dc1`) |
 | **OS** | Ubuntu 22.04 LTS |
 | **Runtime** | Docker + docker-compose |

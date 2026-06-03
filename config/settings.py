@@ -210,7 +210,7 @@ MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
 MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
 MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
 # Public URL that Moralis will POST webhooks to (must be reachable from internet)
-MORALIS_STREAMS_WEBHOOK_URL = os.getenv("MORALIS_STREAMS_WEBHOOK_URL", "")  # e.g. http://5.161.126.32:8787
+MORALIS_STREAMS_WEBHOOK_URL = os.getenv("MORALIS_STREAMS_WEBHOOK_URL", "")  # e.g. http://178.156.179.237:8787
 
 # Streams Manager — auto-creates and syncs streams on Moralis
 MORALIS_STREAMS_AUTO_SYNC = os.getenv("MORALIS_STREAMS_AUTO_SYNC", "true").lower() == "true"

@@ -350,8 +350,9 @@ class TestPaperToLivePromoter:
     def test_already_promoted_today_true_when_same_day(self, tmp_path):
         """_already_promoted_today returns True when promoted today."""
         import core.paper_to_live_promoter as ptlp
+        from datetime import datetime, timezone
         promo_file = tmp_path / "promo.json"
-        today = time.strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         promo_file.write_text(json.dumps([{"promoted_at": f"{today}T12:00:00+00:00"}]))
         with patch.object(ptlp, "PROMOTION_RECORD_FILE", promo_file):
             result = ptlp._already_promoted_today()
