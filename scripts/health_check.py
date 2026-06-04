@@ -26,7 +26,8 @@ import requests
 CHECK_INTERVAL_SECONDS = int(os.getenv("HEALTH_CHECK_INTERVAL", "60"))
 BOT_STATUS_FILE = Path(os.getenv("BOT_STATUS_FILE", "/app/output/bot_status.json"))
 HEALTH_OUTPUT_FILE = Path(os.getenv("HEALTH_OUTPUT_FILE", "/app/output/health.json"))
-DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://dashboard:8501")
+# Reflex dashboard runs on port 3000 (frontend) and 8000 (backend)
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://dashboard:3000")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 MAX_CYCLE_AGE_SECONDS = int(os.getenv("MAX_CYCLE_AGE_SECONDS", "900"))  # 15 min (cycles take 8-12 min with webhook processing)
 
@@ -140,15 +141,16 @@ def check_position_monitor() -> dict:
 
 
 def check_dashboard() -> dict:
-    """Check if the Streamlit dashboard is responding."""
+    """Check if the Reflex dashboard is responding."""
     result = {"ok": False, "message": "", "status_code": None, "response_ms": None}
     try:
         start = time.time()
-        resp = requests.get(f"{DASHBOARD_URL}/_stcore/health", timeout=10)
+        # Reflex frontend serves on port 3000; any 2xx/3xx means it's alive
+        resp = requests.get(DASHBOARD_URL, timeout=10)
         elapsed_ms = round((time.time() - start) * 1000)
         result["status_code"] = resp.status_code
         result["response_ms"] = elapsed_ms
-        if resp.status_code == 200:
+        if resp.status_code in (200, 304):
             result["ok"] = True
             result["message"] = f"Dashboard OK ({elapsed_ms}ms)"
         else:

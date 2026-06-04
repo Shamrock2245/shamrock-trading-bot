@@ -28,6 +28,8 @@ services:
       # Sentry error tracking (set SENTRY_DSN in .env)
       - SENTRY_DSN=${SENTRY_DSN:-}
       - GIT_SHA=${GIT_SHA:-dev}
+      # Paper mode is the safe default — override in .env with MODE=live to go live
+      - MODE=${MODE:-paper}
     ports:
       - "8787:8787"    # Moralis Streams webhook ingestion
     volumes:

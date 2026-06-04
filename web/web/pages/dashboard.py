@@ -1,18 +1,20 @@
+"""Command Center dashboard page."""
 import reflex as rx
 from web.state import AppState
 from web.pages.layout import dashboard_layout
 
-def stat_card(title: str, value: str, icon: str, color: str) -> rx.Component:
+
+def stat_card(title: str, value: rx.Component, icon: str, color: str) -> rx.Component:
     return rx.hstack(
         rx.box(
-            rx.icon(icon, size=24, color=color),
+            rx.icon(icon, size=24, color=f"var(--{color}-9)"),
             padding="12px",
             background=f"var(--{color}-3)",
             border_radius="12px",
         ),
         rx.vstack(
             rx.text(title, size="2", color="gray"),
-            rx.text(value, size="5", weight="bold"),
+            value,
             spacing="1",
         ),
         padding="1.5em",
@@ -25,61 +27,180 @@ def stat_card(title: str, value: str, icon: str, color: str) -> rx.Component:
         spacing="4",
     )
 
+
+def progress_bar(pct: rx.Var) -> rx.Component:
+    """Daily goal progress bar."""
+    return rx.box(
+        rx.box(
+            width=AppState.daily_progress_display,
+            height="8px",
+            background="linear-gradient(90deg, var(--green-9), var(--green-11))",
+            border_radius="4px",
+            transition="width 0.5s ease",
+        ),
+        width="100%",
+        height="8px",
+        background="rgba(255,255,255,0.1)",
+        border_radius="4px",
+        overflow="hidden",
+    )
+
+
 @rx.page(route="/", title="Command Center", on_load=AppState.load_data)
 def index() -> rx.Component:
     return dashboard_layout(
         rx.vstack(
+            # ── Header ────────────────────────────────────────────────────────
             rx.hstack(
-                rx.heading("Command Center", size="8", weight="bold"),
+                rx.vstack(
+                    rx.heading("Command Center", size="8", weight="bold"),
+                    rx.hstack(
+                        rx.icon("clock", size=14, color="gray"),
+                        rx.text(
+                            "Last updated: ",
+                            AppState.last_updated_display,
+                            size="2",
+                            color="gray",
+                        ),
+                        spacing="1",
+                        align_items="center",
+                    ),
+                    spacing="1",
+                ),
                 rx.spacer(),
-                rx.button(
-                    rx.icon("refresh-cw", size=16),
-                    "Force Moralis Scan",
-                    on_click=AppState.force_scan,
-                    color_scheme="blue",
-                    variant="soft",
-                    size="3"
+                rx.hstack(
+                    rx.button(
+                        rx.icon("refresh-cw", size=16),
+                        "Refresh",
+                        on_click=AppState.load_data,
+                        color_scheme="gray",
+                        variant="soft",
+                        size="3",
+                    ),
+                    rx.button(
+                        rx.icon("zap", size=16),
+                        "Force Scan",
+                        on_click=AppState.force_scan,
+                        color_scheme="blue",
+                        variant="soft",
+                        size="3",
+                    ),
+                    spacing="2",
                 ),
                 width="100%",
-                align_items="center"
+                align_items="center",
             ),
-            
             rx.divider(margin_y="1em", opacity="0.2"),
-            
-            # Key Stats Row
+
+            # ── Key Stats Row ─────────────────────────────────────────────────
             rx.grid(
                 stat_card(
-                    "Total P&L", 
-                    rx.cond(AppState.daily_goal["total_pnl"] != None, f"${AppState.daily_goal['total_pnl']}", "$0.00"), 
-                    "dollar-sign", 
-                    "green"
+                    "Today's P&L",
+                    rx.text(AppState.total_pnl_display, size="5", weight="bold"),
+                    "dollar-sign",
+                    "green",
                 ),
                 stat_card(
-                    "Win Rate", 
-                    rx.cond(AppState.daily_goal["win_rate"] != None, f"{AppState.daily_goal['win_rate']}%", "0%"), 
-                    "trending-up", 
-                    "blue"
+                    "Win Rate",
+                    rx.text(AppState.win_rate_display, size="5", weight="bold"),
+                    "trending-up",
+                    "blue",
                 ),
                 stat_card(
-                    "Active Positions", 
-                    rx.cond(AppState.positions["total_active"] != None, f"{AppState.positions['total_active']}", "0"), 
-                    "briefcase", 
-                    "purple"
+                    "Open Positions",
+                    rx.text(AppState.open_positions_count_display, size="5", weight="bold"),
+                    "briefcase",
+                    "purple",
                 ),
                 stat_card(
-                    "Scanner Gems", 
-                    "Active", 
-                    "radar", 
-                    "orange"
+                    "Scanner Gems",
+                    rx.text(AppState.scanner_gems_count_display, size="5", weight="bold"),
+                    "radar",
+                    "orange",
                 ),
                 columns="4",
                 spacing="4",
-                width="100%"
+                width="100%",
             ),
-            
-            rx.box(margin_top="2em"),
-            
-            # Guardian Status
+
+            # ── Bot Status Row ────────────────────────────────────────────────
+            rx.grid(
+                stat_card(
+                    "Bot Status",
+                    rx.badge(
+                        AppState.bot_status_display,
+                        color_scheme=rx.cond(AppState.bot_is_running, "green", "red"),
+                        variant="solid",
+                        size="2",
+                    ),
+                    "activity",
+                    "green",
+                ),
+                stat_card(
+                    "Scan Cycle",
+                    rx.text(AppState.bot_cycle_display, size="5", weight="bold"),
+                    "rotate-cw",
+                    "cyan",
+                ),
+                stat_card(
+                    "Uptime",
+                    rx.text(AppState.bot_uptime_display, size="5", weight="bold"),
+                    "timer",
+                    "teal",
+                ),
+                stat_card(
+                    "Daily Target",
+                    rx.text(AppState.daily_target_display, size="5", weight="bold"),
+                    "target",
+                    "yellow",
+                ),
+                columns="4",
+                spacing="4",
+                width="100%",
+            ),
+
+            rx.box(margin_top="1em"),
+
+            # ── Daily Goal Progress ───────────────────────────────────────────
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("Daily Goal Progress", size="5"),
+                    rx.spacer(),
+                    rx.text(
+                        AppState.daily_progress_display,
+                        " of ",
+                        AppState.daily_target_display,
+                        size="3",
+                        color="gray",
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                rx.box(
+                    rx.box(
+                        height="12px",
+                        background="linear-gradient(90deg, var(--green-9), var(--green-11))",
+                        border_radius="6px",
+                        transition="width 0.5s ease",
+                        style={"width": AppState.daily_progress_display},
+                    ),
+                    width="100%",
+                    height="12px",
+                    background="rgba(255,255,255,0.1)",
+                    border_radius="6px",
+                    overflow="hidden",
+                ),
+                width="100%",
+                padding="1.5em",
+                background="rgba(255,255,255,0.03)",
+                border="1px solid rgba(255,255,255,0.05)",
+                border_radius="16px",
+                spacing="3",
+            ),
+
+            rx.box(margin_top="1em"),
+
+            # ── Guardian Floor Status ─────────────────────────────────────────
             rx.heading("Guardian Floor Status", size="5", margin_bottom="0.5em"),
             rx.box(
                 rx.hstack(
@@ -87,17 +208,58 @@ def index() -> rx.Component:
                     rx.text("Guardian Floor Active", weight="bold"),
                     rx.spacer(),
                     rx.badge("PROTECTED", color_scheme="green", variant="soft"),
-                    width="100%"
+                    width="100%",
                 ),
                 padding="1.5em",
                 background="rgba(16, 185, 129, 0.1)",
                 border="1px solid rgba(16, 185, 129, 0.2)",
                 border_radius="12px",
-                width="100%"
+                width="100%",
             ),
-            
+
+            rx.box(margin_top="1em"),
+
+            # ── Mode Banner ───────────────────────────────────────────────────
+            rx.cond(
+                AppState.is_live,
+                rx.box(
+                    rx.hstack(
+                        rx.icon("alert-triangle", color="var(--red-9)"),
+                        rx.text("⚠️ LIVE TRADING ACTIVE — Real funds at risk", weight="bold", color="var(--red-11)"),
+                        rx.spacer(),
+                        rx.button(
+                            "Switch to Paper",
+                            on_click=AppState.go_paper,
+                            color_scheme="gray",
+                            variant="soft",
+                            size="2",
+                        ),
+                        width="100%",
+                    ),
+                    padding="1.5em",
+                    background="rgba(239, 68, 68, 0.1)",
+                    border="1px solid rgba(239, 68, 68, 0.3)",
+                    border_radius="12px",
+                    width="100%",
+                ),
+                rx.box(
+                    rx.hstack(
+                        rx.icon("flask-conical", color="var(--green-9)"),
+                        rx.text("Paper Trading Mode — No real funds at risk", weight="bold", color="var(--green-11)"),
+                        rx.spacer(),
+                        rx.badge("PAPER", color_scheme="green", variant="soft"),
+                        width="100%",
+                    ),
+                    padding="1.5em",
+                    background="rgba(16, 185, 129, 0.05)",
+                    border="1px solid rgba(16, 185, 129, 0.15)",
+                    border_radius="12px",
+                    width="100%",
+                ),
+            ),
+
             width="100%",
             max_width="1200px",
-            spacing="4"
+            spacing="4",
         )
     )

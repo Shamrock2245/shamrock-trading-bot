@@ -2955,6 +2955,33 @@ async def run_bot_loop():
             except Exception as state_err:
                 logger.debug(f"Dashboard state write failed: {state_err}")
 
+            # Write scanner_gems.json for the Reflex dashboard
+            try:
+                _sg_path = OUTPUT_DIR / "scanner_gems.json"
+                _sg_data = []
+                for _c in candidates[:50]:  # Cap at 50 for UI performance
+                    try:
+                        _t = _c.token
+                        _sg_data.append({
+                            "symbol": getattr(_t, "symbol", "???"),
+                            "chain": getattr(_t, "chain", ""),
+                            "token_address": getattr(_t, "address", ""),
+                            "pair_address": getattr(_t, "pair_address", ""),
+                            "gem_score": round(float(_c.gem_score), 2),
+                            "price_usd": float(getattr(_t, "price_usd", 0) or 0),
+                            "volume_24h": float(getattr(_t, "volume_24h", 0) or 0),
+                            "liquidity_usd": float(getattr(_t, "liquidity_usd", 0) or 0),
+                            "age_hours": float(getattr(_t, "age_hours", 0) or 0),
+                            "source": getattr(_t, "discovery_source", "scanner"),
+                            "is_safe": bool(_c.is_safe),
+                        })
+                    except Exception:
+                        pass
+                with open(_sg_path, "w") as _sgf:
+                    json.dump(_sg_data, _sgf, indent=2, default=str)
+            except Exception as _sg_err:
+                logger.debug(f"scanner_gems.json write failed: {_sg_err}")
+
             # ── Bot heartbeat + outcome self-monitor ─────────────────────────
             # MERGES extra fields into bot_status.json written by
             # BotStateWriter.write_cycle() — preserves is_running flag.
