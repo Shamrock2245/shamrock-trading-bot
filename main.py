@@ -645,6 +645,7 @@ async def run_bot_loop():
                 wallet_private_key_env=sol_key_env,
                 slippage_bps=allocation.slippage_bps,
                 is_paper=is_paper,
+                gem_score=getattr(token, "gem_score", None),
             )
             success = tx_hash is not None
             execution_path = "jupiter_fastlane"
@@ -658,6 +659,7 @@ async def run_bot_loop():
                 eth_amount=risk.position_size_eth,
                 use_usdc=risk.use_usdc,
                 usdc_amount=risk.position_size_usdc,
+                gem_score=getattr(token, "gem_score", None),
             )
             res = executor.execute_trade(params)
             success = res.success

@@ -404,6 +404,7 @@ def execute_solana_buy(
     wallet_private_key_env: str,
     slippage_bps: int = 150,
     is_paper: bool = True,
+    gem_score: Optional[float] = None,
 ) -> Optional[str]:
     """
     Execute a buy on Solana via Jupiter.
@@ -503,15 +504,22 @@ def execute_solana_buy(
         HIGH_CONVICTION = 250_000 # ~$0.035
         SNIPE_TIP = 1_000_000     # ~$0.14 (Doubled for actual snipes)
         
+        # Determine base tip from price impact
         tip = BASE_TIP
-        
-        # 1. Age-based urgency (Sniping)
-        # We don't have token_age_hours here directly, so we rely on price impact
-        # as a proxy for urgency/congestion, or default to HIGH_CONVICTION if impact is high
         if price_impact > 2.0:
             tip = SNIPE_TIP
         elif price_impact > 0.5:
             tip = HIGH_CONVICTION
+
+        # ── Institutional Priority Snipe override ─────────────────────────────
+        # If gem_score is provided and exceeds 90, scale the tip aggressively to land in the next block
+        if gem_score is not None and gem_score >= 90.0:
+            # 5x priority multiplier for elite signals
+            tip = max(tip, SNIPE_TIP) * 5
+            logger.info(
+                f"🚀 INSTITUTIONAL PRIORITY SNIPE: gem_score={gem_score:.1f} ≥ 90! "
+                f"Escalating Jito tip to {tip:,} lamports for next-block guarantee."
+            )
 
         jito_result = execute_solana_via_jito(
             serialized_tx_b64=signed_tx_b64,

@@ -255,6 +255,7 @@ def execute_via_flashbots(
     gas: int,
     chain_id: int = 1,
     chain: str = "ethereum",
+    gem_score: Optional[float] = None,
 ) -> FlashbotsResult:
     """
     Execute a transaction via Flashbots MEV protection.
@@ -303,6 +304,20 @@ def execute_via_flashbots(
 
         # Base / Arbitrum: Flashbots Protect RPC
         if chain in ("base", "arbitrum"):
+            # Apply Institutional Priority Fee multiplier if score >= 90
+            p_fee = priority_fee
+            m_fee = max_fee
+            b_gas = base_gas_price
+            
+            if gem_score is not None and gem_score >= 90.0:
+                p_fee = int(priority_fee * 3.0)
+                m_fee = int(max_fee * 3.0)
+                b_gas = int(base_gas_price * 3.0)
+                logger.info(
+                    f"🚀 INSTITUTIONAL PRIORITY SNIPE (EVM/Protect): gem_score={gem_score:.1f} ≥ 90! "
+                    f"Escalating priority fee x3.0 for immediate next-block inclusion."
+                )
+
             tx = {
                 "from": account.address,
                 "to": Web3.to_checksum_address(to),
@@ -313,10 +328,10 @@ def execute_via_flashbots(
                 "chainId": chain_id,
             }
             if use_eip1559:
-                tx["maxFeePerGas"] = max_fee
-                tx["maxPriorityFeePerGas"] = priority_fee
+                tx["maxFeePerGas"] = m_fee
+                tx["maxPriorityFeePerGas"] = p_fee
             else:
-                tx["gasPrice"] = base_gas_price
+                tx["gasPrice"] = b_gas
             signed = account.sign_transaction(tx)
             raw_tx = signed.raw_transaction.hex()
             if not raw_tx.startswith("0x"):
@@ -357,6 +372,17 @@ def execute_via_flashbots(
 
         for attempt, target_block in enumerate(range(current_block + 1, current_block + 4)):
             gas_mult = 1.0 + (0.15 * attempt)
+            
+            # Apply Institutional Priority Fee multiplier if score >= 90 on Ethereum bundle
+            score_mult = 1.0
+            if gem_score is not None and gem_score >= 90.0:
+                score_mult = 3.0
+                if attempt == 0:
+                    logger.info(
+                        f"🚀 INSTITUTIONAL PRIORITY SNIPE (EVM/Bundle): gem_score={gem_score:.1f} ≥ 90! "
+                        f"Escalating Ethereum bundle priority fee x3.0 for immediate block inclusion."
+                    )
+
             tx = {
                 "from": account.address,
                 "to": Web3.to_checksum_address(to),
@@ -367,10 +393,10 @@ def execute_via_flashbots(
                 "chainId": chain_id,
             }
             if use_eip1559:
-                tx["maxFeePerGas"] = int(max_fee * gas_mult)
-                tx["maxPriorityFeePerGas"] = int(priority_fee * gas_mult)
+                tx["maxFeePerGas"] = int(max_fee * gas_mult * score_mult)
+                tx["maxPriorityFeePerGas"] = int(priority_fee * gas_mult * score_mult)
             else:
-                tx["gasPrice"] = int(base_gas_price * gas_mult)
+                tx["gasPrice"] = int(base_gas_price * gas_mult * score_mult)
 
             signed = account.sign_transaction(tx)
             raw_tx = signed.raw_transaction.hex()

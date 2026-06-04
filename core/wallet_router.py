@@ -185,13 +185,42 @@ def calculate_kelly_position_pct(
 ) -> float:
     """
     Calculate Kelly Criterion position size dynamically adjusted by signal confidence.
+    Upgraded to use dynamic historical win rates from closed trades and a 95+ score setup override (up to 25%).
     """
     if params is None:
         params = KellyParams()
 
+    # ── Dynamic Historical Performance Fetching ────────────────────────────────
+    # Pull real-time win rates and risk metrics from trade history if available
+    dynamic_win_rate = params.win_rate
+    dynamic_avg_win = params.avg_win_multiple
+    dynamic_avg_loss = params.avg_loss_multiple
+
+    try:
+        from ml.trade_analytics import TRADES_PATH, _load_trades, _calculate_risk_metrics
+        if TRADES_PATH.exists():
+            trades = _load_trades(lookback_days=30)
+            if len(trades) >= 5:
+                metrics = _calculate_risk_metrics(trades)
+                if metrics.get("win_rate_30d") is not None:
+                    dynamic_win_rate = metrics["win_rate_30d"] / 100.0
+                if metrics.get("avg_win_pct") is not None and metrics.get("avg_loss_pct") is not None:
+                    # avg_win_pct and avg_loss_pct are stored as percentages, e.g. 35.5% and -12.2%
+                    win_mult = abs(metrics["avg_win_pct"]) / 100.0
+                    loss_mult = abs(metrics["avg_loss_pct"]) / 100.0
+                    if loss_mult > 0:
+                        dynamic_avg_win = win_mult
+                        dynamic_avg_loss = loss_mult
+                        logger.info(
+                            f"📈 Dynamic Kelly Inputs Loaded: 30d_win_rate={dynamic_win_rate:.1%} | "
+                            f"avg_win={win_mult:.1%} | avg_loss={loss_mult:.1%}"
+                        )
+    except Exception as e:
+        logger.debug(f"Could not load dynamic Kelly parameters, using static defaults: {e}")
+
     # 1. Base Win Rate Adjustment (from composite score)
     score_bonus = max(0, (gem_score - 55) / 27) * 0.15  # 0 to +15% win rate
-    base_win_rate = min(params.win_rate + score_bonus, 0.75)
+    base_win_rate = min(dynamic_win_rate + score_bonus, 0.75)
 
     # 2. Signal Confidence Multiplier
     confidence_mult = 1.0
@@ -219,11 +248,18 @@ def calculate_kelly_position_pct(
     loss_rate = 1 - adjusted_win_rate
 
     # 3. Kelly Calculation
-    b = params.avg_win_multiple / params.avg_loss_multiple
+    b = dynamic_avg_win / dynamic_avg_loss
     kelly_full = (adjusted_win_rate * b - loss_rate) / b
 
     dynamic_kelly_fraction = params.kelly_fraction * confidence_mult
     kelly_adjusted = kelly_full * dynamic_kelly_fraction
+
+    # ── Elite 95+ Setup Override ──────────────────────────────────────────────
+    # If the ML model detects an elite 95+ score setup, we bet heavily (up to 25% of portfolio)
+    is_elite_setup = (gem_score >= 95.0)
+    if is_elite_setup:
+        clamp_max = max(clamp_max, 0.25)
+        logger.info(f"🔥 ELITE 95+ SETUP DETECTED! Sizing up aggressively. Kelly clamp raised to 25%.")
 
     kelly_clamped = max(0.005, min(kelly_adjusted, clamp_max))
 
@@ -231,7 +267,7 @@ def calculate_kelly_position_pct(
     logger.info(
         f"🧠 Adaptive Sizing [{symbol}]: score={gem_score:.0f} | "
         f"conf_mult={confidence_mult:.2f}x | win_rate={adjusted_win_rate:.1%} | "
-        f"kelly={kelly_clamped:.1%} (max={clamp_max:.0%})"
+        f"kelly={kelly_clamped:.1%} (max={clamp_max:.0%}) | elite_setup={is_elite_setup}"
     )
 
     return kelly_clamped

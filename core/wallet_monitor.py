@@ -711,6 +711,32 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
         else:
             # Fallback: 5% of alpha buy, capped
             copy_size_usd = min(signal.buy_value_usd * COPY_SIZE_PCT, MAX_COPY_USD)
+
+        # ── Whale-Tier ROI Auto-Grader Multiplier ─────────────────────────────
+        # If the trade was initiated by one of the top 3 Whales, apply a 3x sizing multiplier
+        try:
+            from pathlib import Path
+            import json
+            whale_file = Path(__file__).parent.parent / "output" / "whale_tier_wallets.json"
+            if whale_file.exists():
+                with open(whale_file) as f:
+                    whale_data = json.load(f)
+                    # Extract the top 3 whale addresses
+                    top_whales = [w["address"].lower() for w in whale_data.get("whales", [])]
+                    
+                    # Check if any confirming wallet is a top-3 whale
+                    confirming_lowered = [w.lower() for w in signal.confirming_wallets]
+                    is_whale_trade = any(w in top_whales for w in confirming_lowered)
+                    
+                    if is_whale_trade:
+                        copy_size_usd *= 3.0
+                        logger.info(
+                            f"🐋 WHALE TRADE DETECTED! Confirming wallets contain a top-3 Whale. "
+                            f"Applying 3x sizing multiplier. New size: ${copy_size_usd:.2f}"
+                        )
+        except Exception as whale_err:
+            logger.debug(f"Failed to check whale multiplier: {whale_err}")
+
     except Exception as e:
         logger.warning(f"Balance fetch failed for copy sizing: {e} — using conservative fallback")
         copy_size_usd = min(signal.buy_value_usd * 0.03, MAX_COPY_USD)  # 3% of alpha buy as safe fallback

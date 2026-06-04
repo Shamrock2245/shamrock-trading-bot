@@ -314,13 +314,64 @@ class DailyGoalEngine:
     def close_day(self) -> dict:
         """
         Called at midnight UTC to close out the day, evaluate tier progress,
-        and record the daily result.
+        record the daily result, and execute the Aggressive Auto-Compounding Loop.
         """
         s = self._state
         today = s.today_date
         profit = s.today_profit_usd
         target = s.current_target_usd
         hit = (target <= 0) or (profit >= target)  # Tier 7 always "hits"
+
+        # ── Upgrade 4: Aggressive Auto-Compounding Loop ───────────────────────
+        # Automatically sweep 80% of daily realized profits back into the base capital
+        # PAPER_WALLET_BALANCE_USD at midnight UTC to utilize compound interest scaling.
+        swept_amount = 0.0
+        if profit > 0:
+            swept_amount = profit * 0.80
+            
+            # Update settings.PAPER_WALLET_BALANCE_USD
+            old_balance = getattr(settings, "PAPER_WALLET_BALANCE_USD", 1000.0)
+            new_balance = old_balance + swept_amount
+            setattr(settings, "PAPER_WALLET_BALANCE_USD", new_balance)
+            
+            # Hot-patch the .env file to persist the balance across restarts
+            env_path = Path(".env")
+            if env_path.exists():
+                try:
+                    content = env_path.read_text()
+                    lines = content.splitlines()
+                    updated = False
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith("PAPER_WALLET_BALANCE_USD="):
+                            lines[i] = f"PAPER_WALLET_BALANCE_USD={new_balance:.2f}"
+                            updated = True
+                            break
+                    if not updated:
+                        lines.append(f"PAPER_WALLET_BALANCE_USD={new_balance:.2f}")
+                    env_path.write_text("\n".join(lines) + "\n")
+                    logger.info(f"💾 Persisted compounded PAPER_WALLET_BALANCE_USD={new_balance:.2f} to .env")
+                except Exception as env_err:
+                    logger.error(f"Failed to persist compounded balance to .env: {env_err}")
+            
+            # Update capital_compounder state if available to keep systems aligned
+            try:
+                from core.capital_compounder import load_compound_state, save_compound_state
+                compound_state = load_compound_state()
+                compound_state.current_capital_usd += swept_amount
+                compound_state.total_realized_pnl_usd += swept_amount
+                save_compound_state(compound_state)
+                logger.info(
+                    f"🍀 COMPOUNDER ALIGNED: Swept ${swept_amount:.2f} into capital compounder. "
+                    f"New Compounder Capital: ${compound_state.current_capital_usd:.2f}"
+                )
+            except Exception as comp_err:
+                logger.debug(f"Could not update capital compounder state: {comp_err}")
+
+            logger.info(
+                f"🔄 MIDNIGHT AUTO-COMPOUND SWEEP: Yesterday's Profit: ${profit:.2f} | "
+                f"Compounded (80%): ${swept_amount:.2f} | "
+                f"Base Capital: ${old_balance:.2f} → ${new_balance:.2f} (Exponential Scaling)"
+            )
 
         # Record daily history
         daily_record = {
@@ -334,6 +385,7 @@ class DailyGoalEngine:
             "scalp_usd": round(s.today_scalp_profit_usd, 2),
             "trades": s.today_trade_count,
             "mode": s.strategy_mode,
+            "compounded_usd": round(swept_amount, 2),
         }
         s.daily_history.append(daily_record)
         if len(s.daily_history) > 30:

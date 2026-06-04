@@ -56,6 +56,7 @@ class TradeParams:
     amount_in_wei: int     # Exact amount to spend (in wei)
     slippage_bps: int = 100  # 1% default slippage (100 basis points)
     deadline_seconds: int = 300  # 5 min deadline
+    gem_score: Optional[float] = None  # Model confidence score (0-100) for priority fee scaling
 
 
 @dataclass
@@ -832,6 +833,7 @@ class TradeExecutor:
                 gas=int(int(tx_data.get("gas", 300_000)) * 1.15),
                 chain_id=chain_config.chain_id,
                 chain=params.chain,
+                gem_score=params.gem_score,
             )
 
             if fb_result.success:
@@ -972,6 +974,7 @@ def build_gem_snipe_params(
     slippage_bps: int = 200,
     use_usdc: bool = True,
     usdc_amount: float = 0.0,
+    gem_score: Optional[float] = None,
 ) -> TradeParams:
     """
     Build TradeParams for a gem snipe trade.
@@ -1009,6 +1012,7 @@ def build_gem_snipe_params(
         token_out=Web3.to_checksum_address(token_address),
         amount_in_wei=amount_wei,
         slippage_bps=slippage_bps,
+        gem_score=gem_score,
     )
 
 
