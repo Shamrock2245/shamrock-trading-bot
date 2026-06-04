@@ -57,4 +57,5 @@ scripts/
 !scripts/__init__.py
 !scripts/health_check.py
 !scripts/paper_trade.py
+!scripts/grade_wallets.py
 tests/
