@@ -21,10 +21,10 @@ class AppState(rx.State):
         self.password = text
 
     # Raw data loaded from JSON files
-    positions_list: list = []       # list of position dicts from positions.json
+    positions_list: list[dict[str, str]] = []       # list of position dicts from positions.json
     daily_goal: dict = {}           # daily_goal_state.json
     blue_chip: dict = {}            # blue_chip_tracker.json
-    scanner_gems: list = []         # scanner_gems.json
+    scanner_gems: list[dict[str, str]] = []         # scanner_gems.json
     bot_status: dict = {}           # data/dashboard/bot_status.json
 
     bot_mode: str = "paper"
@@ -111,12 +111,57 @@ class AppState(rx.State):
         return f"{self.daily_progress_pct:.1f}%"
 
     @rx.var
-    def open_positions(self) -> list:
-        """Open positions only."""
+    def open_positions(self) -> list[dict[str, str]]:
+        """Open positions only, pre-formatted."""
+        formatted = []
         try:
-            return [p for p in self.positions_list if p.get("status") == "open"]
+            for p in self.positions_list:
+                if p.get("status") == "open":
+                    entry = float(p.get("entry_price", 0))
+                    pnl_pct = float(p.get("unrealized_pnl_pct", 0)) * 100
+                    score = float(p.get("gem_score", 0))
+                    formatted.append({
+                        "token_symbol": str(p.get("token_symbol", "???")),
+                        "chain": str(p.get("chain", "?")),
+                        "entry_price": f"{entry:.6f}",
+                        "unrealized_pnl_pct": f"{pnl_pct:.1f}",
+                        "is_profit": "true" if pnl_pct >= 0 else "false",
+                        "gem_score": f"{score:.1f}",
+                        "token_address": str(p.get("token_address", "")),
+                    })
         except Exception:
-            return []
+            pass
+        return formatted
+
+    @rx.var
+    def scanner_gems_display(self) -> list[dict[str, str]]:
+        """Scanner gems pre-formatted."""
+        formatted = []
+        try:
+            for gem in self.scanner_gems:
+                score = float(gem.get("gem_score", 0))
+                price = float(gem.get("price_usd", 0))
+                vol = float(gem.get("volume_24h", 0)) / 1000
+                
+                if score >= 80:
+                    color = "var(--green-9)"
+                elif score >= 65:
+                    color = "var(--yellow-9)"
+                else:
+                    color = "var(--red-9)"
+                    
+                formatted.append({
+                    "symbol": str(gem.get("symbol", "???")),
+                    "chain": str(gem.get("chain", "?")),
+                    "gem_score": f"{score:.1f}",
+                    "score_color": color,
+                    "source": str(gem.get("source", "—")),
+                    "price_usd": f"{price:.8f}",
+                    "volume_24h": f"{vol:.1f}",
+                })
+        except Exception:
+            pass
+        return formatted
 
     @rx.var
     def last_updated_display(self) -> str:

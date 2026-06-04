@@ -10,9 +10,9 @@ def position_card(pos: dict) -> rx.Component:
         rx.hstack(
             rx.vstack(
                 rx.hstack(
-                    rx.text(pos.get("token_symbol", "???"), weight="bold", size="4"),
+                    rx.text(pos["token_symbol"], weight="bold", size="4"),
                     rx.badge(
-                        pos.get("chain", "?").upper(),
+                        pos["chain"].upper(),
                         color_scheme="blue",
                         variant="soft",
                         size="1",
@@ -22,7 +22,7 @@ def position_card(pos: dict) -> rx.Component:
                 ),
                 rx.text(
                     "Entry: $",
-                    str(round(float(pos.get("entry_price", 0)), 6)),
+                    pos["entry_price"],
                     color="gray",
                     size="2",
                 ),
@@ -32,11 +32,11 @@ def position_card(pos: dict) -> rx.Component:
             rx.vstack(
                 rx.text("Unrealized P&L", size="2", color="gray", text_align="right"),
                 rx.text(
-                    str(round(float(pos.get("unrealized_pnl_pct", 0)) * 100, 1)) + "%",
+                    pos["unrealized_pnl_pct"] + "%",
                     weight="bold",
                     size="4",
                     color=rx.cond(
-                        float(pos.get("unrealized_pnl_pct", 0)) >= 0,
+                        pos["is_profit"] == "true",
                         "var(--green-9)",
                         "var(--red-9)",
                     ),
@@ -51,14 +51,14 @@ def position_card(pos: dict) -> rx.Component:
         rx.hstack(
             rx.text(
                 "Score: ",
-                str(round(float(pos.get("gem_score", 0)), 1)),
+                pos["gem_score"],
                 size="2",
                 color="gray",
             ),
             rx.spacer(),
             rx.button(
                 "Manual Sell",
-                on_click=AppState.manual_sell(pos.get("token_address", ""), 0.0),
+                on_click=AppState.manual_sell(pos["token_address"], 0.0),
                 color_scheme="red",
                 variant="soft",
                 size="2",

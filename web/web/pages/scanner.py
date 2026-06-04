@@ -9,9 +9,9 @@ def gem_row(gem: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
             rx.hstack(
-                rx.text(gem.get("symbol", "???"), weight="bold"),
+                rx.text(gem["symbol"], weight="bold"),
                 rx.badge(
-                    gem.get("chain", "?").upper(),
+                    gem["chain"].upper(),
                     color_scheme="blue",
                     variant="soft",
                     size="1",
@@ -22,29 +22,21 @@ def gem_row(gem: dict) -> rx.Component:
         ),
         rx.table.cell(
             rx.text(
-                str(round(float(gem.get("gem_score", 0)), 1)),
-                color=rx.cond(
-                    float(gem.get("gem_score", 0)) >= 80,
-                    "var(--green-9)",
-                    rx.cond(
-                        float(gem.get("gem_score", 0)) >= 65,
-                        "var(--yellow-9)",
-                        "var(--red-9)",
-                    ),
-                ),
+                gem["gem_score"],
+                color=gem["score_color"],
                 weight="bold",
             )
         ),
-        rx.table.cell(rx.text(gem.get("source", "—"), size="2", color="gray")),
+        rx.table.cell(rx.text(gem["source"], size="2", color="gray")),
         rx.table.cell(
             rx.text(
-                "$" + str(round(float(gem.get("price_usd", 0)), 8)),
+                "$" + gem["price_usd"],
                 size="2",
             )
         ),
         rx.table.cell(
             rx.text(
-                "$" + str(round(float(gem.get("volume_24h", 0)) / 1000, 1)) + "k",
+                "$" + gem["volume_24h"] + "k",
                 size="2",
                 color="gray",
             )
@@ -104,7 +96,7 @@ def scanner() -> rx.Component:
                         )
                     ),
                     rx.table.body(
-                        rx.foreach(AppState.scanner_gems, gem_row),
+                        rx.foreach(AppState.scanner_gems_display, gem_row),
                     ),
                     width="100%",
                     variant="surface",
