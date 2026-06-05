@@ -39,6 +39,8 @@ from core.mev_protection import (
     FlashbotsResult,
     JitoResult,
 )
+from core.circuit_breakers import CircuitBreakers
+from core.wallet_router import get_native_price_usd
 
 logger = logging.getLogger(__name__)
 
@@ -700,6 +702,22 @@ class TradeExecutor:
                     "chainId": chain_config.chain_id,
                 }
 
+                # ── ECC Pre-send Simulation (eth_call) ──
+                try:
+                    w3.eth.call(transaction)
+                    logger.info("eth_call simulation passed")
+                except Exception as sim_err:
+                    logger.warning(f"eth_call simulation reverted: {sim_err}")
+                    # If the simulation fails due to a logic revert (like a tax change or honeypot)
+                    # we abort the transaction to save gas fees.
+                    if "insufficient funds" not in str(sim_err).lower():
+                        self._release_nonce(account.address)
+                        return TradeResult(
+                            success=False,
+                            error=f"Simulation reverted: {sim_err}",
+                            execution_path="1inch_simulation_failed"
+                        )
+
                 try:
                     signed = account.sign_transaction(transaction)
                     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -900,6 +918,25 @@ class TradeExecutor:
                 safety_result=safety,
             )
 
+        # ── ECC Circuit Breakers (BUYS only) ──
+        usd_size = 0.0
+        if not _safe_out:
+            if params.token_in.lower() in _usdc_addresses:
+                usd_size = params.amount_in_wei / 1e6
+            else:
+                native_symbol = {"ethereum": "ETH", "base": "ETH", "arbitrum": "ETH", "polygon": "MATIC", "bsc": "BNB", "avalanche": "AVAX"}.get(params.chain.lower(), "ETH")
+                price = get_native_price_usd(native_symbol)
+                usd_size = (params.amount_in_wei / 1e18) * price
+
+            allowed, reason = CircuitBreakers.check_trade_allowed(usd_size)
+            if not allowed:
+                logger.error(f"Trade BLOCKED by Circuit Breaker: {reason}")
+                return TradeResult(
+                    success=False,
+                    error=f"Circuit Breaker blocked: {reason}",
+                    execution_path="circuit_breaker_blocked",
+                )
+
         logger.info(
             f"Executing trade: {params.wallet.alias} | {params.chain} | "
             f"{params.token_in[:10]}... → {params.token_out[:10]}... | "
@@ -956,6 +993,10 @@ class TradeExecutor:
                 )
             except Exception:
                 pass  # slippage tracking is best-effort
+
+            # Record buy in Circuit Breakers
+            if not _safe_out and usd_size > 0:
+                CircuitBreakers.record_trade(usd_size)
 
         return result
 

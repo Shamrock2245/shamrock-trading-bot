@@ -484,6 +484,15 @@ ANALYTICS_TIGHT_TRAIL_PCT = float(os.getenv("ANALYTICS_TIGHT_TRAIL_PCT", "8.0"))
 ANALYTICS_EMERGENCY_EXIT_ENABLED = os.getenv("ANALYTICS_EMERGENCY_EXIT_ENABLED", "true").lower() == "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ECC Execution Guardrails (Strict Autonomous Limits)
+# ─────────────────────────────────────────────────────────────────────────────
+# Hard mathematical caps on daily deployable capital and trade velocity to prevent
+# rogue loops, irrespective of profitability.
+ECC_DAILY_SPEND_CAP = float(os.getenv("ECC_DAILY_SPEND_CAP", "10000.0"))
+ECC_VELOCITY_LIMIT = int(os.getenv("ECC_VELOCITY_LIMIT", "5"))
+ECC_VELOCITY_WINDOW_SECONDS = int(os.getenv("ECC_VELOCITY_WINDOW_SECONDS", "300"))  # 5 minutes
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Trade Loop Guardrails (Defensive)
 # ─────────────────────────────────────────────────────────────────────────────
 # Dedup guard: skip tokens with an existing open position
