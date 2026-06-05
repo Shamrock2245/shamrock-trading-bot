@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libgomp1 \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled Python packages from builder stage
