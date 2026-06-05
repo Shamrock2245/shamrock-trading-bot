@@ -947,15 +947,52 @@ async def run_bot_loop():
                 except Exception as e:
                     logger.debug(f"Solana alpha event handler error: {e}")
 
+            # ── Mempool Alpha-Sniper: intercept elite wallet buys for same-block execution ──
+            # Runs in parallel with the standard copy-trade pipeline — never blocks it.
+            _mempool_sniper = None
+            try:
+                from core.mempool_alpha_sniper import mempool_sniper as _mempool_sniper_inst
+                _mempool_sniper = _mempool_sniper_inst
+                logger.info(
+                    f"✅ Mempool Alpha-Sniper activated — "
+                    f"elite_threshold={getattr(settings, 'MEMPOOL_SNIPER_ELITE_SCORE', 90.0):.0f} | "
+                    f"max_usd=${getattr(settings, 'MEMPOOL_SNIPER_MAX_USD', 250.0):.0f} | "
+                    f"mode={'PAPER' if is_paper else 'LIVE'}"
+                )
+            except Exception as _sniper_init_err:
+                logger.warning(f"Mempool Alpha-Sniper failed to initialize: {_sniper_init_err}")
+
+            def _on_swap_event_with_sniper(wallet_address: str, swap: dict):
+                """Dual-path swap handler: standard copy-trade + mempool alpha-sniper."""
+                # Path 1: Standard WalletMonitor copy-trade pipeline (unchanged)
+                wm.ingest_external_swap(wallet_address, swap)
+                # Path 2: Mempool Alpha-Sniper — only fires for elite wallets (score > 90)
+                if _mempool_sniper is not None and getattr(settings, "MEMPOOL_SNIPER_ENABLED", True):
+                    try:
+                        _mempool_sniper.on_evm_swap_event(wallet_address, swap)
+                    except Exception as _sniper_err:
+                        logger.debug(f"Mempool sniper EVM handler error: {_sniper_err}")
+
+            def _on_solana_alpha_event_with_sniper(wallet_address: str, swap: dict):
+                """Dual-path Solana alpha handler: gem eval + mempool alpha-sniper."""
+                # Path 1: Gem scanner evaluation (unchanged)
+                _on_solana_alpha_event(wallet_address, swap)
+                # Path 2: Mempool Alpha-Sniper — only fires for elite wallets (score > 90)
+                if _mempool_sniper is not None and getattr(settings, "MEMPOOL_SNIPER_ENABLED", True):
+                    try:
+                        _mempool_sniper.on_solana_alpha_event(wallet_address, swap)
+                    except Exception as _sniper_err:
+                        logger.debug(f"Mempool sniper Solana handler error: {_sniper_err}")
+
             streams_server = MoralisStreamsServer(
                 host=settings.MORALIS_STREAMS_HOST,
                 port=settings.MORALIS_STREAMS_PORT,
                 webhook_secret=settings.MORALIS_STREAMS_WEBHOOK_SECRET,
-                on_swap_event=wm.ingest_external_swap,
+                on_swap_event=_on_swap_event_with_sniper,
                 on_whale_event=_on_whale_event if settings.MORALIS_STREAMS_WHALE_ENABLED else None,
                 on_liquidity_event=_on_liquidity_event if settings.MORALIS_STREAMS_LIQUIDITY_ENABLED else None,
                 on_solana_discovery_event=_on_solana_discovery_event if settings.MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED else None,
-                on_solana_alpha_event=_on_solana_alpha_event if settings.MORALIS_STREAMS_SOLANA_ALPHA_ENABLED else None,
+                on_solana_alpha_event=_on_solana_alpha_event_with_sniper if settings.MORALIS_STREAMS_SOLANA_ALPHA_ENABLED else None,
             )
             streams_server.start()
 

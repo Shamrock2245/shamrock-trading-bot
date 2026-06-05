@@ -295,6 +295,22 @@ BTC_WEALTH_WHALE_ACCUM_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_ACCUM_MULT
 BTC_WEALTH_WHALE_DIST_MULTIPLIER = float(os.getenv("BTC_WEALTH_WHALE_DIST_MULTIPLIER", "1.3"))   # 130% of normal sweep
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Mempool Alpha-Sniper (ECC Skill: mempool-alpha-sniper)
+# ─────────────────────────────────────────────────────────────────────────────
+# Enable/disable the mempool alpha-sniper module
+MEMPOOL_SNIPER_ENABLED = os.getenv("MEMPOOL_SNIPER_ENABLED", "true").lower() == "true"
+# Minimum sniper_score (0-100) for a wallet to be considered elite
+MEMPOOL_SNIPER_ELITE_SCORE = float(os.getenv("MEMPOOL_SNIPER_ELITE_SCORE", "90.0"))
+# Maximum USD to deploy per copy-trade snipe
+MEMPOOL_SNIPER_MAX_USD = float(os.getenv("MEMPOOL_SNIPER_MAX_USD", "250.0"))
+# Minimum USD — below this the snipe is skipped (avoids gas waste)
+MEMPOOL_SNIPER_MIN_USD = float(os.getenv("MEMPOOL_SNIPER_MIN_USD", "10.0"))
+# Baseline whale conviction (fraction of net worth) used as Kelly scaling denominator
+MEMPOOL_SNIPER_BASELINE_CONVICTION = float(os.getenv("MEMPOOL_SNIPER_BASELINE_CONVICTION", "0.01"))
+# Maximum Kelly scaling multiplier from conviction (caps over-sizing)
+MEMPOOL_SNIPER_MAX_CONVICTION_MULT = float(os.getenv("MEMPOOL_SNIPER_MAX_CONVICTION_MULT", "3.0"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Arbitrage Engine Settings
 # ─────────────────────────────────────────────────────────────────────────────
 ARB_ENABLED = os.getenv("ARB_ENABLED", "true").lower() == "true"
