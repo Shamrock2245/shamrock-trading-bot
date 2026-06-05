@@ -484,6 +484,11 @@ class DailyGoalEngine:
                 s.strategy_mode = "bank_it"
                 s.mode_activated_at = datetime.now(timezone.utc).isoformat()
                 logger.info(f"🏦 BANK IT MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal")
+                try:
+                    from core.profit_sweeper import execute_sweep
+                    execute_sweep()
+                except Exception as e:
+                    logger.error(f"❌ Failed to execute profit sweep: {e}")
             return
 
         # Protect: 100%+ of goal
