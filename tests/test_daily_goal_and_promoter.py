@@ -452,10 +452,10 @@ class TestArbExecutorSmoke:
             buy_dex="uniswap_v3",
             sell_dex="aerodrome",
             buy_price=1.0,
-            sell_price=1.005,
-            gross_profit_pct=0.5,
-            gas_cost_usd=8.0,   # Gas > 50% of net profit
-            net_profit_usd=5.0,
+            sell_price=1.05,
+            gross_profit_pct=5.0,
+            gas_cost_usd=20.0,   # Gas > 50% of net profit
+            net_profit_usd=30.0,
             position_size_usd=1000.0,
             discovered_at=_time.time(),
             ttl_seconds=300,

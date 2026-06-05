@@ -18,6 +18,17 @@ from config.wallets import (
     CONSERVATIVE_PROFILE,
     NUCLEAR_PROFILE,
 )
+
+# Mock get_regime before importing position_monitor to avoid side effects
+from unittest.mock import MagicMock, patch
+_patcher = patch('core.regime_filter.get_regime', return_value=MagicMock(regime=None))
+
+def setUpModule():
+    _patcher.start()
+
+def tearDownModule():
+    _patcher.stop()
+
 from core.position_monitor import evaluate_position
 
 

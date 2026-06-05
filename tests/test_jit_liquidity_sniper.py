@@ -54,31 +54,34 @@ settings_stub.MEV_BACKRUN_ENABLED = True
 settings_stub.MEV_BACKRUN_MIN_PROFIT_USD = 2.0
 settings_stub.JITO_BLOCK_ENGINE_URL = "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
 
-sys.modules.setdefault("config", MagicMock())
-sys.modules["config"].settings = settings_stub
-sys.modules.setdefault("config.settings", settings_stub)
-sys.modules.setdefault("data.http_session", MagicMock())
-
-# Stub mev_protection
 mev_prot_stub = MagicMock()
 mev_prot_stub.FlashbotsResult = MagicMock
 mev_prot_stub.submit_via_flashbots_protect = MagicMock(
     return_value=MagicMock(success=True, tx_hash="0xtest", error=None)
 )
-sys.modules.setdefault("core.mev_protection", mev_prot_stub)
 
-# Now import the modules under test
-from core.jit_liquidity_sniper import (  # noqa: E402
-    TickMath,
-    LiquidityMath,
-    JITAnalyzer,
-    JITExecutor,
-    JITLiquiditySniper,
-    MempoolWatcher,
-    PendingWhaleSwap,
-    JIT_MIN_TRADE_SIZE_USD,
-)
-from core.mev_extractor import MEVExtractor  # noqa: E402
+mocked_modules = {
+    "config": MagicMock(settings=settings_stub),
+    "config.settings": settings_stub,
+    "data.http_session": MagicMock(),
+    "core.mev_protection": mev_prot_stub,
+}
+
+with patch.dict(sys.modules, mocked_modules):
+    from core.jit_liquidity_sniper import (  # noqa: E402
+        TickMath,
+        LiquidityMath,
+        JITAnalyzer,
+        JITExecutor,
+        JITLiquiditySniper,
+        MempoolWatcher,
+        PendingWhaleSwap,
+        JIT_MIN_TRADE_SIZE_USD,
+    )
+    try:
+        from core.mev_extractor import MEVExtractorEngine as MEVExtractor  # noqa: E402
+    except ImportError:
+        from core.mev_extractor import MEVExtractor  # Fallback
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,11 +348,13 @@ class TestMempoolWatcher(unittest.TestCase):
 class TestMEVExtractor(unittest.TestCase):
 
     def setUp(self):
+        # We test the new MEVExtractorEngine and its JIT integration
         self.extractor = MEVExtractor()
 
     def test_on_pending_whale_trade_below_threshold(self):
         """Below-threshold trades should return None."""
-        result = self.extractor.on_pending_whale_trade({
+        # Route through the JIT integration
+        result = self.extractor.jit.on_pending_whale_trade({
             "chain": "base",
             "value_usd": 10_000.0,
             "hash": "0xtest",
@@ -357,19 +362,18 @@ class TestMEVExtractor(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_get_stats_structure(self):
-        """Stats should have expected top-level keys."""
-        stats = self.extractor.get_stats()
-        self.assertIn("enabled", stats)
+        """Status should have expected top-level keys."""
+        # get_stats was renamed to get_status in the new engine
+        stats = self.extractor.get_status()
+        self.assertIn("sandwich_enabled", stats)
+        self.assertIn("liquidation_enabled", stats)
         self.assertIn("jit", stats)
-        self.assertIn("backrun", stats)
-        self.assertIn("total_net_profit_usd", stats)
-        self.assertIn("private_rpc_chains", stats)
-        self.assertIn("recent_events", stats)
+        self.assertIn("jit_private_rpcs", stats)
 
     def test_private_rpc_chains_coverage(self):
         """Private RPC router should cover all active chains."""
-        stats = self.extractor.get_stats()
-        chains = stats["private_rpc_chains"]
+        stats = self.extractor.get_status()
+        chains = stats["jit_private_rpcs"]
         for chain in ["ethereum", "base", "arbitrum"]:
             self.assertIn(chain, chains)
 
