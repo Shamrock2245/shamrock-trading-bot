@@ -200,6 +200,14 @@ try:
 except ImportError:
     _SNIPER_CONVERGENCE_AVAILABLE = False
 
+# ── Social Insider Oracle (ECC Skill: sentiment-insider-oracle) ───────────────
+try:
+    from core.social_insider_oracle import oracle as _social_oracle, SocialMention as _SocialMention
+    _SOCIAL_ORACLE_AVAILABLE = True
+except ImportError:
+    _SOCIAL_ORACLE_AVAILABLE = False
+    _social_oracle = None
+
 # ── Stablecoin / fiat exclusion sets (Fix 5: O(1) lookup) ────────────────────
 _EXCLUDED_SYMBOLS = frozenset({
     "DAI", "FRAX", "BUSD", "SDAI", "BTC", "CBTC", "WETH", "WAVAX", "WSOL", "CBBTC",
@@ -826,6 +834,92 @@ class GemScanner:
             logger.info(f"🐦 Grok trending: {grok_added} CT-hot tokens passed scoring")
 
         # ── Sort by score descending ──────────────────────────────────────────
+
+        # ── Source 15: Social Insider Oracle — Pre-Volume Sniper Pass ────────────
+        # Fires Grok social firehose for all candidates that haven't yet had
+        # their oracle data ingested, then evaluates pre-volume sniper bypass.
+        # If social velocity crosses the threshold BEFORE on-chain volume spikes,
+        # the candidate is flagged for an immediate low-size sniper entry.
+        oracle_sniper_added = 0
+        if _SOCIAL_ORACLE_AVAILABLE and _social_oracle is not None:
+            try:
+                for candidate in list(candidates):
+                    ca = candidate.token.address.lower()
+                    # Ingest Grok firehose data for tokens not yet tracked
+                    if ca not in _social_oracle.registry:
+                        _social_oracle.ingest_grok_mentions(
+                            symbol=candidate.token.symbol,
+                            chain=candidate.token.chain,
+                            contract_address=ca,
+                        )
+                    # Evaluate pre-volume sniper bypass
+                    should_snipe, reason = _social_oracle.evaluate_pre_volume_sniper(candidate)
+                    is_cabal, active_kols = _social_oracle.check_cabal_pump(ca)
+                    # Populate oracle model fields
+                    metrics = _social_oracle.registry.get(ca)
+                    if metrics:
+                        candidate.oracle_mention_velocity = metrics.mention_velocity_5m
+                        candidate.oracle_kol_count = len(metrics.unique_kols)
+                    candidate.oracle_is_cabal = is_cabal
+                    candidate.oracle_is_pre_volume = should_snipe
+                    candidate.oracle_sniper_reason = reason
+                    if should_snipe:
+                        candidate.strategy_tag = "social_oracle_sniper"
+                        candidate.express_lane = True
+                        oracle_sniper_added += 1
+                        logger.info(
+                            f"\U0001f52e SOCIAL ORACLE SNIPER: {candidate.token.symbol} [{candidate.token.chain}] "
+                            f"score={candidate.gem_score:.1f} | {reason}"
+                        )
+                    if is_cabal:
+                        # Orchestrated pump confirmed — flag it and boost score
+                        pre_score = candidate.gem_score
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 8.0, 2))
+                        candidate.strategy_tag = "insider_cabal_pump"
+                        candidate.express_lane = True
+                        logger.warning(
+                            f"\U0001f6a8 INSIDER CABAL PUMP: {candidate.token.symbol} shilled by "
+                            f"{len(active_kols)} KOLs: {active_kols} | "
+                            f"score {pre_score:.1f} \u2192 {candidate.gem_score:.1f}"
+                        )
+                # Also scan for NEW oracle-only candidates that haven't been picked up
+                # by standard sources yet (pure social-first discoveries)
+                for ca, metrics in list(_social_oracle.registry.items()):
+                    if ca in seen_addresses:
+                        continue
+                    if metrics.mention_velocity_5m < _social_oracle.velocity_threshold_5m:
+                        continue
+                    is_cabal, active_kols = _social_oracle.check_cabal_pump(ca)
+                    if not is_cabal:
+                        continue
+                    # This token is being shilled by KOLs but hasn't appeared in any
+                    # standard source yet — pure social-first discovery
+                    pairs = get_token_pairs(ca) or []
+                    for pair in pairs:
+                        signals = extract_gem_signals(pair)
+                        token = self._signals_to_token(signals, metrics.chain)
+                        if not token:
+                            continue
+                        candidate = self._score_token(token, is_boosted=True)
+                        if candidate is None:
+                            continue
+                        candidate.strategy_tag = "social_oracle_discovery"
+                        candidate.express_lane = True
+                        candidate.gem_score = min(100.0, round(candidate.gem_score + 10.0, 2))
+                        if candidate.gem_score >= _macro_min_score:
+                            candidates.append(candidate)
+                            seen_addresses.add(ca)
+                            oracle_sniper_added += 1
+                            logger.info(
+                                f"🔮 ORACLE DISCOVERY: {token.symbol} [{token.chain}] "
+                                f"cabal={len(active_kols)} KOLs | score={candidate.gem_score:.1f}"
+                            )
+                        break
+            except Exception as _oracle_err:
+                logger.warning(f"Social Oracle pass error: {_oracle_err}")
+        if oracle_sniper_added:
+            logger.info(f"🔮 Social Oracle: {oracle_sniper_added} pre-volume sniper entries flagged")
+
         candidates.sort(key=lambda c: c.gem_score, reverse=True)
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
         _total_elapsed = time.monotonic() - _scan_start

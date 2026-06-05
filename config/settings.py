@@ -667,6 +667,20 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Social Insider Oracle (ECC Skill: sentiment-insider-oracle)
+# ─────────────────────────────────────────────────────────────────────────────
+# Minimum social mention velocity (per 5 minutes) to trigger pre-volume sniper.
+ORACLE_VELOCITY_THRESHOLD_5M = int(os.getenv("ORACLE_VELOCITY_THRESHOLD_5M", "10"))
+# Minimum number of KOLs shilling simultaneously to flag as insider cabal pump.
+ORACLE_CABAL_KOL_THRESHOLD = int(os.getenv("ORACLE_CABAL_KOL_THRESHOLD", "3"))
+# Time window (seconds) for cabal detection — default 5 minutes.
+ORACLE_CABAL_WINDOW_S = int(os.getenv("ORACLE_CABAL_WINDOW_S", "300"))
+# Comma-separated list of additional KOL Twitter handles to track (no @ prefix).
+KOL_HANDLES_LIST = os.getenv("KOL_HANDLES_LIST", "")
+# Position size multiplier for oracle sniper entries (low-size, front-running retail).
+ORACLE_SNIPER_SIZE_MULTIPLIER = float(os.getenv("ORACLE_SNIPER_SIZE_MULTIPLIER", "0.5"))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Database & Logging
 # ─────────────────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/shamrock_trading.db")

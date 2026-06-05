@@ -156,9 +156,16 @@ class GemCandidate:
     block_reason: Optional[str] = None
 
     # Strategy and routing metadata
-    strategy_tag: str = "gem_snipe"   # "gem_snipe", "cto_revival", "boost_momentum"
+    strategy_tag: str = "gem_snipe"   # "gem_snipe", "cto_revival", "boost_momentum", "social_oracle_sniper", "insider_cabal_pump", "social_oracle_discovery"
     express_lane: bool = False         # True = skip full TA, execute immediately
     is_cto: bool = False               # True = community takeover token
+
+    # Social Insider Oracle fields (ECC Skill: sentiment-insider-oracle)
+    oracle_mention_velocity: int = 0   # Mentions per 5 minutes across Twitter/Telegram
+    oracle_kol_count: int = 0          # Number of KOLs shilling in the 5-minute window
+    oracle_is_cabal: bool = False      # True = coordinated KOL pump detected
+    oracle_is_pre_volume: bool = False # True = social spike before on-chain volume
+    oracle_sniper_reason: str = ""     # Human-readable reason for oracle sniper entry
 
     @property
     def is_actionable(self) -> bool:
