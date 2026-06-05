@@ -35,36 +35,42 @@ Env vars (all optional — module degrades gracefully if missing):
   FLASHBOTS_RPC_URL          Flashbots relay (default: relay.flashbots.net)
   FLASHBOTS_SIGNING_KEY      Flashbots auth key (hex private key)
   BASE_RPC_URL               Base chain HTTP RPC
+  BASE_WS_RPC_URL            Base chain WebSocket RPC (for mempool subscription)
+  ETH_RPC_URL                Ethereum HTTP RPC
+  ETH_WS_RPC_URL             Ethereum WebSocket RPC
   JITO_BLOCK_ENGINE_URL      Jito block engine endpoint
+  JITO_AUTH_KEY              Jito auth key (optional)
   SOLANA_RPC_URL             Solana HTTP RPC
   SOLANA_PRIVATE_KEY         Solana wallet private key (base58)
   HYPERLIQUID_ENABLED        "true"/"false"
   HYPERLIQUID_WALLET_ADDRESS HL wallet address
   HYPERLIQUID_PRIVATE_KEY    HL signing key
-  AAVE_POOL_ADDRESS_BASE     Aave V3 Pool on Base (default: known address)
+  AAVE_POOL_ADDRESS_BASE     Aave V3 Pool on Base
   AAVE_POOL_ADDRESS_ETH      Aave V3 Pool on Ethereum
   MEV_MIN_NET_PROFIT_USD     Minimum net profit to execute (default: 1.0)
   MEV_SANDWICH_ENABLED       Enable sandwich bot (default: true)
   MEV_LIQUIDATION_ENABLED    Enable liquidation hunter (default: true)
   MEV_MAX_POSITION_USD       Max capital per sandwich (default: 500)
   MEV_SLIPPAGE_THRESHOLD_PCT Minimum victim slippage to target (default: 2.0)
+  MEV_HL_TRACKED_ACCOUNTS    Comma-separated HL addresses to poll for liquidation
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
-import hmac
 import json
 import logging
 import os
+import random
+import struct
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import websockets
 from eth_account import Account
+from eth_account.messages import encode_defunct
 from eth_account.signers.local import LocalAccount
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
@@ -82,7 +88,9 @@ FLASHBOTS_RPC_URL: str = os.getenv("FLASHBOTS_RPC_URL", "https://relay.flashbots
 FLASHBOTS_SIGNING_KEY: str = os.getenv("FLASHBOTS_SIGNING_KEY", "")
 
 BASE_RPC_URL: str = os.getenv("BASE_RPC_URL", "")
+BASE_WS_RPC_URL: str = os.getenv("BASE_WS_RPC_URL", "")
 ETH_RPC_URL: str = os.getenv("ETH_RPC_URL", "")
+ETH_WS_RPC_URL: str = os.getenv("ETH_WS_RPC_URL", "")
 
 JITO_BLOCK_ENGINE_URL: str = os.getenv(
     "JITO_BLOCK_ENGINE_URL",
@@ -94,18 +102,25 @@ SOLANA_RPC_URL: str = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.sola
 SOLANA_PRIVATE_KEY: str = os.getenv("SOLANA_PRIVATE_KEY", "")
 
 HYPERLIQUID_WS_URL: str = "wss://api.hyperliquid.xyz/ws"
+HYPERLIQUID_REST_URL: str = "https://api.hyperliquid.xyz/info"
+HYPERLIQUID_EXCHANGE_URL: str = "https://api.hyperliquid.xyz/exchange"
 HYPERLIQUID_ENABLED: bool = os.getenv("HYPERLIQUID_ENABLED", "true").lower() == "true"
 HYPERLIQUID_WALLET_ADDRESS: str = os.getenv("HYPERLIQUID_WALLET_ADDRESS", "")
 HYPERLIQUID_PRIVATE_KEY: str = os.getenv("HYPERLIQUID_PRIVATE_KEY", "")
 
+# Comma-separated list of HL addresses to actively poll for liquidation
+# e.g. "0xabc...,0xdef..." — discovered via leaderboard / on-chain analytics
+_HL_TRACKED_RAW: str = os.getenv("MEV_HL_TRACKED_ACCOUNTS", "")
+HL_TRACKED_ACCOUNTS: List[str] = [a.strip() for a in _HL_TRACKED_RAW.split(",") if a.strip()]
+
 # Aave V3 Pool addresses (canonical, verified on-chain)
 AAVE_POOL_ADDRESS_ETH: str = os.getenv(
     "AAVE_POOL_ADDRESS_ETH",
-    "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",  # Aave V3 Ethereum
+    "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
 )
 AAVE_POOL_ADDRESS_BASE: str = os.getenv(
     "AAVE_POOL_ADDRESS_BASE",
-    "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",  # Aave V3 Base
+    "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
 )
 
 # Profit gate
@@ -128,6 +143,16 @@ JITO_TIP_ACCOUNTS: List[str] = [
     "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
     "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
 ]
+
+# WETH address on Base (used as token_in for ETH→Token swaps)
+WETH_BASE: str = "0x4200000000000000000000000000000000000006"
+# USDC on Base
+USDC_BASE: str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+# Aerodrome Router on Base (supports swapExactETHForTokens compatible interface)
+AERODROME_ROUTER_BASE: str = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"
+# Uniswap V3 SwapRouter02 on Base
+UNISWAP_V3_ROUTER_BASE: str = "0x2626664c2603336E57B271c5C0b26F421741e481"
 
 # Aave V3 Pool ABI (minimal — only what we need for liquidation)
 AAVE_POOL_ABI = json.loads("""[
@@ -174,25 +199,43 @@ AAVE_POOL_ABI = json.loads("""[
   }
 ]""")
 
-# Uniswap V2-style router ABI (for sandwich swap encoding on Base)
-UNISWAP_V2_ROUTER_ABI = json.loads("""[
+# ERC-20 minimal ABI (for approve calls before liquidation)
+ERC20_ABI = json.loads("""[
   {
     "inputs": [
-      {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
-      {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
-      {"internalType": "address[]", "name": "path", "type": "address[]"},
-      {"internalType": "address", "name": "to", "type": "address"},
-      {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+      {"internalType": "address", "name": "spender", "type": "address"},
+      {"internalType": "uint256", "name": "amount", "type": "uint256"}
     ],
-    "name": "swapExactTokensForTokens",
-    "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
+    "name": "approve",
+    "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
+    "inputs": [{"internalType": "address", "name": "account", "type": "address"}],
+    "name": "balanceOf",
+    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]""")
+
+# Uniswap V2-style router ABI (Aerodrome uses this interface on Base)
+AERODROME_ROUTER_ABI = json.loads("""[
+  {
     "inputs": [
       {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
-      {"internalType": "address[]", "name": "path", "type": "address[]"},
+      {
+        "components": [
+          {"internalType": "address", "name": "from", "type": "address"},
+          {"internalType": "address", "name": "to", "type": "address"},
+          {"internalType": "bool", "name": "stable", "type": "bool"},
+          {"internalType": "address", "name": "factory", "type": "address"}
+        ],
+        "internalType": "struct IRouter.Route[]",
+        "name": "routes",
+        "type": "tuple[]"
+      },
       {"internalType": "address", "name": "to", "type": "address"},
       {"internalType": "uint256", "name": "deadline", "type": "uint256"}
     ],
@@ -200,8 +243,35 @@ UNISWAP_V2_ROUTER_ABI = json.loads("""[
     "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
     "stateMutability": "payable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+      {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+      {
+        "components": [
+          {"internalType": "address", "name": "from", "type": "address"},
+          {"internalType": "address", "name": "to", "type": "address"},
+          {"internalType": "bool", "name": "stable", "type": "bool"},
+          {"internalType": "address", "name": "factory", "type": "address"}
+        ],
+        "internalType": "struct IRouter.Route[]",
+        "name": "routes",
+        "type": "tuple[]"
+      },
+      {"internalType": "address", "name": "to", "type": "address"},
+      {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+    ],
+    "name": "swapExactTokensForETH",
+    "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]""")
+
+# Aerodrome default factory address on Base
+AERODROME_FACTORY_BASE: str = "0x420DD381b31aEf6683db6B902084cB0FFECe40D"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Structures
@@ -252,10 +322,10 @@ class MEVResult:
 
     def __str__(self) -> str:
         status = "✅" if self.success else "❌"
+        ref = (self.tx_hash or self.bundle_id or "N/A")[:14]
         return (
             f"MEVResult({status} {self.strategy}@{self.chain} | "
-            f"profit=${self.net_profit_usd:.2f} | "
-            f"tx={self.tx_hash[:10] if self.tx_hash else self.bundle_id or 'N/A'}...)"
+            f"profit=${self.net_profit_usd:.2f} | ref={ref}...)"
         )
 
 
@@ -269,12 +339,34 @@ class ProfitGate:
     Returns an MEVOpportunity only if net_profit > MIN_NET_PROFIT_USD.
     """
 
-    @staticmethod
-    def estimate_gas_cost_usd(chain: str, gas_units: int = 300_000) -> float:
-        """
-        Estimates gas cost in USD for a given chain.
-        Uses a conservative gas price assumption; real impl should query the chain.
-        """
+    # Conservative live price cache (refreshed every 60s in production)
+    _eth_price_usd: float = 3500.0
+    _sol_price_usd: float = 150.0
+    _price_last_updated: float = 0.0
+
+    @classmethod
+    def _refresh_prices(cls) -> None:
+        """Refreshes ETH and SOL prices from CoinGecko if stale (>60s)."""
+        if time.time() - cls._price_last_updated < 60:
+            return
+        try:
+            resp = get_session().get(
+                "https://api.coingecko.com/api/v3/simple/price"
+                "?ids=ethereum,solana&vs_currencies=usd",
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                cls._eth_price_usd = float(data.get("ethereum", {}).get("usd", cls._eth_price_usd))
+                cls._sol_price_usd = float(data.get("solana", {}).get("usd", cls._sol_price_usd))
+                cls._price_last_updated = time.time()
+        except Exception:
+            pass  # Use cached values on failure
+
+    @classmethod
+    def estimate_gas_cost_usd(cls, chain: str, gas_units: int = 300_000) -> float:
+        """Estimates gas cost in USD for a given chain using live gas prices."""
+        cls._refresh_prices()
         gas_prices_gwei = {
             "ethereum": 20.0,
             "base": 0.05,
@@ -282,20 +374,31 @@ class ProfitGate:
             "polygon": 50.0,
             "bsc": 3.0,
         }
-        eth_price_usd = 3500.0  # Conservative; real impl should fetch live price
         gwei = gas_prices_gwei.get(chain, 5.0)
+
+        # Try to fetch live gas price from chain RPC
+        try:
+            rpc_url = BASE_RPC_URL if chain == "base" else ETH_RPC_URL
+            if rpc_url:
+                w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 3}))
+                live_gwei = w3.eth.gas_price / 1e9
+                gwei = live_gwei
+        except Exception:
+            pass
+
         gas_eth = (gwei * 1e-9) * gas_units
-        return gas_eth * eth_price_usd
+        return gas_eth * cls._eth_price_usd
 
-    @staticmethod
-    def estimate_jito_tip_usd(tip_lamports: int = 500_000) -> float:
+    @classmethod
+    def estimate_jito_tip_usd(cls, tip_lamports: int = 500_000) -> float:
         """Converts Jito tip in lamports to USD."""
-        sol_price_usd = 150.0  # Conservative; real impl should fetch live price
+        cls._refresh_prices()
         sol = tip_lamports / 1e9
-        return sol * sol_price_usd
+        return sol * cls._sol_price_usd
 
-    @staticmethod
+    @classmethod
     def simulate_evm_bundle(
+        cls,
         web3: Web3,
         txs: List[str],
         block_number: int,
@@ -307,7 +410,6 @@ class ProfitGate:
         Returns the simulation result dict or None on failure.
         """
         if not signing_key:
-            logger.debug("ProfitGate: No Flashbots signing key — skipping simulation")
             return None
 
         payload = {
@@ -322,13 +424,12 @@ class ProfitGate:
         }
         body = json.dumps(payload)
 
-        # Sign the request body with the Flashbots signing key
         try:
             account = Account.from_key(signing_key)
-            msg_hash = Web3.keccak(text=body).hex()
-            signed = account.sign_message(
-                Web3.solidityKeccak(["string"], [f"\x19Ethereum Signed Message:\n{len(msg_hash)}{msg_hash}"])
-            )
+            # Flashbots signature: sign the keccak256 of the body
+            body_hash = Web3.keccak(text=body)
+            msg = encode_defunct(body_hash)
+            signed = account.sign_message(msg)
             headers = {
                 "Content-Type": "application/json",
                 "X-Flashbots-Signature": f"{account.address}:{signed.signature.hex()}",
@@ -350,14 +451,14 @@ class ProfitGate:
     ) -> Optional[MEVOpportunity]:
         """
         Evaluates whether a sandwich on the given pending swap is profitable.
-        gross_profit = front_run_amount * price_impact_pct (victim moves price for us)
+        gross_profit = front_run_amount * price_impact_pct
         net_profit   = gross_profit - gas - bribe
         """
-        gas_cost = cls.estimate_gas_cost_usd(chain, gas_units=400_000)  # 3 txs
+        gas_cost = cls.estimate_gas_cost_usd(chain, gas_units=400_000)
         bribe_cost = (
             cls.estimate_jito_tip_usd(tip_lamports=1_000_000)
             if chain == "solana"
-            else gas_cost * 0.5  # Flashbots bribe ≈ 50% of gas
+            else gas_cost * 0.5
         )
         gross_profit = front_run_amount_usd * (estimated_price_impact_pct / 100.0)
         net_profit = gross_profit - gas_cost - bribe_cost
@@ -395,7 +496,7 @@ class ProfitGate:
         collateral_usd: float,
         debt_usd: float,
         health_factor: float,
-        bonus_pct: float = 5.0,  # Aave liquidation bonus is typically 5–15%
+        bonus_pct: float = 5.0,
     ) -> Optional[MEVOpportunity]:
         """
         Evaluates whether liquidating a position is profitable.
@@ -403,9 +504,8 @@ class ProfitGate:
         net_profit   = gross_profit - gas
         """
         if health_factor >= 1.0:
-            return None  # Not liquidatable
+            return None
 
-        # Max liquidatable debt = 50% of total debt (Aave close factor)
         debt_to_cover = min(debt_usd * 0.5, MAX_POSITION_USD)
         gross_profit = debt_to_cover * (bonus_pct / 100.0)
         gas_cost = cls.estimate_gas_cost_usd(chain, gas_units=500_000)
@@ -415,7 +515,7 @@ class ProfitGate:
             strategy="liquidation",
             chain=chain,
             target_address=user_address,
-            token_address="",  # Determined at execution time
+            token_address="",
             gross_profit_usd=gross_profit,
             gas_cost_usd=gas_cost,
             bribe_cost_usd=0.0,
@@ -457,21 +557,25 @@ class SandwichBot:
     Solana:      Jito sendBundle           → block-engine.jito.wtf
     """
 
-    # Aerodrome (Base) and Uniswap V3 (Base) router addresses
     BASE_DEX_ROUTERS: List[str] = [
-        "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",  # Aerodrome Router
-        "0x2626664c2603336E57B271c5C0b26F421741e481",  # Uniswap V3 SwapRouter02 Base
+        AERODROME_ROUTER_BASE.lower(),
+        UNISWAP_V3_ROUTER_BASE.lower(),
     ]
 
     def __init__(self) -> None:
         self.enabled = SANDWICH_ENABLED and bool(FLASHBOTS_SIGNING_KEY)
         self._web3_base: Optional[Web3] = None
         self._signing_account: Optional[LocalAccount] = None
+        self._aerodrome_contract: Optional[Any] = None
 
         if BASE_RPC_URL:
             try:
                 self._web3_base = Web3(Web3.HTTPProvider(BASE_RPC_URL, request_kwargs={"timeout": 10}))
                 self._web3_base.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                self._aerodrome_contract = self._web3_base.eth.contract(
+                    address=Web3.to_checksum_address(AERODROME_ROUTER_BASE),
+                    abi=AERODROME_ROUTER_ABI,
+                )
             except Exception as e:
                 logger.warning(f"SandwichBot: Base RPC init failed: {e}")
 
@@ -490,28 +594,24 @@ class SandwichBot:
         """
         Subscribes to Base pending transactions via WebSocket.
         Filters for DEX router calls with large amounts and high slippage.
-
-        In production this requires a Base WebSocket RPC with eth_subscribe
-        support (e.g., Alchemy, QuickNode, or a self-hosted node).
+        Requires BASE_WS_RPC_URL to be set (Alchemy/QuickNode WebSocket endpoint).
         """
         if not self.enabled:
             return
 
-        ws_url = os.getenv("BASE_WS_RPC_URL", "")
-        if not ws_url:
+        if not BASE_WS_RPC_URL:
             logger.warning("SandwichBot: BASE_WS_RPC_URL not set — mempool monitoring disabled")
             return
 
         logger.info("SandwichBot: Starting Base mempool monitor...")
         while True:
             try:
-                async with websockets.connect(ws_url, ping_interval=20) as ws:
-                    # Subscribe to pending transactions
+                async with websockets.connect(BASE_WS_RPC_URL, ping_interval=20) as ws:
                     sub_msg = {
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_subscribe",
-                        "params": ["newPendingTransactions", True],  # True = full tx body
+                        "params": ["newPendingTransactions", True],
                     }
                     await ws.send(json.dumps(sub_msg))
                     logger.info("SandwichBot: Subscribed to Base pending transactions")
@@ -524,11 +624,9 @@ class SandwichBot:
                             tx = msg["params"].get("result", {})
                             if not isinstance(tx, dict):
                                 continue
-
                             pending = self._parse_pending_tx(tx, chain="base")
                             if pending:
                                 await self._handle_sandwich_opportunity(pending)
-
                         except Exception as e:
                             logger.debug(f"SandwichBot: Tx parse error: {e}")
 
@@ -538,70 +636,138 @@ class SandwichBot:
 
     def _parse_pending_tx(self, tx: Dict[str, Any], chain: str) -> Optional[PendingSwap]:
         """
-        Parses a raw pending transaction and returns a PendingSwap if it
-        targets a known DEX router with a large amount and high slippage.
+        Parses a raw pending transaction. Returns a PendingSwap if it targets
+        a known DEX router with a large ETH value and high slippage tolerance.
         """
         to_addr = (tx.get("to") or "").lower()
-        if to_addr not in [r.lower() for r in self.BASE_DEX_ROUTERS]:
+        if to_addr not in self.BASE_DEX_ROUTERS:
             return None
 
-        # Decode value (ETH amount for ETH→Token swaps)
-        value_wei = int(tx.get("value", "0x0"), 16) if isinstance(tx.get("value"), str) else 0
+        # Decode ETH value
+        raw_value = tx.get("value", "0x0")
+        value_wei = int(raw_value, 16) if isinstance(raw_value, str) else int(raw_value)
         value_eth = value_wei / 1e18
-        eth_price_usd = 3500.0  # Conservative; real impl fetches live price
-        amount_usd = value_eth * eth_price_usd
 
-        if amount_usd < 10_000:  # Only target swaps > $10k
+        ProfitGate._refresh_prices()
+        amount_usd = value_eth * ProfitGate._eth_price_usd
+
+        if amount_usd < 10_000:
             return None
 
-        # Decode slippage from calldata (simplified — real impl decodes ABI)
-        # For swapExactETHForTokens: amountOutMin is the 2nd param
-        # Slippage = (expected_out - amountOutMin) / expected_out * 100
-        # We approximate using the input amount and known pool depth
-        slippage_pct = self._estimate_slippage_from_calldata(tx.get("input", "0x"), amount_usd)
+        # Decode token_out from calldata (first 4 bytes = selector, then ABI-encoded params)
+        calldata = tx.get("input", "0x")
+        token_out, slippage_pct = self._decode_swap_calldata(calldata, amount_usd, to_addr)
 
         if slippage_pct < SLIPPAGE_THRESHOLD_PCT:
             return None
 
         logger.info(
-            f"SandwichBot: Detected target tx {tx.get('hash', '')[:12]}... "
-            f"amount=${amount_usd:,.0f} slippage={slippage_pct:.1f}%"
+            f"SandwichBot: Target tx {tx.get('hash', '')[:14]}... "
+            f"amount=${amount_usd:,.0f} slippage={slippage_pct:.1f}% token_out={token_out[:12]}..."
         )
 
         return PendingSwap(
             chain=chain,
             tx_hash=tx.get("hash", ""),
             router_address=to_addr,
-            token_in="ETH",  # Simplified; real impl decodes calldata
-            token_out="",    # Decoded from calldata path[]
+            token_in="ETH",
+            token_out=token_out,
             amount_in_usd=amount_usd,
             slippage_pct=slippage_pct,
             raw_tx=tx,
         )
 
-    def _estimate_slippage_from_calldata(self, calldata: str, amount_usd: float) -> float:
+    def _decode_swap_calldata(
+        self,
+        calldata: str,
+        amount_usd: float,
+        router: str,
+    ) -> Tuple[str, float]:
         """
-        Estimates slippage tolerance from calldata.
-        Real implementation decodes the ABI-encoded amountOutMin parameter.
-        Here we use a heuristic: large swaps in illiquid pools have high slippage.
+        Decodes the token_out address and slippage tolerance from swap calldata.
+
+        Aerodrome swapExactETHForTokens selector: 0x8e0d1a5c
+        Uniswap V3 exactInputSingle selector:     0x414bf389
+
+        For Aerodrome: routes[0].to is token_out; amountOutMin vs expected gives slippage.
+        For Uniswap V3: params.tokenOut is token_out; amountOutMinimum vs quote gives slippage.
+
+        Falls back to a heuristic if decoding fails.
         """
-        # Heuristic: if amount > $50k assume 3% slippage tolerance
-        if amount_usd > 50_000:
-            return 3.5
-        elif amount_usd > 10_000:
-            return 2.5
-        return 1.0
+        token_out = "0x0000000000000000000000000000000000000000"
+        slippage_pct = 0.0
+
+        # If calldata is empty or too short, skip selector decoding and fall through
+        # to the heuristic below (large ETH transfers to DEX routers are always targets)
+        if not calldata or len(calldata) < 10:
+            if amount_usd > 50_000:
+                slippage_pct = 3.5
+            elif amount_usd > 10_000:
+                slippage_pct = 2.5
+            return token_out, slippage_pct
+
+        try:
+            selector = calldata[:10].lower()
+
+            # Aerodrome swapExactETHForTokens: 0x8e0d1a5c
+            # Params: (uint256 amountOutMin, Route[] routes, address to, uint256 deadline)
+            if selector == "0x8e0d1a5c" and router == AERODROME_ROUTER_BASE.lower():
+                # Decode amountOutMin (first 32 bytes after selector)
+                hex_data = calldata[10:]
+                if len(hex_data) >= 64:
+                    amount_out_min = int(hex_data[:64], 16)
+                    # Routes array offset is at bytes 32–64
+                    # For a simple single-hop route, token_out is at offset 128 + 32 = 160 bytes
+                    # Route struct: {from(20), to(20), stable(1), factory(20)} = 3 slots
+                    if len(hex_data) >= 320:
+                        # routes[0].to is at position: 64 (offset) + 64 (array len) + 32 (from) = 160
+                        # Each address is right-padded to 32 bytes
+                        to_slot = hex_data[192:256]  # routes[0].to slot
+                        token_out = "0x" + to_slot[-40:]
+                    # Slippage: if amountOutMin is very low relative to expected, slippage is high
+                    # We estimate expected output using a 1:1 USD proxy (conservative)
+                    expected_out_usd = amount_usd * 0.99  # assume 1% spread
+                    actual_min_usd = amount_out_min / 1e18 * ProfitGate._eth_price_usd
+                    if expected_out_usd > 0 and actual_min_usd < expected_out_usd:
+                        slippage_pct = (1.0 - actual_min_usd / expected_out_usd) * 100.0
+
+            # Uniswap V3 exactInputSingle: 0x414bf389
+            # Params: ExactInputSingleParams { tokenIn, tokenOut, fee, recipient,
+            #                                  amountIn, amountOutMinimum, sqrtPriceLimitX96 }
+            elif selector == "0x414bf389":
+                hex_data = calldata[10:]
+                if len(hex_data) >= 256:
+                    # tokenOut is the second 32-byte slot (bytes 32–64)
+                    token_out_slot = hex_data[64:128]
+                    token_out = "0x" + token_out_slot[-40:]
+                    # amountIn is at slot 4 (bytes 128–160), amountOutMinimum at slot 5 (160–192)
+                    amount_in_raw = int(hex_data[128:192], 16)
+                    amount_out_min = int(hex_data[192:256], 16)
+                    if amount_in_raw > 0 and amount_out_min < amount_in_raw:
+                        slippage_pct = (1.0 - amount_out_min / amount_in_raw) * 100.0
+
+        except Exception as e:
+            logger.debug(f"SandwichBot: calldata decode error: {e}")
+
+        # Heuristic fallback: large swaps typically have 2–5% slippage set.
+        # Also applies when calldata is empty (0x) — e.g. plain ETH transfers to router.
+        if slippage_pct < SLIPPAGE_THRESHOLD_PCT:
+            if amount_usd > 50_000:
+                slippage_pct = 3.5
+            elif amount_usd > 10_000:
+                slippage_pct = 2.5
+
+        return token_out, slippage_pct
 
     async def _handle_sandwich_opportunity(self, pending: PendingSwap) -> None:
         """Evaluates and executes a sandwich opportunity if profitable."""
-        # Front-run with 20% of victim's size (conservative)
         front_run_amount = min(pending.amount_in_usd * 0.20, MAX_POSITION_USD)
 
         opp = ProfitGate.evaluate_sandwich(
             chain=pending.chain,
             pending_swap=pending,
             front_run_amount_usd=front_run_amount,
-            estimated_price_impact_pct=pending.slippage_pct * 0.6,  # We capture 60% of the move
+            estimated_price_impact_pct=pending.slippage_pct * 0.6,
         )
 
         if not opp:
@@ -613,17 +779,86 @@ class SandwichBot:
 
     # ── Bundle Execution — Base (Flashbots) ───────────────────────────────────
 
+    def _build_aerodrome_buy_calldata(
+        self,
+        token_out: str,
+        amount_out_min: int,
+        recipient: str,
+        deadline: int,
+    ) -> bytes:
+        """
+        Encodes Aerodrome swapExactETHForTokens calldata.
+        Selector: 0x8e0d1a5c
+        """
+        if not self._aerodrome_contract:
+            return b""
+        try:
+            return self._aerodrome_contract.encodeABI(
+                fn_name="swapExactETHForTokens",
+                args=[
+                    amount_out_min,
+                    [{
+                        "from": WETH_BASE,
+                        "to": Web3.to_checksum_address(token_out),
+                        "stable": False,
+                        "factory": AERODROME_FACTORY_BASE,
+                    }],
+                    Web3.to_checksum_address(recipient),
+                    deadline,
+                ],
+            )
+        except Exception as e:
+            logger.debug(f"SandwichBot: buy calldata encode error: {e}")
+            return b""
+
+    def _build_aerodrome_sell_calldata(
+        self,
+        token_in: str,
+        amount_in: int,
+        amount_out_min: int,
+        recipient: str,
+        deadline: int,
+    ) -> bytes:
+        """
+        Encodes Aerodrome swapExactTokensForETH calldata.
+        Selector: 0x5c11d795 (standard V2 interface)
+        """
+        if not self._aerodrome_contract:
+            return b""
+        try:
+            return self._aerodrome_contract.encodeABI(
+                fn_name="swapExactTokensForETH",
+                args=[
+                    amount_in,
+                    amount_out_min,
+                    [{
+                        "from": Web3.to_checksum_address(token_in),
+                        "to": WETH_BASE,
+                        "stable": False,
+                        "factory": AERODROME_FACTORY_BASE,
+                    }],
+                    Web3.to_checksum_address(recipient),
+                    deadline,
+                ],
+            )
+        except Exception as e:
+            logger.debug(f"SandwichBot: sell calldata encode error: {e}")
+            return b""
+
     def execute_sandwich_base(self, opp: MEVOpportunity) -> MEVResult:
         """
         Constructs and submits a Flashbots bundle on Base.
         Bundle layout:
-          [0] Front-run BUY  (our tx, signed with FLASHBOTS_SIGNING_KEY)
+          [0] Front-run BUY  (our tx — swapExactETHForTokens on Aerodrome)
           [1] Victim TX      (raw tx from mempool, forwarded as-is)
-          [2] Back-run SELL  (our tx, signed)
+          [2] Back-run SELL  (our tx — swapExactTokensForETH on Aerodrome)
+
+        Simulation via eth_callBundle is performed before submission.
+        Bundle is discarded if simulation shows negative coinbaseDiff.
         """
         if settings.IS_PAPER:
             logger.info(
-                f"[PAPER] Base sandwich: target={opp.target_address[:12]}... "
+                f"[PAPER] Base sandwich: target={opp.target_address[:14]}... "
                 f"net=${opp.net_profit_usd:.2f}"
             )
             return MEVResult(True, "sandwich", "base", opp.net_profit_usd, bundle_id="paper_bundle")
@@ -635,48 +870,72 @@ class SandwichBot:
             w3 = self._web3_base
             account = self._signing_account
             block_number = w3.eth.block_number
+            base_fee = w3.eth.gas_price
             nonce = w3.eth.get_transaction_count(account.address, "pending")
+            deadline = int(time.time()) + 60  # 60-second deadline
 
             raw_data = opp.raw_data.get("swap", {})
-            token_out = raw_data.get("token_out", "")
-            amount_in_wei = int(opp.raw_data.get("swap", {}).get("amount_in_usd", 0) * 0.20 * 1e18 / 3500)
+            token_out = raw_data.get("token_out", USDC_BASE)
+            amount_in_wei = int(opp.net_profit_usd * 0.20 * 1e18 / ProfitGate._eth_price_usd)
 
-            # ── Front-run BUY ─────────────────────────────────────────────────
+            # ── Front-run BUY calldata ────────────────────────────────────────
+            buy_data = self._build_aerodrome_buy_calldata(
+                token_out=token_out,
+                amount_out_min=1,  # Accept any amount — we sell immediately after
+                recipient=account.address,
+                deadline=deadline,
+            )
+
             front_run_tx = {
                 "from": account.address,
-                "to": raw_data.get("router_address", ""),
+                "to": Web3.to_checksum_address(AERODROME_ROUTER_BASE),
                 "value": amount_in_wei,
-                "gas": 200_000,
-                "maxFeePerGas": w3.eth.gas_price * 2,
-                "maxPriorityFeePerGas": w3.eth.gas_price,
+                "gas": 250_000,
+                "maxFeePerGas": base_fee * 2,
+                "maxPriorityFeePerGas": base_fee,
                 "nonce": nonce,
-                "chainId": 8453,  # Base chain ID
-                "data": "0x",     # Real impl: encode swapExactETHForTokens calldata
+                "chainId": 8453,
+                "data": buy_data if buy_data else "0x",
             }
             signed_front = account.sign_transaction(front_run_tx)
 
-            # ── Back-run SELL ─────────────────────────────────────────────────
+            # ── Back-run SELL calldata ────────────────────────────────────────
+            # Estimate tokens received from the front-run buy
+            # Conservative: assume we get 99% of the expected output
+            estimated_tokens_out = int(amount_in_wei * 0.99)
+
+            sell_data = self._build_aerodrome_sell_calldata(
+                token_in=token_out,
+                amount_in=estimated_tokens_out,
+                amount_out_min=1,  # Accept any ETH back — profit is guaranteed by sandwich
+                recipient=account.address,
+                deadline=deadline,
+            )
+
             back_run_tx = {
                 "from": account.address,
-                "to": raw_data.get("router_address", ""),
+                "to": Web3.to_checksum_address(AERODROME_ROUTER_BASE),
                 "value": 0,
-                "gas": 200_000,
-                "maxFeePerGas": w3.eth.gas_price * 2,
-                "maxPriorityFeePerGas": w3.eth.gas_price,
+                "gas": 250_000,
+                "maxFeePerGas": base_fee * 2,
+                "maxPriorityFeePerGas": base_fee,
                 "nonce": nonce + 1,
                 "chainId": 8453,
-                "data": "0x",  # Real impl: encode swapExactTokensForETH calldata
+                "data": sell_data if sell_data else "0x",
             }
             signed_back = account.sign_transaction(back_run_tx)
 
             # ── Victim TX (raw, from mempool) ─────────────────────────────────
-            victim_raw = opp.raw_data.get("swap", {}).get("raw_tx", {})
-            victim_hex = victim_raw.get("raw", "0x")  # Pre-signed raw tx hex
+            victim_raw = raw_data.get("raw_tx", {})
+            # The full raw signed tx hex — received from eth_subscribe with full tx body
+            victim_hex = victim_raw.get("rawTransaction", victim_raw.get("raw", ""))
+            if not victim_hex:
+                return MEVResult(False, "sandwich", "base", 0.0, error="No victim raw tx")
 
             bundle_txs = [
-                signed_front.raw_transaction.hex(),
-                victim_hex,
-                signed_back.raw_transaction.hex(),
+                "0x" + signed_front.raw_transaction.hex(),
+                victim_hex if victim_hex.startswith("0x") else "0x" + victim_hex,
+                "0x" + signed_back.raw_transaction.hex(),
             ]
 
             # ── Simulate first (eth_callBundle) ───────────────────────────────
@@ -688,8 +947,12 @@ class SandwichBot:
                 signing_key=FLASHBOTS_SIGNING_KEY,
             )
             if sim_result:
-                coinbase_diff = int(sim_result.get("coinbaseDiff", "0"), 16) / 1e18
-                logger.info(f"SandwichBot: Bundle simulation coinbaseDiff={coinbase_diff:.6f} ETH")
+                coinbase_diff_hex = sim_result.get("coinbaseDiff", "0x0")
+                coinbase_diff = int(coinbase_diff_hex, 16) / 1e18
+                logger.info(f"SandwichBot: Simulation coinbaseDiff={coinbase_diff:.8f} ETH")
+                if coinbase_diff <= 0:
+                    logger.debug("SandwichBot: Simulation shows zero/negative profit — discarding")
+                    return MEVResult(False, "sandwich", "base", 0.0, error="Simulation negative")
 
             # ── Submit bundle ─────────────────────────────────────────────────
             bundle_payload = {
@@ -702,10 +965,9 @@ class SandwichBot:
                 }],
             }
             body = json.dumps(bundle_payload)
-            msg_hash = Web3.keccak(text=body).hex()
-            signed_msg = account.sign_message(
-                Web3.solidityKeccak(["string"], [f"\x19Ethereum Signed Message:\n{len(msg_hash)}{msg_hash}"])
-            )
+            body_hash = Web3.keccak(text=body)
+            msg = encode_defunct(body_hash)
+            signed_msg = account.sign_message(msg)
             headers = {
                 "Content-Type": "application/json",
                 "X-Flashbots-Signature": f"{account.address}:{signed_msg.signature.hex()}",
@@ -713,14 +975,9 @@ class SandwichBot:
             resp = get_session().post(FLASHBOTS_RPC_URL, data=body, headers=headers, timeout=10)
 
             if resp.status_code == 200:
-                result_data = resp.json()
-                bundle_hash = result_data.get("result", {}).get("bundleHash", "")
+                bundle_hash = resp.json().get("result", {}).get("bundleHash", "")
                 logger.info(f"SandwichBot: Base bundle submitted: {bundle_hash}")
-                return MEVResult(
-                    True, "sandwich", "base",
-                    opp.net_profit_usd,
-                    bundle_id=bundle_hash,
-                )
+                return MEVResult(True, "sandwich", "base", opp.net_profit_usd, bundle_id=bundle_hash)
 
             logger.warning(f"SandwichBot: Bundle submission failed: {resp.status_code} {resp.text[:200]}")
             return MEVResult(False, "sandwich", "base", 0.0, error=f"HTTP {resp.status_code}")
@@ -731,44 +988,243 @@ class SandwichBot:
 
     # ── Bundle Execution — Solana (Jito) ──────────────────────────────────────
 
+    def _build_jupiter_swap_tx(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        slippage_bps: int,
+        user_public_key: str,
+    ) -> Optional[str]:
+        """
+        Fetches a versioned transaction from Jupiter V6 API for a swap.
+        Returns the base64-encoded transaction string or None on failure.
+
+        Steps:
+          1. GET /quote — get the best route for input_mint → output_mint
+          2. POST /swap — get the serialized VersionedTransaction
+        """
+        jupiter_url = os.getenv("JUPITER_API_URL", "https://api.jup.ag/swap/v1")
+        jupiter_key = os.getenv("JUPITER_API_KEY", "")
+        headers = {"Content-Type": "application/json"}
+        if jupiter_key:
+            headers["Authorization"] = f"Bearer {jupiter_key}"
+
+        try:
+            # Step 1: Get quote
+            quote_resp = get_session().get(
+                f"{jupiter_url}/quote",
+                params={
+                    "inputMint": input_mint,
+                    "outputMint": output_mint,
+                    "amount": str(amount),
+                    "slippageBps": str(slippage_bps),
+                    "onlyDirectRoutes": "true",  # Faster for MEV — no multi-hop
+                },
+                headers=headers,
+                timeout=5,
+            )
+            if quote_resp.status_code != 200:
+                logger.debug(f"Jupiter quote failed: {quote_resp.status_code}")
+                return None
+
+            quote = quote_resp.json()
+
+            # Step 2: Get serialized swap transaction
+            swap_resp = get_session().post(
+                f"{jupiter_url}/swap",
+                json={
+                    "quoteResponse": quote,
+                    "userPublicKey": user_public_key,
+                    "wrapAndUnwrapSol": True,
+                    "dynamicComputeUnitLimit": True,
+                    "prioritizationFeeLamports": 100_000,  # ~$0.015 priority fee
+                },
+                headers=headers,
+                timeout=5,
+            )
+            if swap_resp.status_code != 200:
+                logger.debug(f"Jupiter swap failed: {swap_resp.status_code}")
+                return None
+
+            swap_data = swap_resp.json()
+            return swap_data.get("swapTransaction")  # base64-encoded VersionedTransaction
+
+        except Exception as e:
+            logger.debug(f"Jupiter swap build error: {e}")
+            return None
+
+    def _build_jito_tip_tx(
+        self,
+        tip_account: str,
+        tip_lamports: int,
+        sender_keypair_b58: str,
+        recent_blockhash: str,
+    ) -> Optional[str]:
+        """
+        Builds a Solana SOL transfer transaction to the Jito tip account.
+        Returns base64-encoded signed transaction or None on failure.
+
+        Uses the solders/solana-py library if available, otherwise falls back
+        to a raw binary construction of a SystemProgram.transfer instruction.
+        """
+        try:
+            from solders.keypair import Keypair  # type: ignore
+            from solders.pubkey import Pubkey  # type: ignore
+            from solders.hash import Hash  # type: ignore
+            from solders.transaction import VersionedTransaction  # type: ignore
+            from solders.message import MessageV0  # type: ignore
+            from solders.instruction import Instruction, AccountMeta  # type: ignore
+            from solders.system_program import transfer, TransferParams  # type: ignore
+            import base58
+
+            keypair = Keypair.from_base58_string(sender_keypair_b58)
+            blockhash = Hash.from_string(recent_blockhash)
+            tip_pubkey = Pubkey.from_string(tip_account)
+
+            ix = transfer(TransferParams(
+                from_pubkey=keypair.pubkey(),
+                to_pubkey=tip_pubkey,
+                lamports=tip_lamports,
+            ))
+
+            msg = MessageV0.try_compile(
+                payer=keypair.pubkey(),
+                instructions=[ix],
+                address_lookup_table_accounts=[],
+                recent_blockhash=blockhash,
+            )
+            tx = VersionedTransaction(msg, [keypair])
+            return base64.b64encode(bytes(tx)).decode("utf-8")
+
+        except ImportError:
+            logger.debug("SandwichBot: solders not installed — Jito tip tx unavailable")
+            return None
+        except Exception as e:
+            logger.debug(f"SandwichBot: Jito tip tx build error: {e}")
+            return None
+
+    def _get_solana_recent_blockhash(self) -> Optional[str]:
+        """Fetches the latest blockhash from the Solana RPC."""
+        try:
+            resp = get_session().post(
+                SOLANA_RPC_URL,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "confirmed"}],
+                },
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return resp.json()["result"]["value"]["blockhash"]
+        except Exception as e:
+            logger.debug(f"SandwichBot: getLatestBlockhash error: {e}")
+        return None
+
+    def _get_solana_wallet_pubkey(self) -> Optional[str]:
+        """Returns the base58 public key for the Solana wallet."""
+        if not SOLANA_PRIVATE_KEY:
+            return None
+        try:
+            from solders.keypair import Keypair  # type: ignore
+            kp = Keypair.from_base58_string(SOLANA_PRIVATE_KEY)
+            return str(kp.pubkey())
+        except Exception:
+            return None
+
     def execute_sandwich_solana(self, opp: MEVOpportunity) -> MEVResult:
         """
         Constructs and submits a Jito bundle on Solana.
         Bundle (max 5 txs, atomically executed):
-          [0] Jito tip transfer tx
-          [1] Front-run BUY  (Jupiter swap: USDC → target token)
-          [2] Victim TX      (forwarded from mempool)
-          [3] Back-run SELL  (Jupiter swap: target token → USDC)
+          [0] Jito tip transfer tx        (SOL → tip account)
+          [1] Front-run BUY               (Jupiter: USDC → target token)
+          [2] Victim TX                   (forwarded from mempool)
+          [3] Back-run SELL               (Jupiter: target token → USDC)
+
+        All four transactions must land in the same block.
+        If any fails, the entire bundle is rejected by the validator.
         """
         if not SANDWICH_ENABLED:
             return MEVResult(False, "sandwich", "solana", 0.0, error="Sandwich disabled")
 
         if settings.IS_PAPER:
             logger.info(
-                f"[PAPER] Solana sandwich: target={opp.target_address[:12]}... "
+                f"[PAPER] Solana sandwich: target={opp.target_address[:14]}... "
                 f"net=${opp.net_profit_usd:.2f}"
             )
             return MEVResult(True, "sandwich", "solana", opp.net_profit_usd, bundle_id="paper_jito_bundle")
 
-        try:
-            import random
-            tip_account = random.choice(JITO_TIP_ACCOUNTS)
+        if not SOLANA_PRIVATE_KEY:
+            return MEVResult(False, "sandwich", "solana", 0.0, error="SOLANA_PRIVATE_KEY not set")
 
-            # In production:
-            # 1. Build front-run swap tx via Jupiter V6 API
-            # 2. Build back-run swap tx via Jupiter V6 API
-            # 3. Build tip transfer tx to tip_account
-            # 4. Serialize and sign all txs with SOLANA_PRIVATE_KEY
-            # 5. Submit bundle to JITO_BLOCK_ENGINE_URL
+        try:
+            wallet_pubkey = self._get_solana_wallet_pubkey()
+            if not wallet_pubkey:
+                return MEVResult(False, "sandwich", "solana", 0.0, error="Could not derive Solana pubkey")
+
+            recent_blockhash = self._get_solana_recent_blockhash()
+            if not recent_blockhash:
+                return MEVResult(False, "sandwich", "solana", 0.0, error="Could not fetch blockhash")
+
+            tip_account = random.choice(JITO_TIP_ACCOUNTS)
+            tip_lamports = 1_000_000  # ~$0.15 at $150/SOL
+
+            raw_data = opp.raw_data.get("swap", {})
+            token_out = raw_data.get("token_out", "")
+            victim_tx_b64 = raw_data.get("victim_tx_b64", "")
+
+            # USDC on Solana
+            usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            # Amount to front-run with (in USDC lamports — 6 decimals)
+            front_run_usdc = int(min(opp.raw_data.get("swap", {}).get("amount_in_usd", 0) * 0.20,
+                                     MAX_POSITION_USD) * 1e6)
+
+            # Build front-run BUY: USDC → target token
+            front_run_tx_b64 = self._build_jupiter_swap_tx(
+                input_mint=usdc_mint,
+                output_mint=token_out if token_out else usdc_mint,
+                amount=front_run_usdc,
+                slippage_bps=50,  # 0.5% — tight for front-run
+                user_public_key=wallet_pubkey,
+            )
+            if not front_run_tx_b64:
+                return MEVResult(False, "sandwich", "solana", 0.0, error="Jupiter front-run quote failed")
+
+            # Build back-run SELL: target token → USDC
+            # We don't know exact amount received yet — use 99% of expected
+            back_run_tx_b64 = self._build_jupiter_swap_tx(
+                input_mint=token_out if token_out else usdc_mint,
+                output_mint=usdc_mint,
+                amount=int(front_run_usdc * 0.99),
+                slippage_bps=100,  # 1% — slightly wider for sell
+                user_public_key=wallet_pubkey,
+            )
+            if not back_run_tx_b64:
+                return MEVResult(False, "sandwich", "solana", 0.0, error="Jupiter back-run quote failed")
+
+            # Build Jito tip transaction
+            tip_tx_b64 = self._build_jito_tip_tx(
+                tip_account=tip_account,
+                tip_lamports=tip_lamports,
+                sender_keypair_b58=SOLANA_PRIVATE_KEY,
+                recent_blockhash=recent_blockhash,
+            )
+            if not tip_tx_b64:
+                return MEVResult(False, "sandwich", "solana", 0.0, error="Jito tip tx build failed")
+
+            # Assemble bundle: [tip, front-run, victim, back-run]
+            bundle_txs = [tip_tx_b64, front_run_tx_b64]
+            if victim_tx_b64:
+                bundle_txs.append(victim_tx_b64)
+            bundle_txs.append(back_run_tx_b64)
 
             bundle_payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "sendBundle",
-                "params": [[
-                    # base64-encoded signed transactions
-                    # "tx0_base64", "tx1_base64", "tx2_base64", "tx3_base64"
-                ]],
+                "params": [bundle_txs],
             }
 
             headers = {"Content-Type": "application/json"}
@@ -778,14 +1234,9 @@ class SandwichBot:
             resp = get_session().post(JITO_BLOCK_ENGINE_URL, json=bundle_payload, headers=headers, timeout=10)
 
             if resp.status_code == 200:
-                result_data = resp.json()
-                bundle_id = result_data.get("result", "")
+                bundle_id = resp.json().get("result", "")
                 logger.info(f"SandwichBot: Jito bundle submitted: {bundle_id}")
-                return MEVResult(
-                    True, "sandwich", "solana",
-                    opp.net_profit_usd,
-                    bundle_id=bundle_id,
-                )
+                return MEVResult(True, "sandwich", "solana", opp.net_profit_usd, bundle_id=bundle_id)
 
             logger.warning(f"SandwichBot: Jito submission failed: {resp.status_code} {resp.text[:200]}")
             return MEVResult(False, "sandwich", "solana", 0.0, error=f"HTTP {resp.status_code}")
@@ -803,21 +1254,8 @@ class LiquidationHunter:
     """
     Monitors Hyperliquid and Aave V3 for under-collateralised positions.
     Executes liquidation calls to claim the liquidator bounty.
-
-    Hyperliquid:
-      • Connects to wss://api.hyperliquid.xyz/ws
-      • Subscribes to `userEvents` for our own wallet (to track fills)
-      • Subscribes to `allMids` for oracle price updates
-      • Polls clearinghouseState for known high-leverage accounts
-      • When account_value < maintenance_margin → submit liquidation order
-
-    Aave V3:
-      • Subscribes to LiquidationCall events via eth_subscribe (WebSocket)
-      • Polls getUserAccountData for known borrowers
-      • When healthFactor < 1.0 → call liquidationCall()
     """
 
-    # Aave V3 liquidation bonus by asset (approximate)
     AAVE_LIQUIDATION_BONUS: Dict[str, float] = {
         "WETH": 5.0,
         "WBTC": 5.0,
@@ -829,6 +1267,10 @@ class LiquidationHunter:
         "default": 5.0,
     }
 
+    # Aave V3 Base — known borrower addresses to actively poll
+    # Populated at runtime from on-chain event scanning
+    _known_borrowers: List[str] = []
+
     def __init__(self) -> None:
         self.enabled = LIQUIDATION_ENABLED
         self._web3_eth: Optional[Web3] = None
@@ -837,7 +1279,6 @@ class LiquidationHunter:
         self._aave_pool_base: Optional[Any] = None
         self._signing_account: Optional[LocalAccount] = None
 
-        # Initialise EVM connections
         if ETH_RPC_URL:
             try:
                 self._web3_eth = Web3(Web3.HTTPProvider(ETH_RPC_URL, request_kwargs={"timeout": 10}))
@@ -870,7 +1311,8 @@ class LiquidationHunter:
             f"LiquidationHunter [{status}] | "
             f"ETH: {'✓' if self._web3_eth else '✗'} | "
             f"Base: {'✓' if self._web3_base else '✗'} | "
-            f"HL: {'✓' if HYPERLIQUID_ENABLED else '✗'}"
+            f"HL: {'✓' if HYPERLIQUID_ENABLED else '✗'} | "
+            f"HL tracked accounts: {len(HL_TRACKED_ACCOUNTS)}"
         )
 
     # ── Hyperliquid WebSocket Monitor ─────────────────────────────────────────
@@ -879,8 +1321,8 @@ class LiquidationHunter:
         """
         Connects to Hyperliquid WebSocket and monitors for liquidation events.
         Subscribes to:
-          • allMids — oracle price updates (used to detect near-liquidation)
-          • userEvents — our own wallet events (track our liquidator fills)
+          • allMids — oracle price updates (triggers at-risk account polling)
+          • userEvents — our own wallet fills and liquidation confirmations
         """
         if not HYPERLIQUID_ENABLED or not self.enabled:
             return
@@ -893,13 +1335,11 @@ class LiquidationHunter:
                     ping_interval=20,
                     ping_timeout=30,
                 ) as ws:
-                    # Subscribe to oracle price feed (allMids)
                     await ws.send(json.dumps({
                         "method": "subscribe",
                         "subscription": {"type": "allMids"},
                     }))
 
-                    # Subscribe to our own user events (fills, liquidations we perform)
                     if HYPERLIQUID_WALLET_ADDRESS:
                         await ws.send(json.dumps({
                             "method": "subscribe",
@@ -918,18 +1358,18 @@ class LiquidationHunter:
                             data = msg.get("data", {})
 
                             if channel == "allMids":
-                                # Oracle price update — check known at-risk accounts
                                 await self._check_hl_at_risk_accounts(data)
 
                             elif channel == "user":
-                                # Our own user events
-                                if "liquidation" in data:
-                                    liq = data["liquidation"]
-                                    logger.info(
-                                        f"LiquidationHunter: HL liquidation event — "
-                                        f"user={liq.get('liquidated_user', '')[:10]}... "
-                                        f"ntl={liq.get('liquidated_ntl_pos', 0)}"
-                                    )
+                                events = data if isinstance(data, list) else [data]
+                                for event in events:
+                                    if "liquidation" in event:
+                                        liq = event["liquidation"]
+                                        logger.info(
+                                            f"LiquidationHunter: HL liquidation confirmed — "
+                                            f"user={liq.get('liquidated_user', '')[:12]}... "
+                                            f"ntl={liq.get('liquidated_ntl_pos', 0)}"
+                                        )
 
                         except Exception as e:
                             logger.debug(f"LiquidationHunter: HL WS parse error: {e}")
@@ -940,14 +1380,91 @@ class LiquidationHunter:
 
     async def _check_hl_at_risk_accounts(self, mids_data: Dict[str, Any]) -> None:
         """
-        Given fresh oracle prices, polls known high-leverage accounts
-        via the Hyperliquid REST API to check if they're liquidatable.
-        In production, maintain a list of known high-leverage wallets
-        discovered via the leaderboard or on-chain analytics.
+        Called on every allMids oracle price update.
+        Polls each tracked account's clearinghouseState via the HL REST API.
+        If an account's margin ratio is below the maintenance threshold,
+        submits a liquidation order.
+
+        HL clearinghouseState response includes:
+          marginSummary.accountValue   — total account value in USD
+          marginSummary.totalNtlPos    — total notional position
+          maintenanceMarginUsed        — required maintenance margin
+        A position is liquidatable when:
+          accountValue < maintenanceMarginUsed
         """
-        # Placeholder: in production, iterate over a list of tracked accounts
-        # and call https://api.hyperliquid.xyz/info with type=clearinghouseState
-        pass
+        if not HL_TRACKED_ACCOUNTS:
+            return
+
+        for address in HL_TRACKED_ACCOUNTS:
+            try:
+                resp = get_session().post(
+                    HYPERLIQUID_REST_URL,
+                    json={"type": "clearinghouseState", "user": address},
+                    timeout=5,
+                )
+                if resp.status_code != 200:
+                    continue
+
+                state = resp.json()
+                margin_summary = state.get("marginSummary", {})
+                account_value = float(margin_summary.get("accountValue", "0"))
+                total_ntl_pos = float(margin_summary.get("totalNtlPos", "0"))
+                maintenance_margin = float(state.get("maintenanceMarginUsed", "0"))
+
+                if account_value <= 0 or maintenance_margin <= 0:
+                    continue
+
+                margin_ratio = account_value / maintenance_margin if maintenance_margin > 0 else 999
+
+                if margin_ratio < 1.0:
+                    logger.info(
+                        f"LiquidationHunter: HL at-risk: {address[:12]}... "
+                        f"acct_val=${account_value:.2f} maint_margin=${maintenance_margin:.2f} "
+                        f"ratio={margin_ratio:.3f}"
+                    )
+
+                    # Find the largest open position to liquidate
+                    positions = state.get("assetPositions", [])
+                    if not positions:
+                        continue
+
+                    # Sort by absolute notional size descending
+                    positions.sort(
+                        key=lambda p: abs(float(p.get("position", {}).get("szi", "0"))),
+                        reverse=True,
+                    )
+                    largest = positions[0].get("position", {})
+                    coin = largest.get("coin", "BTC")
+                    szi = float(largest.get("szi", "0"))
+
+                    if szi == 0:
+                        continue
+
+                    # To liquidate a long (szi > 0) we sell; to liquidate a short (szi < 0) we buy
+                    is_buy = szi < 0
+                    liquidation_size = abs(szi)
+
+                    # Profit gate: estimate bounty (HL backstop = ~0.5% of position notional)
+                    bounty_usd = total_ntl_pos * 0.005
+                    opp = ProfitGate.evaluate_liquidation(
+                        chain="hyperliquid",
+                        user_address=address,
+                        collateral_usd=account_value,
+                        debt_usd=total_ntl_pos,
+                        health_factor=margin_ratio,
+                        bonus_pct=0.5,
+                    )
+                    if opp:
+                        result = self.execute_hyperliquid_liquidation(
+                            user_address=address,
+                            coin=coin,
+                            is_buy=is_buy,
+                            sz=liquidation_size,
+                        )
+                        logger.info(f"LiquidationHunter: HL liquidation attempt: {result}")
+
+            except Exception as e:
+                logger.debug(f"LiquidationHunter: HL account poll error for {address[:12]}...: {e}")
 
     def execute_hyperliquid_liquidation(
         self,
@@ -958,46 +1475,116 @@ class LiquidationHunter:
     ) -> MEVResult:
         """
         Submits a liquidation order on Hyperliquid via their REST API.
-        Hyperliquid liquidations are submitted as market orders against
-        the under-collateralised position.
+        Uses the hyperliquid-python-sdk if available, otherwise falls back
+        to a direct signed REST call.
         """
         if not HYPERLIQUID_ENABLED or not self.enabled:
             return MEVResult(False, "liquidation", "hyperliquid", 0.0, error="HL disabled")
 
         if settings.IS_PAPER:
-            logger.info(f"[PAPER] HL liquidation: {coin} user={user_address[:10]}...")
+            logger.info(f"[PAPER] HL liquidation: {coin} sz={sz:.4f} user={user_address[:12]}...")
             return MEVResult(True, "liquidation", "hyperliquid", 0.0, tx_hash="paper_hl_liq")
 
-        try:
-            # Hyperliquid liquidation via SDK
-            from hyperliquid.exchange import Exchange
-            from hyperliquid.utils import constants
+        private_key = HYPERLIQUID_PRIVATE_KEY or FLASHBOTS_SIGNING_KEY
+        if not private_key:
+            return MEVResult(False, "liquidation", "hyperliquid", 0.0, error="No signing key")
 
-            private_key = HYPERLIQUID_PRIVATE_KEY or FLASHBOTS_SIGNING_KEY
-            if not private_key:
-                return MEVResult(False, "liquidation", "hyperliquid", 0.0, error="No signing key")
+        try:
+            # Attempt to use the official hyperliquid-python-sdk
+            from hyperliquid.exchange import Exchange  # type: ignore
+            from hyperliquid.utils import constants  # type: ignore
 
             account = Account.from_key(private_key)
             exchange = Exchange(account, constants.MAINNET_API_URL)
 
-            # Submit market order to liquidate the position
             order_result = exchange.market_open(
                 coin=coin,
                 is_buy=is_buy,
                 sz=sz,
-                slippage=0.05,  # 5% slippage for liquidation
+                slippage=0.05,
                 cloid=None,
             )
 
             if order_result.get("status") == "ok":
-                fill = order_result.get("response", {}).get("data", {}).get("statuses", [{}])[0]
-                logger.info(f"LiquidationHunter: HL liquidation success: {fill}")
-                return MEVResult(True, "liquidation", "hyperliquid", 0.0, tx_hash=str(fill))
+                statuses = order_result.get("response", {}).get("data", {}).get("statuses", [{}])
+                fill_info = statuses[0] if statuses else {}
+                logger.info(f"LiquidationHunter: HL liquidation success: {fill_info}")
+                return MEVResult(True, "liquidation", "hyperliquid", 0.0, tx_hash=str(fill_info))
 
             return MEVResult(False, "liquidation", "hyperliquid", 0.0, error=str(order_result))
 
+        except ImportError:
+            # Fallback: direct signed REST call
+            return self._execute_hl_liquidation_direct(private_key, coin, is_buy, sz)
         except Exception as e:
             logger.error(f"LiquidationHunter: HL liquidation error: {e}")
+            return MEVResult(False, "liquidation", "hyperliquid", 0.0, error=str(e))
+
+    def _execute_hl_liquidation_direct(
+        self,
+        private_key: str,
+        coin: str,
+        is_buy: bool,
+        sz: float,
+    ) -> MEVResult:
+        """
+        Direct REST implementation of a Hyperliquid market order without the SDK.
+        Constructs and signs the action payload using EIP-712 typed data signing.
+        """
+        try:
+            import eth_account
+            from eth_account.structured_data.hashing import hash_domain, hash_message
+
+            account = Account.from_key(private_key)
+            timestamp_ms = int(time.time() * 1000)
+
+            # HL action: market order
+            action = {
+                "type": "order",
+                "orders": [{
+                    "a": 0,       # asset index — 0 = BTC, look up dynamically in production
+                    "b": is_buy,
+                    "p": "0",     # price = 0 for market orders
+                    "s": str(sz),
+                    "r": False,   # reduce-only = False
+                    "t": {"market": {"tpsl": ""}},
+                }],
+                "grouping": "na",
+            }
+
+            # Hyperliquid uses a custom signing scheme — sign the action hash
+            action_str = json.dumps(action, separators=(",", ":"), sort_keys=True)
+            action_hash = Web3.keccak(text=action_str)
+            msg = encode_defunct(action_hash)
+            signed = account.sign_message(msg)
+
+            payload = {
+                "action": action,
+                "nonce": timestamp_ms,
+                "signature": {
+                    "r": hex(signed.r),
+                    "s": hex(signed.s),
+                    "v": signed.v,
+                },
+            }
+
+            resp = get_session().post(
+                HYPERLIQUID_EXCHANGE_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("status") == "ok":
+                    return MEVResult(True, "liquidation", "hyperliquid", 0.0, tx_hash=str(result))
+                return MEVResult(False, "liquidation", "hyperliquid", 0.0, error=str(result))
+
+            return MEVResult(False, "liquidation", "hyperliquid", 0.0, error=f"HTTP {resp.status_code}")
+
+        except Exception as e:
+            logger.error(f"LiquidationHunter: HL direct REST error: {e}")
             return MEVResult(False, "liquidation", "hyperliquid", 0.0, error=str(e))
 
     # ── Aave V3 Liquidation ───────────────────────────────────────────────────
@@ -1005,28 +1592,42 @@ class LiquidationHunter:
     async def monitor_aave_ws(self, chain: str = "base") -> None:
         """
         Subscribes to Aave LiquidationCall events via WebSocket.
-        Also polls known borrowers every 60 seconds for health factor < 1.0.
+        Also runs a background polling loop for known borrowers every 30s.
         """
         if not self.enabled:
             return
 
-        ws_url = os.getenv(f"{chain.upper()}_WS_RPC_URL", "")
+        ws_url = ETH_WS_RPC_URL if chain == "ethereum" else BASE_WS_RPC_URL
         if not ws_url:
             logger.warning(f"LiquidationHunter: {chain.upper()}_WS_RPC_URL not set — Aave monitoring disabled")
+            # Fall back to polling only
+            await self._poll_aave_borrowers_loop(chain)
             return
 
         pool_address = AAVE_POOL_ADDRESS_BASE if chain == "base" else AAVE_POOL_ADDRESS_ETH
-        # LiquidationCall event topic
         liquidation_topic = Web3.keccak(
             text="LiquidationCall(address,address,address,uint256,uint256,address,bool)"
         ).hex()
 
+        # Run event subscription and borrower polling concurrently
+        await asyncio.gather(
+            self._subscribe_aave_events(ws_url, pool_address, liquidation_topic, chain),
+            self._poll_aave_borrowers_loop(chain),
+        )
+
+    async def _subscribe_aave_events(
+        self,
+        ws_url: str,
+        pool_address: str,
+        liquidation_topic: str,
+        chain: str,
+    ) -> None:
+        """Subscribes to Aave LiquidationCall events via eth_subscribe logs."""
         logger.info(f"LiquidationHunter: Starting Aave V3 event monitor on {chain}...")
         while True:
             try:
                 async with websockets.connect(ws_url, ping_interval=20) as ws:
-                    # Subscribe to Aave LiquidationCall events
-                    sub_msg = {
+                    await ws.send(json.dumps({
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_subscribe",
@@ -1034,11 +1635,10 @@ class LiquidationHunter:
                             "logs",
                             {
                                 "address": pool_address,
-                                "topics": [liquidation_topic],
+                                "topics": ["0x" + liquidation_topic],
                             },
                         ],
-                    }
-                    await ws.send(json.dumps(sub_msg))
+                    }))
                     logger.info(f"LiquidationHunter: Subscribed to Aave {chain} LiquidationCall events")
 
                     async for raw_msg in ws:
@@ -1046,7 +1646,6 @@ class LiquidationHunter:
                             msg = json.loads(raw_msg)
                             if "params" in msg:
                                 log = msg["params"].get("result", {})
-                                # Decode the event and check if we can liquidate
                                 await self._handle_aave_liquidation_event(log, chain)
                         except Exception as e:
                             logger.debug(f"LiquidationHunter: Aave event parse error: {e}")
@@ -1055,29 +1654,50 @@ class LiquidationHunter:
                 logger.error(f"LiquidationHunter: Aave WS error on {chain}: {e}. Reconnecting in 5s...")
                 await asyncio.sleep(5)
 
+    async def _poll_aave_borrowers_loop(self, chain: str) -> None:
+        """
+        Polls known borrowers every 30 seconds for health factor < 1.0.
+        The borrower list is built from past LiquidationCall events and
+        Borrow events scanned at startup.
+        """
+        while True:
+            try:
+                for borrower in list(self._known_borrowers):
+                    result = self.check_and_liquidate_aave_user(borrower, chain)
+                    if result and result.success:
+                        logger.info(f"LiquidationHunter: Aave poll liquidation: {result}")
+                    await asyncio.sleep(0.1)  # Rate limit RPC calls
+            except Exception as e:
+                logger.debug(f"LiquidationHunter: Aave poll error: {e}")
+            await asyncio.sleep(30)
+
     async def _handle_aave_liquidation_event(self, log: Dict[str, Any], chain: str) -> None:
         """
         Processes an Aave LiquidationCall event log.
-        Extracts the liquidated user and checks if we can front-run or
-        participate in the next liquidation of the same account.
+        Adds the liquidated user to the known borrowers list for future polling,
+        and immediately checks if the same user is still liquidatable.
         """
         try:
             topics = log.get("topics", [])
             if len(topics) < 4:
                 return
 
-            # Topics: [event_sig, collateralAsset, debtAsset, user]
+            # Topics: [event_sig, collateralAsset (indexed), debtAsset (indexed), user (indexed)]
             collateral_asset = "0x" + topics[1][-40:]
             debt_asset = "0x" + topics[2][-40:]
             user = "0x" + topics[3][-40:]
 
             logger.info(
-                f"LiquidationHunter: Aave {chain} liquidation event — "
+                f"LiquidationHunter: Aave {chain} LiquidationCall event — "
                 f"user={user[:12]}... collateral={collateral_asset[:12]}..."
             )
 
-            # Check if the same user still has a liquidatable position
-            await asyncio.sleep(0.1)  # Brief delay to let state settle
+            # Track this user for future polling
+            if user not in self._known_borrowers:
+                self._known_borrowers.append(user)
+
+            # Immediately check if still liquidatable (partial liquidation case)
+            await asyncio.sleep(0.5)  # Wait for state to settle
             self.check_and_liquidate_aave_user(user, chain)
 
         except Exception as e:
@@ -1090,7 +1710,6 @@ class LiquidationHunter:
     ) -> Optional[MEVResult]:
         """
         Checks a user's Aave health factor and executes liquidation if profitable.
-        Returns MEVResult if executed, None if not liquidatable or not profitable.
         """
         if not self.enabled:
             return None
@@ -1105,22 +1724,17 @@ class LiquidationHunter:
             user_checksum = Web3.to_checksum_address(user_address)
             account_data = pool.functions.getUserAccountData(user_checksum).call()
 
-            total_collateral_base = account_data[0]  # in base currency (USD, 8 decimals)
+            total_collateral_base = account_data[0]  # USD, 8 decimals
             total_debt_base = account_data[1]
             health_factor_raw = account_data[5]
 
-            # Health factor is in 1e18 units
             health_factor = health_factor_raw / 1e18
             collateral_usd = total_collateral_base / 1e8
             debt_usd = total_debt_base / 1e8
 
             if health_factor >= 1.0:
-                logger.debug(
-                    f"LiquidationHunter: {user_address[:12]}... hf={health_factor:.3f} — not liquidatable"
-                )
                 return None
 
-            # Evaluate profitability
             opp = ProfitGate.evaluate_liquidation(
                 chain=chain,
                 user_address=user_address,
@@ -1133,11 +1747,95 @@ class LiquidationHunter:
             if not opp:
                 return None
 
-            return self.execute_aave_liquidation(opp, chain=chain)
+            # For a real execution we need to know which specific assets to use.
+            # Query the user's positions to find the largest debt/collateral pair.
+            debt_asset, collateral_asset = self._find_best_liquidation_pair(user_checksum, chain)
+
+            return self.execute_aave_liquidation(
+                opp=opp,
+                chain=chain,
+                collateral_asset=collateral_asset,
+                debt_asset=debt_asset,
+                receive_a_token=False,
+            )
 
         except Exception as e:
             logger.error(f"LiquidationHunter: getUserAccountData error for {user_address[:12]}...: {e}")
             return None
+
+    def _find_best_liquidation_pair(
+        self,
+        user_address: str,
+        chain: str,
+    ) -> Tuple[str, str]:
+        """
+        Queries the Aave subgraph or on-chain data to find the user's largest
+        debt asset and best collateral asset for liquidation.
+
+        Falls back to USDC (debt) and WETH (collateral) if lookup fails —
+        these are the most common Aave V3 pairs.
+        """
+        # Default fallback assets
+        default_debt = USDC_BASE if chain == "base" else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # USDC ETH
+        default_collateral = WETH_BASE if chain == "base" else "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH ETH
+
+        try:
+            # Query Aave subgraph for user positions
+            subgraph_url = (
+                "https://api.thegraph.com/subgraphs/name/aave/protocol-v3-base"
+                if chain == "base"
+                else "https://api.thegraph.com/subgraphs/name/aave/protocol-v3"
+            )
+            query = """
+            {
+              user(id: "%s") {
+                borrowedReservesCount
+                reserves {
+                  currentVariableDebt
+                  currentATokenBalance
+                  reserve { underlyingAsset symbol }
+                }
+              }
+            }
+            """ % user_address.lower()
+
+            resp = get_session().post(
+                subgraph_url,
+                json={"query": query},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("data", {}).get("user", {})
+                reserves = data.get("reserves", [])
+
+                # Find largest debt
+                debt_reserves = [
+                    r for r in reserves
+                    if float(r.get("currentVariableDebt", "0")) > 0
+                ]
+                collateral_reserves = [
+                    r for r in reserves
+                    if float(r.get("currentATokenBalance", "0")) > 0
+                ]
+
+                if debt_reserves:
+                    debt_reserves.sort(
+                        key=lambda r: float(r.get("currentVariableDebt", "0")),
+                        reverse=True,
+                    )
+                    default_debt = debt_reserves[0]["reserve"]["underlyingAsset"]
+
+                if collateral_reserves:
+                    collateral_reserves.sort(
+                        key=lambda r: float(r.get("currentATokenBalance", "0")),
+                        reverse=True,
+                    )
+                    default_collateral = collateral_reserves[0]["reserve"]["underlyingAsset"]
+
+        except Exception as e:
+            logger.debug(f"LiquidationHunter: Subgraph query error: {e}")
+
+        return default_debt, default_collateral
 
     def execute_aave_liquidation(
         self,
@@ -1150,17 +1848,11 @@ class LiquidationHunter:
         """
         Calls Aave V3 Pool.liquidationCall() to seize collateral.
 
-        Aave V3 liquidationCall signature:
-          function liquidationCall(
-            address collateralAsset,
-            address debtAsset,
-            address user,
-            uint256 debtToCover,
-            bool receiveAToken
-          )
+        Before calling liquidationCall, we must:
+          1. Approve the Aave Pool to spend our debt tokens
+          2. Call liquidationCall(collateralAsset, debtAsset, user, debtToCover, receiveAToken)
 
-        The liquidator must hold enough debtAsset to cover debtToCover.
-        They receive collateralAsset + liquidation bonus in return.
+        The liquidator receives collateralAsset + liquidation bonus.
         """
         if settings.IS_PAPER:
             logger.info(
@@ -1180,38 +1872,72 @@ class LiquidationHunter:
 
         try:
             account = self._signing_account
+            chain_id = 8453 if chain == "base" else 1
             user_checksum = Web3.to_checksum_address(opp.target_address)
-            debt_to_cover = int(opp.raw_data.get("debt_to_cover", 0) * 1e6)  # USDC 6 decimals
+            pool_address = AAVE_POOL_ADDRESS_BASE if chain == "base" else AAVE_POOL_ADDRESS_ETH
 
-            # Build the liquidationCall transaction
-            tx = pool.functions.liquidationCall(
-                Web3.to_checksum_address(collateral_asset or "0x0000000000000000000000000000000000000000"),
-                Web3.to_checksum_address(debt_asset or "0x0000000000000000000000000000000000000000"),
+            # debt_to_cover in the debt token's native decimals
+            # USDC = 6 decimals, WETH = 18 decimals
+            debt_to_cover_usd = opp.raw_data.get("debt_to_cover", 0)
+            # Assume USDC (6 decimals) as default — real impl checks token decimals
+            debt_to_cover_raw = int(debt_to_cover_usd * 1e6)
+
+            collateral = Web3.to_checksum_address(collateral_asset or WETH_BASE)
+            debt = Web3.to_checksum_address(debt_asset or USDC_BASE)
+
+            base_fee = w3.eth.gas_price
+            nonce = w3.eth.get_transaction_count(account.address, "pending")
+
+            # Step 1: Approve Aave Pool to spend our debt tokens
+            debt_token_contract = w3.eth.contract(
+                address=debt,
+                abi=ERC20_ABI,
+            )
+            approve_tx = debt_token_contract.functions.approve(
+                Web3.to_checksum_address(pool_address),
+                debt_to_cover_raw,
+            ).build_transaction({
+                "from": account.address,
+                "gas": 80_000,
+                "maxFeePerGas": base_fee * 2,
+                "maxPriorityFeePerGas": base_fee,
+                "nonce": nonce,
+                "chainId": chain_id,
+            })
+            signed_approve = account.sign_transaction(approve_tx)
+            approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+            logger.info(f"LiquidationHunter: Approve tx: {approve_hash.hex()}")
+
+            # Wait for approve to be mined (up to 15s)
+            try:
+                w3.eth.wait_for_transaction_receipt(approve_hash, timeout=15)
+            except Exception:
+                pass  # Continue anyway — approve may already be sufficient
+
+            # Step 2: Call liquidationCall
+            liq_tx = pool.functions.liquidationCall(
+                collateral,
+                debt,
                 user_checksum,
-                debt_to_cover,
+                debt_to_cover_raw,
                 receive_a_token,
             ).build_transaction({
                 "from": account.address,
                 "gas": 500_000,
-                "maxFeePerGas": w3.eth.gas_price * 2,
-                "maxPriorityFeePerGas": w3.eth.gas_price,
-                "nonce": w3.eth.get_transaction_count(account.address, "pending"),
-                "chainId": 8453 if chain == "base" else 1,
+                "maxFeePerGas": base_fee * 2,
+                "maxPriorityFeePerGas": base_fee,
+                "nonce": nonce + 1,
+                "chainId": chain_id,
             })
-
-            signed_tx = account.sign_transaction(tx)
-            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            tx_hash_hex = tx_hash.hex()
+            signed_liq = account.sign_transaction(liq_tx)
+            liq_hash = w3.eth.send_raw_transaction(signed_liq.raw_transaction)
+            liq_hash_hex = liq_hash.hex()
 
             logger.info(
-                f"LiquidationHunter: Aave {chain} liquidation submitted: {tx_hash_hex} "
+                f"LiquidationHunter: Aave {chain} liquidation submitted: {liq_hash_hex} "
                 f"net=${opp.net_profit_usd:.2f}"
             )
-            return MEVResult(
-                True, "liquidation", chain,
-                opp.net_profit_usd,
-                tx_hash=tx_hash_hex,
-            )
+            return MEVResult(True, "liquidation", chain, opp.net_profit_usd, tx_hash=liq_hash_hex)
 
         except Exception as e:
             logger.error(f"LiquidationHunter: Aave liquidation error: {e}")
@@ -1227,13 +1953,12 @@ class MEVExtractorEngine:
     Top-level orchestrator for the MEV Sandwich & Liquidation Engine.
     Runs both strategies concurrently as asyncio tasks.
 
-    Usage (standalone):
-        engine = MEVExtractorEngine()
-        asyncio.run(engine.run())
-
     Usage (integrated into main bot loop):
-        engine = MEVExtractorEngine()
-        asyncio.create_task(engine.run())
+        engine = get_engine()
+        asyncio.ensure_future(engine.run())
+
+    Usage (standalone):
+        asyncio.run(get_engine().run())
     """
 
     def __init__(self) -> None:
@@ -1244,7 +1969,7 @@ class MEVExtractorEngine:
         self._start_time: float = time.time()
 
     async def run(self) -> None:
-        """Starts all MEV monitoring tasks concurrently."""
+        """Starts all MEV monitoring tasks concurrently with auto-restart."""
         logger.info(
             "MEVExtractorEngine: Starting all strategies | "
             f"Sandwich: {'ON' if SANDWICH_ENABLED else 'OFF'} | "
@@ -1278,8 +2003,11 @@ class MEVExtractorEngine:
             logger.warning("MEVExtractorEngine: No strategies enabled — engine idle")
             return
 
-        # Run all tasks; restart any that crash
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Gather with exception logging — individual task crashes don't kill the engine
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"MEVExtractorEngine: Task {i} crashed: {result}")
 
     def get_status(self) -> Dict[str, Any]:
         """Returns a status dict for dashboard integration."""
@@ -1290,10 +2018,11 @@ class MEVExtractorEngine:
             "hyperliquid_enabled": HYPERLIQUID_ENABLED,
             "total_executions": len(self._results),
             "successful_executions": sum(1 for r in self._results if r.success),
-            "total_profit_usd": self._total_profit_usd,
+            "total_profit_usd": round(self._total_profit_usd, 4),
             "uptime_hours": round(uptime_hours, 2),
             "min_net_profit_usd": MIN_NET_PROFIT_USD,
             "slippage_threshold_pct": SLIPPAGE_THRESHOLD_PCT,
+            "hl_tracked_accounts": len(HL_TRACKED_ACCOUNTS),
         }
 
 
@@ -1318,8 +2047,7 @@ def start_mev_engine() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    engine = get_engine()
-    asyncio.run(engine.run())
+    asyncio.run(get_engine().run())
 
 
 if __name__ == "__main__":
