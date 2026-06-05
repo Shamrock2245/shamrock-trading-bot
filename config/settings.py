@@ -322,6 +322,27 @@ ARB_WALLET_ALIAS = os.getenv("ARB_WALLET_ALIAS", "primary")
 ARB_OUTPUT_FILE = os.getenv("ARB_OUTPUT_FILE", "output/arb_trades.csv")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Flash Arb Engine Settings (Zero-Risk Flash Loan Arbitrage)
+# ─────────────────────────────────────────────────────────────────────────────
+# Minimum net profit % required to execute a flash arb (1.5% = 150 bps)
+FLASH_ARB_MIN_PROFIT_PCT = float(os.getenv("FLASH_ARB_MIN_PROFIT_PCT", "1.5"))
+# Hard cap on flash loan size in USD (protects against price impact)
+FLASH_ARB_MAX_POSITION_USD = float(os.getenv("FLASH_ARB_MAX_POSITION_USD", "500000.0"))
+# Max fraction of DEX pool liquidity to borrow (30% limits price impact)
+FLASH_ARB_LIQUIDITY_FRACTION = float(os.getenv("FLASH_ARB_LIQUIDITY_FRACTION", "0.30"))
+# Safety haircut applied to minExpectedProfit passed to on-chain contract
+FLASH_ARB_SAFETY_MARGIN_PCT = float(os.getenv("FLASH_ARB_SAFETY_MARGIN_PCT", "0.10"))
+# Prefer Balancer V2 (0% fee) over Aave V3 (0.05% fee)
+FLASH_ARB_PREFER_BALANCER = os.getenv("FLASH_ARB_PREFER_BALANCER", "true").lower() == "true"
+# FlashArbReceiver contract addresses per chain (set after deployment)
+FLASH_ARB_RECEIVER_ETHEREUM = os.getenv("FLASH_ARB_RECEIVER_ETHEREUM", "")
+FLASH_ARB_RECEIVER_BASE = os.getenv("FLASH_ARB_RECEIVER_BASE", "")
+FLASH_ARB_RECEIVER_ARBITRUM = os.getenv("FLASH_ARB_RECEIVER_ARBITRUM", "")
+FLASH_ARB_RECEIVER_POLYGON = os.getenv("FLASH_ARB_RECEIVER_POLYGON", "")
+FLASH_ARB_RECEIVER_BSC = os.getenv("FLASH_ARB_RECEIVER_BSC", "")
+FLASH_ARB_RECEIVER_AVALANCHE = os.getenv("FLASH_ARB_RECEIVER_AVALANCHE", "")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Daily Goal Engine Settings
 # ─────────────────────────────────────────────────────────────────────────────
 # Persistent state file for daily goal tracking
