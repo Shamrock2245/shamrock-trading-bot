@@ -500,6 +500,24 @@ async def run_bot_loop():
             logger.warning(f"Hyperliquid init failed: {e}")
             hl_executor = None
 
+    # ── Start MEV Extractor Engine (Sandwich Bot + Liquidation Hunter) ────────────
+    # Runs as an asyncio background task alongside the main bot loop.
+    # Executes ONLY when net profit after gas/bribes is strictly positive.
+    _mev_engine = None
+    if settings.MEV_SANDWICH_ENABLED or settings.MEV_LIQUIDATION_ENABLED:
+        try:
+            from core.mev_extractor import get_engine as _get_mev_engine
+            _mev_engine = _get_mev_engine()
+            asyncio.ensure_future(_mev_engine.run())
+            logger.info(
+                f"🟢 MEV Extractor Engine started | "
+                f"Sandwich: {'ON' if settings.MEV_SANDWICH_ENABLED else 'OFF'} | "
+                f"Liquidation: {'ON' if settings.MEV_LIQUIDATION_ENABLED else 'OFF'} | "
+                f"Min profit: ${settings.MEV_MIN_NET_PROFIT_USD:.2f}"
+            )
+        except Exception as _mev_err:
+            logger.warning(f"MEV Extractor Engine init failed (non-blocking): {_mev_err}")
+
     def _latency_seconds(ts_start) -> float:
         return max(0.0, (datetime.now(timezone.utc) - ts_start).total_seconds())
 

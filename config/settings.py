@@ -157,6 +157,20 @@ GAS_BRIBE_PREMIUM_PCT = float(os.getenv("GAS_BRIBE_PREMIUM_PCT", "15.0"))  # 15%
 # Jito (Solana MEV protection)
 JITO_BLOCK_ENGINE_URL = os.getenv("JITO_BLOCK_ENGINE_URL", "https://mainnet.block-engine.jito.wtf/api/v1/bundles")
 JITO_AUTH_KEY = os.getenv("JITO_AUTH_KEY", "")  # Optional: Jito auth keypair for priority access
+
+# ── MEV Extractor Engine (ECC Skill: mev-sandwich-liquidator) ─────────────────
+# Sandwich Bot: monitors Base/Solana mempools for large swaps with >2% slippage
+# Liquidation Hunter: monitors Hyperliquid + Aave V3 for under-collateralised positions
+# Both strategies execute ONLY if net profit after gas/bribes is strictly positive.
+MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "true").lower() == "true"
+MEV_LIQUIDATION_ENABLED = os.getenv("MEV_LIQUIDATION_ENABLED", "true").lower() == "true"
+MEV_MIN_NET_PROFIT_USD = float(os.getenv("MEV_MIN_NET_PROFIT_USD", "1.0"))  # Min net profit to execute
+MEV_MAX_POSITION_USD = float(os.getenv("MEV_MAX_POSITION_USD", "500.0"))   # Max capital per sandwich
+MEV_SLIPPAGE_THRESHOLD_PCT = float(os.getenv("MEV_SLIPPAGE_THRESHOLD_PCT", "2.0"))  # Min victim slippage %
+# Aave V3 Pool addresses (canonical, verified on-chain)
+AAVE_POOL_ADDRESS_ETH = os.getenv("AAVE_POOL_ADDRESS_ETH", "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2")
+AAVE_POOL_ADDRESS_BASE = os.getenv("AAVE_POOL_ADDRESS_BASE", "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5")
+
 # Helius RPC (enhanced Solana data — used by bundle detector + Jito)
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 
