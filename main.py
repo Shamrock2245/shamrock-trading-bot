@@ -2010,18 +2010,24 @@ async def run_bot_loop():
                 from core.regime_filter import get_regime, Regime
                 _regime_state = get_regime()
                 logger.info(f"📊 Market Regime [cycle {cycle}]: {_regime_state.details}")
-                if _regime_state.regime == Regime.CHOP:
+                if _regime_state.regime == Regime.CHOPPY:
                     logger.warning(
-                        "😴 CHOP REGIME — skipping new entries this cycle. "
-                        "Both wallets operating at 30% sizing. "
+                        "😴 CHOPPY REGIME — skipping new entries this cycle. "
+                        "Both wallets operating at 30% sizing (Mean-Reversion mode active). "
                         f"Details: {_regime_state.details}"
                     )
                     _regime_skip_new_entries = True
-                elif _regime_state.regime == Regime.EXPANSION:
+                elif _regime_state.regime == Regime.TRENDING:
                     logger.info(
-                        "🚀 EXPANSION REGIME — Wallet B nuclear sizing ACTIVE (+50% mult). "
-                        "Primary at standard sizing."
+                        "🚀 TRENDING REGIME — Wallet B nuclear sizing ACTIVE (+50% mult). "
+                        "Primary at standard sizing. Loosened trailing stops and let winners run active."
                     )
+                elif _regime_state.regime == Regime.NUKE:
+                    logger.warning(
+                        "🚨 NUKE REGIME DETECTED — RISK-OFF PROTOCOL ACTIVE. "
+                        "Halting all new buys. Tightening all open position stops to 1% to protect capital."
+                    )
+                    _regime_skip_new_entries = True
             except Exception as _regime_err:
                 logger.debug(f"Regime check failed (non-blocking): {_regime_err}")
                 _regime_skip_new_entries = False
@@ -2314,10 +2320,10 @@ async def run_bot_loop():
                 is_express = getattr(candidate, "express_lane", False)
                 token_addr_lower = token.address.lower()
 
-                # ── GUARD 0.5: Regime CHOP gate — skip new entries in choppy market ─
+                # ── GUARD 0.5: Regime gate — skip new entries in choppy or nuke market ─
                 if _regime_skip_new_entries:
                     logger.debug(
-                        f"😴 Regime CHOP: skipping {token.symbol} — no new entries in chop"
+                        f"😴 Regime gate: skipping {token.symbol} — no new entries in Choppy or Nuke market"
                     )
                     continue
 

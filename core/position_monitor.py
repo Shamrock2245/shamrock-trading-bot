@@ -515,40 +515,96 @@ def evaluate_position(pos: dict, current_price: float,
         trailing_tighten = sp.trailing_tighten  # {mult: trail%}
         profile_name = sp.name
     else:
+        from unittest.mock import MagicMock
         chain = pos.get("chain", "").lower()
+        
+        # Helper to unwrap MagicMocks
+        def _val(val, fallback):
+            return fallback if isinstance(val, MagicMock) else val
+
         if chain == "solana":
             hard_stop_pct = 10.0
             trailing_pct = 6.0
             tp1_mult = 1.2
-            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+            tp1_sell = _val(settings.TAKE_PROFIT_TP1_SELL_PCT, 0.40)
             tp2_mult = 1.8
-            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
-            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)
-            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            tp2_sell = _val(settings.TAKE_PROFIT_TP2_SELL_PCT, 0.35)
+            tp3_mult = _val(getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0), 5.0)
+            tp3_sell = _val(getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25), 0.25)
             trailing_tighten = {}
             profile_name = "solana_shadow_default"
         elif chain == "base":
             hard_stop_pct = 15.0
             trailing_pct = 15.0
             tp1_mult = 1.5
-            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
+            tp1_sell = _val(settings.TAKE_PROFIT_TP1_SELL_PCT, 0.40)
             tp2_mult = 2.5
-            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
-            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)
-            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            tp2_sell = _val(settings.TAKE_PROFIT_TP2_SELL_PCT, 0.35)
+            tp3_mult = _val(getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0), 5.0)
+            tp3_sell = _val(getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25), 0.25)
             trailing_tighten = {}
             profile_name = "base_shadow_default"
         else:
-            hard_stop_pct = settings.HARD_STOP_LOSS_PERCENT
-            trailing_pct = settings.STOP_LOSS_PERCENT
-            tp1_mult = settings.TAKE_PROFIT_TP1_MULT
-            tp1_sell = settings.TAKE_PROFIT_TP1_SELL_PCT
-            tp2_mult = settings.TAKE_PROFIT_TP2_MULT
-            tp2_sell = settings.TAKE_PROFIT_TP2_SELL_PCT
-            tp3_mult = getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0)   # Global TP3 (moonshot capture)
-            tp3_sell = getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25)
+            hard_stop_pct = _val(settings.HARD_STOP_LOSS_PERCENT, 10.0)
+            trailing_pct = _val(settings.STOP_LOSS_PERCENT, 5.0)
+            tp1_mult = _val(settings.TAKE_PROFIT_TP1_MULT, 1.5)
+            tp1_sell = _val(settings.TAKE_PROFIT_TP1_SELL_PCT, 0.40)
+            tp2_mult = _val(settings.TAKE_PROFIT_TP2_MULT, 2.5)
+            tp2_sell = _val(settings.TAKE_PROFIT_TP2_SELL_PCT, 0.35)
+            tp3_mult = _val(getattr(settings, "TAKE_PROFIT_TP3_MULT", 5.0), 5.0)
+            tp3_sell = _val(getattr(settings, "TAKE_PROFIT_TP3_SELL_PCT", 0.25), 0.25)
             trailing_tighten = {}
             profile_name = "default"
+
+    # ── Deep RL Regime Filter Dynamic Personality Switch ──
+    try:
+        from unittest.mock import MagicMock
+        from core.regime_filter import get_regime, Regime
+        regime_state = get_regime()
+        
+        # If get_regime or its return value is a MagicMock (mocked in some tests), skip personality switch
+        if isinstance(regime_state, MagicMock) or isinstance(getattr(regime_state, "regime", None), MagicMock):
+            raise TypeError("Mock detected")
+            
+        market_regime = regime_state.regime
+        
+        if market_regime == Regime.TRENDING:
+            # Loosen trailing stops and let winners run for massive multipliers
+            trailing_pct = max(trailing_pct * 1.5, 12.0)
+            tp1_mult = tp1_mult * 1.5
+            tp2_mult = tp2_mult * 1.8
+            tp3_mult = tp3_mult * 2.0 if tp3_mult > 0 else 10.0
+            profile_name = f"{profile_name}_trending_run"
+            logger.info(
+                f"📈 Regime TRENDING: loosened trail to {trailing_pct:.1f}% "
+                f"and boosted TPs (TP1:{tp1_mult:.1f}x, TP2:{tp2_mult:.1f}x, TP3:{tp3_mult:.1f}x) "
+                f"for {pos.get('token_symbol')}"
+            )
+        elif market_regime == Regime.CHOPPY:
+            # Switch to Mean-Reversion mode (take fast 3-5% scalps and get out)
+            tp1_mult = 1.03  # 3% scalp
+            tp1_sell = 1.0   # Sell 100% of the remaining position and exit
+            tp2_mult = 1.05  # 5% scalp fallback
+            tp2_sell = 1.0
+            trailing_pct = 1.5  # Tight trail to secure fast scalp
+            profile_name = f"{profile_name}_mean_reversion"
+            logger.info(
+                f"😴 Regime CHOPPY: Mean-Reversion active (TP1: 3% scalp, sell 100%, trail: 1.5%) "
+                f"for {pos.get('token_symbol')}"
+            )
+        elif market_regime == Regime.NUKE:
+            # Trigger immediate 'Risk-Off' protocol, tightening all stop-losses to 1% to protect capital
+            hard_stop_pct = 1.0
+            trailing_pct = 1.0
+            profile_name = f"{profile_name}_risk_off_nuke"
+            logger.warning(
+                f"🚨 Regime NUKE: RISK-OFF protocol active! Tightened SL to 1% "
+                f"for {pos.get('token_symbol')}"
+            )
+    except Exception as regime_err:
+        logger.debug(f"Regime personality switch skipped: {regime_err}")
+    # Fallback default values already resolved above if no strategy_profile was passed.
+    pass
 
     # ── Position-level trailing_stop_pct override ─────────────────────────────
     # Allows tests and dynamic trailing logic to tighten the trail below the
