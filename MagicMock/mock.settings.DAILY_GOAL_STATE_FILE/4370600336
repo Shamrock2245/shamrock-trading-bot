@@ -1,0 +1,18 @@
+{
+  "current_tier": 0,
+  "current_target_usd": 500.0,
+  "consecutive_hits": 0,
+  "consecutive_misses": 0,
+  "all_time_best_day_usd": 620.0,
+  "all_time_total_usd": 620.0,
+  "today_date": "2026-06-05",
+  "today_profit_usd": 620.0,
+  "today_trade_count": 10,
+  "today_arb_profit_usd": 620.0,
+  "today_gem_profit_usd": 0.0,
+  "today_scalp_profit_usd": 0.0,
+  "daily_history": [],
+  "strategy_mode": "protect",
+  "mode_activated_at": "2026-06-05T15:25:25.465010+00:00",
+  "tier_history": []
+}

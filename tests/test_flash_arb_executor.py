@@ -30,12 +30,15 @@ from unittest.mock import MagicMock, patch
 # Minimal stubs so tests run without full bot dependencies
 # ─────────────────────────────────────────────────────────────────────────────
 
+# We no longer pollute sys.modules at the global module scope because it breaks test discovery.
+# Instead, we define our mocks and import the tested modules inside a patch.dict context manager.
+
 # Stub config.settings
 settings_stub = MagicMock()
 settings_stub.PAPER_TRADE = True
 settings_stub.ARB_WALLET_ALIAS = "primary"
 settings_stub.ARB_MAX_GAS_TO_PROFIT_RATIO = 0.50
-settings_stub.ARB_RECHECK_SPREAD_BEFORE_EXEC = False  # Disable live re-check in tests
+settings_stub.ARB_RECHECK_SPREAD_BEFORE_EXEC = False
 settings_stub.ARB_MIN_SPREAD_TO_EXECUTE_PCT = 0.5
 settings_stub.ARB_SLIPPAGE_BPS = 50
 settings_stub.FLASH_ARB_MIN_PROFIT_PCT = 1.5
@@ -48,20 +51,7 @@ settings_stub.JUPITER_API_URL = "https://lite-api.jup.ag/swap/v1"
 settings_stub.JUPITER_API_KEY = ""
 settings_stub.SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
 
-sys.modules.setdefault("config", MagicMock())
-sys.modules["config"].settings = settings_stub
-sys.modules.setdefault("config.settings", settings_stub)
-sys.modules.setdefault("config.wallets", MagicMock())
-sys.modules.setdefault("config.chains", MagicMock())
-sys.modules.setdefault("core.executor", MagicMock())
-sys.modules.setdefault("core.wallet_router", MagicMock())
-sys.modules.setdefault("core.mev_protection", MagicMock())
-sys.modules.setdefault("data.providers.arb_price_feed", MagicMock())
-sys.modules.setdefault("data.http_session", MagicMock())
-sys.modules.setdefault("scanner.arb_scanner", MagicMock())
-
-# Provide STABLECOINS and ARB_GAS_COST_USD stubs
-arb_price_feed_stub = sys.modules["data.providers.arb_price_feed"]
+arb_price_feed_stub = MagicMock()
 arb_price_feed_stub.STABLECOINS = {
     "ethereum": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "base":     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -76,14 +66,12 @@ arb_price_feed_stub.ARB_GAS_COST_USD = {
     "ethereum": 15.0, "base": 0.20, "arbitrum": 0.35, "polygon": 0.05, "bsc": 0.15, "solana": 0.001,
 }
 
-# Provide wallet_router stubs
-wallet_router_stub = sys.modules["core.wallet_router"]
+wallet_router_stub = MagicMock()
 wallet_router_stub.get_usdc_balance.return_value = 10_000.0
 wallet_router_stub.get_native_balance.return_value = 1.0
 wallet_router_stub.get_native_price_usd.return_value = 3000.0
 
-# Provide chains stub
-chains_stub = sys.modules["config.chains"]
+chains_stub = MagicMock()
 chain_cfg_mock = MagicMock()
 chain_cfg_mock.rpc_url = "https://ethereum.publicnode.com"
 chain_cfg_mock.chain_id = 1
@@ -97,14 +85,12 @@ chains_stub.CHAINS = {
     "bsc": chain_cfg_mock,
 }
 
-# Provide wallets stub
-wallets_stub = sys.modules["config.wallets"]
+wallets_stub = MagicMock()
 wallet_mock = MagicMock()
 wallet_mock.alias = "primary"
 wallet_mock.address = "0x3eb320fad3f51fe4f2a4531f911ef56694346eef"
 wallets_stub.WALLETS = {"primary": wallet_mock}
 
-# Provide arb_scanner ArbOpportunity stub
 @dataclass
 class ArbOpportunity:
     strategy: str = "cross_dex"
@@ -133,39 +119,48 @@ class ArbOpportunity:
     ttl_seconds: int = 30
     discovered_at: float = field(default_factory=time.time)
 
-sys.modules["scanner.arb_scanner"].ArbOpportunity = ArbOpportunity
+arb_scanner_stub = MagicMock()
+arb_scanner_stub.ArbOpportunity = ArbOpportunity
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Now import the modules under test
-# ─────────────────────────────────────────────────────────────────────────────
+config_mock = MagicMock()
+config_mock.settings = settings_stub
 
-# Patch ARB_OUTPUT_FILE to a temp file
+mocked_modules = {
+    "config": config_mock,
+    "config.settings": settings_stub,
+    "config.wallets": wallets_stub,
+    "config.chains": chains_stub,
+    "core.executor": MagicMock(),
+    "core.wallet_router": wallet_router_stub,
+    "core.mev_protection": MagicMock(),
+    "data.providers.arb_price_feed": arb_price_feed_stub,
+    "data.http_session": MagicMock(),
+    "scanner.arb_scanner": arb_scanner_stub,
+}
+
 import tempfile
 _tmp_csv = tempfile.mktemp(suffix=".csv")
-
-# Override the ARB_OUTPUT_FILE before importing
 os.environ["ARB_OUTPUT_FILE"] = _tmp_csv
 
-from core.arb_executor import (
-    ArbExecutor,
-    FlashArbResult,
-    ArbTradeResult,
-    calculate_max_flash_size,
-    FLASH_ARB_MIN_PROFIT_PCT,
-    BALANCER_VAULT,
-    AAVE_POOL,
-)
-from core.solana_flash_arb import (
-    calculate_solana_max_flash_size,
-    simulate_jupiter_route_arb,
-    _simulate_jupiter_route_arb,
-    SolanaFlashArbResult,
-    USDC_MINT,
-)
-
-# Patch ARB_OUTPUT_FILE in the module
-import core.arb_executor as arb_module
-arb_module.ARB_OUTPUT_FILE = _tmp_csv
+with patch.dict(sys.modules, mocked_modules):
+    from core.arb_executor import (
+        ArbExecutor,
+        FlashArbResult,
+        ArbTradeResult,
+        calculate_max_flash_size,
+        FLASH_ARB_MIN_PROFIT_PCT,
+        BALANCER_VAULT,
+        AAVE_POOL,
+    )
+    from core.solana_flash_arb import (
+        calculate_solana_max_flash_size,
+        simulate_jupiter_route_arb,
+        _simulate_jupiter_route_arb,
+        SolanaFlashArbResult,
+        USDC_MINT,
+    )
+    import core.arb_executor as arb_module
+    arb_module.ARB_OUTPUT_FILE = _tmp_csv
 
 
 # ─────────────────────────────────────────────────────────────────────────────

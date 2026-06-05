@@ -132,18 +132,35 @@ def _calculate_adx(highs: list[float], lows: list[float], closes: list[float],
 # Data Sources (cascading fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _fetch_binance_candles(symbol: str, limit: int = 100) -> Optional[list]:
-    """Fetch OHLCV candles from Binance API."""
+def _fetch_kraken_candles(symbol: str, limit: int = 100) -> Optional[list]:
+    """Fetch OHLCV candles from Kraken API and format like Binance for compatibility."""
     try:
-        url = f"https://api.binance.com/api/v3/klines"
-        params = {"symbol": symbol, "interval": "1h", "limit": limit}
+        url = "https://api.kraken.com/0/public/OHLC"
+        # XBTUSD for BTC, SOLUSD for SOL
+        kraken_symbol = "XBTUSD" if "BTC" in symbol else "SOLUSD"
+        params = {"pair": kraken_symbol, "interval": 60}
         resp = get_session().get(url, params=params, timeout=10)
         if resp.status_code == 200:
-            return resp.json()
-        logger.warning(f"Binance API returned status code {resp.status_code} for {symbol}")
+            data = resp.json()
+            if not data.get("error"):
+                pair_key = [k for k in data["result"].keys() if k != "last"][0]
+                candles = data["result"][pair_key][-limit:]
+                # Convert Kraken to Binance format: [0:time, 1:open, 2:high, 3:low, 4:close, 5:volume]
+                formatted = [
+                    [
+                        c[0], # time
+                        c[1], # open
+                        c[2], # high
+                        c[3], # low
+                        c[4], # close
+                        c[6]  # volume
+                    ] for c in candles
+                ]
+                return formatted
+        logger.warning(f"Kraken API returned status code {resp.status_code} for {symbol}")
         return None
     except Exception as e:
-        logger.warning(f"Failed to fetch Binance candles for {symbol}: {e}")
+        logger.warning(f"Failed to fetch Kraken candles for {symbol}: {e}")
         return None
 
 
@@ -243,9 +260,9 @@ def get_regime(force_refresh: bool = False) -> RegimeState:
     if not force_refresh and _regime_cache and (time.time() - _regime_cache.timestamp) < _CACHE_TTL_SECONDS:
         return _regime_cache
 
-    # 1. Fetch candles from Binance API
-    btc_candles = _fetch_binance_candles("BTCUSDT", 100)
-    sol_candles = _fetch_binance_candles("SOLUSDT", 100)
+    # 1. Fetch candles from Kraken API (Binance geo-blocked)
+    btc_candles = _fetch_kraken_candles("BTCUSDT", 100)
+    sol_candles = _fetch_kraken_candles("SOLUSDT", 100)
 
     funding_rate = _fetch_funding_rate()
 

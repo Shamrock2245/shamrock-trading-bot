@@ -8,7 +8,7 @@ from config.wallets import StrategyProfile
 
 class TestRegimeFilter(unittest.TestCase):
     
-    @patch('core.regime_filter._fetch_binance_candles')
+    @patch('core.regime_filter._fetch_kraken_candles')
     @patch('core.regime_filter._fetch_funding_rate')
     def test_regime_classification_trending(self, mock_funding, mock_candles):
         # High ADX -> TRENDING
@@ -35,7 +35,7 @@ class TestRegimeFilter(unittest.TestCase):
         self.assertEqual(state.regime, Regime.TRENDING)
         self.assertTrue("TRENDING" in state.details)
 
-    @patch('core.regime_filter._fetch_binance_candles')
+    @patch('core.regime_filter._fetch_kraken_candles')
     @patch('core.regime_filter._fetch_funding_rate')
     def test_regime_classification_nuke(self, mock_funding, mock_candles):
         # Sudden sharp drop in last few candles -> NUKE
