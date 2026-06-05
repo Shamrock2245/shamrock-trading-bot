@@ -876,6 +876,27 @@ def probe_api_keys() -> dict[str, bool]:
 # STAT_ARB_FUNDING_RATE_THRESHOLD  = 0.0005  # Max negative 8h funding rate
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Black Swan Sweeper — Exploit Detection & Auto-Short Engine
+# ─────────────────────────────────────────────────────────────────────────────
+# Monitors ETH + Solana WebSockets for protocol treasury/LP drains.
+# When an exploit is detected, opens a leveraged short on Hyperliquid.
+# DISABLED by default — set BLACK_SWAN_ENABLED=true in .env to activate.
+#
+# Required for full functionality:
+#   ETH_WSS_URL    = wss://eth-mainnet.g.alchemy.com/v2/<KEY>
+#   SOLANA_WSS_URL = wss://mainnet.helius-rpc.com/?api-key=<KEY>
+BLACK_SWAN_ENABLED         = os.getenv("BLACK_SWAN_ENABLED", "false").lower() == "true"
+BLACK_SWAN_MIN_DRAIN_USD   = float(os.getenv("BLACK_SWAN_MIN_DRAIN_USD", "1000000"))
+BLACK_SWAN_SHORT_LEVERAGE  = min(int(os.getenv("BLACK_SWAN_SHORT_LEVERAGE", "5")), 10)
+BLACK_SWAN_SHORT_SIZE_USD  = float(os.getenv("BLACK_SWAN_SHORT_SIZE_USD", "100"))
+BLACK_SWAN_TIMEOUT_MINUTES = int(os.getenv("BLACK_SWAN_TIMEOUT_MINUTES", "30"))
+BLACK_SWAN_MAX_SHORTS      = int(os.getenv("BLACK_SWAN_MAX_SHORTS", "3"))
+BLACK_SWAN_CONFIRM_BLOCKS  = int(os.getenv("BLACK_SWAN_CONFIRM_BLOCKS", "1"))
+BLACK_SWAN_POLL_INTERVAL   = int(os.getenv("BLACK_SWAN_POLL_INTERVAL", "15"))
+ETH_WSS_URL                = os.getenv("ETH_WSS_URL", "")
+SOLANA_WSS_URL             = os.getenv("SOLANA_WSS_URL", "")
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dynamic Mode Override (Seamless Zero-Downtime Toggling)
 # ─────────────────────────────────────────────────────────────────────────────
 def __getattr__(name: str):

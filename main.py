@@ -500,6 +500,23 @@ async def run_bot_loop():
             logger.warning(f"Hyperliquid init failed: {e}")
             hl_executor = None
 
+    # ── Black Swan Sweeper (Exploit Detection + Auto-Short Engine) ──────────────
+    _black_swan_sweeper = None
+    try:
+        from scanner.black_swan_sweeper import init_sweeper as _init_bss
+        _black_swan_sweeper = _init_bss(hyperliquid_executor=hl_executor)
+        if _black_swan_sweeper.enabled:
+            logger.info(
+                f"🦅 BlackSwanSweeper ACTIVE | "
+                f"min_drain=${float(os.getenv('BLACK_SWAN_MIN_DRAIN_USD', '1000000')):,.0f} | "
+                f"leverage={os.getenv('BLACK_SWAN_SHORT_LEVERAGE', '5')}x | "
+                f"timeout={os.getenv('BLACK_SWAN_TIMEOUT_MINUTES', '30')}m"
+            )
+        else:
+            logger.info("🦅 BlackSwanSweeper loaded (DISABLED — set BLACK_SWAN_ENABLED=true to activate)")
+    except Exception as _bss_err:
+        logger.warning(f"BlackSwanSweeper init failed (non-blocking): {_bss_err}")
+
     # ── Start MEV Extractor Engine (Sandwich Bot + Liquidation Hunter) ────────────
     # Runs as an asyncio background task alongside the main bot loop.
     # Executes ONLY when net profit after gas/bribes is strictly positive.
