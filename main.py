@@ -1091,6 +1091,32 @@ async def run_bot_loop():
     except Exception as _dge_err:
         logger.warning(f"Daily Goal Engine failed to start: {_dge_err}")
 
+    # ── CEX/DEX StatArb Daemon ──────────────────────────────────────────────────────────
+    def _stat_arb_daemon():
+        """Background thread: continuously scans for CEX/DEX spread opportunities."""
+        import time as _time
+        _time.sleep(45)  # Wait 45s for bot to fully initialize
+        try:
+            from core.stat_arb import get_stat_arb_engine
+            _stat_arb_inst = get_stat_arb_engine()
+            logger.info("✅ StatArb Scanner daemon initialized")
+        except Exception as _stat_arb_init_err:
+            logger.warning(f"StatArb scanner init failed: {_stat_arb_init_err}")
+            return
+
+        while True:
+            try:
+                from core.stat_arb import DEFAULT_STAT_ARB_WATCHLIST
+                _stat_arb_inst.run_cycle(DEFAULT_STAT_ARB_WATCHLIST)
+                _time.sleep(15)  # Scan every 15 seconds
+            except Exception as _stat_arb_cycle_err:
+                logger.warning(f"StatArb scan cycle error: {_stat_arb_cycle_err}")
+                _time.sleep(30)
+
+    _stat_arb_thread = threading.Thread(target=_stat_arb_daemon, daemon=True, name="stat-arb-scanner")
+    _stat_arb_thread.start()
+    logger.info("✅ CEX/DEX StatArb Scanner daemon started")
+
     # ── Arbitrage Scanner Daemon: cross-DEX, triangular, cross-chain ─────────────────────
     def _arb_scan_daemon():
         """Background thread: continuously scans for arbitrage opportunities."""

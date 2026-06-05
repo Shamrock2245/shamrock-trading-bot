@@ -859,6 +859,23 @@ def probe_api_keys() -> dict[str, bool]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CEX/DEX Statistical Arbitrage Engine Settings
+# ─────────────────────────────────────────────────────────────────────────────
+# All settings are overridable via environment variables.
+# The engine reads these directly from os.getenv() in core/stat_arb.py,
+# but they are documented here for discoverability.
+#
+# STAT_ARB_ENABLED                 = true    # Enable/disable the engine
+# STAT_ARB_ENTRY_THRESHOLD_PCT     = 2.5     # Entry spread threshold (%)
+# STAT_ARB_EXIT_THRESHOLD_PCT      = 0.5     # Exit spread threshold (%)
+# STAT_ARB_TRADE_SIZE_USD          = 50.0    # Per-leg trade size (USD)
+# STAT_ARB_MAX_POSITIONS           = 5       # Max concurrent arb pairs
+# STAT_ARB_MAX_HOLD_HOURS          = 24.0    # Max hold time before force-close
+# STAT_ARB_SCAN_INTERVAL_SECONDS   = 15.0    # Spread scan interval
+# STAT_ARB_MIN_DEX_LIQUIDITY_USD   = 10000   # Min DEX liquidity required
+# STAT_ARB_FUNDING_RATE_THRESHOLD  = 0.0005  # Max negative 8h funding rate
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dynamic Mode Override (Seamless Zero-Downtime Toggling)
 # ─────────────────────────────────────────────────────────────────────────────
 def __getattr__(name: str):
