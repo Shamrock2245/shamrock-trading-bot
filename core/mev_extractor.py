@@ -1324,3 +1324,174 @@ def start_mev_engine() -> None:
 
 if __name__ == "__main__":
     start_mev_engine()
+
+
+# =============================================================================
+# JIT LIQUIDITY SNIPER INTEGRATION
+# ECC Skill: jit-liquidity-sniper
+# =============================================================================
+#
+# This section integrates the JIT Liquidity Sniper into the existing MEV
+# extraction engine. The JIT sniper runs as a parallel strategy alongside
+# the existing sandwich bot and liquidation hunter.
+#
+# JIT Strategy:
+#   1. MempoolWatcher detects pending Uniswap V3 swaps >= $100k
+#   2. JITAnalyzer evaluates profitability (tick math + fee estimation)
+#   3. JITExecutor builds calldata for JITLiquidityProvider.sol
+#   4. PrivateRPCRouter submits via Flashbots (ETH/Base/Arb) or Jito (SOL)
+#   5. Atomic: flash borrow → mint LP → whale swap fills ticks → burn LP → repay
+#
+# All JIT transactions are routed through private RPCs — NEVER the public
+# mempool — so other searchers cannot front-run our liquidity provision.
+# =============================================================================
+
+import threading as _jit_threading
+
+
+def _get_jit_sniper():
+    """Lazy-load the JIT sniper to avoid circular imports."""
+    try:
+        from core.jit_liquidity_sniper import jit_sniper
+        return jit_sniper
+    except Exception as _e:
+        logging.getLogger(__name__).warning(f"JIT sniper import failed: {_e}")
+        return None
+
+
+class JITIntegration:
+    """
+    Bridges the JIT Liquidity Sniper into the MEVExtractorEngine.
+
+    Provides:
+      - start() / stop() lifecycle management
+      - on_pending_whale_trade() for Moralis Streams integration
+      - get_stats() for dashboard integration
+      - Private RPC routing (Flashbots / Jito)
+    """
+
+    # Private RPC endpoints per chain (never broadcast to public mempool)
+    PRIVATE_RPCS = {
+        "ethereum":  "https://rpc.flashbots.net/fast",
+        "base":      "https://rpc.flashbots.net/fast",
+        "arbitrum":  "https://rpc.flashbots.net/fast",
+        "polygon":   "https://polygon-mainnet.g.alchemy.com/v2/",
+        "bsc":       "https://bsc-dataseed1.binance.org/",
+        "solana":    os.getenv(
+            "JITO_BLOCK_ENGINE_URL",
+            "https://mainnet.block-engine.jito.wtf/api/v1/bundles",
+        ),
+    }
+
+    def __init__(self):
+        self._sniper = None
+        self._lock = _jit_threading.Lock()
+        self._started = False
+        self.logger = logging.getLogger(f"{__name__}.JITIntegration")
+
+    def start(self) -> None:
+        """Start the JIT mempool watcher daemon."""
+        with self._lock:
+            if self._started:
+                return
+            self._sniper = _get_jit_sniper()
+            if self._sniper:
+                self._sniper.start()
+                self._started = True
+                self.logger.info(
+                    "✅ JIT Liquidity Sniper started | "
+                    f"min_trade=${getattr(settings, 'JIT_MIN_TRADE_SIZE_USD', 100_000):,.0f} | "
+                    f"max_flash=${getattr(settings, 'JIT_MAX_FLASH_BORROW_USD', 500_000):,.0f} | "
+                    "Private RPC: Flashbots/Jito"
+                )
+            else:
+                self.logger.warning("JIT Liquidity Sniper unavailable — skipping")
+
+    def stop(self) -> None:
+        """Stop the JIT mempool watcher."""
+        with self._lock:
+            if self._sniper and self._started:
+                self._sniper.stop()
+                self._started = False
+
+    def on_pending_whale_trade(self, tx_data: dict) -> None:
+        """
+        Called when a large pending swap is detected (e.g., from Moralis Streams).
+
+        tx_data keys:
+          chain, value_usd, to_address, token_in, token_out, hash,
+          fee_tier (optional), current_tick (optional)
+        """
+        if self._sniper and self._started:
+            try:
+                self._sniper.on_pending_whale_trade(tx_data)
+            except Exception as e:
+                self.logger.error(f"JIT on_pending_whale_trade error: {e}")
+
+    def on_moralis_large_swap(self, event: dict) -> None:
+        """Called by Moralis Streams large-swap webhook handler."""
+        if self._sniper and self._started:
+            try:
+                self._sniper.on_moralis_large_swap(event)
+            except Exception as e:
+                self.logger.error(f"JIT on_moralis_large_swap error: {e}")
+
+    def get_stats(self) -> dict:
+        """Returns JIT statistics for dashboard integration."""
+        if self._sniper and self._started:
+            try:
+                return self._sniper.get_stats()
+            except Exception:
+                pass
+        return {
+            "enabled": False,
+            "opportunities_detected": 0,
+            "opportunities_executed": 0,
+            "total_profit_usd": 0.0,
+            "hit_rate_pct": 0.0,
+        }
+
+    def get_private_rpc(self, chain: str) -> str:
+        """Returns the private RPC URL for a given chain."""
+        return self.PRIVATE_RPCS.get(chain, self.PRIVATE_RPCS["ethereum"])
+
+
+# Module-level JIT integration singleton
+jit_integration = JITIntegration()
+
+
+def get_jit_integration() -> JITIntegration:
+    """Returns the global JIT integration singleton."""
+    return jit_integration
+
+
+# Patch MEVExtractorEngine to include JIT as a third strategy
+_original_engine_init = MEVExtractorEngine.__init__
+_original_engine_run = MEVExtractorEngine.run
+_original_engine_status = MEVExtractorEngine.get_status
+
+
+def _patched_engine_init(self):
+    _original_engine_init(self)
+    self.jit = jit_integration
+
+
+def _patched_engine_run(self):
+    """Starts all MEV strategies including JIT."""
+    # Start JIT in background thread (it uses its own WebSocket event loop)
+    self.jit.start()
+    # Run the original async sandwich + liquidation engine
+    return _original_engine_run(self)
+
+
+def _patched_engine_status(self) -> dict:
+    """Extended status dict including JIT statistics."""
+    base_status = _original_engine_status(self)
+    base_status["jit"] = self.jit.get_stats()
+    base_status["jit_private_rpcs"] = list(JITIntegration.PRIVATE_RPCS.keys())
+    return base_status
+
+
+MEVExtractorEngine.__init__ = _patched_engine_init
+MEVExtractorEngine.run = _patched_engine_run
+MEVExtractorEngine.get_status = _patched_engine_status

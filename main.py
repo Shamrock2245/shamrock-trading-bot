@@ -970,7 +970,9 @@ async def run_bot_loop():
             _mempool_sniper = None
             try:
                 from core.mempool_alpha_sniper import mempool_sniper as _mempool_sniper_inst
+                from core.jit_liquidity_sniper import jit_sniper as _jit_sniper_inst
                 _mempool_sniper = _mempool_sniper_inst
+                _jit_sniper = _jit_sniper_inst
                 logger.info(
                     f"✅ Mempool Alpha-Sniper activated — "
                     f"elite_threshold={getattr(settings, 'MEMPOOL_SNIPER_ELITE_SCORE', 90.0):.0f} | "
@@ -981,15 +983,32 @@ async def run_bot_loop():
                 logger.warning(f"Mempool Alpha-Sniper failed to initialize: {_sniper_init_err}")
 
             def _on_swap_event_with_sniper(wallet_address: str, swap: dict):
-                """Dual-path swap handler: standard copy-trade + mempool alpha-sniper."""
+                """Tri-path swap handler: standard copy-trade + mempool alpha-sniper + JIT liquidity sniper."""
                 # Path 1: Standard WalletMonitor copy-trade pipeline (unchanged)
                 wm.ingest_external_swap(wallet_address, swap)
+                
                 # Path 2: Mempool Alpha-Sniper — only fires for elite wallets (score > 90)
                 if _mempool_sniper is not None and getattr(settings, "MEMPOOL_SNIPER_ENABLED", True):
                     try:
                         _mempool_sniper.on_evm_swap_event(wallet_address, swap)
                     except Exception as _sniper_err:
                         logger.debug(f"Mempool sniper EVM handler error: {_sniper_err}")
+                        
+                # Path 3: JIT Liquidity Sniper pipeline
+                if getattr(settings, "JIT_ENABLED", True):
+                    try:
+                        tx_data = {
+                            "chain": swap.get("chain", "ethereum"),
+                            "value_usd": swap.get("buy_value_usd", 0.0) + swap.get("sell_value_usd", 0.0),
+                            "to_address": swap.get("pool_address", ""),
+                            "token_in": swap.get("token_in", ""),
+                            "token_out": swap.get("token_out", ""),
+                            "hash": swap.get("tx_hash", "")
+                        }
+                        if tx_data["value_usd"] >= getattr(settings, "JIT_MIN_TRADE_SIZE_USD", 100000.0):
+                            _jit_sniper.on_pending_whale_trade(tx_data)
+                    except Exception as _jit_err:
+                        logger.debug(f"JIT sniper EVM handler error: {_jit_err}")
 
             def _on_solana_alpha_event_with_sniper(wallet_address: str, swap: dict):
                 """Dual-path Solana alpha handler: gem eval + mempool alpha-sniper."""
@@ -1162,6 +1181,22 @@ async def run_bot_loop():
         "✅ Arbitrage Scanner daemon started — "
         "cross-DEX | triangular | cross-chain | $500/day floor active"
     )
+
+    # ── MEV Extractor: JIT Liquidity Sniper + Backrun Engine ──────────────────────────────────────────────────────────────────────────────
+    _mev_extractor = None
+    try:
+        from core.mev_extractor import get_mev_extractor
+        _mev_extractor = get_mev_extractor()
+        _mev_extractor.start()
+        logger.info(
+            "✅ MEV Extractor daemon started — "
+            "JIT Liquidity Sniper ACTIVE | "
+            f"min_trade=${getattr(settings, 'JIT_MIN_TRADE_SIZE_USD', 100000):,.0f} | "
+            f"max_flash=${getattr(settings, 'JIT_MAX_FLASH_BORROW_USD', 500000):,.0f} | "
+            "Private RPC routing: Flashbots/Jito"
+        )
+    except Exception as _mev_err:
+        logger.warning(f"MEV Extractor failed to start: {_mev_err}")
 
     # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
     def _rl_training_daemon():
