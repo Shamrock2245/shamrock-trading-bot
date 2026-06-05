@@ -1112,6 +1112,21 @@ async def run_bot_loop():
     except Exception as _sd_err:
         logger.warning(f"Sniper Discovery daemon failed to start: {_sd_err}")
 
+    # ── Alpha Wallet Auto-Discovery Daemon (72-hour PnL hunter) ──────────────────────────────
+    _alpha_wallet_discovery_daemon = None
+    try:
+        from core.alpha_wallet_discovery import start_alpha_discovery as _start_alpha_discovery
+        _alpha_wallet_discovery_daemon = _start_alpha_discovery(run_immediately=True)
+        logger.info(
+            "\u2705 Alpha Wallet Discovery daemon started \u2014 "
+            "72-hour PnL hunter across 8 sources: Moralis top-traders, whale accumulation, "
+            "top-gainers, DexScreener boosts, Pump.fun graduated, GMGN smart-money, "
+            "EVM snipers, leaderboard re-score. "
+            "Auto-updates sniper_leaderboard.json every 2h (score threshold: 90+)"
+        )
+    except Exception as _awd_err:
+        logger.warning(f"Alpha Wallet Discovery daemon failed to start: {_awd_err}")
+
     # ── Daily Goal Engine: $500/day floor with dynamic tier escalation ──────────────────────
     _daily_goal_engine = None
     try:
