@@ -638,6 +638,7 @@ def _approve_token_for_1inch(
     # without leaving unlimited spend allowance (security best practice)
     approval_amount = token_amount_wei * 2 if token_amount_wei > 0 else 2**256 - 1
     logger.info(f"Approving {'bounded' if token_amount_wei > 0 else 'unlimited'} spend for 1inch")
+
     approve_tx = contract.functions.approve(
         Web3.to_checksum_address(spender),
         approval_amount,
