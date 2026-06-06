@@ -1239,7 +1239,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             # sold externally (or is a honeypot). Retrying is futile —
             # close the phantom position so it stops spamming CRITICAL alerts.
             err_str = str(e)
-            if "On-chain balance is 0" in err_str:
+            if "On-chain balance is 0" in err_str or "resolved_units=0" in err_str:
                 logger.warning(
                     f"🧹 AUTO-CLOSING PHANTOM: {pos.get('token_symbol')} on {pos.get('chain')} — "
                     f"on-chain balance is 0. Position was likely sold externally or is a honeypot."
