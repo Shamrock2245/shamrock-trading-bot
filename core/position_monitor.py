@@ -1233,6 +1233,33 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
         except Exception as e:
             logger.error(f"Live sell failed for {pos.get('token_symbol')}: {e}")
             trade_record["error"] = str(e)
+
+            # ── AUTO-CLOSE PHANTOM: on-chain balance confirmed 0 ────────
+            # If the sell engine reports zero balance, the token was already
+            # sold externally (or is a honeypot). Retrying is futile —
+            # close the phantom position so it stops spamming CRITICAL alerts.
+            err_str = str(e)
+            if "On-chain balance is 0" in err_str:
+                logger.warning(
+                    f"🧹 AUTO-CLOSING PHANTOM: {pos.get('token_symbol')} on {pos.get('chain')} — "
+                    f"on-chain balance is 0. Position was likely sold externally or is a honeypot."
+                )
+                try:
+                    from notifications.slack import send_slack_message
+                    send_slack_message(
+                        f"🧹 *PHANTOM CLOSED*: `{pos.get('token_symbol')}` on `{pos.get('chain')}` — "
+                        f"on-chain balance is 0. Auto-closed to stop retry spam."
+                    )
+                except Exception:
+                    pass
+                trade_record["auto_closed_phantom"] = True
+                append_trade(trade_record)
+                pos = dict(pos)
+                pos["remaining_quantity"] = 0
+                pos["closed_at"] = time.time()
+                pos["close_reason"] = "phantom_zero_balance"
+                return pos
+
             fail_count = pos.get("sell_failure_count", 0) + 1
             pos["sell_failure_count"] = fail_count
             if fail_count >= 2:
