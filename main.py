@@ -1127,6 +1127,32 @@ async def run_bot_loop():
     except Exception as _awd_err:
         logger.warning(f"Alpha Wallet Discovery daemon failed to start: {_awd_err}")
 
+    # ── Benchmark Optimization Loop (ECC: benchmark-optimization-loop) ─────────────────────
+    _benchmark_loop = None
+    try:
+        from scripts.benchmark_loop import start_benchmark_loop as _start_benchmark_loop
+        _benchmark_loop = _start_benchmark_loop()
+        logger.info(
+            "✅ Benchmark Optimization Loop started — "
+            "Simulates TP/SL/trailing-stop parameter grid every 1h on recent trades. "
+            "Auto-applies optimal risk params to live .env. "
+            "Also recalculates Alpha Wallet Rankings each cycle."
+        )
+    except Exception as _bl_err:
+        logger.warning(f"Benchmark Optimization Loop failed to start: {_bl_err}")
+    # ── Social Insider Oracle (ECC: sentiment-insider-oracle) ────────────────────────────────
+    try:
+        from core.social_insider_oracle import oracle as _social_oracle
+        logger.info(
+            "✅ Social Insider Oracle initialized — "
+            "KOL cabal detection + pre-volume social spike sniping active. "
+            f"Tracking {len(_social_oracle.known_kols)} known KOLs. "
+            "Velocity threshold: "
+            f"{getattr(settings, 'ORACLE_VELOCITY_THRESHOLD_5M', 10)}/5m | "
+            f"Cabal threshold: {getattr(settings, 'ORACLE_CABAL_KOL_THRESHOLD', 3)} KOLs."
+        )
+    except Exception as _so_err:
+        logger.warning(f"Social Insider Oracle failed to initialize: {_so_err}")
     # ── Daily Goal Engine: $500/day floor with dynamic tier escalation ──────────────────────
     _daily_goal_engine = None
     try:

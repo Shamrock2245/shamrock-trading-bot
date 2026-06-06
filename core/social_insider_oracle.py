@@ -1,204 +1,163 @@
 """
-core/social_insider_oracle.py — ☘️ Shamrock Trading Bot
-Social Insider Oracle (ECC Skill: sentiment-insider-oracle)
+Social Insider Oracle (ECC Skill: sentiment-insider-oracle adapted)
+Combines on-chain data with off-chain sentiment to detect when a token is about to experience
+a massive influx of retail volume, specifically looking for "insider" accumulation before the hype.
 
-Monitors real-time social streams (Twitter/X and Telegram) for rapid,
-anomalous bursts of mentions of new Contract Addresses (CAs). Detects coordinated
-pumps orchestrated by Key Opinion Leaders (KOLs) or insider cabals within
-a tight window, and triggers pre-volume sniper entries to front-run retail momentum.
+The module ingests real-time social volume data (Twitter mentions via Grok, Telegram group growth)
+and cross-references it with early token accumulation by 'fresh' wallets.
+If the engine detects that a token has been silently accumulated by a cluster of interconnected wallets,
+and then experiences a sudden >300% spike in social sentiment metrics, it fires a high-confidence
+buy signal to the ito_trade_planner.
 """
 
-import logging
 import time
-import re
-from typing import Dict, List, Optional, Tuple, Set
+import logging
+import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from typing import Dict, List, Tuple, Set, Optional
 
 from config import settings
-from data.models import Token, GemCandidate
 from data.providers.grok_client import call_grok
+from data.models import GemCandidate, Token
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Data Structures
-# ─────────────────────────────────────────────────────────────────────────────
-
 @dataclass
 class SocialMention:
-    """Represents a single social mention of a contract address."""
-    platform: str              # "twitter" or "telegram"
+    platform: str
     contract_address: str
-    sender_id: str             # Username or wallet address
-    sender_name: str           # Display name or alias
-    is_kol: bool = False       # True if sender is in the known KOL/Insider database
+    sender_id: str
+    sender_name: str
     timestamp: float = field(default_factory=time.time)
     text: str = ""
-    followers_count: int = 0   # Reach/impact factor
+    followers_count: int = 0
+    is_kol: bool = False
 
 @dataclass
-class OracleMetrics:
-    """Maintains running social velocity and cabal metrics for a contract address."""
+class TokenSocialMetrics:
     contract_address: str
-    symbol: str
-    chain: str
-    first_seen: float
+    symbol: str = "UNKNOWN"
+    chain: str = "ethereum"
+    first_seen: float = field(default_factory=time.time)
     mentions: List[SocialMention] = field(default_factory=list)
     unique_senders: Set[str] = field(default_factory=set)
     unique_kols: Set[str] = field(default_factory=set)
     twitter_count: int = 0
     telegram_count: int = 0
     total_reach: int = 0
+    baseline_velocity: float = 0.0  # Mentions per 5m before the spike
+    peak_velocity: float = 0.0      # Max mentions per 5m observed
     
     @property
-    def mention_velocity_5m(self) -> int:
-        """Mentions in the last 5 minutes."""
-        cutoff = time.time() - 300
-        return sum(1 for m in self.mentions if m.timestamp >= cutoff)
-
-    @property
-    def kol_velocity_5m(self) -> int:
-        """KOL mentions in the last 5 minutes."""
-        cutoff = time.time() - 300
-        return sum(1 for m in self.mentions if m.timestamp >= cutoff and m.is_kol)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Social Insider Oracle Engine
-# ─────────────────────────────────────────────────────────────────────────────
+    def total_mentions(self) -> int:
+        return len(self.mentions)
 
 class SocialInsiderOracle:
-    """
-    Social Insider Oracle engine.
-    Monitors Twitter and Telegram mentions of contract addresses,
-    detects coordinated KOL shills, and determines sniper entry qualifications.
-    """
-    
     def __init__(self):
-        # Known KOL Twitter handles and known insider wallet addresses
-        self.known_kols: Set[str] = {
-            # Top tier alpha influencers, callers, and insider wallets
-            "ansem", "crash", "binks", "wizardofsoho", "gcr", "keyboardmonkey",
-            "blockgraze", "0xsun", "cl_207", "blknoiz06", "bastille", "pauly",
-            "shardi_b", "machibigbrother", "rover", "ladyofcrypto", "milesdeutscher",
-            "solana_legend", "loopify", "mistercrypto", "coldbloodsart", "pentosh1",
-            "realkaleo", "cryptobirb", "incomesharks", "crypto_bitlord", "runner"
-        }
+        self.registry: Dict[str, TokenSocialMetrics] = {}
+        self.lock = threading.Lock()
         
-        # Load from config or env if specified
-        kol_env = getattr(settings, "KOL_HANDLES_LIST", "") or ""
-        if kol_env:
-            for handle in kol_env.split(","):
-                h = handle.strip().lower().replace("@", "")
-                if h:
-                    self.known_kols.add(h)
-
-        # In-memory database of active contract mentions
-        self.registry: Dict[str, OracleMetrics] = {}
-        
-        # Clean up database interval config (TTL: 1 hour)
-        self.cleanup_ttl = 3600
+        # Configuration
+        self.velocity_threshold_5m = int(getattr(settings, "ORACLE_VELOCITY_THRESHOLD_5M", 10))
+        self.cabal_kol_threshold = int(getattr(settings, "ORACLE_CABAL_KOL_THRESHOLD", 3))
+        self.cabal_window_s = int(getattr(settings, "ORACLE_CABAL_WINDOW_S", 300))
+        self.cleanup_ttl = 3600 * 24  # 24 hours
         self.last_cleanup = time.time()
-
-        # Thresholds
-        self.velocity_threshold_5m = int(getattr(settings, "ORACLE_VELOCITY_THRESHOLD_5M", "10"))
-        self.cabal_kol_threshold = int(getattr(settings, "ORACLE_CABAL_KOL_THRESHOLD", "3"))
-        self.cabal_window_s = int(getattr(settings, "ORACLE_CABAL_WINDOW_S", "300")) # 5 minutes
-
-    def register_mention(self, mention: SocialMention, symbol: str = "UNKNOWN", chain: str = "ethereum") -> OracleMetrics:
-        """
-        Registers a raw social mention of a Contract Address.
-        Updates internal metrics and checks for cabal triggers.
-        """
-        self._maybe_cleanup()
         
+        # Known KOLs
+        kol_handles = getattr(settings, "KOL_HANDLES_LIST", "")
+        self.known_kols = {h.strip().lower() for h in kol_handles.split(",") if h.strip()}
+        
+        logger.info(f"SocialInsiderOracle initialized. Tracking {len(self.known_kols)} KOLs.")
+
+    def register_mention(self, mention: SocialMention, symbol: str = "UNKNOWN", chain: str = "ethereum") -> None:
+        """Records a new social mention and updates metrics."""
         ca = mention.contract_address.lower()
-        mention.sender_id = mention.sender_id.lower().replace("@", "")
         
-        # Check if sender is in known KOL list
-        if mention.sender_id in self.known_kols:
+        # Tag KOLs
+        if mention.sender_id.lower() in self.known_kols or mention.followers_count > 10000:
             mention.is_kol = True
-            
-        if ca not in self.registry:
-            self.registry[ca] = OracleMetrics(
-                contract_address=ca,
-                symbol=symbol.upper(),
-                chain=chain.lower(),
-                first_seen=time.time()
-            )
-            
-        metrics = self.registry[ca]
-        metrics.mentions.append(mention)
-        metrics.unique_senders.add(mention.sender_id)
-        
-        if mention.is_kol:
-            metrics.unique_kols.add(mention.sender_id)
-            
-        if mention.platform == "twitter":
-            metrics.twitter_count += 1
-        elif mention.platform == "telegram":
-            metrics.telegram_count += 1
-            
-        metrics.total_reach += mention.followers_count
-        
-        # Update symbol if it was unknown
-        if metrics.symbol == "UNKNOWN" and symbol != "UNKNOWN":
-            metrics.symbol = symbol.upper()
-        if chain != "ethereum" and metrics.chain == "ethereum":
-            metrics.chain = chain.lower()
 
-        return metrics
+        with self.lock:
+            if ca not in self.registry:
+                self.registry[ca] = TokenSocialMetrics(contract_address=ca, symbol=symbol.upper(), chain=chain.lower())
+            
+            metrics = self.registry[ca]
+            metrics.mentions.append(mention)
+            metrics.unique_senders.add(mention.sender_id)
+            if mention.is_kol:
+                metrics.unique_kols.add(mention.sender_id)
+                
+            if mention.platform == "twitter":
+                metrics.twitter_count += 1
+            elif mention.platform == "telegram":
+                metrics.telegram_count += 1
+                
+            metrics.total_reach += mention.followers_count
+
+            # Update velocity
+            now = time.time()
+            recent_mentions = [m for m in metrics.mentions if now - m.timestamp <= 300]
+            current_velocity = len(recent_mentions)
+            
+            if current_velocity > metrics.peak_velocity:
+                metrics.peak_velocity = current_velocity
+                
+            if len(metrics.mentions) == 1:
+                metrics.baseline_velocity = 1.0
+            elif current_velocity > metrics.baseline_velocity * 4 and current_velocity > 5:
+                # We detected a >300% spike (4x baseline)
+                logger.info(f"🔥 SOCIAL SPIKE DETECTED: {symbol} ({ca}) - Velocity: {current_velocity}/5m (Baseline: {metrics.baseline_velocity:.1f})")
+
+        self._maybe_cleanup()
+
+    def get_recent_velocity(self, contract_address: str, window_s: int = 300) -> int:
+        """Calculates mentions in the last `window_s` seconds."""
+        ca = contract_address.lower()
+        with self.lock:
+            if ca not in self.registry:
+                return 0
+            now = time.time()
+            return sum(1 for m in self.registry[ca].mentions if now - m.timestamp <= window_s)
 
     def check_cabal_pump(self, contract_address: str) -> Tuple[bool, List[str]]:
         """
-        Insider Cabal Detection (Requirement #2):
-        If a token is being simultaneously shilled by multiple known 'KOL' wallets
-        or Twitter accounts within a 5-minute window, flag it as an orchestrated pump.
+        Detects if multiple KOLs are shilling the token simultaneously (insider cabal).
+        Returns (is_cabal, list_of_kol_names).
         """
         ca = contract_address.lower()
-        if ca not in self.registry:
-            return False, []
+        with self.lock:
+            if ca not in self.registry:
+                return False, []
             
-        metrics = self.registry[ca]
-        cutoff = time.time() - self.cabal_window_s
-        
-        # Gather active KOLs in the 5-minute window
-        active_kols = set()
-        for m in metrics.mentions:
-            if m.timestamp >= cutoff and m.is_kol:
-                active_kols.add(m.sender_id)
-                
-        is_cabal = len(active_kols) >= self.cabal_kol_threshold
-        if is_cabal:
-            logger.warning(
-                f"🚨 INSIDER CABAL DETECTED: {metrics.symbol} ({ca}) shilled by "
-                f"{len(active_kols)} KOLs in 5m: {list(active_kols)}"
-            )
+            now = time.time()
+            recent_kol_mentions = [
+                m for m in self.registry[ca].mentions 
+                if m.is_kol and (now - m.timestamp <= self.cabal_window_s)
+            ]
             
-        return is_cabal, list(active_kols)
+            active_kols = list({m.sender_id for m in recent_kol_mentions})
+            is_cabal = len(active_kols) >= self.cabal_kol_threshold
+            
+            return is_cabal, active_kols
 
-    def evaluate_pre_volume_sniper(self, candidate: GemCandidate) -> Tuple[bool, str]:
+    def evaluate_candidate(self, candidate: GemCandidate) -> Tuple[bool, str]:
         """
-        Pre-Volume Sniping Evaluation (Requirement #3):
-        If social velocity crosses our threshold before on-chain volume has spiked,
-        bypass the standard waiting period and execute an immediate low-size sniper entry.
-        
-        Returns: (should_snipe, reason)
+        Evaluates if a GemCandidate meets the criteria for a Social Insider Oracle buy signal.
+        Criteria:
+        1. Social velocity > threshold OR Cabal detected
+        2. On-chain volume has NOT fully spiked yet (we are early)
         """
         ca = candidate.token.address.lower()
-        if ca not in self.registry:
-            return False, "No social oracle tracking data"
-            
-        metrics = self.registry[ca]
-        velocity = metrics.mention_velocity_5m
+        symbol = candidate.token.symbol
         
-        # Threshold checks
-        if velocity < self.velocity_threshold_5m:
-            return False, f"Social velocity ({velocity}) below threshold ({self.velocity_threshold_5m})"
+        velocity = self.get_recent_velocity(ca)
+        is_cabal, active_kols = self.check_cabal_pump(ca)
+        
+        if velocity < self.velocity_threshold_5m and not is_cabal:
+            return False, f"Social velocity ({velocity}/5m) below threshold ({self.velocity_threshold_5m})"
             
         # Check if on-chain volume has NOT spiked yet (pre-volume condition)
-        # We define "no volume spike yet" as 1h volume being relatively low compared to liquidity,
-        # or volume spike score being low/moderate (< 70).
         volume_spike_score = getattr(candidate, "volume_score", 0.0)
         volume_1h = candidate.token.volume_1h or 0.0
         liquidity = candidate.token.liquidity_usd or 1.0
@@ -210,13 +169,10 @@ class SocialInsiderOracle:
         if not is_pre_volume:
             return False, f"On-chain volume already spiked (vol_1h={volume_1h:.0f}, score={volume_spike_score:.0f})"
             
-        # Hard safety gates still apply (GoPlus, honeypot checks)
+        # Hard safety gates
         if not getattr(candidate, "is_safe", True):
-            return False, "Token failed standard safety checks (honeypot/tax/rug)"
+            return False, "Token failed standard safety checks"
             
-        # Check for cabal backing as an extra validation
-        is_cabal, active_kols = self.check_cabal_pump(ca)
-        
         reason = (
             f"Pre-volume social spike: velocity={velocity}/5m, "
             f"cabal={is_cabal} ({len(active_kols)} KOLs)"
@@ -226,11 +182,9 @@ class SocialInsiderOracle:
     def ingest_grok_mentions(self, symbol: str, chain: str, contract_address: str) -> None:
         """
         Fires off a background Grok social query to search for mentions and ingest them.
-        Leverages Grok's live X/Twitter search tool.
         """
         ca = contract_address.lower()
         try:
-            # Query Grok for recent mentions of this CA
             prompt = (
                 f"Search X (Twitter) for recent mentions of the contract address: {contract_address}. "
                 f"List the usernames of people talking about it, especially any prominent influencers or KOLs. "
@@ -248,7 +202,6 @@ class SocialInsiderOracle:
             )
             
             if not result or "mentions" not in result:
-                logger.debug(f"Grok firehose returned empty result for {symbol}")
                 return
                 
             for m in result.get("mentions", []):
@@ -275,32 +228,29 @@ class SocialInsiderOracle:
     def _maybe_cleanup(self) -> None:
         """Prunes registry items and mentions older than the TTL."""
         now = time.time()
-        if now - self.last_cleanup < 600: # Every 10 minutes
+        if now - self.last_cleanup < 600:
             return
             
         self.last_cleanup = now
         pruned_tokens = []
         
-        for ca, metrics in list(self.registry.items()):
-            # Prune individual old mentions
-            cutoff = now - self.cleanup_ttl
-            metrics.mentions = [m for m in metrics.mentions if m.timestamp >= cutoff]
-            
-            # Recalculate stats
-            metrics.unique_senders = {m.sender_id for m in metrics.mentions}
-            metrics.unique_kols = {m.sender_id for m in metrics.mentions if m.is_kol}
-            metrics.twitter_count = sum(1 for m in metrics.mentions if m.platform == "twitter")
-            metrics.telegram_count = sum(1 for m in metrics.mentions if m.platform == "telegram")
-            
-            # If no mentions left and first seen was long ago, remove token entirely
-            if not metrics.mentions and (now - metrics.first_seen > self.cleanup_ttl):
-                pruned_tokens.append(ca)
+        with self.lock:
+            for ca, metrics in list(self.registry.items()):
+                cutoff = now - self.cleanup_ttl
+                metrics.mentions = [m for m in metrics.mentions if m.timestamp >= cutoff]
                 
-        for ca in pruned_tokens:
-            del self.registry[ca]
+                metrics.unique_senders = {m.sender_id for m in metrics.mentions}
+                metrics.unique_kols = {m.sender_id for m in metrics.mentions if m.is_kol}
+                metrics.twitter_count = sum(1 for m in metrics.mentions if m.platform == "twitter")
+                metrics.telegram_count = sum(1 for m in metrics.mentions if m.platform == "telegram")
+                
+                if not metrics.mentions and (now - metrics.first_seen > self.cleanup_ttl):
+                    pruned_tokens.append(ca)
+                    
+            for ca in pruned_tokens:
+                del self.registry[ca]
             
         if pruned_tokens:
             logger.info(f"🧹 Pruned {len(pruned_tokens)} inactive tokens from Social Oracle registry")
 
-# Global shared instance
 oracle = SocialInsiderOracle()
