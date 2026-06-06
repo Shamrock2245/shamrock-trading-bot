@@ -87,6 +87,17 @@ ESTIMATED_GAS_COST_USD = {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Chain-specific Allocation Weights
+# ─────────────────────────────────────────────────────────────────────────────
+WALLET_CHAIN_ALLOCATION = {
+    'base':     {'primary': 0.60, 'wallet_b': 0.05},   # Primary focus
+    'arbitrum': {'primary': 0.05, 'wallet_b': 0.25},   # Wallet B focus
+    'solana':   {'primary': 0.10},                     # Pump.fun sniping
+    'bsc':      {'primary': 0.05},                     # Memecoin scanning
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Phase-Based Capital Scaling
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -732,6 +743,14 @@ def route_trade(
             effective_max_pct = min(phase_max_pct, recovery_cap_pct)
         else:
             effective_max_pct = min(phase_max_pct, profile_max_pct)
+
+        # ── Custom Chain-Wallet Allocation Weighting ─────────────────────────
+        wallet_alias_key = wallet.alias.lower().replace(" ", "_")
+        if chain.lower() in WALLET_CHAIN_ALLOCATION:
+            chain_allocs = WALLET_CHAIN_ALLOCATION[chain.lower()]
+            if wallet_alias_key in chain_allocs:
+                # Apply the explicit target allocation weight
+                effective_max_pct = chain_allocs[wallet_alias_key]
 
         # ── Avalanche 90% Deployment Override ─────────────────────────────────
         # User requested explicitly deploying 90% of Avax across 2 solid trades
