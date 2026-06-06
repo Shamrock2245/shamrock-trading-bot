@@ -22,8 +22,8 @@ from data.providers.arb_price_feed import STABLECOINS
 logger = logging.getLogger(__name__)
 
 # Minimum capital to leave in the hot wallet per chain (gas + working capital)
-BUFFER_USD = 2000.0  
-MIN_SWEEP_USD = 50.0  # Do not execute sweeps smaller than $50
+BUFFER_USD = float(os.getenv("PROFIT_SWEEP_BUFFER_USD", "2000.0"))
+MIN_SWEEP_USD = float(os.getenv("PROFIT_SWEEP_MIN_USD", "50.0"))
 
 # Standard ERC-20 transfer ABI
 ERC20_ABI = [
@@ -40,7 +40,7 @@ ERC20_ABI = [
 ]
 
 _last_sweep_time: float = 0.0
-SWEEP_COOLDOWN_SECONDS = 12 * 3600  # 12 hours between sweeps to prevent loops
+SWEEP_COOLDOWN_SECONDS = int(os.getenv("PROFIT_SWEEP_COOLDOWN_SECONDS", str(12 * 3600)))
 
 
 def execute_sweep() -> bool:
@@ -120,8 +120,13 @@ def execute_sweep() -> bool:
                     
                     signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
                     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-                    logger.info(f"✅ USDC Sweep Transaction broadcasted on {chain}: {w3.to_hex(tx_hash)}")
-                    sweep_executed = True
+                    logger.info(f"⏳ USDC Sweep tx broadcasted on {chain}: {w3.to_hex(tx_hash)} — waiting for receipt...")
+                    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+                    if receipt.status == 1:
+                        logger.info(f"✅ USDC Sweep confirmed on {chain}: ${amount_to_sweep:.2f} → {paycheck_wallet[:10]}...")
+                        sweep_executed = True
+                    else:
+                        logger.error(f"❌ USDC Sweep REVERTED on {chain}: {w3.to_hex(tx_hash)} — funds NOT moved")
             except Exception as e:
                 logger.error(f"❌ Failed to sweep USDC on {chain}: {e}")
 

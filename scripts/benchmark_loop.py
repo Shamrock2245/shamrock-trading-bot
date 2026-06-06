@@ -27,7 +27,8 @@ TRADES_FILE = Path(getattr(settings, "TRADES_FILE", "output/trades.json"))
 class BenchmarkOptimizationLoop:
     def __init__(self):
         self.running = False
-        self.interval_s = 3600  # Run every hour
+        # Interval is env-configurable — default 6h per audit spec
+        self.interval_s = int(os.getenv("BENCHMARK_INTERVAL_SECONDS", str(6 * 3600)))
         self._thread: Optional[threading.Thread] = None
 
     def start(self):
@@ -265,6 +266,13 @@ def start_benchmark_loop():
     loop = BenchmarkOptimizationLoop()
     loop.start()
     return loop
+
+
+def run_benchmark():
+    """Run a single benchmark optimization cycle synchronously (for daemon use)."""
+    loop = BenchmarkOptimizationLoop()
+    loop._run_optimization_cycle()
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

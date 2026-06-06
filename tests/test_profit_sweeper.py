@@ -19,6 +19,10 @@ def test_execute_sweep_success(mock_get_usdc_balance, mock_web3_class, mock_env)
     mock_w3.is_connected.return_value = True
     mock_w3.eth.get_transaction_count.return_value = 1
     mock_w3.eth.gas_price = 1000000000
+    # Mock receipt confirmation (status=1 means success)
+    mock_receipt = MagicMock()
+    mock_receipt.status = 1
+    mock_w3.eth.wait_for_transaction_receipt.return_value = mock_receipt
     mock_web3_class.return_value = mock_w3
     mock_web3_class.is_address.return_value = True
     

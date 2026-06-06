@@ -476,6 +476,7 @@ def execute_sell_evm(
                                 private_key=private_key,
                                 chain_id=chain_config.chain_id,
                                 chain=chain,
+                                token_amount_wei=token_amount_wei,
                             )
                             # FIX: Wait for approval to propagate (1-2 blocks)
                             logger.info("⏳ Waiting 5s for approval tx to confirm...")
@@ -586,10 +587,12 @@ def _approve_token_for_1inch(
     private_key: str,
     chain_id: int,
     chain: str,
+    token_amount_wei: int = 0,
 ) -> bool:
     """
     Approve 1inch router to spend token (required for ERC-20 sells).
     Uses 1inch approve API to get the correct spender address.
+    Uses bounded approval (2x sell amount) instead of unlimited for security.
     """
     from data.http_session import get_session
     from config import settings
@@ -631,9 +634,13 @@ def _approve_token_for_1inch(
     account = Account.from_key(private_key)
     nonce = w3.eth.get_transaction_count(account.address, "pending")
 
+    # Bounded approval: 2x the sell amount to cover slippage retries
+    # without leaving unlimited spend allowance (security best practice)
+    approval_amount = token_amount_wei * 2 if token_amount_wei > 0 else 2**256 - 1
+    logger.info(f"Approving {'bounded' if token_amount_wei > 0 else 'unlimited'} spend for 1inch")
     approve_tx = contract.functions.approve(
         Web3.to_checksum_address(spender),
-        2**256 - 1,  # Max approval
+        approval_amount,
     ).build_transaction({
         "from": account.address,
         "nonce": nonce,

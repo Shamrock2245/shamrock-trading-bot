@@ -3301,7 +3301,9 @@ async def run_bot_loop():
                                 continue
                             evm_addr = getattr(_wv, 'address', '')
                             if evm_addr:
-                                for _chain in ['eth', 'base']:
+                                # Reconcile all active EVM chains (not just eth+base)
+                                _evm_chains = [c for c in settings.ACTIVE_CHAINS if c != 'solana']
+                                for _chain in _evm_chains:
                                     reconcile_evm_positions(evm_addr, chain=_chain)
                     except Exception as evm_recon_err:
                         logger.debug(f'EVM reconciliation error: {evm_recon_err}')
