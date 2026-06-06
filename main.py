@@ -1127,19 +1127,29 @@ async def run_bot_loop():
     except Exception as _awd_err:
         logger.warning(f"Alpha Wallet Discovery daemon failed to start: {_awd_err}")
 
-    # ── Benchmark Optimization Loop (ECC: benchmark-optimization-loop) ─────────────────────
-    _benchmark_loop = None
+    # ── Benchmark Optimization Loop (periodic daemon — every 6h) ────────────────────────────
     try:
-        from scripts.benchmark_loop import start_benchmark_loop as _start_benchmark_loop
-        _benchmark_loop = _start_benchmark_loop()
-        logger.info(
-            "✅ Benchmark Optimization Loop started — "
-            "Simulates TP/SL/trailing-stop parameter grid every 1h on recent trades. "
-            "Auto-applies optimal risk params to live .env. "
-            "Also recalculates Alpha Wallet Rankings each cycle."
-        )
-    except Exception as _bl_err:
-        logger.warning(f"Benchmark Optimization Loop failed to start: {_bl_err}")
+        from scripts.benchmark_loop import run_benchmark as _run_benchmark_cycle
+        import threading as _bench_threading
+
+        def _benchmark_daemon():
+            """Run benchmark optimization every 6 hours in the background."""
+            _bench_interval = int(os.getenv("BENCHMARK_INTERVAL_SECONDS", str(6 * 3600)))
+            while True:
+                try:
+                    _time_module.sleep(_bench_interval)
+                    logger.info("🔄 Benchmark Optimization Loop — running periodic analysis...")
+                    _run_benchmark_cycle()
+                    logger.info("✅ Benchmark Optimization Loop complete.")
+                except Exception as _bench_err:
+                    logger.warning(f"Benchmark loop error: {_bench_err}")
+
+        _bench_thread = _bench_threading.Thread(target=_benchmark_daemon, daemon=True, name="benchmark-loop")
+        _bench_thread.start()
+        logger.info("✅ Benchmark Optimization Loop daemon started (runs every 6h)")
+    except Exception as _bench_init_err:
+        logger.warning(f"Benchmark Optimization Loop failed to start: {_bench_init_err}")
+
     # ── Social Insider Oracle (ECC: sentiment-insider-oracle) ────────────────────────────────
     try:
         from core.social_insider_oracle import oracle as _social_oracle
@@ -3274,39 +3284,9 @@ async def run_bot_loop():
                 except Exception as _digest_err:
                     logger.debug(f"Daily digest error: {_digest_err}")
 
-                # On-chain position reconciliation (Solana)
-                try:
-                    from core.reconciliation import reconcile_solana_positions
-                    # Find first wallet with a Solana address
-                    sol_addr = ""
-                    for _wk, _wv in WALLETS.items():
-                        if getattr(_wv, "solana_address", ""):
-                            sol_addr = _wv.solana_address
-                            break
-                    if sol_addr:
-                        recon_mismatches = reconcile_solana_positions(sol_addr)
-                        if recon_mismatches:
-                            logger.warning(
-                                f"⚠️ Reconciliation found {len(recon_mismatches)} mismatch(es)"
-                            )
-                except Exception as recon_err:
-                    logger.debug(f"Reconciliation error: {recon_err}")
-
-                # On-chain position reconciliation (EVM — every 10 cycles)
-                if cycle % 10 == 0:
-                    try:
-                        from core.reconciliation import reconcile_evm_positions
-                        for _wk, _wv in WALLETS.items():
-                            if _wv.is_cold_storage:
-                                continue
-                            evm_addr = getattr(_wv, 'address', '')
-                            if evm_addr:
-                                # Reconcile all active EVM chains (not just eth+base)
-                                _evm_chains = [c for c in settings.ACTIVE_CHAINS if c != 'solana']
-                                for _chain in _evm_chains:
-                                    reconcile_evm_positions(evm_addr, chain=_chain)
-                    except Exception as evm_recon_err:
-                        logger.debug(f'EVM reconciliation error: {evm_recon_err}')
+                # NOTE: Position reconciliation (Solana + EVM) is handled earlier
+                # in the cycle by the unified reconciliation block (~L1463)
+                # which runs every 20 cycles across ALL wallets and ALL active chains.
 
                 # ── Arbitrage Trade-Up (Capital Rotation) ──
                 # Check for rotation opportunities out of stagnant assets into top gems
