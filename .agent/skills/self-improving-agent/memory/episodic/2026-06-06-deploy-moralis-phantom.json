@@ -1,0 +1,64 @@
+{
+  "id": "ep-2026-06-06-001",
+  "date": "2026-06-06",
+  "category": "deployment",
+  "title": "Docker Container Name References & Deploy Workflow",
+  "what_happened": {
+    "skill_used": "deployment",
+    "task": "Deploying Moralis API migration and phantom position fixes to VPS",
+    "outcome": "partial"
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Moralis deprecated endpoint migration was clean — 3 endpoints migrated, 0 test failures",
+      "Phantom position auto-close logic correctly detects zero-balance positions",
+      "Reviewer script correctly validates container state, logs, and git sync"
+    ],
+    "what_went_wrong": [
+      "Used wrong docker command format — `docker logs shamrock-bot` failed because after docker compose down/up, container names can shift. Must use `docker compose logs bot` (service name) not `docker logs shamrock-bot` (container name)",
+      "Deploy workflow was inconsistent — sometimes `docker compose down` then `docker compose up -d`, sometimes `docker compose down && docker rm -f ...`, causing container name conflicts",
+      "Phantom auto-close doesn't persist — positions reload from storage every monitor cycle, so auto-close fires infinitely"
+    ],
+    "root_cause": "Docker Compose service names (bot, dashboard, db, health) vs container names (shamrock-bot, shamrock-dashboard, shamrock-db, shamrock-health) confusion. Also position persistence layer not consulted during auto-close."
+  },
+  "patterns_extracted": [
+    {
+      "id": "pat-2026-06-06-001",
+      "pattern": "docker_compose_service_names",
+      "rule": "Always use `docker compose logs <service>` (service name from docker-compose.yml) not `docker logs <container-name>`. Service names: bot, dashboard, db, health, paper-trader. Container names: shamrock-bot, shamrock-dashboard, shamrock-db, shamrock-health, shamrock-paper.",
+      "confidence": 0.99
+    },
+    {
+      "id": "pat-2026-06-06-002", 
+      "pattern": "deploy_workflow_consistency",
+      "rule": "Deploy to VPS must follow the workflow in .agents/workflows/sync-and-deploy.md. The canonical sequence is: git pull → docker compose down → docker compose up -d --build. Never mix `docker rm -f` with compose orchestration. If containers linger, use `docker compose down --remove-orphans` not manual rm.",
+      "confidence": 0.95
+    },
+    {
+      "id": "pat-2026-06-06-003",
+      "pattern": "moralis_endpoint_deprecation",
+      "rule": "Moralis deprecated GET /discovery/tokens/top-gainers, top-losers, and buying-pressure on June 4, 2026. Replacement: POST /discovery/tokens with sortBy and filters. Always check Moralis changelog before assuming endpoint paths are stable.",
+      "confidence": 0.99
+    },
+    {
+      "id": "pat-2026-06-06-004",
+      "pattern": "phantom_position_persistence",
+      "rule": "When auto-closing phantom positions (zero on-chain balance), must also persist the closure to the position storage layer — not just set remaining_quantity=0 in the dict. Otherwise positions reload from disk/DB every monitor cycle and trigger infinite auto-close spam.",
+      "confidence": 0.98
+    },
+    {
+      "id": "pat-2026-06-06-005",
+      "pattern": "vps_env_audit",
+      "rule": "Before claiming a chain is 'production ready', verify: 1) RPC URL is set and valid (not dummy), 2) Block explorer API key is real (not 'dummy'), 3) Wallets are funded on that chain, 4) MODE=live in .env. BASESCAN_API_KEY=dummy and ARBISCAN_API_KEY=dummy mean safety checks are degraded.",
+      "confidence": 0.97
+    }
+  ],
+  "user_feedback": {
+    "rating": null,
+    "comments": "User called out repeatedly using wrong container name format. 'remember the container name. you do the wrong name consistently'"
+  },
+  "files_modified": [
+    "data/providers/moralis_money.py",
+    "core/position_monitor.py"
+  ]
+}

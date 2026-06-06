@@ -1256,6 +1256,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                 append_trade(trade_record)
                 pos = dict(pos)
                 pos["remaining_quantity"] = 0
+                pos["status"] = "closed"
                 pos["closed_at"] = time.time()
                 pos["close_reason"] = "phantom_zero_balance"
                 return pos
