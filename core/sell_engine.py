@@ -417,7 +417,7 @@ def execute_sell_evm(
                 "amount": str(token_amount_wei),
                 "from": account.address,
                 "slippage": slippage_pct,
-                "disableEstimate": "true",       # Don't fail on estimate errors
+                "disableEstimate": "false",      # Let 1inch estimate gas properly
                 "allowPartialFill": "false",      # Full fill or revert
                 "includeTokensInfo": "false",
                 "includeProtocols": "false",
@@ -517,14 +517,35 @@ def execute_sell_evm(
 
             nonce = w3.eth.get_transaction_count(account.address, "pending")
             base_gas = w3.eth.gas_price
-            gas_multiplier = 1.0 + (0.3 * attempt)  # +30% gas per retry
+            gas_multiplier = 1.0 + (0.5 * attempt)  # +50% gas per retry (was 30%)
+
+            # ── Gas estimation: use 1inch estimate → eth.estimate_gas → 800K default
+            oneinch_gas = int(tx_data.get("gas", 0))
+            raw_tx = {
+                "from": account.address,
+                "to": Web3.to_checksum_address(tx_data["to"]),
+                "data": tx_data["data"],
+                "value": int(tx_data.get("value", 0)),
+            }
+
+            # Try eth.estimate_gas for accurate gas limit
+            try:
+                estimated_gas = w3.eth.estimate_gas(raw_tx)
+                gas_limit = int(estimated_gas * 1.5)  # 50% safety buffer
+                logger.info(f"Gas estimated: {estimated_gas} → using {gas_limit} (1.5x buffer)")
+            except Exception as gas_err:
+                # Fallback: use 1inch estimate or 800K default
+                gas_limit = max(oneinch_gas, 800_000)
+                logger.warning(
+                    f"Gas estimation failed ({gas_err}), using fallback: {gas_limit}"
+                )
 
             transaction = {
                 "from": account.address,
                 "to": Web3.to_checksum_address(tx_data["to"]),
                 "data": tx_data["data"],
                 "value": int(tx_data.get("value", 0)),
-                "gas": int(int(tx_data.get("gas", 300_000)) * gas_multiplier),
+                "gas": int(gas_limit * gas_multiplier),
                 "gasPrice": int(base_gas * gas_multiplier),
                 "nonce": nonce,
                 "chainId": chain_config.chain_id,
