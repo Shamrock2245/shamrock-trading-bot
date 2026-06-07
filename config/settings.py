@@ -163,6 +163,7 @@ JITO_AUTH_KEY = os.getenv("JITO_AUTH_KEY", "")  # Optional: Jito auth keypair fo
 # Liquidation Hunter: monitors Hyperliquid + Aave V3 for under-collateralised positions
 # Both strategies execute ONLY if net profit after gas/bribes is strictly positive.
 MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "false").lower() == "true"
+JIT_ENABLED = os.getenv("JIT_ENABLED", "false").lower() == "true"  # DISABLED: requires $100K+ capital per trade
 MEV_LIQUIDATION_ENABLED = os.getenv("MEV_LIQUIDATION_ENABLED", "true").lower() == "true"
 MEV_MIN_NET_PROFIT_USD = float(os.getenv("MEV_MIN_NET_PROFIT_USD", "1.0"))  # Min net profit to execute
 MEV_MAX_POSITION_USD = float(os.getenv("MEV_MAX_POSITION_USD", "500.0"))   # Max capital per sandwich
