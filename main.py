@@ -1131,13 +1131,14 @@ async def run_bot_loop():
     try:
         from scripts.benchmark_loop import run_benchmark as _run_benchmark_cycle
         import threading as _bench_threading
+        import time as _bench_time
 
         def _benchmark_daemon():
             """Run benchmark optimization every 6 hours in the background."""
             _bench_interval = int(os.getenv("BENCHMARK_INTERVAL_SECONDS", str(6 * 3600)))
             while True:
                 try:
-                    _time_module.sleep(_bench_interval)
+                    _bench_time.sleep(_bench_interval)
                     logger.info("🔄 Benchmark Optimization Loop — running periodic analysis...")
                     _run_benchmark_cycle()
                     logger.info("✅ Benchmark Optimization Loop complete.")
