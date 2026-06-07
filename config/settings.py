@@ -103,9 +103,9 @@ SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g
 # Risk Management
 # ─────────────────────────────────────────────────────────────────────────────
 # Global fallback — per-wallet sizing is controlled by StrategyProfile (Primary=5%, WalletB=60%)
-MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "5.0"))
+MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "20.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
-MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))
+MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "5"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "12.0"))  # Playbook: 12% trailing after TP1 (must be < hard stop)
 HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # TUNED: 18→15% — cap single-trade max loss for tighter risk control
 
@@ -162,7 +162,7 @@ JITO_AUTH_KEY = os.getenv("JITO_AUTH_KEY", "")  # Optional: Jito auth keypair fo
 # Sandwich Bot: monitors Base/Solana mempools for large swaps with >2% slippage
 # Liquidation Hunter: monitors Hyperliquid + Aave V3 for under-collateralised positions
 # Both strategies execute ONLY if net profit after gas/bribes is strictly positive.
-MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "true").lower() == "true"
+MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "false").lower() == "true"
 MEV_LIQUIDATION_ENABLED = os.getenv("MEV_LIQUIDATION_ENABLED", "true").lower() == "true"
 MEV_MIN_NET_PROFIT_USD = float(os.getenv("MEV_MIN_NET_PROFIT_USD", "1.0"))  # Min net profit to execute
 MEV_MAX_POSITION_USD = float(os.getenv("MEV_MAX_POSITION_USD", "500.0"))   # Max capital per sandwich
@@ -205,7 +205,7 @@ WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30
 # MIN_BUY_USD=500: require alpha wallet to make a $500+ buy (conviction, not noise)
 # DEFAULT_COPY_USD=0: if Streams gives no buy_value, skip the trade entirely
 # TIER1=3, TIER2=2: require 3 wallets for instant execute, 2 for express lane
-WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "500"))      # skip buys < $500 (noise)
+WALLET_MONITOR_MIN_BUY_USD = float(os.getenv("WALLET_MONITOR_MIN_BUY_USD", "10"))       # TUNED: $500→$10 — aggressive small capital copying
 WALLET_MONITOR_MAX_BUY_AGE = int(os.getenv("WALLET_MONITOR_MAX_BUY_AGE", "120"))        # 2 min max age
 WALLET_MONITOR_TIER1_COUNT = int(os.getenv("WALLET_MONITOR_TIER1_COUNT", "3"))          # 3+ wallets = immediate
 WALLET_MONITOR_TIER2_COUNT = int(os.getenv("WALLET_MONITOR_TIER2_COUNT", "2"))          # 2 wallets = express lane
@@ -412,7 +412,7 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # ─────────────────────────────────────────────────────────────────────────────
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
-SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
+SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
 MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # TUNED: 68→62 — reduce garbage entries while keeping quality bar (task/strategy-tuning)
@@ -507,7 +507,7 @@ MAX_PRICE_AGE_SECONDS = int(os.getenv("MAX_PRICE_AGE_SECONDS", "120"))
 # A ratio of 5 means a $10 gas trade requires a $50+ position to be profitable
 MIN_POSITION_GAS_RATIO = float(os.getenv("MIN_POSITION_GAS_RATIO", "5.0"))
 # Daily trade count cap: prevents gas burn on volatile days (0 = unlimited)
-MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "50"))
+MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "200"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Capital Recovery Mode
@@ -655,7 +655,7 @@ MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25
 # ── 10. Absolute Position Cap ─────────────────────────────────────────────────
 # Hard cap on any single trade after all offensive multipliers are applied.
 # Prevents runaway sizing even on a 6-win streak in God Mode.
-OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "1000.0"))  # Default to Seed phase cap — compounder scales UP
+OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "45.0"))    # TUNED: $1000→$45 — cap for small capital ($228 total)
 # Auto-scaling cap: max % of wallet balance per trade (overrides fixed USD cap when wallet grows)
 # e.g., 30% of a $20K wallet = $6K max position — grows with the wallet
 OFFENSIVE_MAX_POSITION_WALLET_PCT = float(os.getenv("OFFENSIVE_MAX_POSITION_WALLET_PCT", "30.0"))

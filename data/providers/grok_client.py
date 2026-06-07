@@ -45,6 +45,7 @@ GROK_MODEL = "grok-4-1-fast-non-reasoning"
 # Global Rate Limiter — shared across ALL Grok modules
 # ─────────────────────────────────────────────────────────────────────────────
 _lock = threading.Lock()
+_api_key_invalid = False
 _request_times: list[float] = []
 _MAX_RPM = int(os.getenv("GROK_RPM", "60"))
 
@@ -171,6 +172,10 @@ def call_grok(
         Parsed JSON dict if parse_json=True, raw text string otherwise,
         or None on failure.
     """
+    global _api_key_invalid
+    if _api_key_invalid:
+        return None
+
     api_key = _get_api_key()
     if not api_key:
         logger.warning(f"Grok client [{module}]: GROK_API_KEY not configured")
@@ -207,7 +212,11 @@ def call_grok(
         )
         resp.raise_for_status()
     except Exception as e:
-        logger.error(f"Grok client [{module}]: API request failed: {e}")
+        if hasattr(e, "response") and e.response is not None and e.response.status_code in (401, 403):
+            _api_key_invalid = True
+            logger.warning(f"Grok client [{module}]: API Key is invalid or expired (403 Forbidden). Disabling Grok for this session.")
+        else:
+            logger.error(f"Grok client [{module}]: API request failed: {e}")
         return None
 
     data = resp.json()

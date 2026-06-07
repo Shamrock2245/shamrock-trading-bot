@@ -656,6 +656,13 @@ def route_trade(
             # USDC-as-capital: if wallet has USDC > $25 on ANY EVM chain, use it
             # Native balance only needs to cover gas (0.005 ETH/MATIC/BNB)
             min_gas_balance = 0.005  # Just enough for gas fees
+            
+            # TUNED: Skip Ethereum trades entirely if we don't have USDC to trade with
+            # We don't want to waste ETH gas on failed buys when capital is low
+            if chain.lower() == "ethereum" and usdc_balance < 5.0:
+                logger.warning(f"Wallet {wallet.alias} has no USDC on Ethereum (bal=${usdc_balance:.2f}) — skipping to save gas")
+                continue
+                
             if not chain_config.is_solana and usdc_balance > 25.0:
                 wallet_balance_usd = usdc_balance
                 logger.info(f"  {wallet.alias} using USDC capital=${usdc_balance:.2f} on {chain} (native={native_balance:.4f} for gas)")

@@ -577,6 +577,17 @@ def execute_sell_evm(
                 )
 
         except Exception as e:
+            error_str = str(e).lower()
+            if "intrinsic gas too low" in error_str:
+                # DEGEN Bug Fix: Boost gas multiplier significantly for the next attempt
+                gas_multiplier = gas_multiplier * 2.5
+                logger.warning(f"Gas boost: {gas_limit * gas_multiplier} for intrinsic gas too low on {token_address[:10]}...")
+                
+                # If we've failed twice with intrinsic gas, try splitting the sell amount
+                if attempt >= 1 and token_amount_wei > 1000:
+                    logger.warning(f"Splitting {token_amount_wei} wei into smaller chunk to avoid gas limits")
+                    token_amount_wei = int(token_amount_wei / 3)
+                    
             logger.error(f"EVM sell error (attempt {attempt + 1}): {e}")
 
         time.sleep(2.0 * (attempt + 1))

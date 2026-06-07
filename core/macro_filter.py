@@ -382,7 +382,7 @@ def calculate_macro_regime() -> MacroRegime:
         min_score_override = 70.0
     else:  # EXTREME_FEAR
         score_multiplier = 0.80   # Extreme caution — only exceptional gems
-        min_score_override = 75.0
+        min_score_override = 65.0  # TUNED: 75.0->65.0 for small capital growth
 
     # ── Human-readable summary ──────────────────────────────────────────────
     btc = coin_regimes.get("BTC")

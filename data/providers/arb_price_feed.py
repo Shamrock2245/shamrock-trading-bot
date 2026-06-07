@@ -50,7 +50,7 @@ MORALIS_API_KEY: str = getattr(settings, "MORALIS_API_KEY", "")
 MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2"
 ONEINCH_BASE = "https://api.1inch.dev/swap/v6.0"
 DEXSCREENER_BASE = "https://api.dexscreener.com/latest/dex"
-JUPITER_PRICE_URL = "https://price.jup.ag/v6/price"
+JUPITER_PRICE_URL = "https://api.jup.ag/price/v2"
 
 # EVM chain ID map for 1inch
 CHAIN_IDS: dict[str, int] = {

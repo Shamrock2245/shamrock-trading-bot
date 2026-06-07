@@ -16,10 +16,16 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 
-from config import settings
-from core.position_monitor import load_positions
-
 logger = logging.getLogger(__name__)
+
+try:
+    from config import settings
+    from core.position_monitor import load_positions
+except ImportError as e:
+    logger.warning(f"Benchmark loop imports failed, likely due to uninitialized config: {e}")
+    # Provide fallbacks or skip if called during initialization
+    settings = type("DummySettings", (), {"TRADES_FILE": "output/trades.json"})()
+    load_positions = lambda: []
 
 LEDGER_DIR = Path("logs/decision_ledger")
 TRADES_FILE = Path(getattr(settings, "TRADES_FILE", "output/trades.json"))
