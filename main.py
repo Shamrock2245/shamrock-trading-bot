@@ -1361,6 +1361,13 @@ async def run_bot_loop():
         logger.warning("⚠️  LIVE MODE ACTIVE — REAL TRADES WILL BE EXECUTED")
         logger.warning("=" * 60)
 
+        # ── Capital Provisioner — auto-convert ETH → USDC on L2 chains ────────
+        try:
+            from core.capital_provisioner import provision_all_wallets
+            provision_all_wallets()
+        except Exception as e:
+            logger.warning(f"Capital provisioner startup error (non-fatal): {e}")
+
     global _gem_scanner
     scanner = GemScanner()
     _gem_scanner = scanner  # Expose to Moralis Streams closure
@@ -1425,6 +1432,14 @@ async def run_bot_loop():
         cycle += 1
         trades_this_cycle = 0
         logger.info(f"--- Cycle {cycle} (mode={settings.MODE.upper()}) ---")
+
+        # ── Periodic Capital Provisioning — every 50 cycles (~2.5h) ───────────
+        if cycle % 50 == 0 and settings.MODE == "live":
+            try:
+                from core.capital_provisioner import provision_all_wallets
+                provision_all_wallets()
+            except Exception as prov_err:
+                logger.debug(f"Periodic provisioning check failed: {prov_err}")
 
         # ── Update Fear & Greed Index sentiment and score periodically ────────
         try:
