@@ -182,14 +182,15 @@ class RiskManager:
                     f"{position_size_native:.4f} {native_token}"
                 )
 
-        # ── Determine capital source (USDC preferred) ─────────────────────────
+        # ── Determine capital source (USDC preferred on L2) ─────────────────
         use_usdc = False
         position_usdc = 0.0
         position_eth = position_size_native
 
         if usdc_balance > 1.0 and position_size_usd > 0:
-            # Use USDC if we have it and it covers the position
+            # ALWAYS prefer USDC on L2 chains — tokens rarely have ETH liquidity
             if usdc_balance >= position_size_usd * 0.95:
+                # Full USDC coverage
                 position_usdc = min(position_size_usd, usdc_balance * 0.90)
                 position_eth = position_usdc / native_price_usd if native_price_usd > 0 else 0
                 use_usdc = True
@@ -198,10 +199,14 @@ class RiskManager:
                     f"${position_usdc:.2f} position"
                 )
             else:
-                # Not enough USDC — use native
+                # Partial USDC coverage — cap position at available USDC
+                # instead of falling back to ETH (most L2 tokens lack ETH liquidity)
+                position_usdc = usdc_balance * 0.90  # Keep 10% buffer
+                position_eth = position_usdc / native_price_usd if native_price_usd > 0 else 0
+                use_usdc = True
                 logger.info(
-                    f"USDC balance ${usdc_balance:.2f} < position ${position_size_usd:.2f} "
-                    f"— using native {native_token}"
+                    f"Capital: USDC (capped) | ${usdc_balance:.2f} available → "
+                    f"${position_usdc:.2f} position (originally ${position_size_usd:.2f})"
                 )
 
         if not use_usdc and position_eth <= 0:
