@@ -893,20 +893,41 @@ class TradeExecutor:
             TradeResult with full execution details
         """
         # ── PAPER MODE HARD GUARD ──────────────────────────────────────────────
-        # This guard fires BEFORE any web3/API calls, ensuring paper mode can
-        # NEVER accidentally broadcast an on-chain transaction regardless of
-        # how individual sub-methods are called.
+        # This guard fires BEFORE any web3 broadcast calls, ensuring paper mode
+        # can NEVER accidentally broadcast an on-chain transaction.
+        # We still fetch a READ-ONLY quote (GET request, no signing) so that
+        # amount_out is realistic for position tracking.
         if settings.IS_PAPER:
+            # Try to get a quote for realistic amount_out (read-only, no broadcast)
+            paper_amount_out = 0.0
+            try:
+                chain_config = settings.CHAIN_CONFIG.get(params.chain, {})
+                chain_id = chain_config.get("chain_id") if isinstance(chain_config, dict) else getattr(chain_config, "chain_id", None)
+                if chain_id and settings.ONEINCH_API_KEY:
+                    import requests as _req
+                    _quote_url = f"{settings.ONEINCH_API_URL}/{chain_id}/quote"
+                    _quote_params = {
+                        "src": params.token_in,
+                        "dst": params.token_out,
+                        "amount": str(params.amount_in_wei),
+                    }
+                    _headers = {"Authorization": f"Bearer {settings.ONEINCH_API_KEY}"}
+                    _qr = _req.get(_quote_url, params=_quote_params, headers=_headers, timeout=5)
+                    if _qr.status_code == 200:
+                        paper_amount_out = int(_qr.json().get("dstAmount", 0)) / 1e18
+            except Exception as _paper_q_err:
+                logger.debug(f"Paper quote failed (non-critical): {_paper_q_err}")
+
             logger.info(
                 f"📄 PAPER TRADE (execute_trade): {params.wallet.alias} | "
                 f"{params.chain} | {params.token_in[:10]}... -> {params.token_out[:10]}... | "
-                f"amount={params.amount_in_wei/1e18:.6f} | mode=paper"
+                f"amount={params.amount_in_wei/1e18:.6f} | est_out={paper_amount_out:.6f} | mode=paper"
             )
             return TradeResult(
                 success=True,
                 execution_path="paper",
                 amount_in=params.amount_in_wei / 1e18,
-                amount_out=0.0,
+                amount_out=paper_amount_out,
                 tx_hash="PAPER_TX",
             )
         # ── FAST REJECT: Liquidity blacklist check ────────────────────────────

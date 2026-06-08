@@ -553,11 +553,18 @@ class GemScanner:
                 thread_name_prefix="moralis_pairs",
             ) as _pool:
                 _futures = {_pool.submit(_fetch_moralis_pairs, mt): mt for mt in _moralis_items}
-                for _fut in as_completed(_futures, timeout=20):
-                    try:
-                        _moralis_pairs.append(_fut.result(timeout=15))
-                    except Exception as _fe:
-                        logger.debug(f"Moralis parallel pair fetch error: {_fe}")
+                try:
+                    for _fut in as_completed(_futures, timeout=20):
+                        try:
+                            _moralis_pairs.append(_fut.result(timeout=15))
+                        except Exception as _fe:
+                            logger.debug(f"Moralis parallel pair fetch error: {_fe}")
+                except TimeoutError:
+                    _pending = sum(1 for f in _futures if not f.done())
+                    logger.warning(
+                        f"Moralis parallel pair fetch timed out — "
+                        f"{_pending} of {len(_futures)} items still pending, skipping"
+                    )
         else:
             _moralis_pairs = [_fetch_moralis_pairs(mt) for mt in _moralis_items]
 
