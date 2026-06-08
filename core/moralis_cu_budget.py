@@ -216,10 +216,13 @@ class MoralisCUBudgetManager:
     def _update_throttle_mode(self) -> None:
         """Update throttle mode based on remaining budget."""
         remaining_pct = 1.0 - (self._state.total_consumed / MONTHLY_CU_BUDGET)
-        
+
+        # Tightened thresholds (2026-06 budget crunch: 86M/100M used with 15 days left):
+        # CONSERVATIVE kicks in at 25% remaining (was 30%) — blocks calls >= 500 CU
+        # EMERGENCY kicks in at SAFETY_BUFFER_PCT (15%) — only allows calls < 50 CU
         if remaining_pct < SAFETY_BUFFER_PCT:
             new_mode = "EMERGENCY"
-        elif remaining_pct < 0.30:
+        elif remaining_pct < 0.25:  # Tightened from 0.30 — go conservative sooner
             new_mode = "CONSERVATIVE"
         else:
             new_mode = "NORMAL"
@@ -248,8 +251,8 @@ class MoralisCUBudgetManager:
             # Only allow cheap calls (< 50 CU) in emergency mode
             return cu_cost < 50
         elif mode == "CONSERVATIVE":
-            # Block very expensive calls (>= 1000 CU) in conservative mode
-            return cu_cost < 1000
+            # Block expensive calls (>= 500 CU) in conservative mode (tightened from 1000)
+            return cu_cost < 500
         else:
             return True
     

@@ -377,7 +377,8 @@ WALLETS: dict[str, WalletConfig] = {
         solana_address=os.getenv("SOLANA_ADDRESS_PRIMARY", ""),
         role="Safety net — conservative gem sniping",
         strategies=["gem_snipe", "momentum", "breakout"],
-        chains=["ethereum", "base", "bsc", "avalanche", "polygon", "arbitrum", "solana"],
+        # Ethereum + BSC removed — not gem hunting there right now (CU budget + gas cost)
+        chains=["base", "arbitrum", "solana"],
         max_position_size_pct=5.0,
         max_concurrent_positions=5,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
@@ -393,7 +394,8 @@ WALLETS: dict[str, WalletConfig] = {
         solana_address=os.getenv("SOLANA_ADDRESS_B", ""),
         role="Nuclear predator — aggressive momentum + explosive compounding",
         strategies=["gem_snipe", "momentum", "breakout", "nuclear"],
-        chains=["ethereum", "base", "bsc", "avalanche", "polygon", "arbitrum", "solana"],  # ADDED ethereum
+        # Ethereum + BSC removed — not gem hunting there right now (CU budget + gas cost)
+        chains=["base", "arbitrum", "solana"],
         max_position_size_pct=60.0,
         max_concurrent_positions=3,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "2.0")),

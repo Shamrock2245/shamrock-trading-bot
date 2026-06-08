@@ -217,7 +217,9 @@ _EXCLUDED_SUBSTRINGS = ("USD", "EUR", "AUD", "CAD", "GBP", "STABLE", "FIAT", "YE
 logger = logging.getLogger(__name__)
 
 # Chains to scan (EVM + Solana)
-SCAN_CHAINS = ["ethereum", "base", "arbitrum", "polygon", "bsc", "avalanche", "solana"]
+# Ethereum removed — CU budget conservation. Re-add when capital/budget allows.
+# This list is the universe; actual scanning is gated by settings.ACTIVE_CHAINS.
+SCAN_CHAINS = ["base", "arbitrum", "solana"]
 
 
 # DexScreener chain ID → internal chain name (including Solana)

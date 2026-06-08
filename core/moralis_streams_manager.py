@@ -27,8 +27,11 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 BASE_URL = "https://api.moralis-streams.com"
 
-# EVM chain IDs we care about (hex format — required by Moralis)
-CHAIN_IDS = ["0x1", "0x2105", "0xa4b1", "0x89", "0x38", "0xa86a"]  # ETH, Base, Arb, Polygon, BSC, Avalanche
+# EVM chain IDs for Moralis Streams (hex format — required by Moralis)
+# Ethereum (0x1) REMOVED — alpha-wallet ERC-20 transfers on ETH mainnet fire hundreds of events/hour
+# and each event costs 1+ CU. With 100M CU/month budget, ETH streams alone can exhaust the plan.
+# Focus: Base (0x2105) + Arbitrum (0xa4b1) only. Re-add 0x1 when capital warrants it.
+CHAIN_IDS = ["0x2105", "0xa4b1"]  # Base, Arbitrum
 
 # Stream tags — used to identify our streams and route webhook events
 TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
@@ -58,11 +61,8 @@ PAIR_CREATED_ABI = [
 ]
 
 # Known DEX factory addresses (for liquidity event monitoring)
+# Ethereum (0x1) factories removed — not scanning ETH mainnet (CU budget conservation)
 DEX_FACTORIES = {
-    "0x1": [
-        "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",  # Uniswap V2
-        "0x1F98431c8aD98523631AE4a59f267346ea31F984",  # Uniswap V3
-    ],
     "0x2105": [
         "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6",  # Uniswap V3 (Base)
         "0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E",  # Aerodrome
@@ -297,8 +297,8 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: Liquidity stream already exists: {self._managed_streams[TAG_LIQUIDITY]}")
             return
 
-        # Monitor Base, Arbitrum, Ethereum factories
-        liquidity_chains = ["0x1", "0x2105", "0xa4b1"]
+        # Monitor Base and Arbitrum factories only — Ethereum excluded (CU budget conservation)
+        liquidity_chains = ["0x2105", "0xa4b1"]
         webhook = f"{self.webhook_url}/moralis/streams"
 
         body = {

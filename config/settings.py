@@ -405,9 +405,11 @@ CONVICTION_LOW_MULTIPLIER = float(os.getenv("CONVICTION_LOW_MULTIPLIER", "0.50")
 # ─────────────────────────────────────────────────────────────────────────────
 # Chain Configuration
 # ─────────────────────────────────────────────────────────────────────────────
-# Dropped avalanche + polygon — 0 gems found on AVAX, polygon has minimal alpha.
-# Focus on the 4 highest-value chains + Solana.
-_active_chains_env = os.getenv("ACTIVE_CHAINS", "ethereum,base,bsc,solana")
+# Ethereum mainnet EXCLUDED — gas too high for gem sniping and burns Moralis CUs at a high rate
+# (every alpha-wallet ERC-20 transfer on ETH mainnet = 1+ CU per event, fires hundreds of times/hour).
+# BSC excluded for now — low alpha vs CU cost. Focus: Base + Arbitrum (low gas, high alpha) + Solana.
+# To re-enable: set ACTIVE_CHAINS=ethereum,base,arbitrum,bsc,solana in .env
+_active_chains_env = os.getenv("ACTIVE_CHAINS", "base,arbitrum,solana")
 ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(",") if c.strip()]
 
 # ─────────────────────────────────────────────────────────────────────────────
