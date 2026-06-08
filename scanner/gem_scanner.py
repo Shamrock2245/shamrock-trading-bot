@@ -424,7 +424,7 @@ class GemScanner:
 
         # Fire all fetchers in parallel
         raw_data: dict[str, list] = {}
-        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="scan") as pool:
+        with ThreadPoolExecutor(max_workers=12, thread_name_prefix="scan") as pool:
             future_to_name = {
                 pool.submit(fn): name for name, fn in fetchers.items()
             }

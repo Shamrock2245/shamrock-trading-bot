@@ -2391,7 +2391,7 @@ async def run_bot_loop():
             # 2. Scan for gems (adaptive: every cycle in NORMAL, every 3rd in RECOVERY)
             candidates = []
             if _force_scan_this_cycle or should_run_gems(adaptive_state, cycle):
-                candidates = scanner.scan()
+                candidates = await asyncio.to_thread(scanner.scan)
                 label = " [⚡ FORCE SCAN]" if _force_scan_this_cycle else ""
                 logger.info(f"Cycle {cycle}: {len(candidates)} gem candidates found{label}")
             else:
