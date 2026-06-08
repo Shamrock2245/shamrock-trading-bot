@@ -402,6 +402,26 @@ def execute_sell_evm(
         if not settings.ONEINCH_API_KEY:
             return SellResult(success=False, error="1inch API key required for EVM sells")
 
+        # ── PRE-EMPTIVE APPROVAL (FIX: SafeTransferFromFailed) ────────────
+        # ALWAYS ensure the 1inch router has approval BEFORE requesting swap
+        # data. Previously, approval only fired reactively on 400 errors,
+        # but 1inch sometimes returns 200 (builds calldata assuming approval)
+        # and then the on-chain tx reverts with SafeTransferFromFailed.
+        if not is_paper:
+            try:
+                _approve_token_for_1inch(
+                    token_address=token_address,
+                    wallet_address=wallet.address,
+                    private_key=private_key,
+                    chain_id=chain_config.chain_id,
+                    chain=chain,
+                    token_amount_wei=token_amount_wei,
+                )
+            except Exception as pre_approve_err:
+                logger.warning(
+                    f"Pre-emptive approval failed (will retry in-loop): {pre_approve_err}"
+                )
+
         try:
             from web3 import Web3
             from eth_account import Account
@@ -551,6 +571,62 @@ def execute_sell_evm(
                 "chainId": chain_config.chain_id,
             }
 
+            # ── eth_call SIMULATION (FIX: catch SafeTransferFromFailed before wasting gas) ──
+            try:
+                w3.eth.call({
+                    "from": transaction["from"],
+                    "to": transaction["to"],
+                    "data": transaction["data"],
+                    "value": transaction["value"],
+                })
+                logger.info("✅ Sell simulation passed (eth_call)")
+            except Exception as sim_err:
+                sim_msg = str(sim_err).lower()
+                logger.warning(f"⚠️ Sell simulation reverted: {sim_err}")
+                # If SafeTransferFrom or allowance issue — try re-approving
+                if "safetransferfrom" in sim_msg or "allowance" in sim_msg or "transfer" in sim_msg:
+                    logger.info("🔧 Re-approving token after simulation failure...")
+                    try:
+                        _approve_token_for_1inch(
+                            token_address=token_address,
+                            wallet_address=account.address,
+                            private_key=private_key,
+                            chain_id=chain_config.chain_id,
+                            chain=chain,
+                            token_amount_wei=token_amount_wei,
+                        )
+                        time.sleep(5.0)  # Wait for approval to propagate
+                        # Re-simulate after approval
+                        try:
+                            w3.eth.call({
+                                "from": transaction["from"],
+                                "to": transaction["to"],
+                                "data": transaction["data"],
+                                "value": transaction["value"],
+                            })
+                            logger.info("✅ Sell simulation passed after re-approval")
+                        except Exception as sim_err2:
+                            logger.error(f"❌ Sell still reverts after re-approval: {sim_err2}")
+                            # Don't waste gas — skip to next attempt with wider slippage
+                            time.sleep(2.0 * (attempt + 1))
+                            continue
+                    except Exception as reapprove_err:
+                        logger.error(f"Re-approval failed: {reapprove_err}")
+                        time.sleep(2.0 * (attempt + 1))
+                        continue
+                elif "insufficient funds" in sim_msg:
+                    # Can't fix — not enough ETH for gas
+                    return SellResult(
+                        success=False,
+                        error=f"Insufficient ETH for gas: {sim_err}",
+                        attempts=attempt + 1,
+                    )
+                else:
+                    # Unknown revert — could be honeypot, skip to wider slippage
+                    logger.warning("Unknown revert — trying wider slippage on next attempt")
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+
             signed = account.sign_transaction(transaction)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -641,6 +717,30 @@ def _approve_token_for_1inch(
     if not spender:
         raise ValueError("Could not get 1inch spender address")
 
+    # ── CHECK EXISTING ALLOWANCE FIRST (avoid wasting gas on redundant approvals) ──
+    needed_amount = token_amount_wei * 2 if token_amount_wei > 0 else 2**256 - 1
+    try:
+        allowance_url = f"{settings.ONEINCH_API_URL}/{chain_id}/approve/allowance"
+        allow_resp = get_session().get(
+            allowance_url,
+            headers=headers,
+            params={"tokenAddress": token_address, "walletAddress": wallet_address},
+            timeout=10,
+        )
+        if allow_resp.status_code == 200:
+            current_allowance = int(allow_resp.json().get("allowance", "0"))
+            if current_allowance >= needed_amount:
+                logger.debug(
+                    f"Token {token_address[:10]}... already approved "
+                    f"(allowance={current_allowance} >= needed={needed_amount})"
+                )
+                return True  # Already approved — skip on-chain tx
+            logger.info(
+                f"Allowance insufficient: {current_allowance} < {needed_amount} — sending approve tx"
+            )
+    except Exception as allow_err:
+        logger.debug(f"Allowance check failed (proceeding with approval): {allow_err}")
+
     # Build approve transaction
     from config.chains import CHAINS
     chain_config = CHAINS[chain]
@@ -668,7 +768,7 @@ def _approve_token_for_1inch(
 
     # Bounded approval: 2x the sell amount to cover slippage retries
     # without leaving unlimited spend allowance (security best practice)
-    approval_amount = token_amount_wei * 2 if token_amount_wei > 0 else 2**256 - 1
+    approval_amount = needed_amount
     logger.info(f"Approving {'bounded' if token_amount_wei > 0 else 'unlimited'} spend for 1inch")
 
     approve_tx = contract.functions.approve(
