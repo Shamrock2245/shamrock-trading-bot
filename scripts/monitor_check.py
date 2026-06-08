@@ -128,12 +128,26 @@ def analyze():
     
     # 2. Recent trades (last 30 minutes)
     trades = load_json(TRADES_FILE)
+    
+    def parse_ts(t):
+        """Extract unix timestamp from trade, handling both float and ISO string."""
+        ts = t.get("timestamp", 0)
+        if isinstance(ts, (int, float)):
+            return float(ts)
+        if isinstance(ts, str):
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                return dt.timestamp()
+            except:
+                return 0
+        return 0
+    
     recent_cutoff = time.time() - (30 * 60)  # last 30 min
-    recent_trades = [t for t in trades if t.get("timestamp", 0) > recent_cutoff]
+    recent_trades = [t for t in trades if parse_ts(t) > recent_cutoff]
     
     # Last 24h trades
     daily_cutoff = time.time() - (24 * 3600)
-    daily_trades = [t for t in trades if t.get("timestamp", 0) > daily_cutoff]
+    daily_trades = [t for t in trades if parse_ts(t) > daily_cutoff]
     daily_buys = [t for t in daily_trades if t.get("side") == "buy"]
     daily_sells = [t for t in daily_trades if t.get("side") == "sell"]
     
