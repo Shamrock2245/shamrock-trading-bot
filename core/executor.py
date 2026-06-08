@@ -712,15 +712,15 @@ class TradeExecutor:
                     logger.info("eth_call simulation passed")
                 except Exception as sim_err:
                     logger.warning(f"eth_call simulation reverted: {sim_err}")
-                    # If the simulation fails due to a logic revert (like a tax change or honeypot)
-                    # we abort the transaction to save gas fees.
-                    if "insufficient funds" not in str(sim_err).lower():
-                        self._release_nonce(account.address)
-                        return TradeResult(
-                            success=False,
-                            error=f"Simulation reverted: {sim_err}",
-                            execution_path="1inch_simulation_failed"
-                        )
+                    # Abort on ALL simulation failures — sending a tx that already
+                    # reverts in simulation will ALWAYS revert on-chain, wasting gas.
+                    # Previously "insufficient funds" was allowed through, burning $2-25/tx.
+                    self._release_nonce(account.address)
+                    return TradeResult(
+                        success=False,
+                        error=f"Simulation reverted: {sim_err}",
+                        execution_path="1inch_simulation_failed"
+                    )
 
                 try:
                     signed = account.sign_transaction(transaction)

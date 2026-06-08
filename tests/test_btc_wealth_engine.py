@@ -279,14 +279,14 @@ class TestMoralisCUBudget(unittest.TestCase):
         self.assertEqual(manager._state.throttle_mode, "EMERGENCY")
 
     def test_throttle_mode_updates_to_conservative(self):
-        """Test that throttle mode updates to CONSERVATIVE at 72% used."""
+        """Test that throttle mode updates to CONSERVATIVE at 76% used (24% remaining < 25% threshold)."""
         manager = self._make_manager()
-        manager._state.total_consumed = 72_000  # 72% used
-        
+        manager._state.total_consumed = 76_000  # 76% used → 24% remaining < 25% threshold
+
         with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
              patch("core.moralis_cu_budget.SAFETY_BUFFER_PCT", 0.15):
             manager._update_throttle_mode()
-        
+
         self.assertEqual(manager._state.throttle_mode, "CONSERVATIVE")
 
     def test_cu_costs_registry_has_expected_keys(self):

@@ -427,6 +427,32 @@ def execute_solana_buy(
         f"{sol_amount:.4f} SOL → {token_mint[:8]}..."
     )
 
+    # ── Safety gate (MANDATORY — matches EVM path) ──────────────────────
+    if not is_paper:
+        try:
+            from core.safety import check_token_safety
+            safety_result = check_token_safety(token_mint, "solana")
+            if not safety_result.is_safe:
+                logger.warning(
+                    f"🚫 SAFETY BLOCK: {token_mint[:10]}... failed safety check: "
+                    f"{safety_result.block_reason}"
+                )
+                return None  # Block the trade
+        except Exception as safety_err:
+            logger.error(f"Safety check error (blocking trade): {safety_err}")
+            return None  # Fail-closed: block trade if safety check itself errors
+
+    # ── Circuit breaker check ───────────────────────────────────────────
+    try:
+        from core.circuit_breakers import CircuitBreakers
+        _amount_usd = sol_amount * 150  # rough SOL→USD estimate for breaker check
+        allowed, reason = CircuitBreakers.check_trade_allowed(_amount_usd)
+        if not allowed:
+            logger.warning(f"🚫 CIRCUIT BREAKER: {reason}")
+            return None
+    except Exception:
+        pass  # Circuit breaker is non-blocking
+
     # Get quote
     quote = get_jupiter_quote(
         input_mint=WSOL_MINT,

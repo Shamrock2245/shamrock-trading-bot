@@ -1884,6 +1884,17 @@ async def run_bot_loop():
                     try:
                         if chain.lower() == "solana":
                             from core.solana_executor import execute_solana_buy
+                            # Re-check safety before adding to position (token may have turned toxic)
+                            try:
+                                from core.safety import check_token_safety
+                                _recheck = check_token_safety(p.get("token_address", ""), "solana")
+                                if not _recheck.is_safe:
+                                    logger.warning(f"🚫 SAFETY BLOCK on pyramid: {token_sym} is no longer safe: {_recheck.block_reason}")
+                                    p["_scaling_signal"] = None
+                                    scaling_dirty = True
+                                    continue
+                            except Exception:
+                                pass  # Non-blocking for existing positions
                             # Convert USD → SOL using CoinGecko
                             try:
                                 sol_price_resp = get_session().get(
@@ -2101,6 +2112,17 @@ async def run_bot_loop():
                     try:
                         if chain.lower() == "solana":
                             from core.solana_executor import execute_solana_buy
+                            # Re-check safety before DCA (token may have turned toxic)
+                            try:
+                                from core.safety import check_token_safety
+                                _recheck = check_token_safety(p.get("token_address", ""), "solana")
+                                if not _recheck.is_safe:
+                                    logger.warning(f"🚫 SAFETY BLOCK on DCA: {token_sym} is no longer safe: {_recheck.block_reason}")
+                                    p["_dca_signal"] = None
+                                    dca_dirty = True
+                                    continue
+                            except Exception:
+                                pass  # Non-blocking for existing positions
                             try:
                                 sol_price_resp = get_session().get(
                                     "https://api.coingecko.com/api/v3/simple/price",

@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,6 +78,10 @@ TRADES_FILE = Path(settings.TRADES_FILE)
 _save_counter = 0
 POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+# Thread-safe lock for positions file (prevents race conditions between
+# monitor thread, fastlane worker, gas_manager, and capital_rotator)
+_positions_lock = threading.Lock()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Position Persistence
@@ -84,41 +89,42 @@ POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def load_positions() -> list[dict]:
     """Load open positions from disk. Falls back to .tmp or .backup if main file is corrupt."""
-    for filepath in [POSITIONS_FILE, POSITIONS_FILE.with_suffix(".tmp"), POSITIONS_BACKUP]:
-        try:
-            if filepath.exists():
-                with open(filepath) as f:
-                    data = json.load(f)
-                    positions = data if isinstance(data, list) else []
+    with _positions_lock:
+        for filepath in [POSITIONS_FILE, POSITIONS_FILE.with_suffix(".tmp"), POSITIONS_BACKUP]:
+            try:
+                if filepath.exists():
+                    with open(filepath) as f:
+                        data = json.load(f)
+                        positions = data if isinstance(data, list) else []
 
-                    if filepath != POSITIONS_FILE:
-                        logger.warning(f"Loaded positions from fallback: {filepath}")
-                        # Restore to main file
-                        save_positions(positions)
+                        if filepath != POSITIONS_FILE:
+                            logger.warning(f"Loaded positions from fallback: {filepath}")
+                            # Restore to main file — use _save_positions_unlocked to avoid deadlock
+                            _save_positions_unlocked(positions)
 
-                    # ── Backfill migration for older positions ─────────────────
-                    migrated = False
-                    for p in positions:
-                        if "entry_value_usd" not in p or float(p.get("entry_value_usd", 0)) <= 0:
-                            entry_px = float(p.get("entry_price", 0))
-                            qty = float(p.get("quantity", 0))
-                            p["entry_value_usd"] = entry_px * qty if entry_px > 0 and qty > 0 else 10.0
-                            migrated = True
-                        if "scale_in_count" not in p:
-                            p["scale_in_count"] = 0
-                            migrated = True
-                    if migrated:
-                        save_positions(positions)
-                        logger.info("Migrated positions: backfilled entry_value_usd / scale_in_count")
+                        # ── Backfill migration for older positions ─────────────────
+                        migrated = False
+                        for p in positions:
+                            if "entry_value_usd" not in p or float(p.get("entry_value_usd", 0)) <= 0:
+                                entry_px = float(p.get("entry_price", 0))
+                                qty = float(p.get("quantity", 0))
+                                p["entry_value_usd"] = entry_px * qty if entry_px > 0 and qty > 0 else 10.0
+                                migrated = True
+                            if "scale_in_count" not in p:
+                                p["scale_in_count"] = 0
+                                migrated = True
+                        if migrated:
+                            _save_positions_unlocked(positions)
+                            logger.info("Migrated positions: backfilled entry_value_usd / scale_in_count")
 
-                    return positions
-        except Exception as e:
-            logger.error(f"Failed to load positions from {filepath}: {e}")
-    return []
+                        return positions
+            except Exception as e:
+                logger.error(f"Failed to load positions from {filepath}: {e}")
+        return []
 
 
-def save_positions(positions: list[dict]) -> None:
-    """Persist open positions to disk (atomic write + periodic backup + fsync)."""
+def _save_positions_unlocked(positions: list[dict]) -> None:
+    """Internal save — caller MUST hold _positions_lock."""
     global _save_counter
     try:
         tmp = POSITIONS_FILE.with_suffix(".tmp")
@@ -127,7 +133,6 @@ def save_positions(positions: list[dict]) -> None:
             f.flush()
             os.fsync(f.fileno())
         tmp.replace(POSITIONS_FILE)
-        # Periodic backup every 100 saves
         _save_counter += 1
         if _save_counter % 100 == 0:
             import shutil
@@ -135,6 +140,12 @@ def save_positions(positions: list[dict]) -> None:
             logger.debug(f"Positions backup saved ({_save_counter} saves)")
     except Exception as e:
         logger.error(f"Failed to save positions: {e}")
+
+
+def save_positions(positions: list[dict]) -> None:
+    """Persist open positions to disk (atomic write + periodic backup + fsync). Thread-safe."""
+    with _positions_lock:
+        _save_positions_unlocked(positions)
 
 
 def append_trade(trade: dict) -> None:
@@ -1204,6 +1215,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     wallet_private_key_env=sol_key_env,
                     urgency=sell_urgency,
                     is_paper=False,
+                    prior_failures=pos.get("sell_failure_count", 0),
                 )
             else:
                 sell_result = execute_sell_evm(
@@ -1213,6 +1225,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     wallet=wallet,
                     urgency=sell_urgency,
                     is_paper=False,
+                    prior_failures=pos.get("sell_failure_count", 0),
                 )
 
             tx_hash = sell_result.tx_hash if sell_result.success else None
@@ -1453,12 +1466,31 @@ class PositionMonitor:
                 current_price = pv.get("price")
 
                 if current_price is None:
-                    logger.debug(f"No price for {pos.get('token_symbol')} — skipping")
+                    pos = dict(pos)
+                    consecutive_failures = pos.get("consecutive_price_failures", 0) + 1
+                    pos["consecutive_price_failures"] = consecutive_failures
+                    if consecutive_failures >= 5:
+                        logger.warning(
+                            f"⚠️ STALE DATA: {pos.get('token_symbol')} has had {consecutive_failures} "
+                            f"consecutive price failures — consider protective exit"
+                        )
+                    if consecutive_failures >= 10:
+                        # Protective force-sell at last known price
+                        last_known_price = float(pos.get("current_price", 0))
+                        if last_known_price > 0:
+                            logger.warning(
+                                f"🚨 STALE EXIT: Force-selling {pos.get('token_symbol')} after "
+                                f"{consecutive_failures} price failures at last known ${last_known_price:.6f}"
+                            )
+                            stale_sell = {"reason": f"stale_data_exit ({consecutive_failures} failures)", "sell_pct": 1.0, "urgency": "immediate"}
+                            pos = execute_sell(pos, stale_sell, last_known_price, self.is_paper)
+                            sells_triggered += 1
                     updated_positions.append(pos)
                     continue
 
                 # Update position with latest data
                 pos = dict(pos)
+                pos["consecutive_price_failures"] = 0  # Reset on success
                 if current_price > float(pos.get("highest_price", 0)):
                     pos["highest_price"] = current_price
 
@@ -1770,6 +1802,30 @@ def register_position(
     Register a new open position after a buy is executed.
     Returns the position dict that was saved.
     """
+    positions = load_positions()
+
+    # ── DEDUP: Check for existing open position with same token+chain+wallet ──
+    existing = [p for p in positions if
+        p.get("token_address", "").lower() == token_address.lower() and
+        p.get("chain", "").lower() == chain.lower() and
+        p.get("wallet", "").lower() == wallet.lower() and
+        p.get("status") == "open"]
+    if existing:
+        logger.warning(
+            f"⚠️ DEDUP: Position already exists for {token_symbol} on {chain}/{wallet} — "
+            f"merging quantities instead of creating duplicate"
+        )
+        # Merge: add quantity to existing position
+        old_qty = float(existing[0].get("quantity", 0))
+        old_price = float(existing[0].get("entry_price", 0))
+        existing[0]["remaining_quantity"] = float(existing[0].get("remaining_quantity", 0)) + quantity
+        existing[0]["quantity"] = old_qty + quantity
+        # Weighted average entry price
+        if old_qty > 0 and old_price > 0:
+            existing[0]["entry_price"] = ((old_price * old_qty) + (entry_price * quantity)) / (old_qty + quantity)
+        save_positions(positions)
+        return existing[0]
+
     now = datetime.now(timezone.utc).isoformat()
     position = {
         "id": f"{chain}:{token_address.lower()}:{int(time.time())}",
@@ -1803,7 +1859,6 @@ def register_position(
         "signal_scores": signal_scores or {},
     }
 
-    positions = load_positions()
     positions.append(position)
     save_positions(positions)
 

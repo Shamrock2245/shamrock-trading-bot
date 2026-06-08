@@ -66,6 +66,7 @@ def execute_sell_solana(
     wallet_private_key_env: str,
     urgency: str = "normal",      # "normal", "immediate", "nuclear"
     is_paper: bool = True,
+    prior_failures: int = 0,
 ) -> SellResult:
     """
     Execute a Solana sell with Jito-first routing and aggressive retry logic.
@@ -118,7 +119,9 @@ def execute_sell_solana(
     # Sell to SOL (native) — feeds directly back into next buy
     output_mint = WSOL_MINT
 
-    for attempt in range(MAX_SELL_ATTEMPTS):
+    # Skip lower tiers if we've failed before (escalate slippage across monitor cycles)
+    start_tier = min(prior_failures, len(SLIPPAGE_LADDER) - 1)
+    for attempt in range(start_tier, MAX_SELL_ATTEMPTS):
         slippage_bps = SLIPPAGE_LADDER[min(attempt, len(SLIPPAGE_LADDER) - 1)]
 
         logger.info(
@@ -302,6 +305,7 @@ def execute_sell_evm(
     wallet,
     urgency: str = "normal",
     is_paper: bool = True,
+    prior_failures: int = 0,
 ) -> SellResult:
     """
     Execute an EVM sell with aggressive retry and approval bypass.
@@ -372,7 +376,9 @@ def execute_sell_evm(
     # Native token address (sell destination — ETH/BNB/MATIC)
     NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
 
-    for attempt in range(MAX_SELL_ATTEMPTS):
+    # Skip lower tiers if we've failed before (escalate slippage across monitor cycles)
+    start_tier = min(prior_failures, len(SLIPPAGE_LADDER) - 1)
+    for attempt in range(start_tier, MAX_SELL_ATTEMPTS):
         slippage_bps = SLIPPAGE_LADDER[min(attempt, len(SLIPPAGE_LADDER) - 1)]
         slippage_pct = slippage_bps / 100
 

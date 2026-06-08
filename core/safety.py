@@ -400,6 +400,9 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             _set_cached(token_address, chain, result)
             return result
 
+    # ── Provider success counter (fail-closed if ALL providers are down) ────
+    providers_succeeded = 0
+
     # ── Step 4.5: Moralis Instant Score — cheap early-out gate (EVM only) ─────
     # 5 CU per call — much cheaper than GoPlus + Honeypot. Block garbage early.
     if chain != "solana":
@@ -475,6 +478,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 return result
 
             result.goplus_passed = True
+            providers_succeeded += 1
 
     except Exception as e:
         logger.warning(f"GoPlus check failed for {token_address}: {e}")
@@ -518,6 +522,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             return result
 
         result.honeypot_passed = True
+        providers_succeeded += 1
 
     except Exception as e:
         logger.warning(f"Honeypot.is check failed for {token_address}: {e}")
@@ -535,6 +540,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 _set_cached(token_address, chain, result)
                 return result
             result.tokensniffer_passed = True
+            providers_succeeded += 1
     except Exception as e:
         logger.debug(f"Token Sniffer check failed for {token_address}: {e}")
 
@@ -557,6 +563,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 # Store score penalty for gem_scanner to apply
                 result.chainaware_penalty = ca.to_score_penalty()   # type: ignore[attr-defined]
                 result.chainaware_fraud_prob = ca.fraud_probability  # type: ignore[attr-defined]
+                providers_succeeded += 1
         except Exception as _ca_err:
             logger.debug(f"ChainAware check skipped: {_ca_err}")
 
@@ -577,6 +584,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             result.perplexity_rug_score = _pplx["rug_risk_score"]   # type: ignore[attr-defined]
             result.perplexity_penalty = _pplx["score_penalty"]       # type: ignore[attr-defined]
             result.perplexity_flags = _pplx.get("flags", [])         # type: ignore[attr-defined]
+            providers_succeeded += 1
             if _pplx["hard_reject"]:
                 result.is_safe = False
                 result.block_reason = (
@@ -624,6 +632,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                     "buy_tax": _msec_buy_tax,
                     "sell_tax": _msec_sell_tax,
                 }
+                providers_succeeded += 1
         except Exception as _msec_err:
             logger.debug(f"Moralis Token Security check skipped: {_msec_err}")
 
@@ -657,6 +666,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                     _log_blocked(result)
                     _set_cached(token_address, chain, result)
                     return result
+                providers_succeeded += 1
         except Exception as _ent_err:
             logger.debug(f"Entity API deployer check skipped: {_ent_err}")
 
@@ -676,6 +686,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             _grad_pct = _bonding.get("graduation_pct", 100.0)
             result.bonding_status = _bonding_status   # type: ignore[attr-defined]
             result.graduation_pct = _grad_pct         # type: ignore[attr-defined]
+            providers_succeeded += 1
             if not _is_graduated and _bonding_status != "unknown":
                 result.is_safe = False
                 result.block_reason = (
@@ -688,6 +699,18 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
                 return result
     except Exception as _bond_err:
         logger.debug(f"Bonding status check skipped: {_bond_err}")
+
+    # ── Fail-closed: require at least 1 provider to confirm safety ────────
+    if providers_succeeded == 0:
+        logger.error(
+            f"🚨 ALL safety providers failed for {token_address} — "
+            f"blocking trade (fail-closed policy)"
+        )
+        result.is_safe = False
+        result.block_reason = "All safety providers unavailable — fail-closed"
+        _log_blocked(result)
+        _set_cached(token_address, chain, result)
+        return result
 
     # ── All checks passed ─────────────────────────────────────────────────────
     result.is_safe = True

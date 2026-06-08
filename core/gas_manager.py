@@ -510,7 +510,7 @@ def _liquidate_for_gas(
 
             # Update position quantity in the position file
             try:
-                from core.position_monitor import load_positions, _save_positions
+                from core.position_monitor import load_positions, save_positions
                 all_positions = load_positions()
                 for p in all_positions:
                     if (p.get("token_address", "").lower() == token_address.lower()
@@ -530,7 +530,7 @@ def _liquidate_for_gas(
                                 f"{sell_fraction:.0%} sold, {1-sell_fraction:.0%} remaining"
                             )
                         break
-                _save_positions(all_positions)
+                save_positions(all_positions)
             except Exception as _pos_err:
                 logger.warning(f"Gas liquidation: failed to update position file: {_pos_err}")
 
