@@ -93,6 +93,17 @@ IGNORED_ADDRESSES = {
 MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") or os.getenv("MORALIS_API_KEY", "")
 HELIUS_API_KEY = getattr(settings, "BUNDLE_HELIUS_API_KEY", "") or os.getenv("HELIUS_API_KEY", "")
 
+# ── VIP Copy Wallets (100% win rate — aggressive auto-copy) ──────────────────
+# Loaded from settings.VIP_COPY_WALLETS (set of lowercased addresses).
+# VIP wallets get: Tier 1 instant-execute, 5x sizing, MIN_BUY_USD bypass.
+_VIP_WALLETS: set[str] = getattr(settings, "VIP_COPY_WALLETS", set())
+_VIP_SIZING_MULT: float = float(getattr(settings, "VIP_COPY_SIZING_MULTIPLIER", 5.0))
+
+
+def _is_vip_wallet(address: str) -> bool:
+    """Check if a wallet is a VIP copy target (100% win rate, verified)."""
+    return address.lower() in _VIP_WALLETS
+
 # Alpha wallet lists — override with your own curated wallets
 # EVM: pulled from settings.SMART_MONEY_WALLETS by default
 _ALPHA_WALLETS_EVM: list[str] = (
@@ -677,10 +688,14 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     # Gate 2 below enforces conviction: if USD IS known, it must be ≥ MIN_BUY_USD.
     is_streams = "streams" in (signal.source or "")
 
+    # ── VIP wallet check — 100% win rate wallets bypass MIN_BUY_USD ───────────
+    is_vip_signal = any(_is_vip_wallet(w) for w in signal.confirming_wallets)
+
     # ── Gate 2: Alpha buy must be a meaningful position (only when USD is known) ─
     # If buy_value_usd is 0 (Moralis didn't return USD), skip this gate and
     # let Gate 3 size the trade off our own wallet balance.
-    if signal.buy_value_usd > 0 and signal.buy_value_usd < MIN_BUY_USD:
+    # VIP wallets BYPASS this gate — any buy from a 100% win-rate wallet is a signal.
+    if not is_vip_signal and signal.buy_value_usd > 0 and signal.buy_value_usd < MIN_BUY_USD:
         logger.info(
             f"⛔ Copy trade skipped: {signal.token_symbol} [{signal.chain}] — "
             f"alpha buy ${signal.buy_value_usd:.0f} < min ${MIN_BUY_USD:.0f} (noise filter)"
@@ -712,8 +727,19 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
             # Fallback: 5% of alpha buy, capped
             copy_size_usd = min(signal.buy_value_usd * COPY_SIZE_PCT, MAX_COPY_USD)
 
+        # ── VIP Wallet Sizing Multiplier (100% win rate = max conviction) ─────
+        if is_vip_signal:
+            vip_addrs = [w[:10] for w in signal.confirming_wallets if _is_vip_wallet(w)]
+            copy_size_usd *= _VIP_SIZING_MULT
+            logger.info(
+                f"⭐ VIP COPY TRADE! 100%% win-rate wallet(s) {vip_addrs} detected. "
+                f"Applying {_VIP_SIZING_MULT}x sizing multiplier. "
+                f"New size: ${copy_size_usd:.2f}"
+            )
+
         # ── Whale-Tier ROI Auto-Grader Multiplier ─────────────────────────────
         # If the trade was initiated by one of the top 3 Whales, apply a 3x sizing multiplier
+        # (stacks with VIP multiplier if both apply)
         try:
             from pathlib import Path
             import json
@@ -1091,8 +1117,13 @@ class WalletMonitor:
         for signal in signals_to_process:
             wallet_count = len(signal.confirming_wallets)
 
+            # ── VIP wallet promotion: 100% win rate = Tier 1, always ──────────
+            is_vip = any(_is_vip_wallet(w) for w in signal.confirming_wallets)
+
             # Determine tier
-            if wallet_count >= TIER1_COUNT:
+            if is_vip:
+                signal.tier = 1  # VIP wallets always get Tier 1 (immediate execute)
+            elif wallet_count >= TIER1_COUNT:
                 signal.tier = 1
             elif wallet_count >= TIER2_COUNT:
                 signal.tier = 2
@@ -1108,7 +1139,12 @@ class WalletMonitor:
             is_top_sniper = _is_top_sniper_wallet(signal.wallet_address)
             if signal.tier > 2 and not is_streams_signal and not is_top_sniper:
                 continue
-            if is_top_sniper and signal.tier > 2:
+            if is_vip and wallet_count < TIER2_COUNT:
+                logger.info(
+                    f"⭐ VIP INSTANT EXECUTE: {signal.token_symbol} [{signal.chain}] "
+                    f"from 100%% win-rate wallet — promoted to Tier 1 (single wallet buy)"
+                )
+            elif is_top_sniper and signal.tier > 2:
                 logger.info(
                     f"🎯 Top sniper pass-through: {signal.token_symbol} [{signal.chain}] "
                     f"from discovered wallet {signal.wallet_address[:10]}..."

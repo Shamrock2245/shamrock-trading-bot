@@ -696,6 +696,20 @@ _ALPHA_EVM_ENV: list[str] = [
 ]
 SMART_MONEY_WALLETS: list[str] = list(dict.fromkeys(_ALPHA_EVM_ENV))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# VIP Copy Wallets (100% Win Rate — Aggressive Auto-Copy)
+# ─────────────────────────────────────────────────────────────────────────────
+# Wallets with verified 100% win rates get special treatment:
+#   - Tier 1 instant-execute on SINGLE wallet buy (no multi-wallet confirmation needed)
+#   - Sizing multiplier (default 5x) applied to base copy trade size
+#   - Bypasses MIN_BUY_USD gate (any buy from a VIP is a signal)
+# Supports both EVM (0x...) and Solana addresses in a single comma-separated list.
+VIP_COPY_WALLETS: set[str] = set(
+    addr.strip().lower() for addr in
+    os.getenv("VIP_COPY_WALLETS", "").split(",")
+    if addr.strip()
+)
+VIP_COPY_SIZING_MULTIPLIER = float(os.getenv("VIP_COPY_SIZING_MULTIPLIER", "5.0"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Notifications
