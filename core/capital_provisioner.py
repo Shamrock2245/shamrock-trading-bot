@@ -249,8 +249,8 @@ def provision_all_wallets():
     logger.info("💰 Capital Provisioner: checking wallet USDC levels...")
 
     wallets = [
-        ("Primary", os.getenv("WALLET_ADDRESS_PRIMARY"), os.getenv("PRIVATE_KEY_PRIMARY")),
-        ("Wallet B", os.getenv("WALLET_ADDRESS_B"), os.getenv("PRIVATE_KEY_B")),
+        ("Primary", os.getenv("WALLET_ADDRESS_PRIMARY"), os.getenv("WALLET_PRIVATE_KEY_PRIMARY")),
+        ("Wallet B", os.getenv("WALLET_ADDRESS_B"), os.getenv("WALLET_PRIVATE_KEY_B")),
     ]
 
     chains = ["base", "arbitrum"]
