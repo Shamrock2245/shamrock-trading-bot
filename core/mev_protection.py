@@ -305,48 +305,15 @@ def execute_via_flashbots(
 
         nonce = w3.eth.get_transaction_count(account.address, "pending")
 
-        # Base / Arbitrum: Flashbots Protect RPC
+        # Base / Arbitrum: Flashbots Protect RPC is Ethereum-only (rejects chain 8453/42161).
+        # Base has a sequencer (no public mempool) — MEV risk is minimal.
+        # Skip Flashbots entirely; let executor fall through to 1inch.
         if chain in ("base", "arbitrum"):
-            # Apply Institutional Priority Fee multiplier if score >= 90
-            p_fee = priority_fee
-            m_fee = max_fee
-            b_gas = base_gas_price
-            
-            if gem_score is not None and gem_score >= 90.0:
-                p_fee = int(priority_fee * 3.0)
-                m_fee = int(max_fee * 3.0)
-                b_gas = int(base_gas_price * 3.0)
-                logger.info(
-                    f"🚀 INSTITUTIONAL PRIORITY SNIPE (EVM/Protect): gem_score={gem_score:.1f} ≥ 90! "
-                    f"Escalating priority fee x3.0 for immediate next-block inclusion."
-                )
-
-            tx = {
-                "from": account.address,
-                "to": Web3.to_checksum_address(to),
-                "data": data,
-                "value": value,
-                "gas": gas,
-                "nonce": nonce,
-                "chainId": chain_id,
-            }
-            if use_eip1559:
-                tx["maxFeePerGas"] = m_fee
-                tx["maxPriorityFeePerGas"] = p_fee
-            else:
-                tx["gasPrice"] = b_gas
-            signed = account.sign_transaction(tx)
-            raw_tx = signed.raw_transaction.hex()
-            if not raw_tx.startswith("0x"):
-                raw_tx = "0x" + raw_tx
-            result = submit_via_flashbots_protect(raw_tx)
-            if result.success:
-                result.tx_hash = signed.hash.hex()
-                logger.info(
-                    f"Flashbots Protect ({chain}): {result.tx_hash[:16]}... "
-                    f"| gas={gas:,} | value={value/1e18:.4f}"
-                )
-            return result
+            return FlashbotsResult(
+                success=False,
+                error=f"Flashbots Protect is Ethereum-only — skipping for {chain}",
+                execution_path="flashbots_protect_skip",
+            )
 
         # Ethereum: Full Flashbots bundle with multi-block retry + gas escalation
         if not signing_key:
