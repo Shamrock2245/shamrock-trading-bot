@@ -576,8 +576,8 @@ def _profile_solana_wallet(address: str, discovery_source: str) -> Optional[Alph
     # Step 2: GMGN primary source
     gmgn_ok = False
     try:
-        from core.gmgn_client import GMGNClient
-        gmgn = GMGNClient()
+        from core.gmgn_client import get_gmgn_client
+        gmgn = get_gmgn_client()
         holdings = gmgn.get_wallet_holdings(address, chain="sol", limit=50)
         if holdings:
             total_realized = sum(_safe_float(h.get("realized_profit", 0)) for h in holdings)
@@ -699,27 +699,52 @@ def _harvest_source_1_moralis_top_traders() -> Dict[str, List[str]]:
         from data.providers.moralis_money import get_top_gainers
         from data.providers.moralis_intelligence import get_top_traders
 
-        for chain in [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]:
-            gainers = get_top_gainers(chain, time_frame="1h")[:TOKENS_PER_SOURCE]
-            for token in gainers:
-                token_addr = token.get("token_address", "")
-                if not token_addr:
+        evm_chains = [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]
+        if not evm_chains:
+            logger.warning(
+                f"AlphaDiscovery Source 1: No EVM chains in ACTIVE_CHAINS "
+                f"({ACTIVE_CHAINS}) — all chains filtered out by CHAIN_HEX check. "
+                f"Set ACTIVE_CHAINS env var to include at least one of: {list(CHAIN_HEX.keys())}"
+            )
+        for chain in evm_chains:
+            try:
+                gainers = get_top_gainers(chain, time_frame="1h")[:TOKENS_PER_SOURCE]
+                if not gainers:
+                    logger.debug(f"AlphaDiscovery Source 1 [{chain}]: get_top_gainers returned 0 tokens")
                     continue
-                traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
-                for t in traders:
-                    addr = t.get("address", "").lower()
-                    if addr and not t.get("is_bot", False):
-                        candidates[chain].append(addr)
-                time.sleep(0.3)
+                chain_count = 0
+                for token in gainers:
+                    token_addr = token.get("token_address", "")
+                    if not token_addr:
+                        continue
+                    traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
+                    if not traders:
+                        logger.debug(
+                            f"AlphaDiscovery Source 1 [{chain}]: "
+                            f"get_top_traders returned 0 for {token_addr[:10]}"
+                        )
+                    for t in traders:
+                        addr = t.get("address", "").lower()
+                        if addr and not t.get("is_bot", False):
+                            candidates[chain].append(addr)
+                            chain_count += 1
+                    time.sleep(0.3)
+                logger.debug(
+                    f"AlphaDiscovery Source 1 [{chain}]: "
+                    f"{len(gainers)} gainers → {chain_count} wallet candidates"
+                )
+            except Exception as chain_err:
+                logger.warning(f"AlphaDiscovery Source 1 [{chain}] error: {chain_err}")
 
         for chain in candidates:
             candidates[chain] = list(dict.fromkeys(candidates[chain]))
         logger.info(
             f"AlphaDiscovery Source 1 (Moralis Top Traders): "
-            f"{sum(len(v) for v in candidates.values())} candidates"
+            f"{sum(len(v) for v in candidates.values())} candidates "
+            f"(chains: {evm_chains if 'evm_chains' in dir() else 'none'})"
         )
     except Exception as e:
-        logger.warning(f"AlphaDiscovery Source 1 error: {e}")
+        logger.warning(f"AlphaDiscovery Source 1 error: {e}", exc_info=True)
     return candidates
 
 
@@ -733,27 +758,45 @@ def _harvest_source_2_whale_accumulation() -> Dict[str, List[str]]:
         from data.providers.moralis_money import get_whale_accumulation_tokens
         from data.providers.moralis_intelligence import get_top_traders
 
-        for chain in [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]:
-            tokens = get_whale_accumulation_tokens(chain)[:TOKENS_PER_SOURCE]
-            for token in tokens:
-                token_addr = token.get("token_address", "")
-                if not token_addr:
+        evm_chains = [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]
+        if not evm_chains:
+            logger.warning(
+                f"AlphaDiscovery Source 2: No EVM chains in ACTIVE_CHAINS ({ACTIVE_CHAINS})"
+            )
+        for chain in evm_chains:
+            try:
+                tokens = get_whale_accumulation_tokens(chain)[:TOKENS_PER_SOURCE]
+                if not tokens:
+                    logger.debug(f"AlphaDiscovery Source 2 [{chain}]: get_whale_accumulation_tokens returned 0")
                     continue
-                traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
-                for t in traders:
-                    addr = t.get("address", "").lower()
-                    if addr and not t.get("is_bot", False):
-                        candidates[chain].append(addr)
-                time.sleep(0.3)
+                chain_count = 0
+                for token in tokens:
+                    token_addr = token.get("token_address", "")
+                    if not token_addr:
+                        continue
+                    traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
+                    for t in traders:
+                        addr = t.get("address", "").lower()
+                        if addr and not t.get("is_bot", False):
+                            candidates[chain].append(addr)
+                            chain_count += 1
+                    time.sleep(0.3)
+                logger.debug(
+                    f"AlphaDiscovery Source 2 [{chain}]: "
+                    f"{len(tokens)} whale tokens → {chain_count} wallet candidates"
+                )
+            except Exception as chain_err:
+                logger.warning(f"AlphaDiscovery Source 2 [{chain}] error: {chain_err}")
 
         for chain in candidates:
             candidates[chain] = list(dict.fromkeys(candidates[chain]))
         logger.info(
             f"AlphaDiscovery Source 2 (Whale Accumulation): "
-            f"{sum(len(v) for v in candidates.values())} candidates"
+            f"{sum(len(v) for v in candidates.values())} candidates "
+            f"(chains: {evm_chains if 'evm_chains' in dir() else 'none'})"
         )
     except Exception as e:
-        logger.warning(f"AlphaDiscovery Source 2 error: {e}")
+        logger.warning(f"AlphaDiscovery Source 2 error: {e}", exc_info=True)
     return candidates
 
 
@@ -767,27 +810,45 @@ def _harvest_source_3_top_gainers_24h() -> Dict[str, List[str]]:
         from data.providers.moralis_money import get_top_gainers
         from data.providers.moralis_intelligence import get_top_traders
 
-        for chain in [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]:
-            gainers = get_top_gainers(chain, time_frame="1d")[:TOKENS_PER_SOURCE]
-            for token in gainers:
-                token_addr = token.get("token_address", "")
-                if not token_addr:
+        evm_chains = [c for c in ACTIVE_CHAINS if c in CHAIN_HEX]
+        if not evm_chains:
+            logger.warning(
+                f"AlphaDiscovery Source 3: No EVM chains in ACTIVE_CHAINS ({ACTIVE_CHAINS})"
+            )
+        for chain in evm_chains:
+            try:
+                gainers = get_top_gainers(chain, time_frame="1d")[:TOKENS_PER_SOURCE]
+                if not gainers:
+                    logger.debug(f"AlphaDiscovery Source 3 [{chain}]: get_top_gainers(1d) returned 0 tokens")
                     continue
-                traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
-                for t in traders:
-                    addr = t.get("address", "").lower()
-                    if addr and not t.get("is_bot", False):
-                        candidates[chain].append(addr)
-                time.sleep(0.3)
+                chain_count = 0
+                for token in gainers:
+                    token_addr = token.get("token_address", "")
+                    if not token_addr:
+                        continue
+                    traders = get_top_traders(token_addr, chain, limit=TRADERS_PER_TOKEN)
+                    for t in traders:
+                        addr = t.get("address", "").lower()
+                        if addr and not t.get("is_bot", False):
+                            candidates[chain].append(addr)
+                            chain_count += 1
+                    time.sleep(0.3)
+                logger.debug(
+                    f"AlphaDiscovery Source 3 [{chain}]: "
+                    f"{len(gainers)} gainers(1d) → {chain_count} wallet candidates"
+                )
+            except Exception as chain_err:
+                logger.warning(f"AlphaDiscovery Source 3 [{chain}] error: {chain_err}")
 
         for chain in candidates:
             candidates[chain] = list(dict.fromkeys(candidates[chain]))
         logger.info(
             f"AlphaDiscovery Source 3 (Top Gainers 24h): "
-            f"{sum(len(v) for v in candidates.values())} candidates"
+            f"{sum(len(v) for v in candidates.values())} candidates "
+            f"(chains: {evm_chains if 'evm_chains' in dir() else 'none'})"
         )
     except Exception as e:
-        logger.warning(f"AlphaDiscovery Source 3 error: {e}")
+        logger.warning(f"AlphaDiscovery Source 3 error: {e}", exc_info=True)
     return candidates
 
 
@@ -811,9 +872,18 @@ def _harvest_source_4_dexscreener_boosts() -> Dict[str, List[str]]:
             timeout=10,
         )
         if r.status_code != 200:
+            logger.warning(
+                f"AlphaDiscovery Source 4: DexScreener boosts API returned "
+                f"{r.status_code} — {r.text[:200]}"
+            )
             return candidates
 
         boosts = r.json() if isinstance(r.json(), list) else []
+        if not boosts:
+            logger.warning(
+                "AlphaDiscovery Source 4: DexScreener boosts returned empty list "
+                "(API may have changed format or returned non-list JSON)"
+            )
         seen_tokens: Set[str] = set()
         token_list: List[Dict] = []
         for b in boosts:
@@ -831,25 +901,45 @@ def _harvest_source_4_dexscreener_boosts() -> Dict[str, List[str]]:
             if len(token_list) >= TOKENS_PER_SOURCE * len(CHAIN_HEX):
                 break
 
+        logger.debug(
+            f"AlphaDiscovery Source 4: {len(boosts)} boosts from DexScreener, "
+            f"{len(token_list)} tokens matched active chains"
+        )
+        total_count = 0
         for token in token_list:
             chain = token["chain"]
             if chain not in CHAIN_HEX:
+                logger.debug(
+                    f"AlphaDiscovery Source 4: skipping chain '{chain}' — not in CHAIN_HEX"
+                )
                 continue
-            traders = get_top_traders(token["address"], chain, limit=TRADERS_PER_TOKEN)
-            for t in traders:
-                addr = t.get("address", "").lower()
-                if addr and not t.get("is_bot", False):
-                    candidates[chain].append(addr)
-            time.sleep(0.3)
+            try:
+                traders = get_top_traders(token["address"], chain, limit=TRADERS_PER_TOKEN)
+                if not traders:
+                    logger.debug(
+                        f"AlphaDiscovery Source 4 [{chain}]: "
+                        f"get_top_traders returned 0 for {token['address'][:10]}"
+                    )
+                for t in traders:
+                    addr = t.get("address", "").lower()
+                    if addr and not t.get("is_bot", False):
+                        candidates[chain].append(addr)
+                        total_count += 1
+                time.sleep(0.3)
+            except Exception as token_err:
+                logger.warning(
+                    f"AlphaDiscovery Source 4 [{chain}] token {token['address'][:10]} error: {token_err}"
+                )
 
         for chain in candidates:
             candidates[chain] = list(dict.fromkeys(candidates[chain]))
         logger.info(
             f"AlphaDiscovery Source 4 (DexScreener Boosts): "
-            f"{sum(len(v) for v in candidates.values())} candidates"
+            f"{sum(len(v) for v in candidates.values())} candidates "
+            f"from {len(token_list)} boosted tokens"
         )
     except Exception as e:
-        logger.warning(f"AlphaDiscovery Source 4 error: {e}")
+        logger.warning(f"AlphaDiscovery Source 4 error: {e}", exc_info=True)
     return candidates
 
 
@@ -889,8 +979,8 @@ def _harvest_source_6_gmgn_smart_money() -> List[str]:
     """
     candidates: List[str] = []
     try:
-        from core.gmgn_client import GMGNClient
-        gmgn = GMGNClient()
+        from core.gmgn_client import get_gmgn_client
+        gmgn = get_gmgn_client()
         # GMGN doesn't have a public leaderboard endpoint, but we can
         # audit the known seed wallets from settings to find new ones
         # via their activity feed (who they interacted with recently).

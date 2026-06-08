@@ -453,6 +453,15 @@ def execute_solana_buy(
     except Exception:
         pass  # Circuit breaker is non-blocking
 
+    # -- PAPER MODE SHORT-CIRCUIT ------------------------------------------
+    # Return PAPER_TX immediately without making any Jupiter API calls.
+    if is_paper:
+        logger.info(
+            f"PAPER MODE: Simulated buy of {token_mint[:8]}... "
+            f"for {sol_amount:.4f} SOL (no Jupiter call)"
+        )
+        return "PAPER_TX"
+
     # Get quote
     quote = get_jupiter_quote(
         input_mint=WSOL_MINT,

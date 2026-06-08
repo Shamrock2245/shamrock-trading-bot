@@ -892,6 +892,23 @@ class TradeExecutor:
         Returns:
             TradeResult with full execution details
         """
+        # ── PAPER MODE HARD GUARD ──────────────────────────────────────────────
+        # This guard fires BEFORE any web3/API calls, ensuring paper mode can
+        # NEVER accidentally broadcast an on-chain transaction regardless of
+        # how individual sub-methods are called.
+        if settings.IS_PAPER:
+            logger.info(
+                f"📄 PAPER TRADE (execute_trade): {params.wallet.alias} | "
+                f"{params.chain} | {params.token_in[:10]}... -> {params.token_out[:10]}... | "
+                f"amount={params.amount_in_wei/1e18:.6f} | mode=paper"
+            )
+            return TradeResult(
+                success=True,
+                execution_path="paper",
+                amount_in=params.amount_in_wei / 1e18,
+                amount_out=0.0,
+                tx_hash="PAPER_TX",
+            )
         # ── FAST REJECT: Liquidity blacklist check ────────────────────────────
         import time as _time
         _target_token = params.token_out.lower()

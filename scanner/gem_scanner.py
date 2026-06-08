@@ -446,9 +446,13 @@ class GemScanner:
         )
 
         # ──────────────────────────────────────────────────────────────────────
-        # PHASE 2: SERIAL SCORING & FILTERING
+        # PHASE 2: SCORING & FILTERING
         # Process fetched data source-by-source. Scoring uses shared state
-        # (seen_addresses, candidates) so must remain serial.
+        # (seen_addresses, candidates). Each source's scoring block is lightweight
+        # (already parallelised at the fetch level above). The per-chain parallel
+        # setting (SCANNER_PARALLEL_CHAINS) controls whether the Moralis multi-chain
+        # scoring sub-loop runs in threads. All other sources remain serial to
+        # avoid race conditions on seen_addresses / candidates.
         # ──────────────────────────────────────────────────────────────────────
 
         def _process_dex_items(items, source_name, is_boosted=False,
@@ -521,27 +525,54 @@ class GemScanner:
         logger.info(f"Fetched {len(raw_data.get('ads', []))} latest ads")
 
         # Source 6: Moralis trending
+        # When SCANNER_PARALLEL_CHAINS=True, fetch DexScreener pair data for all
+        # Moralis candidates in parallel (I/O-bound) then score serially to avoid
+        # race conditions on seen_addresses / candidates.
         moralis_added = 0
-        count = 0
-        for mt in raw_data.get("moralis", []):
-            if count >= 10:
-                break
-            token_addr = mt.get("token_address", "")
-            chain = mt.get("chain", "")
-            if not token_addr or not chain:
-                continue
-            if chain not in settings.ACTIVE_CHAINS:
-                continue
+        _moralis_items = [
+            mt for mt in raw_data.get("moralis", [])
+            if mt.get("token_address") and mt.get("chain")
+            and mt.get("chain") in settings.ACTIVE_CHAINS
+        ][:10]
+
+        def _fetch_moralis_pairs(mt: dict) -> tuple:
+            """Fetch DexScreener pairs for a single Moralis token (I/O only)."""
+            try:
+                from core.moralis_cu_budget import cu_budget as _cu_budget
+                if not _cu_budget.can_afford("token_pairs"):
+                    return mt, []
+            except Exception:
+                pass
+            return mt, (get_token_pairs(mt["token_address"]) or [])
+
+        if settings.SCANNER_PARALLEL_CHAINS and _moralis_items:
+            # Parallel I/O: fetch all pairs concurrently
+            _moralis_pairs: list[tuple] = []
+            with ThreadPoolExecutor(
+                max_workers=settings.SCANNER_MAX_WORKERS,
+                thread_name_prefix="moralis_pairs",
+            ) as _pool:
+                _futures = {_pool.submit(_fetch_moralis_pairs, mt): mt for mt in _moralis_items}
+                for _fut in as_completed(_futures, timeout=20):
+                    try:
+                        _moralis_pairs.append(_fut.result(timeout=15))
+                    except Exception as _fe:
+                        logger.debug(f"Moralis parallel pair fetch error: {_fe}")
+        else:
+            _moralis_pairs = [_fetch_moralis_pairs(mt) for mt in _moralis_items]
+
+        # Serial scoring (shared state: seen_addresses, candidates)
+        for mt, pairs in _moralis_pairs:
+            token_addr = mt["token_address"]
+            chain = mt["chain"]
             if token_addr.lower() in seen_addresses:
                 continue
-            pairs = get_token_pairs(token_addr) or []
             for pair in pairs:
                 signals = extract_gem_signals(pair)
                 signals["is_boosted"] = True
                 signals["boost_amount"] = 75
                 token = self._signals_to_token(signals, chain)
                 if token:
-                    count += 1
                     candidate = self._score_token(token, is_boosted=True)
                     if candidate is None:
                         break
@@ -926,8 +957,9 @@ class GemScanner:
         express_count = sum(1 for c in candidates if c.gem_score >= settings.EXPRESS_LANE_SCORE)
         _total_elapsed = time.monotonic() - _scan_start
         logger.info(
-            f"Scan complete in {_total_elapsed:.1f}s: {len(candidates)} candidates above "
-            f"score threshold {settings.MIN_GEM_SCORE} "
+            f"Scan cycle completed in {_total_elapsed:.1f}s "
+            f"(parallel={settings.SCANNER_PARALLEL_CHAINS}): "
+            f"{len(candidates)} candidates above score threshold {settings.MIN_GEM_SCORE} "
             f"({express_count} express lane) "
             f"| watchlist: {self.watchlist.size} tokens watched "
             f"| fetch={_fetch_elapsed:.1f}s scoring={_total_elapsed - _fetch_elapsed:.1f}s"

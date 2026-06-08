@@ -395,8 +395,8 @@ def _get_gmgn_client():
     if _gmgn_client is not None:
         return _gmgn_client
     try:
-        from core.gmgn_client import GMGNClient
-        _gmgn_client = GMGNClient()
+        from core.gmgn_client import get_gmgn_client
+        _gmgn_client = get_gmgn_client()
         logger.info("WalletMonitor: GMGN client initialized — using GMGN for Solana polling")
         return _gmgn_client
     except Exception as e:

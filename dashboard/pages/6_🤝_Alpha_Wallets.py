@@ -377,8 +377,8 @@ def _load_gmgn_audit():
     try:
         import sys, os
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        from core.gmgn_client import GMGNClient
-        client = GMGNClient()
+        from core.gmgn_client import get_gmgn_client
+        client = get_gmgn_client()
         for w in _GMGN_SOL_WALLETS:
             try:
                 audit = client.audit_wallet(w["address"])

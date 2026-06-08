@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 from data.http_session import get_session
 import logging
 
@@ -15,6 +16,73 @@ except ImportError:
 MORALIS_API_KEY = os.environ.get("MORALIS_API_KEY", "")
 MORALIS_API_BASE = "https://deep-index.moralis.io/api/v2.2"
 SOLANA_API_BASE = "https://solana-gateway.moralis.io"
+
+# ── TTL caches ────────────────────────────────────────────────────────────────
+# Moralis score/analytics data changes on a ~5-minute cadence; caching for
+# 3 minutes prevents redundant CU spend when the same token is scored multiple
+# times within a single scan cycle.
+_SCORE_TTL = 180        # 3 minutes
+_ANALYTICS_TTL = 180    # 3 minutes
+_METADATA_TTL = 300     # 5 minutes (metadata rarely changes)
+
+_score_cache: dict[str, tuple[float, dict]] = {}
+_analytics_cache: dict[str, tuple[float, dict]] = {}
+_metadata_cache: dict[str, tuple[float, list]] = {}
+_cache_lock = threading.Lock()
+
+
+def _score_key(token_address: str, chain: str) -> str:
+    return f"{chain}:{token_address.lower()}"
+
+
+def _get_cached_score(token_address: str, chain: str) -> dict | None:
+    key = _score_key(token_address, chain)
+    with _cache_lock:
+        entry = _score_cache.get(key)
+    if entry and (time.time() - entry[0]) < _SCORE_TTL:
+        return entry[1]
+    return None
+
+
+def _set_cached_score(token_address: str, chain: str, result: dict) -> None:
+    key = _score_key(token_address, chain)
+    with _cache_lock:
+        _score_cache[key] = (time.time(), result)
+
+
+def _get_cached_analytics(token_address: str, chain: str) -> dict | None:
+    key = _score_key(token_address, chain)
+    with _cache_lock:
+        entry = _analytics_cache.get(key)
+    if entry and (time.time() - entry[0]) < _ANALYTICS_TTL:
+        return entry[1]
+    return None
+
+
+def _set_cached_analytics(token_address: str, chain: str, result: dict) -> None:
+    key = _score_key(token_address, chain)
+    with _cache_lock:
+        _analytics_cache[key] = (time.time(), result)
+
+
+def _metadata_key(token_addresses: list, chain: str) -> str:
+    return f"{chain}:{','.join(sorted(a.lower() for a in token_addresses))}"
+
+
+def _get_cached_metadata(token_addresses: list, chain: str) -> list | None:
+    key = _metadata_key(token_addresses, chain)
+    with _cache_lock:
+        entry = _metadata_cache.get(key)
+    if entry and (time.time() - entry[0]) < _METADATA_TTL:
+        return entry[1]
+    return None
+
+
+def _set_cached_metadata(token_addresses: list, chain: str, result: list) -> None:
+    key = _metadata_key(token_addresses, chain)
+    with _cache_lock:
+        _metadata_cache[key] = (time.time(), result)
+
 
 def _get_headers():
     return {
@@ -39,9 +107,17 @@ def get_token_score(token_address: str, chain: str) -> dict:
     """
     Get token security score.
     https://docs.moralis.com/data-api/evm/reference/get-token-score
+
+    Results are cached for 3 minutes (TTL) to avoid redundant CU spend when
+    the same token is scored multiple times within a single scan cycle.
     """
     if not MORALIS_API_KEY:
         return {}
+
+    # ── Cache hit ─────────────────────────────────────────────────────────────
+    cached = _get_cached_score(token_address, chain)
+    if cached is not None:
+        return cached
 
     try:
         chain_lower = chain.lower()
@@ -54,9 +130,12 @@ def get_token_score(token_address: str, chain: str) -> dict:
         _rate_check()
         res = get_session().get(url, headers=_get_headers(), timeout=4)
         if res.status_code == 200:
-            return res.json()
+            result = res.json()
+            _set_cached_score(token_address, chain, result)
+            return result
         elif res.status_code == 404:
-            # Not found / no score yet
+            # Not found / no score yet — cache empty result to avoid repeat 404s
+            _set_cached_score(token_address, chain, {})
             return {}
         else:
             logger.debug(f"Moralis score error for {token_address}: {res.status_code} - {res.text}")
@@ -71,9 +150,17 @@ def get_token_analytics(token_address: str, chain: str) -> dict:
     Returns period-keyed dict: {"1d": {...}, "1w": {...}, "1m": {...}}
     Endpoint: /erc20/{address}/analytics  (NOT /tokens/{address}/analytics)
     https://docs.moralis.com/data-api/evm/reference/get-token-analytics
+
+    Results are cached for 3 minutes (TTL) to avoid redundant CU spend when
+    the same token is scored multiple times within a single scan cycle.
     """
     if not MORALIS_API_KEY:
         return {}
+
+    # ── Cache hit ─────────────────────────────────────────────────────────────
+    cached = _get_cached_analytics(token_address, chain)
+    if cached is not None:
+        return cached
 
     try:
         chain_lower = chain.lower()
@@ -86,8 +173,11 @@ def get_token_analytics(token_address: str, chain: str) -> dict:
         _rate_check()
         res = get_session().get(url, headers=_get_headers(), timeout=5)
         if res.status_code == 200:
-            return res.json()
+            result = res.json()
+            _set_cached_analytics(token_address, chain, result)
+            return result
         elif res.status_code == 404:
+            _set_cached_analytics(token_address, chain, {})
             return {}
         else:
             logger.debug(f"Moralis analytics error for {token_address}: {res.status_code} - {res.text}")
@@ -100,9 +190,16 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
     """
     Get token metadata (including possible_spam flags).
     https://docs.moralis.com/data-api/evm/reference/get-token-metadata
+
+    Results are cached for 5 minutes (TTL) — metadata rarely changes.
     """
     if not MORALIS_API_KEY or not token_addresses:
         return []
+
+    # ── Cache hit ─────────────────────────────────────────────────────────────
+    cached = _get_cached_metadata(token_addresses, chain)
+    if cached is not None:
+        return cached
 
     try:
         chain_lower = chain.lower()
@@ -113,7 +210,9 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
             if res.status_code == 200:
                 data = res.json()
                 if isinstance(data, dict):
-                    return [data]
+                    result = [data]
+                    _set_cached_metadata(token_addresses, chain, result)
+                    return result
             return []
         else:
             hex_chain = _chain_to_hex(chain_lower)
@@ -124,7 +223,9 @@ def get_token_metadata(token_addresses: list, chain: str) -> list:
             _rate_check()
             res = get_session().get(url, headers=_get_headers(), timeout=4)
             if res.status_code == 200:
-                return res.json()
+                result = res.json()
+                _set_cached_metadata(token_addresses, chain, result)
+                return result
             return []
     except Exception as e:
         logger.debug(f"Exception fetching Moralis metadata: {e}")

@@ -14,6 +14,8 @@ Rate limit: ~20 req/min on free tier.
 """
 
 import logging
+import time
+import threading
 from typing import Optional
 
 from data.http_session import get_session
@@ -23,6 +25,32 @@ logger = logging.getLogger(__name__)
 
 GOPLUS_BASE = "https://api.gopluslabs.io/api/v1"
 
+# ── TTL cache (2-minute TTL — safety checks per spec) ────────────────────────
+# Safety data changes rarely within a 2-minute window; caching prevents
+# redundant GoPlus calls when the same token is scored multiple times per cycle.
+_CACHE_TTL = 120  # 2 minutes
+_cache: dict[str, tuple[float, Optional[dict]]] = {}  # key -> (timestamp, result)
+_cache_lock = threading.Lock()
+
+
+def _cache_key(token_address: str, chain_id: str) -> str:
+    return f"{chain_id}:{token_address.lower()}"
+
+
+def _get_cached(token_address: str, chain_id: str) -> Optional[dict]:
+    key = _cache_key(token_address, chain_id)
+    with _cache_lock:
+        entry = _cache.get(key)
+    if entry and (time.time() - entry[0]) < _CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _set_cached(token_address: str, chain_id: str, result: Optional[dict]) -> None:
+    key = _cache_key(token_address, chain_id)
+    with _cache_lock:
+        _cache[key] = (time.time(), result)
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=15))
 def get_token_security(token_address: str, chain_id: str) -> Optional[dict]:
@@ -31,7 +59,15 @@ def get_token_security(token_address: str, chain_id: str) -> Optional[dict]:
 
     Returns comprehensive security analysis for a token.
     chain_id: GoPlus chain ID string (e.g., "1" for Ethereum, "8453" for Base)
+
+    Results are cached for 2 minutes (TTL) to avoid redundant API calls within
+    a scan cycle. On API failure the function returns None — never a stale value.
     """
+    # ── Cache hit ─────────────────────────────────────────────────────────────
+    cached = _get_cached(token_address, chain_id)
+    if cached is not None:
+        return cached
+
     try:
         url = f"{GOPLUS_BASE}/token_security/{chain_id}"
         params = {"contract_addresses": token_address.lower()}
@@ -44,10 +80,13 @@ def get_token_security(token_address: str, chain_id: str) -> Optional[dict]:
             return None
 
         result = data.get("result", {})
-        return result.get(token_address.lower())
+        token_result = result.get(token_address.lower())
+        _set_cached(token_address, chain_id, token_result)
+        return token_result
 
     except Exception as e:
         logger.error(f"GoPlus security check error for {token_address}: {e}")
+        # Return None on failure — never return stale cached data for safety decisions
         return None
 
 

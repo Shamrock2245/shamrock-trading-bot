@@ -34,6 +34,32 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _get_sol_price_usd() -> float:
+    """Fetch live SOL/USD price; falls back to a safe estimate on failure."""
+    try:
+        from core.wallet_router import get_native_price_usd as _gnp
+        price = _gnp("SOL")
+        if price and price > 0:
+            return price
+    except Exception:
+        pass
+    logger.warning("SOL price lookup failed — using fallback $150 estimate for proceeds_usd")
+    return 150.0  # FALLBACK: clearly labelled, only used when live fetch fails
+
+
+def _get_eth_price_usd() -> float:
+    """Fetch live ETH/USD price; falls back to a safe estimate on failure."""
+    try:
+        from core.wallet_router import get_native_price_usd as _gnp
+        price = _gnp("ETH")
+        if price and price > 0:
+            return price
+    except Exception:
+        pass
+    logger.warning("ETH price lookup failed — using fallback $3000 estimate for proceeds_usd")
+    return 3000.0  # FALLBACK: clearly labelled, only used when live fetch fails
+
 # Slippage escalation ladder (basis points)
 SLIPPAGE_LADDER = [200, 500, 1500, 3000]
 
@@ -108,6 +134,24 @@ def execute_sell_solana(
         f"{token_amount_units:,} units of {token_mint[:8]}... | urgency={urgency}"
     )
 
+
+    # -- PAPER MODE SHORT-CIRCUIT ------------------------------------------
+    # Return immediately in paper mode without making any Jupiter API calls.
+    if is_paper:
+        logger.info(
+            f"PAPER: Simulated Solana sell {token_mint[:8]}... "
+            f"({token_amount_units:,} units) | urgency={urgency}"
+        )
+        return SellResult(
+            success=True,
+            tx_hash="PAPER_TX",
+            amount_sold=token_amount_units,
+            proceeds_usd=0.0,
+            slippage_bps_used=200,
+            attempts=1,
+            execution_path="paper",
+        )
+
     # Jito tip based on urgency
     tip_map = {
         "normal":    JITO_TIP_SELL_NORMAL,
@@ -171,7 +215,7 @@ def execute_sell_solana(
                 success=True,
                 tx_hash="PAPER_TX",
                 amount_sold=token_amount_units,
-                proceeds_usd=out_sol * 150,  # Rough SOL price estimate for paper mode
+                proceeds_usd=out_sol * _get_sol_price_usd(),  # Live SOL price (fallback: $150)
                 slippage_bps_used=slippage_bps,
                 attempts=attempt + 1,
                 execution_path="paper",
@@ -237,7 +281,7 @@ def execute_sell_solana(
                         success=True,
                         tx_hash=jito_result.bundle_id or "jito_bundle_submitted",
                         amount_sold=token_amount_units,
-                        proceeds_usd=out_sol * 150,
+                        proceeds_usd=out_sol * _get_sol_price_usd(),  # Live SOL price (fallback: $150)
                         slippage_bps_used=slippage_bps,
                         attempts=attempt + 1,
                         execution_path="jito",
@@ -267,7 +311,7 @@ def execute_sell_solana(
                     success=True,
                     tx_hash=signature,
                     amount_sold=token_amount_units,
-                    proceeds_usd=out_sol * 150,
+                    proceeds_usd=out_sol * _get_sol_price_usd(),  # Live SOL price (fallback: $150)
                     slippage_bps_used=slippage_bps,
                     attempts=attempt + 1,
                     execution_path="standard_rpc",
@@ -648,7 +692,7 @@ def execute_sell_evm(
                     success=True,
                     tx_hash=tx_hash.hex(),
                     amount_sold=token_amount_wei,
-                    proceeds_usd=proceeds * 3000,  # Rough ETH price for paper
+                    proceeds_usd=proceeds * _get_eth_price_usd(),  # Live ETH price (fallback: $3000)
                     slippage_bps_used=slippage_bps,
                     attempts=attempt + 1,
                     execution_path=f"1inch_live{'_retry' if attempt > 0 else ''}",

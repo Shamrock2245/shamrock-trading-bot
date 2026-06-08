@@ -16,6 +16,7 @@ import base64
 import logging
 import os
 import socket
+import threading
 import time
 import uuid
 
@@ -232,6 +233,30 @@ class GMGNClient:
             ],
             "holdings_count": len(holdings),
         }
+
+
+# ── Module-level singleton ──────────────────────────────────────────────────────────────────────
+# Each GMGNClient instantiation loads the Ed25519 private key from env and
+# performs base64 decoding. With 5+ call sites (alpha_wallet_discovery,
+# sniper_discovery, wallet_monitor, dashboard) this was creating a new key
+# object on every function call. The singleton pattern ensures one instance
+# per process lifetime, saving ~3ms per call and preventing key-material churn.
+_gmgn_singleton: "GMGNClient | None" = None
+_gmgn_singleton_lock = threading.Lock()
+
+
+def get_gmgn_client() -> "GMGNClient":
+    """
+    Return the process-wide GMGNClient singleton.
+    Thread-safe via double-checked locking.
+    Raises ValueError if GMGN_API_KEY / GMGN_PRIVATE_KEY are not set.
+    """
+    global _gmgn_singleton
+    if _gmgn_singleton is None:
+        with _gmgn_singleton_lock:
+            if _gmgn_singleton is None:  # double-checked locking
+                _gmgn_singleton = GMGNClient()
+    return _gmgn_singleton
 
 
 def run_solana_audit():

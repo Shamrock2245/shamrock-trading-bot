@@ -416,6 +416,11 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
+# Parallelise per-chain scoring in scan_for_gems() using ThreadPoolExecutor.
+# SCANNER_PARALLEL_CHAINS=True  → each chain's scoring runs in its own thread
+# SCANNER_MAX_WORKERS           → max threads in the scoring pool (default 4)
+SCANNER_PARALLEL_CHAINS = os.getenv("SCANNER_PARALLEL_CHAINS", "true").lower() == "true"
+SCANNER_MAX_WORKERS = int(os.getenv("SCANNER_MAX_WORKERS", "4"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
 MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # TUNED: 68→62 — reduce garbage entries while keeping quality bar (task/strategy-tuning)

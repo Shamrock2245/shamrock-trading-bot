@@ -57,6 +57,21 @@ def _available() -> bool:
     return bool(MORALIS_API_KEY)
 
 
+def _safe_float(val, default: float = 0.0) -> float:
+    """
+    Safely convert a value to float.
+    Handles None, empty string, and non-numeric strings that would crash float().
+    Bug fix: Moralis Solana top-holders endpoint sometimes returns empty string
+    or None for percentageRelativeToTotalSupply / usdValue fields.
+    """
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 
 
 def _is_cached(key: str) -> bool:
@@ -324,7 +339,7 @@ def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
         raw = resp.json()
 
         holders = raw.get("result", [])
-        total_pct = sum(float(h.get("percentageRelativeToTotalSupply", 0)) for h in holders[:10])
+        total_pct = sum(_safe_float(h.get("percentageRelativeToTotalSupply", 0)) for h in holders[:10])
 
         if total_pct >= 80:
             risk = "critical"
@@ -339,9 +354,9 @@ def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
             "holders": [
                 {
                     "address": h.get("ownerAddress", ""),
-                    "balance": float(h.get("balance", 0)),
-                    "percentage": float(h.get("percentageRelativeToTotalSupply", 0)),
-                    "usd_value": float(h.get("usdValue", 0)),
+                    "balance": _safe_float(h.get("balance", 0)),
+                    "percentage": _safe_float(h.get("percentageRelativeToTotalSupply", 0)),
+                    "usd_value": _safe_float(h.get("usdValue", 0)),
                 }
                 for h in holders
             ],

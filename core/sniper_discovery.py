@@ -891,8 +891,8 @@ def discover_top_solana_alpha_wallets(max_wallets: int = 10) -> list[SniperWalle
 
     # Try GMGN for richer Solana-specific data
     try:
-        from core.gmgn_client import GMGNClient
-        gmgn_client = GMGNClient()
+        from core.gmgn_client import get_gmgn_client
+        gmgn_client = get_gmgn_client()
         gmgn_available = True
         logger.info("Solana Alpha Discovery: GMGN client available for enrichment")
     except Exception as e:

@@ -1205,6 +1205,9 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             # Update sell_qty to resolved value
             sell_qty = resolved_qty
 
+            # ⚠️  Paper-mode guard: is_paper is passed from PositionMonitor.is_paper
+            # (which reads settings.IS_PAPER dynamically). The previous code
+            # hardcoded is_paper=False here, bypassing paper mode on sells.
             if chain == "solana":
                 sol_pub = getattr(wallet, "solana_address", "") or ""
                 sol_key_env = getattr(wallet, "solana_private_key_env", "") or ""
@@ -1214,7 +1217,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     wallet_public_key=sol_pub,
                     wallet_private_key_env=sol_key_env,
                     urgency=sell_urgency,
-                    is_paper=False,
+                    is_paper=is_paper,  # ✅ Fixed: was hardcoded False
                     prior_failures=pos.get("sell_failure_count", 0),
                 )
             else:
@@ -1224,7 +1227,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     chain=chain,
                     wallet=wallet,
                     urgency=sell_urgency,
-                    is_paper=False,
+                    is_paper=is_paper,  # ✅ Fixed: was hardcoded False
                     prior_failures=pos.get("sell_failure_count", 0),
                 )
 
