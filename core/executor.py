@@ -1002,12 +1002,18 @@ class TradeExecutor:
         # ── Blacklist tokens with no DEX liquidity ─────────────────────────
         if not result.success and result.error:
             _err_lower = result.error.lower()
-            if "insufficient_liquidity" in _err_lower or "insufficient liquidity" in _err_lower:
+            _liquidity_fail = (
+                "insufficient_liquidity" in _err_lower
+                or "insufficient liquidity" in _err_lower
+                or "1inch quote failed" in _err_lower  # No route = no liquidity
+                or "no quote" in _err_lower
+            )
+            if _liquidity_fail:
                 import time as _time
                 self._liquidity_blacklist[_target_token] = _time.time() + self._BLACKLIST_TTL
                 logger.warning(
                     f"🚫 BLACKLISTED {params.token_out[:10]}... for {self._BLACKLIST_TTL}s "
-                    f"— no DEX liquidity on {params.chain}"
+                    f"— no DEX liquidity on {params.chain} ({result.error[:60]})"
                 )
 
         # ── Slippage analytics (Fix 5) ────────────────────────────────────

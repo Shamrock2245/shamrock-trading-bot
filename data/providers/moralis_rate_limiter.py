@@ -48,9 +48,10 @@ PRO_MAX_IN_WINDOW = int(PRO_RPS_LIMIT * PRO_WINDOW_SECONDS)  # 240 calls per 4s 
 
 # CU Budget Control
 MONTHLY_CU_BUDGET = 100_000_000  # 100M CU/month
-CU_BUDGET_WARNING_PCT = 0.80     # Downshift at 80% budget consumed
-CU_BUDGET_CRITICAL_PCT = 0.90    # Hard throttle at 90% budget consumed
+CU_BUDGET_WARNING_PCT = 0.70     # Downshift at 70% budget consumed
+CU_BUDGET_CRITICAL_PCT = 0.85    # Hard throttle at 85% budget consumed
 DOWNSHIFT_RPS = 20               # Reduced RPS when approaching budget limit
+AVG_CU_PER_CALL = 100            # Conservative avg CU per call for auto-estimation
 
 # ── State ─────────────────────────────────────────────────────────────────────
 _lock = threading.Lock()
@@ -84,7 +85,9 @@ def _get_effective_limit() -> int:
         _cu_used_this_month = 0.0
         _cu_month = month
 
-    budget_pct = _cu_used_this_month / MONTHLY_CU_BUDGET if MONTHLY_CU_BUDGET > 0 else 0
+    # If record_cu() hasn't been called, estimate from call count
+    cu_estimate = max(_cu_used_this_month, _total_calls * AVG_CU_PER_CALL)
+    budget_pct = cu_estimate / MONTHLY_CU_BUDGET if MONTHLY_CU_BUDGET > 0 else 0
     if budget_pct >= CU_BUDGET_CRITICAL_PCT:
         return int(DOWNSHIFT_RPS * PRO_WINDOW_SECONDS * 0.5)  # 40 calls/4s
     elif budget_pct >= CU_BUDGET_WARNING_PCT:
@@ -152,6 +155,7 @@ def get_stats() -> dict:
         effective_limit = _get_effective_limit()
         budget_pct = (_cu_used_this_month / MONTHLY_CU_BUDGET * 100) if MONTHLY_CU_BUDGET > 0 else 0
 
+        cu_estimate = max(_cu_used_this_month, _total_calls * AVG_CU_PER_CALL)
         return {
             "calls_in_window": active,
             "window_limit": effective_limit,
@@ -160,10 +164,10 @@ def get_stats() -> dict:
             "total_calls": _total_calls,
             "total_sleeps": _total_sleeps,
             "total_sleep_seconds": round(_total_sleep_seconds, 2),
-            "cu_used_this_month": round(_cu_used_this_month, 0),
-            "cu_budget_pct": round(budget_pct, 1),
-            "cu_remaining": round(MONTHLY_CU_BUDGET - _cu_used_this_month, 0),
-            "mode": "critical" if budget_pct >= CU_BUDGET_CRITICAL_PCT * 100
-                    else "warning" if budget_pct >= CU_BUDGET_WARNING_PCT * 100
+            "cu_used_this_month": round(cu_estimate, 0),
+            "cu_budget_pct": round(cu_estimate / MONTHLY_CU_BUDGET * 100, 1) if MONTHLY_CU_BUDGET > 0 else 0,
+            "cu_remaining": round(MONTHLY_CU_BUDGET - cu_estimate, 0),
+            "mode": "critical" if (cu_estimate / MONTHLY_CU_BUDGET) >= CU_BUDGET_CRITICAL_PCT
+                    else "warning" if (cu_estimate / MONTHLY_CU_BUDGET) >= CU_BUDGET_WARNING_PCT
                     else "normal",
         }

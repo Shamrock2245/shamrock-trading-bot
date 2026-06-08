@@ -4,12 +4,12 @@ data/providers/moralis_money.py — Moralis Money: PRIMARY data source for the S
 Moralis Money is one of the most powerful on-chain intelligence platforms available.
 This module wires in EVERY relevant Moralis endpoint as a first-class data source:
 
-  Discovery (Pro) — migrated June 2026 after legacy endpoint deprecation:
-    POST /discovery/tokens                       → Filtered Tokens (experienced buyers × liquidity × security)
-    GET  /tokens/trending                        → Trending tokens by chain (migrated to /tokens/)
-    POST /discovery/tokens (sortBy DESC)         → Top price gainers (migrated from /discovery/tokens/top-gainers)
-    POST /discovery/tokens (sortBy ASC)          → Top price losers (migrated from /discovery/tokens/top-losers)
-    POST /discovery/tokens (buyVolumeUsd)        → Buying pressure (migrated from /discovery/tokens/buying-pressure)
+  Discovery (Pro) — migrated June 2026 after POST /discovery/tokens deprecation:
+    GET  /tokens/trending                        → Trending tokens by chain (WORKING — primary discovery)
+    GET  /tokens/trending + local filter         → Filtered Tokens (fallback for deprecated POST /discovery/tokens)
+    GET  /tokens/trending + sort DESC            → Top price gainers (fallback for deprecated endpoint)
+    GET  /tokens/trending + sort ASC             → Top price losers (fallback for deprecated endpoint)
+    GET  /tokens/trending + buy/sell ratio       → Buying pressure (fallback for deprecated endpoint)
     GET  /tokens/graduated-by-exchange           → Post-bonding graduated tokens (NEW — Sprint 1)
     GET  /tokens/new-by-exchange                 → Brand-new token listings (NEW — Sprint 1)
 
@@ -133,8 +133,91 @@ def _available(chain: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Filtered Tokens  (POST /discovery/tokens — correct path verified June 2026)
-#    PRIMARY discovery — custom filter by experienced buyers, volume, liquidity
+# Shared helpers — trending endpoint fallback (June 2026 migration)
+# POST /discovery/tokens was deprecated and returns 404. All discovery
+# functions now call GET /tokens/trending and apply local Python filters.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _trending_for_chain(chain: str) -> list[dict]:
+    """Fetch trending tokens for a chain, returning raw API response.
+
+    This is the single working discovery endpoint after the June 2026
+    deprecation of POST /discovery/tokens.
+    """
+    if not _available(chain):
+        return []
+    moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"_trending_raw_{chain}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+    _rate_check()
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/tokens/trending",
+            params={"chain": moralis_chain},
+            headers=_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (402, 403):
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        tokens = data if isinstance(data, list) else data.get("result", [])
+        _set_cache(cache_key, tokens)
+        return tokens
+    except Exception as e:
+        logger.debug(f"Trending raw fetch error for {chain}: {e}")
+        return []
+
+
+def _trending_to_filtered_format(t: dict, chain: str, source: str) -> dict:
+    """Convert a /tokens/trending response item to the format expected by callers."""
+    price_pct = t.get("pricePercentChange", {}) or {}
+    volume = t.get("totalVolume", {}) or {}
+    txns = t.get("transactions", {}) or {}
+    buy_txns = t.get("buyTransactions", {}) or {}
+    sell_txns = t.get("sellTransactions", {}) or {}
+    buyers = t.get("buyers", {}) or {}
+    sellers = t.get("sellers", {}) or {}
+
+    buy_vol_1h = _safe_float(volume.get("1h", 0)) * (
+        _safe_float(buy_txns.get("1h", 0)) / max(_safe_float(txns.get("1h", 1)), 1)
+    )
+    sell_vol_1h = _safe_float(volume.get("1h", 0)) - buy_vol_1h
+
+    return {
+        "token_address": t.get("tokenAddress", ""),
+        "token_symbol":  t.get("symbol", ""),
+        "token_name":    t.get("name", ""),
+        "chain":         chain,
+        "price_usd":     _safe_float(t.get("usdPrice", 0)),
+        "market_cap":    _safe_float(t.get("marketCap", 0)),
+        "liquidity_usd": _safe_float(t.get("liquidityUsd", 0)),
+        "total_holders": _safe_int(t.get("holders", 0)),
+        "security_score": 0,  # Not available from trending endpoint
+        "is_honeypot":   False,
+        "buy_tax":       0.0,
+        "sell_tax":      0.0,
+        "is_open_source": True,
+        # Approximated metrics from trending data
+        "experienced_buyers_1h": _safe_int(buyers.get("1h", 0)),
+        "net_buyers_1h": _safe_int(buyers.get("1h", 0)) - _safe_int(sellers.get("1h", 0)),
+        "volume_usd_1h": _safe_float(volume.get("1h", 0)),
+        "buy_volume_usd_1h": buy_vol_1h,
+        "sell_volume_usd_1h": sell_vol_1h,
+        "buy_pressure_ratio_1h": (
+            buy_vol_1h / (buy_vol_1h + sell_vol_1h) if (buy_vol_1h + sell_vol_1h) > 0 else 0.5
+        ),
+        "net_volume_usd_1h": buy_vol_1h - sell_vol_1h,
+        "price_change_1h": _safe_float(price_pct.get("1h", 0)),
+        "price_change_24h": _safe_float(price_pct.get("24h", 0)),
+        "source": source,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Filtered Tokens  (was POST /discovery/tokens — deprecated June 2026)
+#    Now uses GET /tokens/trending + local Python filtering
 # ─────────────────────────────────────────────────────────────────────────────
 def get_filtered_tokens(
     chain: str,
@@ -144,157 +227,38 @@ def get_filtered_tokens(
     limit: int = 50,
 ) -> list[dict]:
     """
-    Filtered token discovery — the most powerful Moralis Money endpoint.
-    Finds tokens with rising experienced buyer counts, minimum liquidity,
-    and acceptable security scores. This is the core gem discovery signal.
+    Filtered token discovery — finds tokens with rising experienced buyer counts,
+    minimum liquidity, and acceptable security scores.
+
+    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
+    with local Python filtering as a fallback.
     """
     if not _available(chain):
-        return []
-    moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain)
-    if not chain_hex:
-        # discovery/tokens POST requires hex chain ID — EVM only
         return []
     cache_key = f"filtered_{chain}_{min_experienced_buyers_1h}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-
-    _rate_check()
-    try:
-        payload = {
-            "chain": chain_hex,
-            "filters": [
-                {
-                    "metric": "experiencedBuyers",
-                    "timeFrame": "oneHour",
-                    "gt": min_experienced_buyers_1h,
-                },
-                {
-                    "metric": "totalLiquidityUsd",
-                    # Point-in-time metric — no timeFrame field allowed (causes 400)
-                    "gt": min_liquidity_usd,
-                },
-                {
-                    "metric": "securityScore",
-                    # Point-in-time metric — no timeFrame field allowed (causes 400)
-                    "gt": min_security_score,
-                },
-                {
-                    # Buy volume must dominate sell volume in last hour
-                    # This ensures we're buying INTO momentum, not a dead bounce
-                    "metric": "buyVolumeUsd",
-                    "timeFrame": "oneHour",
-                    "gt": 10_000,  # Min $10k buy volume in last hour
-                },
-            ],
-            "sortBy": {
-                "metric": "experiencedBuyers",
-                "timeFrame": "oneHour",
-                "type": "DESC",
-            },
-            "limit": limit,
-            "metricsToReturn": [
-                # Time-series metrics only — point-in-time snapshots live in metadata.
-                # NOTE: "usdPrice" is NOT a valid metricsToReturn value (causes 400);
-                # price is available in metadata.usdPrice instead.
-                "experiencedBuyers",
-                "netBuyers",
-                "volumeUsd",
-                "buyVolumeUsd",
-                "sellVolumeUsd",
-                "netVolumeUsd",
-                "usdPricePercentChange",
-                "liquidityChangeUSD",
-            ],
-            "timeFramesToReturn": ["oneHour", "fourHours", "oneDay"],
-            "excludeMetadata": False,
-        }
-        resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug(f"Moralis filtered tokens: plan limitation for {chain}")
-            return []
-        if resp.status_code == 400:
-            logger.warning(f"Moralis filtered tokens 400 for {chain}: {resp.text[:300]}")
-            return []
-        resp.raise_for_status()
-        raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("result", [])
-        result = []
-        for item in items:
-            meta = item.get("metadata", item)
-            metrics = item.get("metrics", {})
-            result.append({
-                "token_address": meta.get("tokenAddress", meta.get("token_address", "")),
-                "token_symbol":  meta.get("symbol", meta.get("token_symbol", "")),
-                "token_name":    meta.get("name", meta.get("token_name", "")),
-                "chain":         chain,
-                "price_usd":     _safe_float(meta.get("usdPrice", 0)),
-                "market_cap":    _safe_float(meta.get("marketCap", 0)),
-                "liquidity_usd": _safe_float(meta.get("totalLiquidityUsd", 0)),
-                "total_holders": _safe_int(meta.get("totalHolders", 0)),
-                "security_score": _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
-                "is_honeypot":   meta.get("security", {}).get("isHoneyPot", False),
-                "buy_tax":       _safe_float(meta.get("security", {}).get("buyTax", 0)),
-                "sell_tax":      _safe_float(meta.get("security", {}).get("sellTax", 0)),
-                "is_open_source": meta.get("security", {}).get("isOpenSource", True),
-                # Metrics (1h timeframe)
-                "experienced_buyers_1h": _safe_int(
-                    (metrics.get("experiencedBuyers") or {}).get("oneHour", 0)
-                ),
-                "net_buyers_1h": _safe_float(
-                    (metrics.get("netBuyers") or {}).get("oneHour", 0)
-                ),
-                "volume_usd_1h": _safe_float(
-                    (metrics.get("volumeUsd") or {}).get("oneHour", 0)
-                ),
-                "buy_volume_usd_1h": _safe_float(
-                    (metrics.get("buyVolumeUsd") or {}).get("oneHour", 0)
-                ),
-                "sell_volume_usd_1h": _safe_float(
-                    (metrics.get("sellVolumeUsd") or {}).get("oneHour", 0)
-                ),
-                # Compute buy pressure ratio directly from source data
-                "buy_pressure_ratio_1h": (
-                    lambda bv, sv: bv / (bv + sv) if (bv + sv) > 0 else 0.5
-                )(
-                    _safe_float((metrics.get("buyVolumeUsd") or {}).get("oneHour", 0)),
-                    _safe_float((metrics.get("sellVolumeUsd") or {}).get("oneHour", 0)),
-                ),
-                "net_volume_usd_1h": _safe_float(
-                    (metrics.get("netVolumeUsd") or {}).get("oneHour", 0)
-                ),
-                "price_change_1h": _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneHour", 0)
-                ),
-                "price_change_24h": _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)
-                ),
-                "source": "moralis_filtered",
-            })
-        _set_cache(cache_key, result)
-        logger.info(f"Moralis filtered tokens: {len(result)} gems on {chain}")
-        return result
-    except requests.exceptions.HTTPError as e:
-        code = e.response.status_code if e.response is not None else 0
-        if code in (402, 403):
-            logger.debug(f"Moralis filtered tokens: plan limitation ({code}) for {chain}")
-        else:
-            logger.warning(f"Moralis filtered tokens error for {chain}: {e}")
-        return []
-    except Exception as e:
-        logger.warning(f"Moralis filtered tokens error for {chain}: {e}")
-        return []
+    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+    raw = _trending_for_chain(chain)
+    result = []
+    for t in raw:
+        liq = _safe_float(t.get("liquidityUsd", 0))
+        buyers_1h = _safe_int((t.get("buyers") or {}).get("1h", 0))
+        if liq < min_liquidity_usd:
+            continue
+        if buyers_1h < min_experienced_buyers_1h:
+            continue
+        result.append(_trending_to_filtered_format(t, chain, "moralis_filtered"))
+    result.sort(key=lambda x: x.get("experienced_buyers_1h", 0), reverse=True)
+    result = result[:limit]
+    _set_cache(cache_key, result)
+    logger.info(f"Moralis filtered tokens (via trending): {len(result)} gems on {chain}")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1b. Whale Accumulation Discovery  (POST /discovery/tokens — correct path verified June 2026)
-#     Uses netExperiencedBuyers — the most powerful smart-money signal.
-#     Finds tokens where experienced wallets are net BUYING heavily.
+# 1b. Whale Accumulation Discovery  (was POST /discovery/tokens — deprecated June 2026)
+#     Now uses GET /tokens/trending + local net-buyer filtering
 # ─────────────────────────────────────────────────────────────────────────────
 def get_whale_accumulation_tokens(
     chain: str,
@@ -307,144 +271,41 @@ def get_whale_accumulation_tokens(
     Whale accumulation detector — finds tokens where experienced wallets
     (500+ lifetime txns) are net accumulating over the past week.
 
-    This is the single highest-signal discovery filter because it identifies
-    tokens that smart money is buying BEFORE price moves.
-
-    Filters:
-      - netExperiencedBuyers > threshold over 1 week
-      - netVolumeUsd > threshold over 1 day (positive buy pressure)
-      - totalLiquidityUsd > threshold (not illiquid)
+    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
+    with local net-buyer filtering as a fallback.
     """
     if not _available(chain):
-        return []  # getFilteredTokens is EVM-only for now
-    moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain, "0x1")
+        return []
     cache_key = f"whale_accum_{chain}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-
-    _rate_check()
-    try:
-        payload = {
-            "chain": chain_hex,
-            "filters": [
-                {
-                    "metric": "netExperiencedBuyers",
-                    "timeFrame": "oneWeek",
-                    "gt": min_net_experienced_buyers_1w,
-                },
-                {
-                    "metric": "netVolumeUsd",
-                    "timeFrame": "oneDay",
-                    "gt": min_net_volume_usd_1d,
-                },
-                {
-                    "metric": "totalLiquidityUsd",
-                    # Point-in-time metric — no timeFrame field allowed (causes 400)
-                    "gt": min_liquidity_usd,
-                },
-            ],
-            "sortBy": {
-                "metric": "netExperiencedBuyers",
-                "timeFrame": "oneWeek",
-                "type": "DESC",
-            },
-            "limit": limit,
-            # NOTE: "categories": {"exclude": ["stablecoin"]} removed — "stablecoin"
-            # is not a valid category ID and causes 400.  Stablecoins are filtered
-            # downstream by the gem scanner (price_usd ≈ $1 → skip).
-            "metricsToReturn": [
-                # Time-series metrics only — point-in-time snapshots (totalLiquidityUsd,
-                # totalHolders, securityScore, fullyDilutedValuation) live in metadata.
-                # NOTE: "usdPrice" is NOT a valid metricsToReturn value (causes 400);
-                # price is available in metadata.usdPrice instead.
-                "netExperiencedBuyers",
-                "experiencedBuyers",
-                "experiencedSellers",
-                "netBuyers",
-                "netVolumeUsd",
-                "volumeUsd",
-                "holders",
-                "usdPricePercentChange",
-            ],
-            "timeFramesToReturn": ["oneDay", "oneWeek"],
-            "excludeMetadata": False,
-        }
-        resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug(f"Moralis whale accumulation: plan limitation for {chain}")
-            return []
-        if resp.status_code == 400:
-            logger.warning(f"Moralis whale accumulation 400 for {chain}: {resp.text[:300]}")
-            return []
-        resp.raise_for_status()
-        raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("result", [])
-        result = []
-        for item in items:
-            meta = item.get("metadata", item)
-            metrics = item.get("metrics", {})
-            net_exp_buyers_1w = _safe_int(
-                (metrics.get("netExperiencedBuyers") or {}).get("oneWeek", 0)
-            )
-            result.append({
-                "token_address": meta.get("tokenAddress", meta.get("token_address", "")),
-                "token_symbol":  meta.get("symbol", meta.get("token_symbol", "")),
-                "token_name":    meta.get("name", meta.get("token_name", "")),
-                "chain":         chain,
-                "price_usd":     _safe_float(meta.get("usdPrice", 0)),
-                "market_cap":    _safe_float(meta.get("marketCap", 0)),
-                "liquidity_usd": _safe_float(meta.get("totalLiquidityUsd", 0)),
-                "security_score": _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
-                # Whale accumulation signals
-                "net_experienced_buyers_1w": net_exp_buyers_1w,
-                "experienced_buyers_1d": _safe_int(
-                    (metrics.get("experiencedBuyers") or {}).get("oneDay", 0)
-                ),
-                "net_volume_usd_1d": _safe_float(
-                    (metrics.get("netVolumeUsd") or {}).get("oneDay", 0)
-                ),
-                "holder_change_1d": _safe_int(
-                    (metrics.get("holders") or {}).get("oneDay", 0)
-                ),
-                "holder_change_1w": _safe_int(
-                    (metrics.get("holders") or {}).get("oneWeek", 0)
-                ),
-                # totalHolders and FDV are point-in-time metadata fields, not
-                # time-series metrics — read from metadata, not metrics dict.
-                "total_holders": _safe_int(meta.get("totalHolders", 0)),
-                "fdv": _safe_float(
-                    meta.get("fullyDilutedValue", meta.get("fullyDilutedValuation", 0))
-                ),
-                "price_change_1d": _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)
-                ),
-                "price_change_1w": _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneWeek", 0)
-                ),
-                "source": "moralis_whale_accumulation",
-                "whale_signal_strength": min(100, net_exp_buyers_1w * 2),  # 0–100 signal
-            })
-        _set_cache(cache_key, result)
-        logger.info(
-            f"🐋 Moralis whale accumulation: {len(result)} tokens on {chain}"
-        )
-        return result
-    except requests.exceptions.HTTPError as e:
-        code = e.response.status_code if e.response is not None else 0
-        if code in (402, 403):
-            logger.debug(f"Moralis whale accumulation: plan limitation ({code}) for {chain}")
-        else:
-            logger.warning(f"Moralis whale accumulation error for {chain}: {e}")
-        return []
-    except Exception as e:
-        logger.warning(f"Moralis whale accumulation error for {chain}: {e}")
-        return []
+    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+    raw = _trending_for_chain(chain)
+    result = []
+    for t in raw:
+        liq = _safe_float(t.get("liquidityUsd", 0))
+        buyers_1h = _safe_int((t.get("buyers") or {}).get("1h", 0))
+        sellers_1h = _safe_int((t.get("sellers") or {}).get("1h", 0))
+        net_buyers = buyers_1h - sellers_1h
+        vol_1h = _safe_float((t.get("totalVolume") or {}).get("1h", 0))
+        if liq < min_liquidity_usd:
+            continue
+        if net_buyers < 5:  # Proxy for whale accumulation
+            continue
+        item = _trending_to_filtered_format(t, chain, "moralis_whale_accumulation")
+        # Add whale-specific fields
+        item["net_experienced_buyers_1w"] = net_buyers  # approximation
+        item["experienced_buyers_1d"] = buyers_1h
+        item["net_volume_usd_1d"] = vol_1h
+        item["holder_change_1d"] = 0  # Not available from trending
+        item["holder_change_1w"] = 0
+        item["fdv"] = _safe_float(t.get("marketCap", 0))
+        result.append(item)
+    result.sort(key=lambda x: x.get("net_buyers_1h", 0), reverse=True)
+    result = result[:limit]
+    _set_cache(cache_key, result)
+    logger.info(f"Moralis whale accumulation (via trending): {len(result)} tokens on {chain}")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -485,9 +346,8 @@ def get_trending_tokens(chain: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Top Gainers  (POST /discovery/tokens — sortBy usdPricePercentChange DESC)
-#    Migrated from deprecated GET /discovery/tokens/top-gainers (removed June 4, 2026)
-#    Tokens with the highest price % gain — breakout detection
+# 3. Top Gainers  (was POST /discovery/tokens — deprecated June 2026)
+#    Now uses GET /tokens/trending + sort by pricePercentChange DESC
 # ─────────────────────────────────────────────────────────────────────────────
 # Map caller time_frame strings to POST /discovery/tokens timeFrame values
 _TIMEFRAME_MAP = {
@@ -499,329 +359,105 @@ _TIMEFRAME_MAP = {
 
 def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
     """
-    Fetch top-gaining tokens via POST /discovery/tokens sorted by price change.
-    Use time_frame='1h' for short-term momentum, '1d' for swing trades.
+    Fetch top-gaining tokens sorted by price change.
+
+    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
+    with local sorting by pricePercentChange DESC.
     """
     if not _available(chain):
         return []
-    moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain)
-    if not chain_hex:
-        return []
-    cache_key = f"gainers_{chain}_{time_frame}"
+    cache_key = f"top_gainers_{chain}_{time_frame}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-
-    tf = _TIMEFRAME_MAP.get(time_frame, "oneHour")
-
-    _rate_check()
-    try:
-        payload = {
-            "chain": chain_hex,
-            "filters": [
-                {
-                    "metric": "usdPricePercentChange",
-                    "timeFrame": tf,
-                    "gt": 5,  # Only tokens up > 5%
-                },
-                {
-                    "metric": "totalLiquidityUsd",
-                    "gt": 25_000,  # Minimum liquidity to avoid dust
-                },
-            ],
-            "sortBy": {
-                "metric": "usdPricePercentChange",
-                "timeFrame": tf,
-                "type": "DESC",
-            },
-            "limit": 50,
-            "metricsToReturn": [
-                "usdPricePercentChange",
-                "volumeUsd",
-                "netVolumeUsd",
-                "experiencedBuyers",
-                "netBuyers",
-                "holders",
-            ],
-            "timeFramesToReturn": ["oneHour", "oneDay"],
-            "excludeMetadata": False,
-        }
-        resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug(f"Moralis top-gainers: plan limitation for {chain}")
-            return []
-        if resp.status_code == 400:
-            logger.warning(f"Moralis top-gainers 400 for {chain}: {resp.text[:300]}")
-            return []
-        resp.raise_for_status()
-        raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("result", [])
-        result = []
-        for item in items:
-            meta = item.get("metadata", item)
-            metrics = item.get("metrics", {})
-            addr = meta.get("tokenAddress", meta.get("token_address", ""))
-            if not addr:
-                continue
-            result.append({
-                "token_address":       addr,
-                "token_symbol":        meta.get("symbol", meta.get("token_symbol", "")),
-                "token_name":          meta.get("name", meta.get("token_name", "")),
-                "chain":               chain,
-                "price_usd":           _safe_float(meta.get("usdPrice", 0)),
-                "market_cap":          _safe_float(meta.get("marketCap", 0)),
-                "liquidity_usd":       _safe_float(meta.get("totalLiquidityUsd", 0)),
-                "security_score":      _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
-                "total_holders":       _safe_int(meta.get("totalHolders", 0)),
-                "price_change_1h":     _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneHour", 0)
-                ),
-                "price_change_24h":    _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)
-                ),
-                "volume_usd_1h":       _safe_float(
-                    (metrics.get("volumeUsd") or {}).get("oneHour", 0)
-                ),
-                "net_volume_1h":       _safe_float(
-                    (metrics.get("netVolumeUsd") or {}).get("oneHour", 0)
-                ),
-                "experienced_net_buyers_1h": _safe_float(
-                    (metrics.get("experiencedBuyers") or {}).get("oneHour", 0)
-                ),
-                "source": "moralis_top_gainers",
-            })
-        _set_cache(cache_key, result)
-        logger.info(f"Moralis top-gainers: {len(result)} tokens on {chain} ({time_frame})")
-        return result
-    except Exception as e:
-        logger.warning(f"Moralis top-gainers error for {chain}: {e}")
-        return []
+    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+    raw = _trending_for_chain(chain)
+    # Map time_frame to trending response key
+    tf_key = {"1h": "1h", "4h": "4h", "12h": "12h", "24h": "24h", "1d": "24h"}.get(time_frame, "24h")
+    limit = 50
+    result = []
+    for t in raw:
+        pct = _safe_float((t.get("pricePercentChange") or {}).get(tf_key, 0))
+        if pct <= 0:
+            continue
+        item = _trending_to_filtered_format(t, chain, "moralis_top_gainer")
+        item["price_change_pct"] = pct
+        result.append(item)
+    result.sort(key=lambda x: x.get("price_change_pct", 0), reverse=True)
+    result = result[:limit]
+    _set_cache(cache_key, result)
+    logger.info(f"Moralis top gainers (via trending): {len(result)} on {chain}")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Top Losers  (POST /discovery/tokens — sortBy usdPricePercentChange ASC)
-#    Migrated from deprecated GET /discovery/tokens/top-losers (removed June 4, 2026)
-#    Oversold tokens — mean-reversion / dip-buy candidates for Wallet B
+# 4. Top Losers  (was POST /discovery/tokens — deprecated June 2026)
+#    Now uses GET /tokens/trending + sort by pricePercentChange ASC
 # ─────────────────────────────────────────────────────────────────────────────
 def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
     """
-    Fetch top-losing tokens via POST /discovery/tokens sorted by price change ASC.
+    Fetch top-losing tokens sorted by price change ASC.
     Tokens with strong fundamentals but short-term price drops are prime dip buys.
+
+    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
+    with local sorting by pricePercentChange ASC.
     """
     if not _available(chain):
         return []
-    moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain)
-    if not chain_hex:
-        return []
-    cache_key = f"losers_{chain}_{time_frame}"
+    cache_key = f"top_losers_{chain}_{time_frame}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-
-    tf = _TIMEFRAME_MAP.get(time_frame, "oneHour")
-
-    _rate_check()
-    try:
-        payload = {
-            "chain": chain_hex,
-            "filters": [
-                {
-                    "metric": "usdPricePercentChange",
-                    "timeFrame": tf,
-                    "lt": -5,  # Only tokens down > 5%
-                },
-                {
-                    "metric": "totalLiquidityUsd",
-                    "gt": 25_000,  # Minimum liquidity
-                },
-                {
-                    # Only tokens with some trading activity (not dead)
-                    "metric": "volumeUsd",
-                    "timeFrame": tf,
-                    "gt": 5_000,
-                },
-            ],
-            "sortBy": {
-                "metric": "usdPricePercentChange",
-                "timeFrame": tf,
-                "type": "ASC",  # Worst performers first
-            },
-            "limit": 50,
-            "metricsToReturn": [
-                "usdPricePercentChange",
-                "volumeUsd",
-                "netVolumeUsd",
-                "experiencedBuyers",
-                "holders",
-            ],
-            "timeFramesToReturn": ["oneHour", "oneDay"],
-            "excludeMetadata": False,
-        }
-        resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug(f"Moralis top-losers: plan limitation for {chain}")
-            return []
-        if resp.status_code == 400:
-            logger.warning(f"Moralis top-losers 400 for {chain}: {resp.text[:300]}")
-            return []
-        resp.raise_for_status()
-        raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("result", [])
-        result = []
-        for item in items:
-            meta = item.get("metadata", item)
-            metrics = item.get("metrics", {})
-            addr = meta.get("tokenAddress", meta.get("token_address", ""))
-            if not addr:
-                continue
-            result.append({
-                "token_address":     addr,
-                "token_symbol":      meta.get("symbol", meta.get("token_symbol", "")),
-                "token_name":        meta.get("name", meta.get("token_name", "")),
-                "chain":             chain,
-                "price_usd":         _safe_float(meta.get("usdPrice", 0)),
-                "market_cap":        _safe_float(meta.get("marketCap", 0)),
-                "liquidity_usd":     _safe_float(meta.get("totalLiquidityUsd", 0)),
-                "security_score":    _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
-                "price_change_1h":   _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneHour", 0)
-                ),
-                "price_change_24h":  _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneDay", 0)
-                ),
-                "volume_usd_1h":     _safe_float(
-                    (metrics.get("volumeUsd") or {}).get("oneHour", 0)
-                ),
-                "source": "moralis_top_losers",
-            })
-        _set_cache(cache_key, result)
-        logger.info(f"Moralis top-losers: {len(result)} tokens on {chain} ({time_frame})")
-        return result
-    except Exception as e:
-        logger.warning(f"Moralis top-losers error for {chain}: {e}")
-        return []
+    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+    raw = _trending_for_chain(chain)
+    tf_key = {"1h": "1h", "4h": "4h", "12h": "12h", "24h": "24h", "1d": "24h"}.get(time_frame, "24h")
+    limit = 50
+    result = []
+    for t in raw:
+        pct = _safe_float((t.get("pricePercentChange") or {}).get(tf_key, 0))
+        if pct >= 0:
+            continue
+        item = _trending_to_filtered_format(t, chain, "moralis_top_loser")
+        item["price_change_pct"] = pct
+        result.append(item)
+    result.sort(key=lambda x: x.get("price_change_pct", 0))
+    result = result[:limit]
+    _set_cache(cache_key, result)
+    logger.info(f"Moralis top losers (via trending): {len(result)} on {chain}")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Buying Pressure  (POST /discovery/tokens — sortBy buyVolumeUsd DESC)
-#    Migrated from deprecated GET /discovery/tokens/buying-pressure (removed June 4, 2026)
-#    Rising buy:sell ratio — momentum signal before price moves
+# 5. Buying Pressure  (was POST /discovery/tokens — deprecated June 2026)
+#    Now uses GET /tokens/trending + buy/sell transaction ratio sorting
 # ─────────────────────────────────────────────────────────────────────────────
 def get_buying_pressure_tokens(chain: str) -> list[dict]:
     """
-    Tokens with rising buy pressure via POST /discovery/tokens.
-    Finds tokens where buy volume dominates sell volume in the past hour.
+    Tokens with rising buy pressure — buy volume dominates sell volume.
+
+    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
+    with local buy/sell transaction ratio sorting.
     """
     if not _available(chain):
-        return []
-    moralis_chain = CHAIN_MAP[chain]
-    chain_hex = CHAIN_HEX.get(moralis_chain)
-    if not chain_hex:
         return []
     cache_key = f"buying_pressure_{chain}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-
-    _rate_check()
-    try:
-        payload = {
-            "chain": chain_hex,
-            "filters": [
-                {
-                    # Net positive volume = more buying than selling
-                    "metric": "netVolumeUsd",
-                    "timeFrame": "oneHour",
-                    "gt": 10_000,  # At least $10k net buy pressure
-                },
-                {
-                    "metric": "buyVolumeUsd",
-                    "timeFrame": "oneHour",
-                    "gt": 20_000,  # Meaningful buy volume
-                },
-                {
-                    "metric": "totalLiquidityUsd",
-                    "gt": 25_000,
-                },
-            ],
-            "sortBy": {
-                "metric": "buyVolumeUsd",
-                "timeFrame": "oneHour",
-                "type": "DESC",
-            },
-            "limit": 50,
-            "metricsToReturn": [
-                "buyVolumeUsd",
-                "sellVolumeUsd",
-                "netVolumeUsd",
-                "netBuyers",
-                "experiencedBuyers",
-                "usdPricePercentChange",
-            ],
-            "timeFramesToReturn": ["oneHour", "fourHours"],
-            "excludeMetadata": False,
-        }
-        resp = get_session().post(
-            f"{BASE_URL}/discovery/tokens",
-            json=payload,
-            headers=_json_headers(),
-            timeout=20,
-        )
-        if resp.status_code in (402, 403):
-            logger.debug(f"Moralis buying-pressure: plan limitation for {chain}")
-            return []
-        if resp.status_code == 400:
-            logger.warning(f"Moralis buying-pressure 400 for {chain}: {resp.text[:300]}")
-            return []
-        resp.raise_for_status()
-        raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("result", [])
-        result = []
-        for item in items:
-            meta = item.get("metadata", item)
-            metrics = item.get("metrics", {})
-            addr = meta.get("tokenAddress", meta.get("token_address", ""))
-            if not addr:
-                continue
-            buy_vol = _safe_float((metrics.get("buyVolumeUsd") or {}).get("oneHour", 0))
-            sell_vol = _safe_float((metrics.get("sellVolumeUsd") or {}).get("oneHour", 0))
-            total_vol = buy_vol + sell_vol
-            result.append({
-                "token_address":    addr,
-                "token_symbol":     meta.get("symbol", meta.get("token_symbol", "")),
-                "token_name":       meta.get("name", meta.get("token_name", "")),
-                "chain":            chain,
-                "price_usd":        _safe_float(meta.get("usdPrice", 0)),
-                "market_cap":       _safe_float(meta.get("marketCap", 0)),
-                "liquidity_usd":    _safe_float(meta.get("totalLiquidityUsd", 0)),
-                "security_score":   _safe_int(meta.get("security", {}).get("securityScore", meta.get("securityScore", 0))),
-                "buying_pressure":  buy_vol / total_vol if total_vol > 0 else 0.5,
-                "buy_volume_1h":    buy_vol,
-                "sell_volume_1h":   sell_vol,
-                "net_volume_1h":    _safe_float((metrics.get("netVolumeUsd") or {}).get("oneHour", 0)),
-                "price_change_1h":  _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("oneHour", 0)
-                ),
-                "price_change_24h": _safe_float(
-                    (metrics.get("usdPricePercentChange") or {}).get("fourHours", 0)
-                ),
-                "source": "moralis_buying_pressure",
-            })
-        _set_cache(cache_key, result)
-        logger.info(f"Moralis buying-pressure: {len(result)} tokens on {chain}")
-        return result
-    except Exception as e:
-        logger.warning(f"Moralis buying-pressure error for {chain}: {e}")
-        return []
+    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+    raw = _trending_for_chain(chain)
+    limit = 50
+    result = []
+    for t in raw:
+        buy_txns = _safe_int((t.get("buyTransactions") or {}).get("1h", 0))
+        sell_txns = _safe_int((t.get("sellTransactions") or {}).get("1h", 0))
+        if buy_txns <= sell_txns:
+            continue
+        item = _trending_to_filtered_format(t, chain, "moralis_buying_pressure")
+        item["buy_sell_ratio"] = buy_txns / max(sell_txns, 1)
+        result.append(item)
+    result.sort(key=lambda x: x.get("buy_sell_ratio", 0), reverse=True)
+    result = result[:limit]
+    _set_cache(cache_key, result)
+    logger.info(f"Moralis buying pressure (via trending): {len(result)} on {chain}")
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
