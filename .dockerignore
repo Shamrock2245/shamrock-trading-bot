@@ -60,4 +60,5 @@ scripts/
 !scripts/grade_wallets.py
 !scripts/benchmark_loop.py
 !scripts/reviewer.py
+!scripts/monitor_check.py
 tests/
