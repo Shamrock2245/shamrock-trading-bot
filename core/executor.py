@@ -100,6 +100,10 @@ class TradeExecutor:
         # during rapid-fire trades (e.g., Base USDC deployment plan).
         self._nonce_cache: dict[str, int] = {}  # address_lower → last_used_nonce
         self._nonce_lock = threading.Lock()
+        # Liquidity blacklist: tokens that failed with INSUFFICIENT_LIQUIDITY
+        # are blacklisted for 30 min to avoid wasting cycles retrying
+        self._liquidity_blacklist: dict[str, float] = {}  # token_addr_lower → expiry_timestamp
+        self._BLACKLIST_TTL = 1800  # 30 minutes
 
     def _get_nonce(self, w3: Web3, address: str) -> int:
         """
@@ -888,6 +892,28 @@ class TradeExecutor:
         Returns:
             TradeResult with full execution details
         """
+        # ── FAST REJECT: Liquidity blacklist check ────────────────────────────
+        import time as _time
+        _target_token = params.token_out.lower()
+        _bl_expiry = self._liquidity_blacklist.get(_target_token, 0)
+        if _bl_expiry > _time.time():
+            remaining = int(_bl_expiry - _time.time())
+            logger.info(
+                f"⏭️ SKIPPING {params.token_out[:10]}... — blacklisted for "
+                f"INSUFFICIENT_LIQUIDITY ({remaining}s remaining)"
+            )
+            return TradeResult(
+                success=False,
+                error=f"Liquidity blacklisted ({remaining}s remaining)",
+                execution_path="blacklisted",
+            )
+        # Clean up expired entries periodically
+        if len(self._liquidity_blacklist) > 100:
+            now = _time.time()
+            self._liquidity_blacklist = {
+                k: v for k, v in self._liquidity_blacklist.items() if v > now
+            }
+
         # ── MANDATORY: Safety check ───────────────────────────────────────────
         # For buys: check the token we are buying (token_out = gem).
         # For sells: check the token we are selling (token_in = gem).
@@ -972,6 +998,17 @@ class TradeExecutor:
         # 1inch: Final fallback for all chains (public mempool)
         result = self._execute_via_oneinch(params)
         result.safety_result = safety
+
+        # ── Blacklist tokens with no DEX liquidity ─────────────────────────
+        if not result.success and result.error:
+            _err_lower = result.error.lower()
+            if "insufficient_liquidity" in _err_lower or "insufficient liquidity" in _err_lower:
+                import time as _time
+                self._liquidity_blacklist[_target_token] = _time.time() + self._BLACKLIST_TTL
+                logger.warning(
+                    f"🚫 BLACKLISTED {params.token_out[:10]}... for {self._BLACKLIST_TTL}s "
+                    f"— no DEX liquidity on {params.chain}"
+                )
 
         # ── Slippage analytics (Fix 5) ────────────────────────────────────
         # Track actual vs expected output for every successful trade

@@ -1,0 +1,75 @@
+{
+  "episode_id": "ep-2026-06-08-001",
+  "date": "2026-06-08",
+  "category": "trade_execution",
+  "title": "Capital Provisioning & USDC Source Fix",
+  "task": "Bot was finding gems but zero trades were executing on Base/Arbitrum",
+  "outcome": "success",
+  "key_insights": {
+    "what_went_well": [
+      "Systematic diagnosis: logs → routing → execution → identified 3 blockers",
+      "Created capital_provisioner.py for auto ETH→USDC conversion",
+      "Fixed USDC threshold from $25 to $5 in wallet_router.py"
+    ],
+    "what_went_wrong": [
+      "Wrong env var names initially (PRIVATE_KEY_PRIMARY vs WALLET_PRIVATE_KEY_PRIMARY)",
+      "Capital Preservation Mode was blocking ALL trades with stale $1,097 floor",
+      "risk.py fell back to native ETH when USDC < position size, but Base tokens have no ETH liquidity"
+    ],
+    "root_causes": [
+      "BLOCKER 1: DailyFloorGuardian floor was $1,097 (stale from when positions were open) vs $259 current → all entries blocked",
+      "BLOCKER 2: risk.py line 192: if usdc_balance < position_size * 0.95, fallback to native ETH. But 1inch returned INSUFFICIENT_LIQUIDITY because Base tokens only pair with USDC",
+      "BLOCKER 3: wallet_router.py threshold of $25 USDC minimum blocked Primary wallet which had only $5.24 USDC"
+    ],
+    "files_modified": [
+      "core/capital_provisioner.py (NEW)",
+      "core/wallet_router.py (USDC threshold $25→$5)",
+      "core/risk.py (always cap at USDC balance instead of ETH fallback)",
+      "main.py (provisioner startup + periodic)"
+    ]
+  },
+  "patterns_extracted": [
+    {
+      "pattern": "env_var_naming_convention",
+      "description": "EVM wallet env vars use WALLET_PRIVATE_KEY_{NAME} not PRIVATE_KEY_{NAME}. Solana uses SOLANA_PRIVATE_KEY_{NAME}.",
+      "confidence": 1.0,
+      "category": "deployment"
+    },
+    {
+      "pattern": "l2_tokens_need_usdc_pairs",
+      "description": "Most Base and Arbitrum tokens only have USDC liquidity on 1inch. Native ETH swaps return INSUFFICIENT_LIQUIDITY. Always prefer USDC as buy-side capital on L2 chains.",
+      "confidence": 0.95,
+      "category": "trade_execution"
+    },
+    {
+      "pattern": "floor_guardian_stale_state",
+      "description": "DailyFloorGuardian persists to disk. After large drawdowns or position closures, the floor can be stale and block all trading. Reset via force_set_floor() when deploying fresh capital.",
+      "confidence": 0.9,
+      "category": "guardrails"
+    },
+    {
+      "pattern": "cap_position_at_usdc_balance",
+      "description": "When USDC balance doesn't cover full Kelly-sized position, cap at 90% of available USDC rather than falling back to native ETH. This ensures trades execute even with smaller capital.",
+      "confidence": 0.95,
+      "category": "trade_execution"
+    }
+  ],
+  "scan_speed_audit": {
+    "current_time_seconds": 143.8,
+    "fetch_seconds": 25.7,
+    "scoring_seconds": 118.1,
+    "bottlenecks": [
+      "Serial outer scoring loop (30-60 tokens × 10-23s each)",
+      "enrich_candidate() makes 6-7 sequential Moralis API calls per token",
+      "DexScreener 1-second rate limit per call (batch endpoint exists but unused)",
+      "Grok LLM calls add 1-3s per token"
+    ],
+    "recommended_optimizations": [
+      "Parallelize outer scoring loop with ThreadPoolExecutor(max_workers=5-10)",
+      "Parallelize enrich_candidate() internal calls",
+      "Use DexScreener batch endpoint (already implemented, never called in scan loop)",
+      "Raise PRE_SCORE_REJECT threshold from 35.0 to 45.0",
+      "Cap Grok calls to top 5-10 candidates per cycle"
+    ]
+  }
+}

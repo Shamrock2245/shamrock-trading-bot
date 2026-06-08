@@ -1,396 +1,86 @@
 {
   "version": "1.2.0",
-  "last_updated": "2026-04-03T17:39:00Z",
-  "patterns": {
-    "indicator_neutral_fallback": {
-      "id": "pat-2026-03-23-001",
-      "name": "Indicator Neutral Fallback Scoring",
-      "source": "implementation_review",
-      "confidence": 0.95,
-      "applications": 3,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-25",
-      "category": "scoring_engine",
-      "pattern": "When indicators return None/NaN, use neutral defaults (50) not zero",
-      "problem": "Zero-value fallbacks in signal_engine.py caused the weighted average composite score to collapse below MIN_GEM_SCORE, blocking ALL trades even for legitimate micro-cap gems",
-      "solution": {
-        "approach": "Replace all 0-value defaults with 50 (neutral midpoint) across RSI, MACD, Bollinger, and custom indicators",
-        "files": ["core/signal_engine.py", "scanner/gem_scanner.py"],
-        "key_insight": "50 represents 'no data available, assume average' — it doesn't boost or penalize the score"
-      },
-      "quality_rules": [
-        "Never use 0 as a fallback for any indicator that feeds into a weighted average",
-        "Always explicitly handle None/NaN returns from indicator functions",
-        "Test composite scoring with ALL indicators returning None to verify minimum viable score"
-      ],
-      "target_skills": ["scoring_engine", "data_pipeline"]
-    },
-    "manus_import_verification": {
-      "id": "pat-2026-03-23-002",
-      "name": "Manus Edit Import Verification",
-      "source": "user_feedback",
-      "confidence": 0.98,
-      "applications": 4,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-25",
-      "category": "manus_integration",
-      "pattern": "After merging any Manus AI changes, verify all imports are intact and no undefined variables were introduced",
-      "problem": "Manus sometimes introduces variable references without corresponding imports, or removes imports during refactoring. This causes NameError at runtime that only surfaces in Docker on Hetzner.",
-      "solution": {
-        "approach": "After every Manus merge: 1) grep for undefined names, 2) run `python -c 'import module'` for each changed file, 3) check top-level imports match all references",
-        "files": ["any file Manus edits"],
-        "key_insight": "Manus operates on partial context — it can't see the full import tree"
-      },
-      "quality_rules": [
-        "Always `python -c 'import <module>'` after Manus changes before committing",
-        "Check for NameError specifically — it's the most common Manus regression",
-        "Review the diff carefully for removed imports that are still referenced elsewhere"
-      ],
-      "target_skills": ["manus_integration", "deployment"]
-    },
-    "solana_wallet_routing": {
-      "id": "pat-2026-03-23-003",
-      "name": "Solana vs EVM Wallet Routing",
-      "source": "implementation_review",
-      "confidence": 0.95,
-      "applications": 3,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-24",
-      "category": "trade_execution",
-      "pattern": "Solana uses keypair file paths, EVM uses private key hex strings — wallet router must dispatch correctly",
-      "problem": "Passing a hex private key to the Solana executor causes a silent failure. Passing a keypair path to an EVM executor causes a ValueError.",
-      "solution": {
-        "approach": "wallet_router.py dispatches based on chain type: Solana → keypair JSON path from SOLANA_WALLET_PATH env var; EVM → private key hex from chain-specific env var (BASE_PRIVATE_KEY, BSC_PRIVATE_KEY, etc.)",
-        "files": ["core/wallet_router.py", "core/executor.py", "core/solana_executor.py"],
-        "key_insight": "The chain → wallet mapping must be explicit, never inferred"
-      },
-      "quality_rules": [
-        "Always check chain type before selecting wallet credentials",
-        "Solana keypair paths must point to actual JSON files on disk",
-        "EVM private keys must be 64-char hex (with or without 0x prefix)"
-      ],
-      "target_skills": ["trade_execution"]
-    },
-    "docker_rebuild_after_python_changes": {
-      "id": "pat-2026-03-22-001",
-      "name": "Docker Rebuild Required After Python Changes",
-      "source": "user_feedback",
+  "last_updated": "2026-06-08",
+  "patterns": [
+    {
+      "id": "env_var_naming",
+      "pattern": "EVM wallet env vars use WALLET_PRIVATE_KEY_{NAME} not PRIVATE_KEY_{NAME}. Solana uses SOLANA_PRIVATE_KEY_{NAME}.",
+      "category": "deployment",
       "confidence": 1.0,
-      "applications": 8,
-      "created": "2026-03-22",
-      "last_applied": "2026-03-25",
-      "category": "deployment",
-      "pattern": "Any Python file change requires `docker compose build --no-cache` before `docker compose up -d` on Hetzner",
-      "problem": "Docker caches Python layers. A simple `docker compose restart` will run the OLD code. The --no-cache flag ensures the COPY step re-runs.",
-      "solution": {
-        "approach": "Always use the full rebuild cycle: `docker compose down && docker compose build --no-cache && docker compose up -d`",
-        "files": ["Dockerfile", "docker-compose.yml"],
-        "key_insight": "The Dockerfile COPY . . step is cached — without --no-cache, code changes are invisible"
-      },
-      "quality_rules": [
-        "Never use `docker compose restart` for code changes — only for config/env changes",
-        "Always verify with `docker compose logs -f --tail=20 bot` after rebuild",
-        "Check the build output to confirm the COPY step ran (not cached)"
-      ],
-      "target_skills": ["deployment"]
-    },
-    "env_provisioning_backup": {
-      "id": "pat-2026-03-24-001",
-      "name": "Always Backup .env Before Git Pull",
-      "source": "user_feedback",
-      "confidence": 0.98,
       "applications": 2,
-      "created": "2026-03-24",
-      "last_applied": "2026-03-24",
-      "category": "deployment",
-      "pattern": "Always backup the Hetzner .env file before `git pull` — deployment regressions can wipe it",
-      "problem": "A `git pull` or `git checkout` can overwrite or delete the .env file on the server, wiping all API keys, wallet keys, and RPCs. This bricked the entire multi-chain trading setup.",
-      "solution": {
-        "approach": "Before any git operation on Hetzner: `cp .env .env.backup.$(date +%Y%m%d_%H%M%S)`",
-        "files": [".env"],
-        "key_insight": ".env is in .gitignore but git operations can still affect it during merges or resets"
-      },
-      "quality_rules": [
-        "ALWAYS `cp .env .env.backup` before git pull on production servers",
-        "Keep a master copy of all env vars in a secure location (not git)",
-        "Verify .env exists and has correct line count after any git operation"
-      ],
-      "target_skills": ["deployment"]
+      "source": "ep-2026-06-08-001"
     },
-    "min_gem_score_threshold_tuning": {
-      "id": "pat-2026-03-23-004",
-      "name": "MIN_GEM_SCORE Must Account for Data Scarcity",
-      "source": "retrospective",
-      "confidence": 0.90,
-      "applications": 3,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-25",
+    {
+      "id": "l2_usdc_preference",
+      "pattern": "Most Base and Arbitrum tokens only have USDC liquidity on 1inch/Uniswap. Native ETH swaps return INSUFFICIENT_LIQUIDITY. ALWAYS prefer USDC as buy-side capital on L2 chains.",
+      "category": "trade_execution",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-08-001"
+    },
+    {
+      "id": "cap_position_at_balance",
+      "pattern": "When available capital (USDC or native) doesn't cover full Kelly-sized position, cap at 90% of available balance rather than falling back to a different token. This ensures trades execute with smaller capital.",
+      "category": "trade_execution",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-08-001"
+    },
+    {
+      "id": "floor_guardian_stale_state",
+      "pattern": "DailyFloorGuardian persists to disk and can lock ALL trading with a stale floor. After large drawdowns, position closures, or fresh capital deployment, ALWAYS reset via force_set_floor(). Check output/daily_floor.json on VPS.",
+      "category": "guardrails",
+      "confidence": 0.9,
+      "applications": 1,
+      "source": "ep-2026-06-08-001"
+    },
+    {
+      "id": "indicator_neutral_fallback",
+      "pattern": "Use 50 (neutral) as fallback for missing indicators, never 0. Zero zeroes out the weighted average composite score.",
       "category": "scoring_engine",
-      "pattern": "MIN_GEM_SCORE of 50 requires that micro-cap tokens with limited data can still reach 50 through fallback scoring alone",
-      "problem": "New micro-cap tokens have no price history, no social signals, and limited Moralis data. If the scoring formula defaults missing data to 0, even the best gems score 20-30 and never trade.",
-      "solution": {
-        "approach": "Ensure each scoring component has a fallback that produces a 'pass the bar' score when data is unavailable. The composite of all neutrals (50) should equal exactly MIN_GEM_SCORE.",
-        "files": ["core/signal_engine.py", "config/settings.py"],
-        "key_insight": "The threshold and the fallback defaults are a coupled system — change one, check the other"
-      },
-      "quality_rules": [
-        "After changing MIN_GEM_SCORE, simulate scoring with all-None indicators",
-        "After changing any indicator weight, verify the all-neutral composite still passes",
-        "Log the component breakdown when a token is rejected for score"
-      ],
-      "target_skills": ["scoring_engine", "guardrails"]
-    },
-    "evm_chain_poa_middleware": {
-      "id": "pat-2026-03-24-002",
-      "name": "BSC and Non-Mainnet EVM Chains Need PoA Middleware",
-      "source": "implementation_review",
       "confidence": 0.95,
-      "applications": 2,
-      "created": "2026-03-24",
-      "last_applied": "2026-03-24",
-      "category": "trade_execution",
-      "pattern": "BSC, Avalanche, and other non-Ethereum-mainnet EVM chains require geth_poa_middleware injected into the Web3 instance",
-      "problem": "Without PoA middleware, Web3.py raises ExtraDataLengthError on BSC/AVAX blocks because the extraData field exceeds the mainnet spec.",
-      "solution": {
-        "approach": "Inject `geth_poa_middleware` at layer 0 for any non-Ethereum-mainnet chain in executor.py",
-        "files": ["core/executor.py"],
-        "key_insight": "This is a Web3.py-specific issue — ethers.js handles it automatically"
-      },
-      "quality_rules": [
-        "Always inject PoA middleware for BSC, AVAX, and any PoA-consensus chain",
-        "Test with a simple `w3.eth.get_block('latest')` call after provider setup"
-      ],
-      "target_skills": ["trade_execution"]
+      "applications": 3,
+      "source": "ep-2026-03-25-001"
     },
-    "position_monitor_function_signatures": {
-      "id": "pat-2026-03-23-005",
-      "name": "Position Monitor Function Call Signatures",
-      "source": "user_feedback",
-      "confidence": 0.95,
-      "applications": 2,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-23",
-      "category": "position_mgmt",
-      "pattern": "When calling functions from offensive_guardrails.py in position_monitor.py, always match the exact parameter signature — especially `get_dynamic_trailing_stop_pct(pos, base_pct, state)`",
-      "problem": "Calling `get_dynamic_trailing_stop_pct(pos, base_pct)` without the `state` parameter caused incorrect trailing stop calculations, leading to premature exits.",
-      "solution": {
-        "approach": "Pass the offensive state object to all offensive guardrail functions that need it",
-        "files": ["core/position_monitor.py", "core/offensive_guardrails.py"],
-        "key_insight": "The offensive state carries God Mode status which can tighten stops further"
-      },
-      "quality_rules": [
-        "Always check function signatures when calling across modules",
-        "Use IDE hints or grep for the function definition before calling",
-        "Test trailing stop values in paper mode before deploying"
-      ],
-      "target_skills": ["position_mgmt", "guardrails"]
-    },
-    "dedup_guard_trade_spam": {
-      "id": "pat-2026-03-23-006",
-      "name": "Deduplication Guard for Repeated Trade Attempts",
-      "source": "implementation_review",
-      "confidence": 0.95,
-      "applications": 2,
-      "created": "2026-03-23",
-      "last_applied": "2026-03-24",
-      "category": "guardrails",
-      "pattern": "Without a dedup guard, the bot will attempt to buy the same token on every scan cycle, wasting gas and hitting rate limits",
-      "problem": "Failed trades (slippage, insufficient liquidity) were retried every 60 seconds indefinitely, burning gas fees and flooding API endpoints.",
-      "solution": {
-        "approach": "Maintain a cooldown dict of recently attempted tokens with a configurable TTL (default 30 minutes). Skip any token in cooldown.",
-        "files": ["main.py", "core/risk.py"],
-        "key_insight": "The cooldown should apply to both successful and failed attempts"
-      },
-      "quality_rules": [
-        "Cooldown must persist across scan cycles but NOT across bot restarts",
-        "Log when a token is skipped due to cooldown (for debugging)",
-        "Different cooldown durations for success (longer) vs failure (shorter)"
-      ],
-      "target_skills": ["guardrails", "trade_execution"]
-    },
-    "moralis_timeframe_parameter": {
-      "id": "pat-2026-03-24-003",
-      "name": "Moralis API Timeframe Parameter Validation",
-      "source": "implementation_review",
-      "confidence": 0.90,
-      "applications": 2,
-      "created": "2026-03-24",
-      "last_applied": "2026-03-24",
+    {
+      "id": "serial_api_bottleneck",
+      "pattern": "Sequential external API calls in scoring loops are the #1 performance bottleneck. enrich_candidate() makes 6-7 sequential Moralis calls per token. DexScreener has 1-second rate limit per call. ALWAYS parallelize with ThreadPoolExecutor where possible.",
       "category": "data_pipeline",
-      "pattern": "Moralis getFilteredTokens timeframe parameter must be a valid enum value — invalid values return 200 OK with wrong data, not an error",
-      "problem": "Passing incorrect timeframe values (e.g., '24h' instead of '1d') silently returns data from an unexpected timeframe, producing misleading metrics.",
-      "solution": {
-        "approach": "Validate timeframe against the documented enum before making API calls. Valid values: '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w', '1M'",
-        "files": ["data/providers/moralis_provider.py"],
-        "key_insight": "Moralis does not return errors for invalid enum values — it silently defaults"
-      },
-      "quality_rules": [
-        "Always validate enum parameters against documented values before API calls",
-        "Log the actual timeframe used in each request for auditability",
-        "Test with known data to verify the response matches the expected timeframe"
-      ],
-      "target_skills": ["data_pipeline"]
-    },
-    "float_boundary_tolerance": {
-      "id": "pat-2026-03-25-001",
-      "name": "Float Comparison Boundary Tolerance",
-      "source": "unit_test_failure",
-      "confidence": 0.98,
+      "confidence": 0.9,
       "applications": 1,
-      "created": "2026-03-25",
-      "last_applied": "2026-03-25",
-      "category": "position_mgmt",
-      "pattern": "Never compare float percentages with exact equality or boundary checks — always add epsilon tolerance",
-      "problem": "Python float arithmetic: (0.90 - 1.0) / 1.0 * 100 = -9.9999999999998, which is NOT <= -10.0. Hard stop at exactly -10% never fired.",
-      "solution": {
-        "approach": "Add +0.001% tolerance on all percentage boundary comparisons: `if pnl_pct <= -(hard_stop_pct - 0.001)`",
-        "files": ["core/position_monitor.py"],
-        "key_insight": "This is a classic IEEE 754 trap — unit tests caught it before production lost money"
-      },
-      "quality_rules": [
-        "Never use `<=` or `>=` on computed floats without epsilon tolerance",
-        "Always unit test boundary conditions with exact threshold values",
-        "For percentage comparisons, 0.001% tolerance is sufficient"
-      ],
-      "target_skills": ["position_mgmt", "guardrails"]
+      "source": "ep-2026-06-08-001"
     },
-    "strategy_profile_pipeline_wiring": {
-      "id": "pat-2026-03-25-002",
-      "name": "Strategy Profile Must Flow Through Entire Pipeline",
-      "source": "wiring_audit",
-      "confidence": 0.95,
+    {
+      "id": "batch_endpoints_exist",
+      "pattern": "DexScreener batch endpoint (GET /tokens/v1/{chain}/{comma_addresses}, max 30) is implemented in dexscreener.py line 203 but NEVER called in the scan loop. Moralis has batch analytics (30/call) and batch pricing (25/call). Always check for unused batch endpoints before adding serial calls.",
+      "category": "data_pipeline",
+      "confidence": 0.85,
       "applications": 1,
-      "created": "2026-03-25",
-      "last_applied": "2026-03-25",
-      "category": "position_mgmt",
-      "pattern": "Per-wallet strategy profiles must be stored at registration and resolved at every evaluation point — or they silently fall back to global defaults",
-      "problem": "StrategyProfile was defined in wallets.py but never passed through register_position() or consumed by evaluate_position(). Nuclear Wallet B's 5x/12x/30x TP ladder was completely ignored.",
-      "solution": {
-        "approach": "Store strategy_profile.name in position data at registration, use _PROFILE_MAP in monitor to resolve the full object, pass to evaluate_position()",
-        "files": ["main.py", "core/position_monitor.py", "config/wallets.py"],
-        "key_insight": "Infrastructure code built in isolation can sit unconnected for weeks without anyone noticing — always trace the data flow end-to-end"
-      },
-      "quality_rules": [
-        "When adding new per-position metadata, verify it flows: creation → storage → monitoring → exit",
-        "Use substring matching for dynamic reason strings (e.g., 'tp1_' not 'tp1_2x')",
-        "Always test with at least 2 profile variants to catch hardcoded assumptions"
-      ],
-      "target_skills": ["position_mgmt", "trade_execution"]
+      "source": "ep-2026-06-08-001"
     },
-    "hyperliquid_symbol_normalization": {
-      "id": "pat-2026-04-03-001",
-      "name": "Hyperliquid Symbol Normalization",
-      "source": "ep-2026-04-03-001",
-      "confidence": 0.95,
-      "applications": 1,
-      "created": "2026-04-03",
-      "last_applied": "2026-04-03",
-      "category": "trade_execution",
-      "pattern": "Hyperliquid uses unwrapped symbols (ETH not WETH, BTC not WBTC). Must strip 'W' prefix before placing orders.",
-      "problem": "Submitting an order for 'WETH' or 'WBTC' on Hyperliquid fails silently — no matching perp market. The SDK returns an error but no assets are lost.",
-      "solution": {
-        "approach": "Build a normalization map: WETH→ETH, WBTC→BTC, WMATIC→MATIC, WAVAX→AVAX, etc. Apply before any order placement.",
-        "files": ["core/hyperliquid_executor.py"],
-        "key_insight": "CEX/DEX perp venues use different symbol conventions than on-chain DEXes"
-      },
-      "quality_rules": [
-        "Always normalize token symbols before sending to any perp venue",
-        "Maintain a lookup table of wrapped→unwrapped mappings",
-        "Log the normalized symbol so debugging is clear"
-      ],
-      "target_skills": ["trade_execution"]
+    {
+      "id": "ecc_auto_observation",
+      "pattern": "Inspired by ECC (affaan-m/ECC): Add automatic logging hooks that capture every trade decision (entry/exit/skip) with full context (signals, guardrails checked, outcome). Don't rely on manual triggers for episodic memory.",
+      "category": "self_improvement",
+      "confidence": 0.8,
+      "applications": 0,
+      "source": "ecc-research-2026-06-08"
     },
-    "perp_capital_protection_layers": {
-      "id": "pat-2026-04-03-002",
-      "name": "Multi-Layer Capital Protection for Leveraged Perps",
-      "source": "ep-2026-04-03-001",
-      "confidence": 0.98,
-      "applications": 1,
-      "created": "2026-04-03",
-      "last_applied": "2026-04-03",
+    {
+      "id": "ecc_loop_prevention",
+      "pattern": "Inspired by ECC: Trading bot autonomous loops (position monitor, scanner, executor) need circuit breakers. Apply 5-layer guards: (1) max retries, (2) exponential backoff, (3) re-entrancy check, (4) time-based abort, (5) memory throttle.",
       "category": "guardrails",
-      "pattern": "Leveraged perps require at least 6 independent protection layers to prevent capital loss",
-      "problem": "A single stop-loss is insufficient for leveraged trading. Adverse funding rates, daily drawdown spirals, and correlation risk all bypass simple TP/SL.",
-      "solution": {
-        "approach": "Implement: (1) per-trade % SL/TP, (2) per-trade account risk cap (10%), (3) daily loss circuit breaker, (4) funding rate safety check, (5) min gem score gate, (6) max concurrent positions + total exposure cap",
-        "files": ["core/hyperliquid_executor.py", "config/settings.py"],
-        "key_insight": "Each layer catches a different failure mode. Combined, they make capital loss require 6 simultaneous failures."
-      },
-      "quality_rules": [
-        "New execution venues MUST have at least: SL, TP, daily loss limit, per-trade risk cap",
-        "Always start with lowest reasonable leverage (2x) and scale up only with proven track record",
-        "Circuit breaker should halt ALL trading for the day, not just the venue"
-      ],
-      "target_skills": ["guardrails", "trade_execution"]
+      "confidence": 0.8,
+      "applications": 0,
+      "source": "ecc-research-2026-06-08"
     },
-    "erc8021_builder_code_attribution": {
-      "id": "pat-2026-04-03-003",
-      "name": "Base ERC-8021 Builder Code Attribution",
-      "source": "ep-2026-04-03-001",
-      "confidence": 0.95,
-      "applications": 1,
-      "created": "2026-04-03",
-      "last_applied": "2026-04-03",
-      "category": "trade_execution",
-      "pattern": "Register wallets with Base builder code API and append ERC-8021 data suffix to every Base chain transaction",
-      "problem": "Without builder code attribution, on-chain activity is invisible to Base's tracking system. No errors — just silent, permanent invisibility.",
-      "solution": {
-        "approach": "One-time registration via POST to api.base.dev. Encode builder code as UTF-8 hex + magic bytes + length. Append to tx data field only for chain=='base'.",
-        "files": ["config/builder_codes.py", "core/executor.py"],
-        "key_insight": "Zero gas overhead — the suffix is just extra calldata. Free to add, potentially valuable for builder incentive programs."
-      },
-      "quality_rules": [
-        "NEVER re-register a wallet — it generates a new code and breaks the old one",
-        "Builder codes are per-wallet, not per-chain or per-app",
-        "Attribution must be wired into ALL Base transaction paths (1inch, Flashbots, direct)"
-      ],
-      "target_skills": ["trade_execution", "deployment"]
-    },
-    "parallel_execution_venue_isolation": {
-      "id": "pat-2026-04-03-004",
-      "name": "Execution Venue Isolation Principle",
-      "source": "ep-2026-04-03-001",
-      "confidence": 0.90,
-      "applications": 1,
-      "created": "2026-04-03",
-      "last_applied": "2026-04-03",
-      "category": "trade_execution",
-      "pattern": "New execution venues must run as isolated parallel systems with their own wallets, risk limits, and circuit breakers",
-      "problem": "Sharing state (e.g. daily PnL, position counts) between on-chain and perp venues creates correlation risk and makes circuit breakers unreliable.",
-      "solution": {
-        "approach": "Each venue gets: its own wallet, its own daily PnL tracker, its own position counter, its own circuit breaker. Only share the signal pipeline.",
-        "files": ["core/hyperliquid_executor.py", "main.py"],
-        "key_insight": "Isolation means a bad day on-chain doesn't cascade to perps and vice versa"
-      },
-      "quality_rules": [
-        "New execution venues should be self-contained modules with no shared mutable state",
-        "Daily loss limits are per-venue, not global",
-        "Log venue name in all trade-related log messages for clear attribution"
-      ],
-      "target_skills": ["trade_execution", "guardrails"]
-    },
-    "todo_comments_are_blockers": {
-      "id": "pat-2026-03-25-003",
-      "name": "TODO Comments Are Silent Blockers",
-      "source": "wiring_audit",
-      "confidence": 0.90,
-      "applications": 1,
-      "created": "2026-03-25",
-      "last_applied": "2026-03-25",
-      "category": "deployment",
-      "pattern": "TODO/FIXME comments in production code represent untracked work items — they must be surfaced as blockers or tracked in task.md",
-      "problem": "reconciliation.py had a docstring saying 'EVM reconciliation can follow the same pattern' but it was never implemented. The gap went unnoticed for weeks.",
-      "solution": {
-        "approach": "Grep for TODO/FIXME/HACK in the codebase periodically. Convert any critical ones into tracked tasks. Implement or delete — never leave in limbo.",
-        "files": ["any"],
-        "key_insight": "Docstring promises are technical debt that compounds silently"
-      },
-      "quality_rules": [
-        "After major feature work, grep `TODO|FIXME|HACK` and resolve or track each one",
-        "Never commit a TODO for production-critical functionality — implement it or create an issue",
-        "During wiring audits, check that every module's docstring promises match reality"
-      ],
-      "target_skills": ["deployment", "manus_integration"]
+    {
+      "id": "ecc_evolve_clustering",
+      "pattern": "Inspired by ECC: Periodically cluster accumulated trade experiences to discover emergent patterns — winning signal combos, dangerous market conditions, time-of-day effects. Threshold: only promote patterns after N=3+ successful applications.",
+      "category": "self_improvement",
+      "confidence": 0.75,
+      "applications": 0,
+      "source": "ecc-research-2026-06-08"
     }
-  }
+  ]
 }

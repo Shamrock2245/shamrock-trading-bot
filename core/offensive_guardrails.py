@@ -477,16 +477,16 @@ def get_effective_min_gem_score(state: OffensiveState) -> float:
         fng_score = state.fear_and_greed_score
         fng_penalty = 0.0
         if fng_sentiment == "extreme fear" or fng_score < 25:
-            fng_penalty = 10.0
+            fng_penalty = 3.0
             logger.info(
                 f"🚨 FEAR & GREED MACRO GATE: Extreme Fear (score={fng_score}) → "
-                f"raising MIN_GEM_SCORE by +10.0 for capital protection"
+                f"raising MIN_GEM_SCORE by +3.0 (buy the blood — reduced from +10)"
             )
         elif fng_sentiment == "fear" or fng_score < 45:
-            fng_penalty = 5.0
+            fng_penalty = 2.0
             logger.info(
                 f"⚠️ FEAR & GREED MACRO GATE: Fear (score={fng_score}) → "
-                f"raising MIN_GEM_SCORE by +5.0 to filter low-confidence tokens"
+                f"raising MIN_GEM_SCORE by +2.0 (reduced from +5 — fear = opportunity)"
             )
         elif fng_sentiment == "extreme greed" or fng_score >= 75:
             fng_penalty = 3.0
@@ -942,9 +942,9 @@ def calculate_offensive_position_size(
         fng_score = state.fear_and_greed_score
         fng_mult = 1.0
         if fng_sentiment == "extreme fear" or fng_score < 25:
-            fng_mult = 0.50
+            fng_mult = 0.75  # Was 0.50 — too aggressive, blocked all trades
         elif fng_sentiment == "fear" or fng_score < 45:
-            fng_mult = 0.75
+            fng_mult = 0.85  # Was 0.75 — fear = buy opportunity
         elif fng_sentiment == "extreme greed" or fng_score >= 75:
             fng_mult = 0.85
         elif fng_sentiment == "greed" or fng_score >= 55:
