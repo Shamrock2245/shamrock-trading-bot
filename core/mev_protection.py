@@ -295,9 +295,12 @@ def execute_via_flashbots(
             base_fee = latest.get("baseFeePerGas", w3.eth.gas_price)
             priority_fee = Web3.to_wei(5 if chain == "ethereum" else 2, "gwei")
             max_fee = int(base_fee * 1.25) + priority_fee
+            base_gas_price = int(base_fee * 1.25)  # Fallback for non-1559 code paths
             use_eip1559 = True
         except Exception:
             base_gas_price = w3.eth.gas_price
+            priority_fee = Web3.to_wei(2, "gwei")
+            max_fee = base_gas_price
             use_eip1559 = False
 
         nonce = w3.eth.get_transaction_count(account.address, "pending")
