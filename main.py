@@ -640,6 +640,22 @@ async def run_bot_loop():
         # Use position size from allocation (already Kelly-sized), scaled by delay
         position_native = allocation.position_size_native * size_mult
         position_usd = max(allocation.position_size_usd, float(getattr(candidate, "copy_trade_size_usd", 0.0))) * size_mult
+
+        # ── ETHEREUM ENTRY GATE ───────────────────────────────────────────────
+        if token.chain.lower() == "ethereum":
+            import os
+            eth_min_score = int(os.getenv("ETH_MAINNET_MIN_GEM_SCORE", "90"))
+            eth_min_usd = float(os.getenv("ETH_MAINNET_MIN_POSITION_USD", "200"))
+            
+            if candidate.gem_score < eth_min_score:
+                logger.info(f"⛽ ETHEREUM GATE: Skipping {token.symbol} — gem_score {candidate.gem_score} < {eth_min_score} (ETH gas too expensive for marginal gems)")
+                decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", f"ETH gate: score < {eth_min_score}", {"gem_score": candidate.gem_score})
+                return
+            if position_usd < eth_min_usd:
+                logger.info(f"⛽ ETHEREUM GATE: Skipping {token.symbol} — position ${position_usd:.0f} < ${eth_min_usd} minimum for ETH mainnet")
+                decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", f"ETH gate: size < ${eth_min_usd}", {"position_usd": position_usd})
+                return
+
         risk = risk_manager.check_trade(
             position_size_native=position_native,
             position_size_usd=position_usd,
