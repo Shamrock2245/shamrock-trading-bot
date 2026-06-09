@@ -631,7 +631,7 @@ def route_trade(
             continue
 
         # ── Paper mode: skip real balance fetch, use simulated capital ────────
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             wallet_balance_usd = settings.PAPER_WALLET_BALANCE_USD
             native_balance = wallet_balance_usd / native_price
             usdc_balance = 0.0

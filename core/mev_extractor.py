@@ -856,7 +856,7 @@ class SandwichBot:
         Simulation via eth_callBundle is performed before submission.
         Bundle is discarded if simulation shows negative coinbaseDiff.
         """
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             logger.info(
                 f"[PAPER] Base sandwich: target={opp.target_address[:14]}... "
                 f"net=${opp.net_profit_usd:.2f}"
@@ -1149,7 +1149,7 @@ class SandwichBot:
         if not SANDWICH_ENABLED:
             return MEVResult(False, "sandwich", "solana", 0.0, error="Sandwich disabled")
 
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             logger.info(
                 f"[PAPER] Solana sandwich: target={opp.target_address[:14]}... "
                 f"net=${opp.net_profit_usd:.2f}"
@@ -1481,7 +1481,7 @@ class LiquidationHunter:
         if not HYPERLIQUID_ENABLED or not self.enabled:
             return MEVResult(False, "liquidation", "hyperliquid", 0.0, error="HL disabled")
 
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             logger.info(f"[PAPER] HL liquidation: {coin} sz={sz:.4f} user={user_address[:12]}...")
             return MEVResult(True, "liquidation", "hyperliquid", 0.0, tx_hash="paper_hl_liq")
 
@@ -1854,7 +1854,7 @@ class LiquidationHunter:
 
         The liquidator receives collateralAsset + liquidation bonus.
         """
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             logger.info(
                 f"[PAPER] Aave liquidation: {opp.target_address[:12]}... "
                 f"chain={chain} net=${opp.net_profit_usd:.2f}"

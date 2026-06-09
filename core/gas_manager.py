@@ -261,7 +261,7 @@ def _replenish_gas_evm(
         tx = swap_data.get("tx", {})
         dst_amount = int(swap_data.get("dstAmount", 0))
 
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             native_received = dst_amount / (10 ** chain_config.native_token_decimals)
             logger.info(
                 f"⛽ GAS REPLENISH (paper): {wallet.alias} on {chain_name} | "
@@ -459,7 +459,7 @@ def _liquidate_for_gas(
             f"selling {sell_fraction:.0%} (${target_sell_usd:.2f}) of position → native gas"
         )
 
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             logger.info(
                 f"⛽ GAS LIQUIDATION (paper): would sell {sell_fraction:.0%} of {token_symbol} "
                 f"(${target_sell_usd:.2f}) for gas on {chain_name}"
@@ -984,7 +984,7 @@ def daily_portfolio_cleanup() -> list[dict]:
 
         # Sell token → native gas token (or USDC)
         try:
-            if settings.IS_PAPER:
+            if (settings.get_current_mode() == "paper"):
                 logger.info(
                     f"🧹 FLUSH (paper): would sell {token_symbol}/{chain} "
                     f"(${current_value:.2f}) → native gas"

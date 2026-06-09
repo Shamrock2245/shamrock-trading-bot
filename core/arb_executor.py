@@ -82,15 +82,15 @@ logger = logging.getLogger(__name__)
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
 
-# PAPER_TRADE is read dynamically from settings.IS_PAPER so that runtime
+# PAPER_TRADE is read dynamically from (settings.get_current_mode() == "paper") so that runtime
 # mode changes (MODE env var) are respected without a process restart.
 # The old static PAPER_TRADE=getattr(settings,'PAPER_TRADE',True) was
 # evaluated once at import time and could not reflect live mode changes.
 def PAPER_TRADE() -> bool:  # type: ignore[misc]
     """Return True if the bot is currently in paper mode."""
-    return settings.IS_PAPER
+    return settings.get_current_mode() == "paper"
 # Backwards-compat alias (bool-like callable — evaluates at call time)
-_PAPER_TRADE_STATIC: bool = settings.IS_PAPER  # used only for TradeExecutor init
+_PAPER_TRADE_STATIC: bool = (settings.get_current_mode() == "paper")  # used only for TradeExecutor init
 ARB_WALLET_ALIAS: str = getattr(settings, "ARB_WALLET_ALIAS", "primary")
 ARB_MAX_GAS_TO_PROFIT_RATIO: float = getattr(settings, "ARB_MAX_GAS_TO_PROFIT_RATIO", 0.50)
 ARB_RECHECK_SPREAD_BEFORE_EXEC: bool = getattr(settings, "ARB_RECHECK_SPREAD_BEFORE_EXEC", True)
@@ -317,7 +317,7 @@ class ArbExecutor:
     """
 
     def __init__(self):
-        self._executor = TradeExecutor(is_paper=settings.IS_PAPER)
+        self._executor = TradeExecutor(is_paper=settings.get_current_mode() == "paper")
         self._trade_log: list[FlashArbResult] = []
         self._daily_profit_usd: float = 0.0
         self._daily_trade_count: int = 0
@@ -376,7 +376,7 @@ class ArbExecutor:
             )
 
         # Gate 4: Re-verify spread still exists (live price re-check)
-        if ARB_RECHECK_SPREAD_BEFORE_EXEC and not settings.IS_PAPER:
+        if ARB_RECHECK_SPREAD_BEFORE_EXEC and not (settings.get_current_mode() == "paper"):
             if not self._verify_spread_still_valid(opp):
                 return FlashArbResult(
                     opportunity=opp, success=False,
@@ -407,7 +407,7 @@ class ArbExecutor:
                 f"net=${result.net_profit_usd:.2f} | "
                 f"provider={result.flash_provider} | "
                 f"daily_total=${self._daily_profit_usd:.2f} | "
-                f"paper={settings.IS_PAPER}"
+                f"paper={(settings.get_current_mode() == "paper")}"
             )
         else:
             logger.warning(f"⚠️ FLASH ARB FAILED: {opp.strategy}@{opp.chain} | {result.error}")
@@ -425,7 +425,7 @@ class ArbExecutor:
         Execute cross-DEX arbitrage atomically via flash loan.
         Borrows USDC → buys token on buy_dex → sells on sell_dex → repays loan.
         """
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             return self._simulate_flash_cross_dex(opp)
 
         chain = opp.chain
@@ -549,7 +549,7 @@ class ArbExecutor:
         Borrows USDC → hop A → hop B → USDC → repays loan.
         All hops encoded as sequential 1inch swap payloads.
         """
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             return self._simulate_flash_triangular(opp)
 
         chain = opp.chain
@@ -933,7 +933,7 @@ class ArbExecutor:
         Cross-chain arbitrage — cannot be flash-loaned (bridge breaks atomicity).
         Uses legacy async bridge pattern: buy on cheap chain, bridge, sell on expensive chain.
         """
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             return self._simulate_cross_chain(opp)
 
         wallet = self._get_arb_wallet(opp.buy_chain)
@@ -1106,7 +1106,7 @@ class ArbExecutor:
             "avg_flash_size_usd": round(
                 sum(r.flash_amount_usd for r in flash_trades) / max(len(flash_trades), 1), 2
             ),
-            "paper_mode": settings.IS_PAPER,
+            "paper_mode": (settings.get_current_mode() == "paper"),
             "flash_arb_min_profit_pct": FLASH_ARB_MIN_PROFIT_PCT,
         }
 

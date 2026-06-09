@@ -489,7 +489,7 @@ class TradeExecutor:
             quote = quote_resp.json()
             logger.info(f"CoW quote received: {quote.get('quote', {})}")
 
-            if settings.IS_PAPER:
+            if (settings.get_current_mode() == "paper"):
                 return TradeResult(
                     success=True,
                     execution_path="cow_paper",
@@ -603,7 +603,7 @@ class TradeExecutor:
                 f"{dst_amount/1e18:.6f} | gas={gas_gwei:.1f}gwei"
             )
 
-            if settings.IS_PAPER:
+            if (settings.get_current_mode() == "paper"):
                 return TradeResult(
                     success=True,
                     execution_path="1inch_paper",
@@ -829,7 +829,7 @@ class TradeExecutor:
             tx_data = swap_data.get("tx", {})
             dst_amount = int(swap_data.get("dstAmount", 0))
 
-            if settings.IS_PAPER:
+            if (settings.get_current_mode() == "paper"):
                 return TradeResult(
                     success=True,
                     tx_hash="0x" + "0" * 64,
@@ -897,7 +897,7 @@ class TradeExecutor:
         # can NEVER accidentally broadcast an on-chain transaction.
         # We still fetch a READ-ONLY quote (GET request, no signing) so that
         # amount_out is realistic for position tracking.
-        if settings.IS_PAPER:
+        if (settings.get_current_mode() == "paper"):
             # Try to get a quote for realistic amount_out (read-only, no broadcast)
             paper_amount_out = 0.0
             try:

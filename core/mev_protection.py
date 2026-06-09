@@ -150,7 +150,7 @@ def submit_flashbots_bundle(
     if not signing_key:
         return FlashbotsResult(success=False, error="FLASHBOTS_SIGNING_KEY not configured")
 
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info(f"[PAPER] Flashbots bundle: {len(signed_txs)} txs -> block {target_block}")
         return FlashbotsResult(
             success=True,
@@ -214,7 +214,7 @@ def submit_via_flashbots_protect(
     Lightweight path for Base and Arbitrum — no bundle signing needed.
     The tx is forwarded to builders privately, bypassing the public mempool.
     """
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info("[PAPER] Flashbots Protect RPC: simulated private tx submission")
         return FlashbotsResult(success=True, tx_hash="0x" + "0" * 64, execution_path="flashbots_protect")
 
@@ -277,7 +277,7 @@ def execute_via_flashbots(
         chain_id:    EVM chain ID
         chain:       Chain name string (ethereum, base, arbitrum, etc.)
     """
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info(f"[PAPER] Flashbots tx: chain={chain} to={to[:10]}... value={value/1e18:.4f}")
         return FlashbotsResult(
             success=True,
@@ -418,7 +418,7 @@ def submit_jito_bundle(
     Returns:
         JitoResult with bundle_id or error
     """
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info(f"[PAPER] Jito bundle: {len(signed_transactions_b64)} txs, tip={tip_lamports} lamports")
         return JitoResult(
             success=True,
@@ -487,7 +487,7 @@ def execute_solana_via_jito(
         wallet_public_key: Wallet public key (for logging)
         tip_lamports:      Jito tip in lamports
     """
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info(f"[PAPER] Jito execute: wallet={wallet_public_key[:8]}... tip={tip_lamports}")
         return JitoResult(
             success=True,
@@ -662,7 +662,7 @@ def execute_via_cow_live(
     1. Get quote -> 2. Build order -> 3. Sign (EIP-712) -> 4. Submit to CoW API
     Returns order UID on success, None on failure.
     """
-    if settings.IS_PAPER:
+    if (settings.get_current_mode() == "paper"):
         logger.info(
             f"[PAPER] CoW order: {sell_token[:10]}... -> {buy_token[:10]}... "
             f"amount={sell_amount_wei/1e18:.4f}"

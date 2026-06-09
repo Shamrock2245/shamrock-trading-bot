@@ -14,7 +14,7 @@ Promotion Criteria (ALL must pass):
 Promotion Actions:
   1. Writes MODE=live to the .env file (persists across restarts)
   2. Sets os.environ["MODE"] = "live" immediately (takes effect this session)
-  3. Reloads settings.MODE, settings.IS_LIVE, settings.IS_PAPER
+  3. Reloads settings.MODE, settings.IS_LIVE, (settings.get_current_mode() == "paper")
   4. Sends Slack + Telegram alert with full promotion summary
   5. Logs a permanent promotion record to output/live_promotion.json
   6. Restarts the TradeExecutor in live mode
