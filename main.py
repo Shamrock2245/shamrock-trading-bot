@@ -2213,12 +2213,18 @@ async def run_bot_loop():
                 _regime_state = get_regime()
                 logger.info(f"📊 Market Regime [cycle {cycle}]: {_regime_state.details}")
                 if _regime_state.regime == Regime.CHOPPY:
-                    logger.warning(
-                        "😴 CHOPPY REGIME — skipping new entries this cycle. "
-                        "Both wallets operating at 30% sizing (Mean-Reversion mode active). "
-                        f"Details: {_regime_state.details}"
-                    )
-                    _regime_skip_new_entries = True
+                    if settings.get_current_mode() == "paper":
+                        logger.info(
+                            "😴 CHOPPY REGIME detected but PAPER MODE — allowing entries for strategy validation. "
+                            f"Details: {_regime_state.details}"
+                        )
+                    else:
+                        logger.warning(
+                            "😴 CHOPPY REGIME — skipping new entries this cycle. "
+                            "Both wallets operating at 30% sizing (Mean-Reversion mode active). "
+                            f"Details: {_regime_state.details}"
+                        )
+                        _regime_skip_new_entries = True
                 elif _regime_state.regime == Regime.TRENDING:
                     logger.info(
                         "🚀 TRENDING REGIME — Wallet B nuclear sizing ACTIVE (+50% mult). "
