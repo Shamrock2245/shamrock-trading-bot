@@ -563,6 +563,7 @@ async def run_bot_loop():
     def _execute_fastlane_candidate(candidate, signal) -> None:
         from memory.recursive_decision_ledger import decision_ledger
         from core.ito_trade_planner import trade_planner
+        from core.safety import check_token_safety  # Explicit import — avoids Python 3.12 free-variable scoping issue
         
         token = candidate.token
         signal.candidate_built_at = datetime.now(timezone.utc)

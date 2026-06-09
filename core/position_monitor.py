@@ -1279,6 +1279,36 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
 
             fail_count = pos.get("sell_failure_count", 0) + 1
             pos["sell_failure_count"] = fail_count
+
+            # ── DUST AUTO-CLOSE: Stop retrying unsellable micro-positions ──
+            # If position value is below $0.50 after 10+ failures, or if we've
+            # hit 50+ failures regardless of value, force-close as dust.
+            _remaining = float(pos.get("remaining_quantity", 0))
+            _est_value = _remaining * current_price if current_price else 0
+            _is_dust = (fail_count >= 10 and _est_value < 0.50) or fail_count >= 50
+            if _is_dust:
+                logger.warning(
+                    f"🗑️ DUST AUTO-CLOSE: {pos.get('token_symbol')} on {pos.get('chain')} — "
+                    f"{fail_count} sell failures, est value=${_est_value:.4f}. "
+                    f"Closing as dust (unsellable)."
+                )
+                trade_record["auto_closed_dust"] = True
+                trade_record["dust_value_usd"] = _est_value
+                append_trade(trade_record)
+                pos = dict(pos)
+                pos["status"] = "closed"
+                pos["closed_at"] = time.time()
+                pos["close_reason"] = f"dust_auto_close_after_{fail_count}_failures"
+                try:
+                    from notifications.slack import send_slack_message
+                    send_slack_message(
+                        f"🗑️ *DUST AUTO-CLOSE*: `{pos.get('token_symbol')}` on `{pos.get('chain')}` — "
+                        f"{fail_count} failures, value=${_est_value:.4f}. Position closed as dust."
+                    )
+                except Exception:
+                    pass
+                return pos
+
             if fail_count >= 2:
                 logger.critical(
                     f"🚨 SELL FAILURE #{fail_count}: {pos.get('token_symbol')} on {pos.get('chain')} "
