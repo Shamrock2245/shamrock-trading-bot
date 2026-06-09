@@ -1,0 +1,74 @@
+{
+  "episode_id": "ep-2026-06-09-001",
+  "timestamp": "2026-06-09T17:45:00Z",
+  "category": "trade_execution",
+  "title": "Post-Deploy Strategy Audit — Zero Trades Despite Active Scanner",
+  "duration_minutes": 120,
+  "outcome": "diagnosis_complete",
+  "summary": "After deploying commits 238bfb5→c293f22 (IS_PAPER dynamic mode fix, f-string syntax fix, sell pipeline hardening), the bot restarted clean on VPS. Scanner runs 3-min cycles finding 10-13 candidates per cycle. However ZERO trades have executed in 2.5 hours. Root cause: capital/chain mismatch — 90% of alpha signals are Ethereum (no wallet configured), Base gems score 60-76 (below Conservative min 68), Solana wallets have $0 balance.",
+  "what_happened": {
+    "task": "Verify bot is operational after sell pipeline overhaul",
+    "findings": [
+      "Bot is scanning, scoring, and rejecting correctly — the pipeline works",
+      "Copy-trade alpha signals (MOVE, KITE, EIGEN, BIO, WLD, ZRO, LINK, SUSHI) are ALL Ethereum",
+      "Wallet config has Ethereum removed: chains=['base', 'arbitrum', 'solana']",
+      "Hyperliquid fallback fires but gem_score 61-66 < min 70 → blocked",
+      "Base gems (SpaceX=75.9, MOCA=63.2) exist but most below Conservative min_gem_score=68",
+      "Solana wallets have $0.00 balance across all three wallet configs",
+      "Primary has $1,070 on Base, Wallet B has $733 on Arbitrum",
+      "ML optimizer loaded 591 closed trades but 0 usable (not enough recent data) → static weights"
+    ],
+    "data_state": {
+      "trades_json": "591 records (all sells from previous sessions)",
+      "positions_json": "602 records (all closed)",
+      "sell_failures_json": "3614 records",
+      "open_positions": 0
+    }
+  },
+  "key_insights": {
+    "what_went_well": [
+      "IS_PAPER dynamic mode fix confirmed working: PositionMonitor initialized (mode=LIVE)",
+      "f-string syntax error in arb_executor.py caught and fixed before CI could deploy",
+      "Scanner finding high-scoring gems (up to 100.0) — scoring engine is healthy",
+      "Safety checks running: SAFE/CAUTION verdicts flowing correctly",
+      "All 4 Docker containers healthy: bot, dashboard, db, health"
+    ],
+    "what_went_wrong": [
+      "The sell pipeline overhaul (3 Manus prompts) introduced an f-string syntax error that broke arb_executor",
+      "CI/CD lint-and-test failed on 238bfb5 (Manus commit) — blocked the deploy job",
+      "Zero trades for 2.5 hours despite active scanning — capital/chain mismatch",
+      "Solana completely unfunded — an entire execution avenue is dead"
+    ],
+    "root_cause": "Market alpha concentration on Ethereum (where no wallet is configured) + Conservative min_gem_score=68 filtering out most Base gems that score 60-76 + zero Solana balance"
+  },
+  "patterns_extracted": [
+    {
+      "pattern": "alpha_chain_mismatch",
+      "description": "When most alpha wallet signals target a chain that has been disabled (Ethereum), the entire copy-trade pipeline produces zero trades. The Hyperliquid perps fallback partially addresses this but has its own min_gem_score gate (70) that further filters.",
+      "confidence": 0.95,
+      "category": "trade_execution",
+      "action": "Either lower Hyperliquid gate to match market signal quality (62-65), re-enable Ethereum on a wallet, or find Base/Arbitrum-specific alpha sources."
+    },
+    {
+      "pattern": "conservative_score_threshold_vs_l2_reality",
+      "description": "Conservative min_gem_score=68 works for Ethereum mainnet tokens but is too high for Base/Arbitrum L2 gems which typically score 60-76 due to less liquidity depth and fewer data signals. L2-specific gems need a lower threshold (62-65) to execute.",
+      "confidence": 0.85,
+      "category": "scoring_engine",
+      "action": "Consider chain-specific min_gem_score overrides: Base=62, Arbitrum=65, Solana=58 (already set)"
+    },
+    {
+      "pattern": "manus_syntax_errors",
+      "description": "Manus AI commits sometimes contain Python syntax errors (e.g., nested double quotes in f-strings). Always run `ast.parse()` on every modified file after merging Manus PRs, before deploying.",
+      "confidence": 0.98,
+      "category": "manus_integration",
+      "action": "Add ast.parse() validation to CI lint step or create a pre-deploy hook"
+    }
+  ],
+  "files_modified": [
+    "core/arb_executor.py (f-string syntax fix)"
+  ],
+  "user_feedback": {
+    "rating": null,
+    "comments": "User skeptical that bot is really running — asked for deep VPS health check. Discovered zero trades executing despite scanner activity."
+  }
+}

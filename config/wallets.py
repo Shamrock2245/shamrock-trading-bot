@@ -63,11 +63,11 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    # TUNED: min_gem_score raised 50→68 — stop entering low-conviction trades
-    # Paper mode was too permissive at 50; 68 filters out noise while still
-    # generating enough volume to validate the strategy.
-    min_gem_score=68.0,
-    express_lane_score=78.0,
+    # TUNED: 68→62 — Base L2 gems typically score 60-76 due to less liquidity
+    # depth and fewer data signals vs Ethereum. 68 was filtering out ALL Base
+    # gems. Lowered to 62 for paper-mode validation (2026-06-09).
+    min_gem_score=62.0,
+    express_lane_score=74.0,
     # TP: 1.5x sell 40%, 1.8x sell 35%, 5x sell 25% (Optimized via Shadow Account Backtest)
     tp1_mult=1.5,
     tp1_sell_pct=0.40,
@@ -94,11 +94,11 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    # TUNED: min_gem_score raised 62→72 — restore the original quality floor.
-    # Paper mode lowered this to 62 "for testing" but it was generating
-    # too many low-quality entries on a 35% position size. Catastrophic.
-    min_gem_score=72.0,
-    express_lane_score=80.0,
+    # TUNED: 72→65 — Arbitrum gems scoring 60-70 were all blocked.
+    # With 20% position size (down from 35%) this is survivable.
+    # Lowered for paper-mode validation (2026-06-09).
+    min_gem_score=65.0,
+    express_lane_score=76.0,
     # TP: TUNED — TP1 lowered 5x→2x, TP2 lowered 15x→5x, TP3 lowered 50x→15x
     # A nuclear wallet should still swing for big wins, but needs to lock in
     # profit at 2x first. The old 5x TP1 meant 99% of trades hit the hard stop.

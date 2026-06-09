@@ -79,7 +79,7 @@ HYPERLIQUID_STOP_LOSS_PCT = float(os.getenv("HYPERLIQUID_STOP_LOSS_PCT", "3.0"))
 HYPERLIQUID_TAKE_PROFIT_PCT = float(os.getenv("HYPERLIQUID_TAKE_PROFIT_PCT", "12.0"))  # 12% TP (4:1 R/R)
 HYPERLIQUID_MAX_POSITIONS = int(os.getenv("HYPERLIQUID_MAX_POSITIONS", "4"))
 HYPERLIQUID_DAILY_LOSS_LIMIT = float(os.getenv("HYPERLIQUID_DAILY_LOSS_LIMIT", "30.0"))  # Max $30/day loss
-HYPERLIQUID_MIN_GEM_SCORE = float(os.getenv("HYPERLIQUID_MIN_GEM_SCORE", "80"))  # Only highest-conviction
+HYPERLIQUID_MIN_GEM_SCORE = float(os.getenv("HYPERLIQUID_MIN_GEM_SCORE", "65"))  # Lowered 80→65 for paper validation (2026-06-09) — Ethereum gems score 61-66
 
 # ─────────────────────────────────────────────────────────────────────────────
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")

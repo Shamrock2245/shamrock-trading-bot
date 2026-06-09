@@ -81,6 +81,22 @@
       "confidence": 0.75,
       "applications": 0,
       "source": "ecc-research-2026-06-08"
+    },
+    {
+      "id": "alpha_chain_mismatch",
+      "pattern": "When most alpha wallet signals target a disabled chain (e.g., Ethereum removed for gas cost), the copy-trade pipeline produces zero trades. Hyperliquid perps fallback helps but has its own gem_score gate. Monitor which chains alpha signals concentrate on and ensure at least one execution venue covers them.",
+      "category": "trade_execution",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-09-001"
+    },
+    {
+      "id": "manus_syntax_errors",
+      "pattern": "Manus AI commits sometimes contain Python syntax errors (nested quotes in f-strings, import mismatches). ALWAYS run ast.parse() on every file Manus modified before deploying to VPS.",
+      "category": "manus_integration",
+      "confidence": 0.98,
+      "applications": 1,
+      "source": "ep-2026-06-09-001"
     }
   ]
 }
