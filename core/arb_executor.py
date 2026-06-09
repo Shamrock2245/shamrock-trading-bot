@@ -401,13 +401,14 @@ class ArbExecutor:
         if result.success:
             self._daily_profit_usd += result.net_profit_usd
             self._daily_trade_count += 1
+            _is_paper = settings.get_current_mode() == "paper"
             logger.info(
                 f"💰 FLASH ARB EXECUTED: {opp.strategy}@{opp.chain} | "
                 f"flash=${result.flash_amount_usd:,.0f} | "
                 f"net=${result.net_profit_usd:.2f} | "
                 f"provider={result.flash_provider} | "
                 f"daily_total=${self._daily_profit_usd:.2f} | "
-                f"paper={(settings.get_current_mode() == "paper")}"
+                f"paper={_is_paper}"
             )
         else:
             logger.warning(f"⚠️ FLASH ARB FAILED: {opp.strategy}@{opp.chain} | {result.error}")
