@@ -83,6 +83,7 @@ class SellResult:
     attempts: int = 0
     execution_path: str = ""
     error: Optional[str] = None
+    gas_prohibitive: bool = False
 
 
 def execute_sell_solana(
@@ -343,6 +344,10 @@ def execute_sell_solana(
     )
 
 
+# Low-gas L2 chains where the gas economics guard is unnecessary
+_LOW_GAS_CHAINS = frozenset({"base", "arbitrum", "polygon", "avalanche", "bsc"})
+
+
 def execute_sell_evm(
     token_address: str,
     token_amount_wei: int,
@@ -351,6 +356,7 @@ def execute_sell_evm(
     urgency: str = "normal",
     is_paper: bool = True,
     prior_failures: int = 0,
+    position_value_usd: float = 0,
 ) -> SellResult:
     """
     Execute an EVM sell with aggressive retry and approval bypass.
@@ -418,8 +424,80 @@ def execute_sell_evm(
     if not chain_config:
         return SellResult(success=False, error=f"Unknown chain: {chain}")
 
+    # ── GAS ECONOMICS GUARD ───────────────────────────────────────────────
+    # On expensive L1 chains (Ethereum mainnet), skip sells where gas would
+    # eat >25% of the position value. L2s (Base, Arb, etc.) are exempt.
+    if not is_paper and chain not in _LOW_GAS_CHAINS and position_value_usd > 0:
+        try:
+            w3_gas = _get_web3(chain_config)
+            if w3_gas:
+                gas_price_wei = w3_gas.eth.gas_price
+                gas_price_gwei = gas_price_wei / 1e9
+                eth_price_usd = _get_eth_price_usd()
+                est_gas_cost_usd = 300_000 * (gas_price_gwei * 1e-9) * eth_price_usd
+                if est_gas_cost_usd > position_value_usd * 0.25:
+                    logger.warning(
+                        f"⛽ Gas cost prohibitive: ~${est_gas_cost_usd:.2f} gas vs "
+                        f"${position_value_usd:.2f} position ({est_gas_cost_usd / position_value_usd:.0%}) "
+                        f"— skipping sell for {token_address[:10]}... on {chain}"
+                    )
+                    return SellResult(
+                        success=False,
+                        error="gas_cost_prohibitive",
+                        gas_prohibitive=True,
+                    )
+                logger.debug(
+                    f"Gas check OK: ~${est_gas_cost_usd:.2f} gas vs "
+                    f"${position_value_usd:.2f} position ({est_gas_cost_usd / position_value_usd:.0%})"
+                )
+        except Exception as gas_err:
+            logger.warning(f"Gas economics check failed (proceeding with sell): {gas_err}")
+
     # Native token address (sell destination — ETH/BNB/MATIC)
     NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+
+    # ── 1INCH QUOTE PRE-CHECK ─────────────────────────────────────────────
+    # Cheap quote-only call to detect no-liquidity or dust before building
+    # full swap calldata (which is more expensive and rate-limited).
+    if not is_paper and settings.ONEINCH_API_KEY:
+        try:
+            quote_url = f"{settings.ONEINCH_API_URL}/{chain_config.chain_id}/quote"
+            quote_headers = {"Authorization": f"Bearer {settings.ONEINCH_API_KEY}"}
+            quote_params = {
+                "src": token_address,
+                "dst": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+                "amount": str(token_amount_wei),
+            }
+            quote_resp = get_session().get(
+                quote_url, headers=quote_headers, params=quote_params, timeout=15
+            )
+            if quote_resp.status_code != 200:
+                logger.warning(
+                    f"1inch quote pre-check failed ({quote_resp.status_code}): "
+                    f"{quote_resp.text[:200]} — no liquidity for {token_address[:10]}..."
+                )
+                return SellResult(
+                    success=False,
+                    error="quote_failed_no_liquidity",
+                )
+            quote_data = quote_resp.json()
+            dst_amount_raw = int(quote_data.get("dstAmount", 0))
+            dst_amount_native = dst_amount_raw / 1e18
+            dst_amount_usd = dst_amount_native * _get_eth_price_usd()
+            if dst_amount_usd < 0.10:
+                logger.info(
+                    f"💨 Dust position: quote returned ~${dst_amount_usd:.4f} "
+                    f"for {token_address[:10]}... — not worth selling"
+                )
+                return SellResult(
+                    success=False,
+                    error="dust_value_unsellable",
+                )
+            logger.debug(
+                f"Quote pre-check OK: ~${dst_amount_usd:.2f} for {token_address[:10]}..."
+            )
+        except Exception as quote_err:
+            logger.warning(f"1inch quote pre-check error (proceeding): {quote_err}")
 
     # Skip lower tiers if we've failed before (escalate slippage across monitor cycles)
     start_tier = min(prior_failures, len(SLIPPAGE_LADDER) - 1)

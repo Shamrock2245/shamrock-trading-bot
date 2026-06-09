@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
 POSITIONS_FILE = Path(settings.POSITIONS_FILE)
 POSITIONS_BACKUP = POSITIONS_FILE.with_name("positions.backup.json")
 TRADES_FILE = Path(settings.TRADES_FILE)
+SELL_FAILURES_FILE = Path("/app/output/sell_failures.json")
 _save_counter = 0
 POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -148,24 +149,44 @@ def save_positions(positions: list[dict]) -> None:
         _save_positions_unlocked(positions)
 
 
+def _append_to_file(filepath: Path, record: dict, max_records: int = 10_000) -> None:
+    """Atomic append a record to a JSON array file."""
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    records = []
+    if filepath.exists():
+        with open(filepath) as f:
+            records = json.load(f)
+    records.append(record)
+    if len(records) > max_records:
+        records = records[-max_records:]
+    tmp_path = filepath.with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(records, f, indent=2, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp_path.replace(filepath)
+
+
 def append_trade(trade: dict) -> None:
-    """Append a completed trade to the trades log (atomic write)."""
+    """Append a completed trade to the appropriate log file.
+
+    Failed sells (with 'error' key or no tx_hash) go to sell_failures.json.
+    Successful trades (including paper sells with tx_hash='0x000...0') go
+    to the main trades file.
+    """
     try:
-        trades = []
-        if TRADES_FILE.exists():
-            with open(TRADES_FILE) as f:
-                trades = json.load(f)
-        trades.append(trade)
-        # Keep last 10,000 trades
-        if len(trades) > 10_000:
-            trades = trades[-10_000:]
-        # Atomic write: tmp → fsync → rename (prevents corrupt reads by ML daemons)
-        tmp_path = TRADES_FILE.with_suffix(".tmp")
-        with open(tmp_path, "w") as f:
-            json.dump(trades, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
-        tmp_path.replace(TRADES_FILE)
+        is_paper = trade.get("is_paper", False)
+        has_error = "error" in trade
+        tx_hash = trade.get("tx_hash")
+
+        # Paper-mode successful sells have tx_hash='0x000...0' — those are valid
+        is_failure = has_error or (tx_hash is None and not is_paper)
+
+        if is_failure:
+            _append_to_file(SELL_FAILURES_FILE, trade, max_records=5_000)
+            logger.debug(f"Sell failure logged to {SELL_FAILURES_FILE}")
+        else:
+            _append_to_file(TRADES_FILE, trade)
     except Exception as e:
         logger.error(f"Failed to append trade: {e}")
 
@@ -1229,10 +1250,16 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     urgency=sell_urgency,
                     is_paper=is_paper,  # ✅ Fixed: was hardcoded False
                     prior_failures=pos.get("sell_failure_count", 0),
+                    position_value_usd=sell_qty * current_price if current_price else 0,
                 )
 
             tx_hash = sell_result.tx_hash if sell_result.success else None
             if not sell_result.success:
+                # ── Gas prohibitive: don't count as failure, just back off ──
+                if hasattr(sell_result, 'gas_prohibitive') and sell_result.gas_prohibitive:
+                    logger.info(f'⛽ Gas prohibitive for {pos.get("token_symbol")} on {chain} — skipping, retry in 5m')
+                    pos['next_sell_retry_at'] = time.time() + 300
+                    return pos  # Don't increment failure count, just skip
                 raise RuntimeError(
                     f"Sell engine failed after {sell_result.attempts} attempts: "
                     f"{sell_result.error}"
@@ -1279,6 +1306,10 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
 
             fail_count = pos.get("sell_failure_count", 0) + 1
             pos["sell_failure_count"] = fail_count
+            # Exponential backoff: 60s, 120s, 240s, 480s, max 600s (10 min)
+            backoff_secs = min(60 * (2 ** min(fail_count - 1, 4)), 600)
+            pos['next_sell_retry_at'] = time.time() + backoff_secs
+            logger.info(f'Sell retry backoff: {backoff_secs}s for {pos.get("token_symbol")}')
 
             # ── DUST AUTO-CLOSE: Stop retrying unsellable micro-positions ──
             # If position value is below $0.50 after 10+ failures, or if we've
@@ -1487,6 +1518,14 @@ class PositionMonitor:
 
         for pos in open_positions:
             try:
+                # Exponential backoff for repeated sell failures
+                _fail_count = pos.get('sell_failure_count', 0)
+                if _fail_count > 0:
+                    _next_retry = pos.get('next_sell_retry_at', 0)
+                    if time.time() < _next_retry:
+                        updated_positions.append(pos)
+                        continue  # Skip this position until backoff expires
+
                 addr_lower = pos.get("token_address", "").lower()
                 pv = price_cache.get(addr_lower, {})
                 if not pv or pv.get("price") is None:
