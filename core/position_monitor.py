@@ -1257,9 +1257,28 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             if not sell_result.success:
                 # ── Gas prohibitive: don't count as failure, just back off ──
                 if hasattr(sell_result, 'gas_prohibitive') and sell_result.gas_prohibitive:
-                    logger.info(f'⛽ Gas prohibitive for {pos.get("token_symbol")} on {chain} — skipping, retry in 5m')
+                    logger.info(
+                        f"⛽ SELL SKIPPED (gas): {pos.get('token_symbol')} on {chain} | "
+                        f"value=${sell_qty * current_price:.2f} — retry in 5m"
+                    )
                     pos['next_sell_retry_at'] = time.time() + 300
                     return pos  # Don't increment failure count, just skip
+                
+                # ── No liquidity (Moralis pre-check): auto-close as honeypot ──
+                if getattr(sell_result, 'error', '') == 'no_liquidity_dead_token':
+                    logger.warning(
+                        f"🚫 SELL SKIPPED (no liquidity): {pos.get('token_symbol')} on {chain} — "
+                        f"auto-closing as honeypot"
+                    )
+                    trade_record["auto_closed_phantom"] = True
+                    append_trade(trade_record)
+                    pos = dict(pos)
+                    pos["remaining_quantity"] = 0
+                    pos["status"] = "closed"
+                    pos["closed_at"] = time.time()
+                    pos["close_reason"] = "no_liquidity_honeypot"
+                    return pos
+
                 raise RuntimeError(
                     f"Sell engine failed after {sell_result.attempts} attempts: "
                     f"{sell_result.error}"
@@ -1269,8 +1288,8 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             trade_record["sell_attempts"] = sell_result.attempts
             trade_record["slippage_bps_used"] = sell_result.slippage_bps_used
             logger.info(
-                f"✅ LIVE SELL: {pos['token_symbol']} {sell_pct*100:.0f}% "
-                f"@ ${current_price:.6f} | {reason} | tx={tx_hash} | "
+                f"💰 SELL SUCCESS: {pos.get('token_symbol')} on {chain} | "
+                f"tx={str(tx_hash)[:16]}... | pnl={pnl_pct:.1f}% | "
                 f"attempts={sell_result.attempts} | slippage={sell_result.slippage_bps_used}bps"
             )
         except Exception as e:
@@ -1864,7 +1883,7 @@ def register_position(
     pair_address: str = "",
     tx_hash: str = "",
     gem_score: float = 0.0,
-    is_paper: bool = True,
+    is_paper: bool | None = None,
     entry_value_usd: float = 0.0,
     token_decimals: int = 0,  # 0 = auto-detect: 6 for Solana, 18 for EVM
     strategy_profile: str = "",  # e.g. "nuclear", "conservative"
@@ -1875,6 +1894,11 @@ def register_position(
     Returns the position dict that was saved.
     """
     positions = load_positions()
+
+    # Resolve is_paper dynamically if not explicitly provided
+    if is_paper is None:
+        from config import settings
+        is_paper = settings.get_current_mode() != "live"
 
     # ── DEDUP: Check for existing open position with same token+chain+wallet ──
     existing = [p for p in positions if

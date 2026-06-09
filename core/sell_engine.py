@@ -456,6 +456,27 @@ def execute_sell_evm(
     # Native token address (sell destination — ETH/BNB/MATIC)
     NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
 
+    # ── MORALIS LIQUIDITY PRE-CHECK ───────────────────────────────────────
+    # Fast check via Moralis to detect dead tokens / honeypots with zero DEX
+    # liquidity before wasting 1inch API calls.
+    if not is_paper:
+        try:
+            from data.providers.moralis_money import get_erc20_pairs
+            # We override min_liquidity_usd to $100 since we just want to know if
+            # ANY liquidity exists (default is $10k which is too strict for sells)
+            pairs = get_erc20_pairs(token_address, chain, limit=5, min_liquidity_usd=100.0)
+            if not pairs:
+                logger.warning(
+                    f"🚫 No DEX liquidity found via Moralis for {token_address[:10]}... "
+                    f"on {chain} (token is dead or honeypot) — skipping sell"
+                )
+                return SellResult(
+                    success=False,
+                    error="no_liquidity_dead_token",
+                )
+        except Exception as moralis_err:
+            logger.debug(f"Moralis liquidity pre-check failed (proceeding): {moralis_err}")
+
     # ── 1INCH QUOTE PRE-CHECK ─────────────────────────────────────────────
     # Cheap quote-only call to detect no-liquidity or dust before building
     # full swap calldata (which is more expensive and rate-limited).

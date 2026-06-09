@@ -609,7 +609,7 @@ async def run_bot_loop():
                         tx_hash="",
                         gem_score=candidate.gem_score,
                         signal_scores=getattr(candidate, "signal_scores", {}),
-                        is_paper=is_paper,
+
                         entry_value_usd=hl_result["margin_usd"],
                         strategy_profile="hyperliquid_perp",
                     )
@@ -696,7 +696,7 @@ async def run_bot_loop():
                 wallet_public_key=sol_public_key,
                 wallet_private_key_env=sol_key_env,
                 slippage_bps=allocation.slippage_bps,
-                is_paper=is_paper,
+
                 gem_score=getattr(token, "gem_score", None),
             )
             success = tx_hash is not None
@@ -745,7 +745,7 @@ async def run_bot_loop():
                         tx_hash="",
                         gem_score=candidate.gem_score,
                         signal_scores=getattr(candidate, "signal_scores", {}),
-                        is_paper=is_paper,
+
                         entry_value_usd=hl_result["margin_usd"],
                         strategy_profile="hyperliquid_perp",
                     )
@@ -802,7 +802,7 @@ async def run_bot_loop():
             tx_hash=tx_hash or "",
             gem_score=candidate.gem_score,
             signal_scores=getattr(candidate, "signal_scores", {}),
-            is_paper=is_paper,
+
             entry_value_usd=position_usd,
             strategy_profile=getattr(wallet.strategy_profile, "name", ""),
         )
@@ -1577,7 +1577,7 @@ async def run_bot_loop():
                                     quantity=result.amount_out,
                                     tx_hash=result.tx_hash,
                                     gem_score=trade["score"],
-                                    is_paper=is_paper,
+
                                     entry_value_usd=trade["size_usdc"]
                                 )
                             else:
@@ -1936,7 +1936,7 @@ async def run_bot_loop():
                                 wallet_public_key=sol_public_key,
                                 wallet_private_key_env=sol_key_env,
                                 slippage_bps=150,
-                                is_paper=is_paper,
+
                             )
                             executed = tx_hash is not None
                         else:
@@ -2050,7 +2050,7 @@ async def run_bot_loop():
                                         amount_sol=sol_amount,
                                         to_address=primary_wallet.solana_address or primary_wallet.address,
                                         from_private_key_env=source_wallet_conf.solana_private_key_env or source_wallet_conf.private_key_env,
-                                        is_paper=is_paper,
+
                                     )
                                     if tx:
                                         logger.info(f"✅ Compound transfer SUCCESS: ${compound_usd:.2f} → {primary_wallet.alias} (tx: {tx[:16]}...)")
@@ -2159,7 +2159,7 @@ async def run_bot_loop():
                                     wallet_public_key=sol_public_key,
                                     wallet_private_key_env=sol_key_env,
                                     slippage_bps=200,  # Slightly more slippage for DCA dip buys
-                                    is_paper=is_paper,
+
                                 )
                                 executed = tx_hash is not None
                         else:
@@ -2383,7 +2383,7 @@ async def run_bot_loop():
                                                 wallet_public_key=_buy_wallet.solana_address or _buy_wallet.address,
                                                 wallet_private_key_env=_buy_wallet.solana_private_key_env or _buy_wallet.private_key_env,
                                                 slippage_bps=200,
-                                                is_paper=is_paper,
+
                                             )
                                             _executed_buy = _buy_tx is not None
                                         else:
@@ -2839,7 +2839,7 @@ async def run_bot_loop():
                             wallet_public_key=sol_public_key,
                             wallet_private_key_env=sol_key_env,
                             slippage_bps=150,
-                            is_paper=is_paper,
+
                         )
                         success = tx_hash is not None
                         execution_path = "jupiter"
@@ -2920,7 +2920,7 @@ async def run_bot_loop():
                             tx_hash=tx_hash or "",
                             gem_score=candidate.gem_score,
                             signal_scores=getattr(candidate, "signal_scores", {}),
-                            is_paper=is_paper,
+
                             entry_value_usd=allocation.position_size_usd,
                             strategy_profile=_reg_profile,
                         )
@@ -3032,7 +3032,7 @@ async def run_bot_loop():
                                             sol_amount=allocation.position_size_native,
                                             wallet_public_key=sol_key,
                                             wallet_private_key_env=sol_pk,
-                                            is_paper=is_paper,
+
                                         )
                                     else:
                                         fib_executor = TradeExecutor(is_paper=is_paper)
@@ -3059,7 +3059,7 @@ async def run_bot_loop():
                                             pair_address="",
                                             tx_hash=tx_hash or "",
                                             gem_score=fib_sig.gem_score or 60.0,
-                                            is_paper=is_paper,
+
                                             entry_value_usd=allocation.position_size_usd,
                                         )
                                         notify_trade(
@@ -3167,7 +3167,7 @@ async def run_bot_loop():
                                     quantity=result.amount_out if result.amount_out else 0,
                                     tx_hash=result.tx_hash,
                                     gem_score=decision.ta_composite,
-                                    is_paper=is_paper,
+
                                     entry_value_usd=pos_size_usd,
                                     strategy_profile="swing",
                                 )
