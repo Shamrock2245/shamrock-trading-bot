@@ -296,6 +296,7 @@ def execute_sell_solana(
 
         # ── Standard RPC fallback ─────────────────────────────────────────────
         try:
+            logger.info(f"Attempting standard RPC fallback for {token_mint[:8]}...")
             signature = sign_and_send_transaction(
                 serialized_tx_b64=swap_tx,
                 private_key_b58=private_key,

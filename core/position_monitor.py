@@ -1208,7 +1208,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             # ⚠️  Paper-mode guard: is_paper is passed from PositionMonitor.is_paper
             # (which reads settings.IS_PAPER dynamically). The previous code
             # hardcoded is_paper=False here, bypassing paper mode on sells.
-            if chain == "solana":
+            if chain.lower() == "solana":
                 sol_pub = getattr(wallet, "solana_address", "") or ""
                 sol_key_env = getattr(wallet, "solana_private_key_env", "") or ""
                 sell_result = execute_sell_solana(
