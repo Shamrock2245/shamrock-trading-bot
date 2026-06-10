@@ -61,6 +61,22 @@ KNOWN_TOKEN_NAMES: list[str] = [
     "DEEPMIND", "CHATGPT", "GROK", "CLAUDE", "SORA",
 ]
 
+# ── HARD REJECT brands — real-world companies that are ALWAYS scams as tokens ──
+# These bypass all scoring — if the name/symbol matches, it's instantly rejected.
+# No metadata credit, no fuzzy matching needed. Exact match (case-insensitive).
+HARD_REJECT_BRANDS: set[str] = {
+    "SPACEX", "TESLA", "APPLE", "GOOGLE", "AMAZON", "MICROSOFT",
+    "NVIDIA", "META", "FACEBOOK", "NETFLIX", "DISNEY", "BOEING",
+    "NASA", "OPENAI", "XAI", "NEURALINK", "STARLINK", "BORING COMPANY",
+    "SAMSUNG", "SONY", "INTEL", "AMD", "ADOBE", "ORACLE",
+    "PAYPAL", "VISA", "MASTERCARD", "JPMORGAN", "GOLDMAN SACHS",
+    "BLACKROCK", "VANGUARD", "COINBASE", "ROBINHOOD",
+    "TOYOTA", "FERRARI", "LAMBORGHINI", "PORSCHE", "BMW",
+    "COCA COLA", "PEPSI", "MCDONALDS", "WALMART", "COSTCO",
+    "BERKSHIRE", "PALANTIR", "SNOWFLAKE", "DATABRICKS", "ANTHROPIC",
+    "DEEPMIND", "CHATGPT", "GROK", "CLAUDE", "SORA",
+}
+
 # Symbols that should NEVER appear on a brand-new micro-cap
 PROTECTED_SYMBOLS: set[str] = {
     "BTC", "ETH", "SOL", "USDC", "USDT", "BNB", "AVAX", "MATIC",
@@ -248,9 +264,21 @@ def is_token_copycat(name: str, symbol: str, token_address: str = "") -> bool:
     Simple boolean check — can be used as an instant disqualifier
     in the scanner pipeline when a token clearly impersonates a major project.
     """
+    # HARD REJECT: Real-world brand names are ALWAYS scams as crypto tokens.
+    # Bypasses all scoring — SpaceX, Tesla, Apple, etc. can never be legitimate.
+    name_upper = (name or "").upper().strip()
+    symbol_upper = (symbol or "").upper().strip()
+    for brand in HARD_REJECT_BRANDS:
+        if brand == name_upper or brand == symbol_upper or brand in name_upper:
+            logger.warning(
+                f"CopycatDetector: HARD REJECT brand impersonation: "
+                f"'{name}' ({symbol}) matches blocked brand '{brand}'"
+            )
+            return True
+
     score, flags = get_copycat_score(
         name, symbol,
-        has_image=True, has_description=True, has_website=True,
+        has_image=False, has_description=False, has_website=False,
         token_address=token_address,
     )
     return score < 50  # Below 50 = likely copycat (tightened from 40 after SpaceX rug -$196)
