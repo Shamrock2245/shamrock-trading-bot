@@ -50,6 +50,7 @@ settings_stub.MORALIS_API_KEY = ""
 settings_stub.JUPITER_API_URL = "https://lite-api.jup.ag/swap/v1"
 settings_stub.JUPITER_API_KEY = ""
 settings_stub.SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
+settings_stub.get_current_mode.return_value = "paper"
 
 arb_price_feed_stub = MagicMock()
 arb_price_feed_stub.STABLECOINS = {

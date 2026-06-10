@@ -628,15 +628,15 @@ def evaluate_position(pos: dict, current_price: float,
                     f"😴 Regime CHOPPY: Mean-Reversion active (TP1: 3% scalp, sell 100%, trail: 1.5%) "
                     f"for {pos.get('token_symbol')}"
                 )
-        elif market_regime == Regime.NUKE:
-            # Trigger immediate 'Risk-Off' protocol, tightening all stop-losses to 1% to protect capital
-            hard_stop_pct = 1.0
-            trailing_pct = 1.0
-            profile_name = f"{profile_name}_risk_off_nuke"
-            logger.warning(
-                f"🚨 Regime NUKE: RISK-OFF protocol active! Tightened SL to 1% "
-                f"for {pos.get('token_symbol')}"
-            )
+            elif market_regime == Regime.NUKE:
+                # Trigger immediate 'Risk-Off' protocol, tightening all stop-losses to 1% to protect capital
+                hard_stop_pct = 1.0
+                trailing_pct = 1.0
+                profile_name = f"{profile_name}_risk_off_nuke"
+                logger.warning(
+                    f"🚨 Regime NUKE: RISK-OFF protocol active! Tightened SL to 1% "
+                    f"for {pos.get('token_symbol')}"
+                )
     except Exception as regime_err:
         logger.debug(f"Regime personality switch skipped: {regime_err}")
     # Fallback default values already resolved above if no strategy_profile was passed.
