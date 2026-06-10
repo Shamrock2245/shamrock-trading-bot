@@ -960,6 +960,10 @@ def calculate_offensive_position_size(
             )
 
     # Apply multiplier to base position
+    # TUNED 2026-06-10: Floor at 0.50x — streak + fear penalties were compounding
+    # to 0.375x (0.50 × 0.75), which combined with choppy regime (0.50) = $3.94
+    # trades on $1000. Need minimum viable trade sizes for $500/day target.
+    multiplier = max(multiplier, 0.50)
     final_position_usd = base_position_usd * multiplier
 
     # 8. House money bonus (additive — uses locked profits)
