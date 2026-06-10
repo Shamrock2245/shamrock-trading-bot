@@ -1043,11 +1043,13 @@ class GemScanner:
             return None
 
         # ── HARD GATE #2b: Solana minimum liquidity ──────────────────────────
-        # Micro-cap Solana tokens with <$50k liquidity are extremely easy to rug.
-        if token.chain == "solana" and (token.liquidity_usd or 0) < 50_000:
+        # TUNED 2026-06-10: $50k→$15k — $50k was blocking ALL Solana gems
+        # (mogging $48k, NO $42k, SATX $34k all rejected). Solana memes
+        # typically have $10-30k liquidity. $15k filters micro-rugs only.
+        if token.chain == "solana" and (token.liquidity_usd or 0) < 15_000:
             logger.info(
                 f"⛔ SOLANA LIQUIDITY GATE: {token.symbol} liquidity "
-                f"${token.liquidity_usd:,.0f} < $50k minimum. Skipping."
+                f"${token.liquidity_usd:,.0f} < $15k minimum. Skipping."
             )
             return None
 
