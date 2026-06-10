@@ -446,7 +446,9 @@ TA_ENABLED = os.getenv("TA_ENABLED", "true").lower() == "true"
 
 # ── Profitability Upgrades (Freqtrade + Quant-Trading inspired) ──────────────
 # All features default OFF — enable individually to measure impact.
-VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "false").lower() == "true"
+# TUNED 2026-06-10: Enabled — ATR-based sizing reduces position in ultra-high vol,
+# increases in smooth trends. Prevents oversized bets in choppy meme coin markets.
+VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "true").lower() == "true"
 MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true"
 
 # ── MTF Strategy Engine (Multi-Timeframe Horizon Assignment) ─────────────────────
@@ -463,7 +465,9 @@ MTF_MIN_CANDLES_5D = int(os.getenv("MTF_MIN_CANDLES_5D", "3"))
 # Aggressive mode: lower thresholds to catch more plays
 MTF_AGGRESSIVE_MODE = os.getenv("MTF_AGGRESSIVE_MODE", "true").lower() == "true"
 REGIME_STRATEGY_ENABLED = os.getenv("REGIME_STRATEGY_ENABLED", "false").lower() == "true"
-DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "false").lower() == "true"
+# TUNED 2026-06-10: Enabled — ATR-relative TPs automatically widen in volatile
+# markets and tighten in calm ones. Dramatically improves win capture on meme coins.
+DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "true").lower() == "true"
 
 # ── Capital Appreciation & Retention (Floor Guardian & Capital Rotator) ──────
 # Daily Floor: if portfolio dips this much below midnight snapshot, engage lockdown

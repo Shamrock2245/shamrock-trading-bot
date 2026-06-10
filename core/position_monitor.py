@@ -556,8 +556,10 @@ def evaluate_position(pos: dict, current_price: float,
 
         if chain == "solana":
             hard_stop_pct = 10.0
-            trailing_pct = 6.0
-            tp1_mult = 1.2
+            # TUNED 2026-06-10: trail 6→10%, TP1 1.2→1.35 — Solana memes are
+            # far more volatile; tight trail was cutting winners early.
+            trailing_pct = 10.0
+            tp1_mult = 1.35
             tp1_sell = _val(settings.TAKE_PROFIT_TP1_SELL_PCT, 0.40)
             tp2_mult = 1.8
             tp2_sell = _val(settings.TAKE_PROFIT_TP2_SELL_PCT, 0.35)
