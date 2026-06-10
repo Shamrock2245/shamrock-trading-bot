@@ -672,6 +672,31 @@ def evaluate_position(pos: dict, current_price: float,
             "urgency": "immediate",
         }
 
+    # ── Rapid Decay Emergency Exit ────────────────────────────────────────────
+    # ADDED 2026-06-10: SpaceX rug went to $0 in ~10min. The periodic monitor
+    # cycle missed it because the hard stop check runs every 30-60s.
+    # If a position is down >5% within 10 minutes of entry, it's almost certainly
+    # a rug pull or pump-and-dump — dump immediately, don't wait for hard stop.
+    if entry_time and gain_pct < -5.0:
+        try:
+            import datetime
+            _now = datetime.datetime.now(datetime.timezone.utc)
+            _entry_dt = datetime.datetime.fromisoformat(entry_time)
+            _minutes_held = (_now - _entry_dt).total_seconds() / 60
+            if _minutes_held <= 10.0:
+                logger.warning(
+                    f"🚨 RAPID DECAY EXIT: {pos.get('token_symbol')} is {gain_pct:.1f}% "
+                    f"down after only {_minutes_held:.1f}min — likely rug pull. "
+                    f"Emergency dump!"
+                )
+                return {
+                    "reason": f"rapid_decay_exit ({gain_pct:.1f}% in {_minutes_held:.0f}min) [{profile_name}]",
+                    "sell_pct": 1.0,
+                    "urgency": "immediate",
+                }
+        except Exception:
+            pass  # Don't block on time parsing errors
+
     # ── FIX BUG 1: Pre-TP1 Peak Protection ───────────────────────────────────
     # CRITICAL: Without this, a position that peaks at +40% then falls to -20%
     # hits only the hard stop — all unrealized gain is surrendered. This trailing

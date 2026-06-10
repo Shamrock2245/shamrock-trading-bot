@@ -1031,14 +1031,23 @@ class GemScanner:
             )
             return None
 
-        # ── HARD GATE #2: Solana tokens < 2h old → instant reject ─────────────
-        # Tokens this fresh on Solana are still in the rug-pull danger window.
-        # The 2h rule lets us see at least 2 candlesticks of real price action
-        # before we commit capital. No exceptions — not even for boosted tokens.
-        if token.chain == "solana" and (token.age_hours or 0) < 2.0 and not is_cto:
+        # ── HARD GATE #2: Solana tokens < 4h old → instant reject ─────────────
+        # TUNED 2026-06-10: 2h→4h after AFFIRM (-$29.82 in 0.2min) and
+        # Bountywork (-$3.51 in 0.3min) — both were instant dumps on fresh tokens.
+        # 4h gives us at least 4 candlesticks of real price action.
+        if token.chain == "solana" and (token.age_hours or 0) < 4.0 and not is_cto:
             logger.info(
                 f"⛔ SOLANA AGE GATE: {token.symbol} is only {token.age_hours:.1f}h old "
-                f"— too fresh for safe entry (< 2h). Skipping."
+                f"— too fresh for safe entry (< 4h). Skipping."
+            )
+            return None
+
+        # ── HARD GATE #2b: Solana minimum liquidity ──────────────────────────
+        # Micro-cap Solana tokens with <$50k liquidity are extremely easy to rug.
+        if token.chain == "solana" and (token.liquidity_usd or 0) < 50_000:
+            logger.info(
+                f"⛔ SOLANA LIQUIDITY GATE: {token.symbol} liquidity "
+                f"${token.liquidity_usd:,.0f} < $50k minimum. Skipping."
             )
             return None
 

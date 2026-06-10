@@ -47,6 +47,18 @@ KNOWN_TOKEN_NAMES: list[str] = [
     "FETCH", "OCEAN", "SINGULARITY", "WORLDCOIN", "BITTENSOR",
     # Major projects people impersonate
     "TRUMP", "MELANIA", "OFFICIAL TRUMP",
+    # ── Real-world brands scammers impersonate (SpaceX rug cost -$196) ──────
+    "SPACEX", "TESLA", "APPLE", "GOOGLE", "AMAZON", "MICROSOFT",
+    "NVIDIA", "META", "FACEBOOK", "NETFLIX", "DISNEY", "BOEING",
+    "NASA", "OPENAI", "XAI", "NEURALINK", "STARLINK", "BORING COMPANY",
+    "SAMSUNG", "SONY", "INTEL", "AMD", "ADOBE", "ORACLE",
+    "PAYPAL", "VISA", "MASTERCARD", "JPMORGAN", "GOLDMAN SACHS",
+    "BLACKROCK", "VANGUARD", "COINBASE", "ROBINHOOD", "BINANCE",
+    "KRAKEN", "GEMINI", "STRIPE", "SQUARE", "BLOCK",
+    "TOYOTA", "FERRARI", "LAMBORGHINI", "PORSCHE", "BMW",
+    "COCA COLA", "PEPSI", "MCDONALDS", "WALMART", "COSTCO",
+    "BERKSHIRE", "PALANTIR", "SNOWFLAKE", "DATABRICKS", "ANTHROPIC",
+    "DEEPMIND", "CHATGPT", "GROK", "CLAUDE", "SORA",
 ]
 
 # Symbols that should NEVER appear on a brand-new micro-cap
@@ -241,4 +253,4 @@ def is_token_copycat(name: str, symbol: str, token_address: str = "") -> bool:
         has_image=True, has_description=True, has_website=True,
         token_address=token_address,
     )
-    return score < 40  # Below 40 = definite copycat
+    return score < 50  # Below 50 = likely copycat (tightened from 40 after SpaceX rug -$196)

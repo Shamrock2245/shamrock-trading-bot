@@ -75,55 +75,46 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     tp2_sell_pct=0.35,
     tp3_mult=5.0,
     tp3_sell_pct=0.25,
-    # Stops — OPTIMIZED via Shadow Account Backtest
-    hard_stop_pct=10.0,
+    # Stops — TUNED 2026-06-10: tightened after paper trades showed $103 single-trade losses
+    hard_stop_pct=8.0,             # 10→8% — cut losers faster ($4 max loss on $50 trade)
     trailing_stop_pct=6.0,
-    trailing_tighten={1.8: 4.0, 2.5: 3.0},  # Tighten as it runs
-    # Sizing — TUNED: 8% per trade (was 15%) — smaller bets, more diversification
-    # 15% per trade on a losing streak = catastrophic drawdown.
-    # 8% per trade with 8 concurrent = 64% deployed, 36% reserve.
-    max_position_pct=8.0,
-    kelly_clamp_max=0.25,
+    trailing_tighten={1.8: 4.0, 2.5: 3.0},
+    # Sizing — TUNED 2026-06-10: avg $160/trade on $1000 = 16% = catastrophic
+    # 5% × 5 concurrent = 25% deployed, 75% reserve. Survivable.
+    max_position_pct=5.0,          # 8→5% — max $50 on $1000 account
+    kelly_clamp_max=0.15,          # 0.25→0.15 — Kelly can't exceed 15%
     max_position_usd=5_000.0,
-    max_concurrent=8,
-    # Fast fail — TUNED: tighter to cut losers faster
-    fast_fail_down_pct=10.0,
-    fast_fail_hours=1.5,
+    max_concurrent=5,              # 8→5 — fewer positions, higher quality
+    # Fast fail — TUNED: 30-minute window, 7% threshold
+    fast_fail_down_pct=7.0,        # 10→7% — faster kill switch
+    fast_fail_hours=0.5,           # 1.5→0.5h — 30-minute fast fail window
     max_slippage_pct=4.0,
 )
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
     # TUNED: 72→65 — Arbitrum gems scoring 60-70 were all blocked.
-    # With 20% position size (down from 35%) this is survivable.
-    # Lowered for paper-mode validation (2026-06-09).
     min_gem_score=65.0,
     express_lane_score=76.0,
-    # TP: TUNED — TP1 lowered 5x→2x, TP2 lowered 15x→5x, TP3 lowered 50x→15x
-    # A nuclear wallet should still swing for big wins, but needs to lock in
-    # profit at 2x first. The old 5x TP1 meant 99% of trades hit the hard stop.
-    # New structure: 2x sell 25%, 5x sell 30%, 15x sell 20% (45% rides with trail)
+    # TP: 2x sell 25%, 5x sell 30%, 15x sell 20%
     tp1_mult=2.0,
     tp1_sell_pct=0.25,
     tp2_mult=5.0,
     tp2_sell_pct=0.30,
     tp3_mult=15.0,
     tp3_sell_pct=0.20,
-    # Stops — TUNED: hard stop 10%→12% (was too tight, getting stopped out on noise)
-    # trailing 30%→20% (30% trail on a meme = giving back 30% of a 10x = huge)
-    hard_stop_pct=12.0,
+    # Stops — TUNED 2026-06-10: tightened for capital preservation
+    hard_stop_pct=10.0,            # 12→10%
     trailing_stop_pct=20.0,
     trailing_tighten={5.0: 12.0, 10.0: 7.0},
-    # Sizing — TUNED: 20% per trade (was 35%) with max 4 concurrent (was 6)
-    # 35% × 6 concurrent = 210% notional exposure. Insane for paper validation.
-    # 20% × 4 = 80% deployed — still aggressive but survivable.
-    max_position_pct=20.0,
-    kelly_clamp_max=0.50,
+    # Sizing — TUNED 2026-06-10: 20→10% per trade, 4→3 concurrent
+    max_position_pct=10.0,         # 20→10%
+    kelly_clamp_max=0.25,          # 0.50→0.25
     max_position_usd=0.0,
-    max_concurrent=4,
-    # Fast fail — keep tight on nuclear entries
-    fast_fail_down_pct=12.0,
-    fast_fail_hours=1.5,
+    max_concurrent=3,              # 4→3
+    # Fast fail
+    fast_fail_down_pct=10.0,       # 12→10%
+    fast_fail_hours=1.0,           # 1.5→1.0h
     max_slippage_pct=8.0,
 )
 
