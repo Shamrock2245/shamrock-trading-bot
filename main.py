@@ -2350,6 +2350,7 @@ async def run_bot_loop():
                                     continue
 
                                 # Safety check first — NEVER bypass this
+                                from core.safety import check_token_safety  # Explicit import — avoids Python 3.12 free-variable scoping issue
                                 _safety = check_token_safety(_cmd_addr, _cmd_chain)
                                 if not _safety.is_safe:
                                     logger.warning(
@@ -2581,6 +2582,7 @@ async def run_bot_loop():
                         pass  # Don't block trading on calc failure
 
                 # Safety check (mandatory — no bypass even for express lane)
+                from core.safety import check_token_safety  # Explicit import — avoids Python 3.12 free-variable scoping issue
                 safety = check_token_safety(token.address, token.chain)
                 if not safety.is_safe:
                     logger.info(f"Skipping {token.symbol}: {safety.block_reason}")
