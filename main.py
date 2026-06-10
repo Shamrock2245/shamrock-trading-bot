@@ -568,6 +568,16 @@ async def run_bot_loop():
         token = candidate.token
         signal.candidate_built_at = datetime.now(timezone.utc)
 
+        # Copycat brand impersonation check (was missing from fastlane path)
+        try:
+            from data.providers.copycat_detector import is_token_copycat
+            if is_token_copycat(token.name, token.symbol, token_address=token.address):
+                logger.info(f"🚫 Fastlane reject copycat: {token.symbol} ({token.name})")
+                decision_ledger.record_decision(token.symbol, token.address, token.chain, "REJECT", "Copycat brand impersonation", {"gem_score": candidate.gem_score})
+                return
+        except Exception:
+            pass  # Don't block on detector errors
+
         # Mandatory safety gate
         safety = check_token_safety(token.address, token.chain)
         if not safety.is_safe:
