@@ -480,6 +480,8 @@ def _should_emergency_exit(pos: dict) -> Optional[dict]:
     Check if Moralis analytics demand an emergency full exit.
 
     Returns a sell action dict if ALL conditions are met:
+      - Position held > 30 minutes (give trades breathing room)
+      - Position is NOT profitable (let TP/trailing handle winners)
       - net_buyers_1h < 0 — sellers outnumber buyers (1h window)
       - net_buyers_5m <= 0 — recent activity confirms sell pressure
       - buy_pressure_ratio_1h < 0.35 — heavy sell volume (65%+ of total)
@@ -489,6 +491,26 @@ def _should_emergency_exit(pos: dict) -> Optional[dict]:
     """
     if not settings.ANALYTICS_EMERGENCY_EXIT_ENABLED:
         return None
+
+    # TUNED 2026-06-10: Don't emergency exit profitable positions.
+    # FAI (+0.2%), WAVE (+0.33%), GNUT (0%) were all cut by emergency exit
+    # when they were slightly green. Let TP/trailing handle winners.
+    unrealized_pnl_pct = float(pos.get("unrealized_pnl_pct", 0))
+    if unrealized_pnl_pct > 0:
+        return None
+
+    # TUNED 2026-06-10: Minimum 30-minute hold time before emergency exit.
+    # Meme coins have volatile buy/sell pressure in the first 30 minutes.
+    entry_time_str = pos.get("entry_time", "")
+    if entry_time_str:
+        try:
+            from datetime import datetime, timezone
+            entry_time = datetime.fromisoformat(entry_time_str.replace("Z", "+00:00"))
+            age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            if age_minutes < 30:
+                return None
+        except Exception:
+            pass
 
     net_buyers_1h = int(pos.get("moralis_net_buyers_1h", 0))
     net_buyers_5m = int(pos.get("moralis_net_buyers_5m", 0))
