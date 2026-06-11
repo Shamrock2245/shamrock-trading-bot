@@ -5,7 +5,7 @@ def auth_page() -> rx.Component:
     return rx.center(
         rx.vstack(
             rx.heading("SHAMROCK TRADING", size="8", weight="bold", color="var(--accent-9)"),
-            rx.text("Secure Command Center Authentication", size="3", color="gray", margin_bottom="1em"),
+            rx.text("Enter your PIN to continue", size="3", color="gray", margin_bottom="1em"),
             
             rx.cond(
                 AppState.auth_error != "",
@@ -13,17 +13,18 @@ def auth_page() -> rx.Component:
             ),
             
             rx.input(
-                placeholder="Enter Passphrase",
+                placeholder="Enter PIN",
                 type="password",
+                input_mode="numeric",
                 on_change=AppState.set_password,
                 id="password_input",
                 size="3",
                 width="100%",
-                style={"border_radius": "8px", "background": "rgba(255,255,255,0.05)"}
+                style={"border_radius": "8px", "background": "rgba(255,255,255,0.05)", "text_align": "center", "letter_spacing": "0.3em", "font_size": "1.2em"}
             ),
             
             rx.button(
-                "Authenticate", 
+                "Unlock", 
                 on_click=lambda: AppState.check_auth(AppState.password),
                 size="3",
                 width="100%",

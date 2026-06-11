@@ -186,12 +186,12 @@ class AppState(rx.State):
 
     # ── Auth ──────────────────────────────────────────────────────────────────
     def check_auth(self, password: str):
-        correct_password = os.environ.get("DASHBOARD_PASSWORD", "shamrock2026")
-        if password == correct_password:
+        correct_pin = os.environ.get("DASHBOARD_PIN", "15283909")
+        if password == correct_pin:
             self.is_authenticated = True
             self.auth_error = ""
         else:
-            self.auth_error = "Invalid password. Access denied."
+            self.auth_error = "Invalid PIN. Access denied."
 
     def logout(self):
         self.is_authenticated = False
