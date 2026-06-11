@@ -22,7 +22,7 @@ SCORES_FILE = Path("data/wallet_scores.json")
 SCORES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 class AlphaWalletRanker:
-    def __init__(self, base_multiplier=1.0, max_multiplier=3.0, min_multiplier=0.1):
+    def __init__(self, base_multiplier=1.0, max_multiplier=3.0, min_multiplier=0.5):
         self.base_multiplier = base_multiplier
         self.max_multiplier = max_multiplier
         self.min_multiplier = min_multiplier
