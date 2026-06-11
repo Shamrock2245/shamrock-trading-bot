@@ -624,10 +624,11 @@ class StatArbEngine:
             opp.symbol, spread_captured, gross_profit, fees, net_profit, hold_hours,
         )
 
-        # Feed profit into daily goal engine
+        # Feed profit into daily goal engine (live mode only — paper arb is simulated)
         try:
-            from core.daily_goal_engine import get_daily_goal_engine
-            get_daily_goal_engine().record_profit(net_profit, source="stat_arb")
+            if settings.MODE == "live":
+                from core.daily_goal_engine import get_daily_goal_engine
+                get_daily_goal_engine().record_profit(net_profit, source="stat_arb")
         except Exception:
             pass
 

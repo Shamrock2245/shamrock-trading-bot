@@ -473,6 +473,11 @@ class DailyGoalEngine:
         progress = self.progress_pct
         target = s.current_target_usd
 
+        # Paper mode: always stay in normal — nothing real to protect or bank
+        if settings.MODE != "live":
+            s.strategy_mode = "normal"
+            return
+
         # Tier 7 (unlimited): always normal mode
         if target <= 0:
             s.strategy_mode = "normal"

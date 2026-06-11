@@ -1269,11 +1269,14 @@ async def run_bot_loop():
                     for opp in opportunities[:5]:  # Execute top 5 per cycle
                         result = _arb_exec_inst.execute(opp)
                         if result.success:
-                            # Feed profit into daily goal engine
-                            _dge.record_profit(
-                                result.net_profit_usd,
-                                source=f"arb_{opp.strategy}",
-                            )
+                            # Only record arb profits in LIVE mode — paper arb uses
+                            # simulated flash loans with no execution risk, producing
+                            # unrealistic P&L that corrupts goal engine strategy modes
+                            if settings.MODE == "live":
+                                _dge.record_profit(
+                                    result.net_profit_usd,
+                                    source=f"arb_{opp.strategy}",
+                                )
                 _time.sleep(_scan_interval)
             except Exception as _arb_cycle_err:
                 logger.warning(f"Arb scan cycle error: {_arb_cycle_err}")
