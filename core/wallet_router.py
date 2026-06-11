@@ -833,6 +833,18 @@ def route_trade(
         else:
             min_trade_usd = CHAIN_MIN_TRADE_USD.get(chain, 10.0)
 
+        # ── Minimum position floor ─────────────────────────────────────────────
+        # TUNED 2026-06-11: Mu token hit +13.58% but had $0 position — nuclear sizing
+        # produced sub-$1 values. If sizing produces a meaningful but tiny amount,
+        # round up to $15 minimum so we don't miss profitable opportunities.
+        POSITION_FLOOR_USD = 15.0
+        if 0 < position_size_usd < POSITION_FLOOR_USD:
+            logger.info(
+                f"  📐 Position floor: {wallet.alias} sizing ${position_size_usd:.2f} → ${POSITION_FLOOR_USD:.2f} "
+                f"(floor applied, was below ${POSITION_FLOOR_USD})"
+            )
+            position_size_usd = POSITION_FLOOR_USD
+
         regime_label = regime_state.regime.value if regime_state else "unknown"
         logger.info(  # Upgraded DEBUG→INFO so rejection reasons are visible in logs
             f"  {wallet.alias} [{profile.name}] phase={phase.name} max_pct={effective_max_pct:.1%} "

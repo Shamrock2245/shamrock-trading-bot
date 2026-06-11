@@ -79,12 +79,12 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     hard_stop_pct=8.0,             # 10→8% — cut losers faster ($4 max loss on $50 trade)
     trailing_stop_pct=6.0,
     trailing_tighten={1.8: 4.0, 2.5: 3.0},
-    # Sizing — TUNED 2026-06-10: avg $160/trade on $1000 = 16% = catastrophic
-    # 5% × 5 concurrent = 25% deployed, 75% reserve. Survivable.
-    max_position_pct=5.0,          # 8→5% — max $50 on $1000 account
-    kelly_clamp_max=0.15,          # 0.25→0.15 — Kelly can't exceed 15%
+    # Sizing — TUNED 2026-06-11: 5→12% for parabolic gains. Avg position was $42, need $120+.
+    # 12% × 6 concurrent = 72% max deployed, 28% reserve.
+    max_position_pct=12.0,         # 5→12% — max $120 on $1000 account
+    kelly_clamp_max=0.20,          # 0.15→0.20 — Kelly can go to 20%
     max_position_usd=5_000.0,
-    max_concurrent=5,              # 8→5 — fewer positions, higher quality
+    max_concurrent=6,              # 5→6 — more positions = more volume
     # Fast fail — TUNED: 30-minute window, 7% threshold
     fast_fail_down_pct=7.0,        # 10→7% — faster kill switch
     fast_fail_hours=0.5,           # 1.5→0.5h — 30-minute fast fail window
@@ -107,11 +107,11 @@ NUCLEAR_PROFILE = StrategyProfile(
     hard_stop_pct=10.0,            # 12→10%
     trailing_stop_pct=20.0,
     trailing_tighten={5.0: 12.0, 10.0: 7.0},
-    # Sizing — TUNED 2026-06-10: 20→10% per trade, 4→3 concurrent
-    max_position_pct=10.0,         # 20→10%
-    kelly_clamp_max=0.25,          # 0.50→0.25
+    # Sizing — TUNED 2026-06-11: 10→15% for parabolic gains, more concurrent
+    max_position_pct=15.0,         # 10→15%
+    kelly_clamp_max=0.35,          # 0.25→0.35 — nuclear can bet bigger
     max_position_usd=0.0,
-    max_concurrent=3,              # 4→3
+    max_concurrent=4,              # 3→4 — more nuclear slots
     # Fast fail
     fast_fail_down_pct=10.0,       # 12→10%
     fast_fail_hours=1.0,           # 1.5→1.0h

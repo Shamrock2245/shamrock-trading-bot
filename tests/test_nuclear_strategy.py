@@ -190,8 +190,8 @@ class TestProfileConfig:
         assert NUCLEAR_PROFILE.tp3_sell_pct == 0.20
         assert NUCLEAR_PROFILE.hard_stop_pct == 10.0
         assert NUCLEAR_PROFILE.trailing_tighten == {5.0: 12.0, 10.0: 7.0}
-        assert NUCLEAR_PROFILE.max_position_pct == 10.0
-        assert NUCLEAR_PROFILE.kelly_clamp_max == 0.25
+        assert NUCLEAR_PROFILE.max_position_pct == 15.0  # TUNED 2026-06-11: 10→15% for parabolic
+        assert NUCLEAR_PROFILE.kelly_clamp_max == 0.35  # TUNED 2026-06-11: 0.25→0.35
         assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
 
     def test_conservative_profile_values(self):

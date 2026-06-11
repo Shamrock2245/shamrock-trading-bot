@@ -667,10 +667,10 @@ MOMENTUM_REENTRY_SIZE_MULT = float(os.getenv("MOMENTUM_REENTRY_SIZE_MULT", "1.25
 # ── 10. Absolute Position Cap ─────────────────────────────────────────────────
 # Hard cap on any single trade after all offensive multipliers are applied.
 # Prevents runaway sizing even on a 6-win streak in God Mode.
-OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "45.0"))    # TUNED: $1000→$45 — cap for small capital ($228 total)
+OFFENSIVE_MAX_POSITION_USD = float(os.getenv("OFFENSIVE_MAX_POSITION_USD", "200.0"))    # TUNED 2026-06-11: $45→$200 — $45 was choking ALL trades. Avg position was $42, need $120-150 for parabolic gains
 # Auto-scaling cap: max % of wallet balance per trade (overrides fixed USD cap when wallet grows)
 # e.g., 30% of a $20K wallet = $6K max position — grows with the wallet
-OFFENSIVE_MAX_POSITION_WALLET_PCT = float(os.getenv("OFFENSIVE_MAX_POSITION_WALLET_PCT", "30.0"))
+OFFENSIVE_MAX_POSITION_WALLET_PCT = float(os.getenv("OFFENSIVE_MAX_POSITION_WALLET_PCT", "40.0"))  # TUNED 2026-06-11: 30→40% — allow larger bets relative to wallet
 # Auto-compound: % of Wallet B TP profits flagged for rebalancing to Primary
 # 50% means half of nuclear TP profits build the safety net, other half keeps compounding
 AUTO_COMPOUND_PCT = float(os.getenv("AUTO_COMPOUND_PCT", "50.0"))

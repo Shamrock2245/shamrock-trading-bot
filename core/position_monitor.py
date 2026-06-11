@@ -641,15 +641,17 @@ def evaluate_position(pos: dict, current_price: float,
                     f"for {pos.get('token_symbol')}"
                 )
             elif market_regime == Regime.CHOPPY:
-                # Switch to Mean-Reversion mode (take fast 3-5% scalps and get out)
-                tp1_mult = 1.03  # 3% scalp
-                tp1_sell = 1.0   # Sell 100% of the remaining position and exit
-                tp2_mult = 1.05  # 5% scalp fallback
-                tp2_sell = 1.0
-                trailing_pct = 1.5  # Tight trail to secure fast scalp
+                # TUNED 2026-06-11: Mean-Reversion widened for parabolic gains.
+                # Old: 3% scalp, sell 100% — left money on table (DragonWorm +6.46%, Mu +13.58%)
+                # New: 6% scalp, sell 60% — let 40% ride with trailing for bigger wins
+                tp1_mult = 1.06  # 6% scalp (was 3%)
+                tp1_sell = 0.60  # Sell 60% (was 100%), let 40% ride
+                tp2_mult = 1.12  # 12% second target for the runner
+                tp2_sell = 1.0   # Sell remaining 100% at 12%
+                trailing_pct = 4.0  # Wider trail for the 40% runner (was 1.5%)
                 profile_name = f"{profile_name}_mean_reversion"
                 logger.info(
-                    f"😴 Regime CHOPPY: Mean-Reversion active (TP1: 3% scalp, sell 100%, trail: 1.5%) "
+                    f"😴 Regime CHOPPY: Mean-Reversion active (TP1: 6% sell 60%, TP2: 12% sell rest, trail: 4%) "
                     f"for {pos.get('token_symbol')}"
                 )
             elif market_regime == Regime.NUKE:

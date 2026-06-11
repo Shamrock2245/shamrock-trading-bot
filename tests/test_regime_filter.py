@@ -150,11 +150,11 @@ class TestRegimeFilter(unittest.TestCase):
             trailing_stop_pct=5.0
         )
         
-        # In Choppy regime, TP1 is overridden to 1.03 (3% scalp), selling 100%
-        # Price at 103.5 should trigger a full sell!
-        action = evaluate_position(pos, 103.5, strategy_profile=profile)
+        # In Choppy regime, TP1 is overridden to 1.06 (6% scalp), selling 60%
+        # Price at 106.5 should trigger a partial sell!
+        action = evaluate_position(pos, 106.5, strategy_profile=profile)
         self.assertIsNotNone(action)
-        self.assertEqual(action["sell_pct"], 1.0)
+        self.assertEqual(action["sell_pct"], 0.60)  # TUNED 2026-06-11: 100%→60%, let 40% ride
         self.assertTrue("tp1" in action["reason"])
 
     @patch('core.regime_filter.get_regime')

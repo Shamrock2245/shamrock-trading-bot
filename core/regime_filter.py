@@ -398,10 +398,11 @@ def get_sizing_multiplier(regime: Regime, profile_name: str = "conservative") ->
     if regime == Regime.TRENDING:
         return 2.3 if profile_name == "nuclear" else 1.0
     elif regime == Regime.CHOPPY:
-        # TUNED 2026-06-10: 0.07→0.50 — 93% reduction was killing ALL trades during
-        # range-bound markets. Crypto is choppy >60% of the time. Half-size is enough
-        # risk reduction while still generating the trade volume needed for $500/day.
-        return 0.50
+        # TUNED 2026-06-11: 0.50→0.80 — 0.50x was cutting positions to $22 avg.
+        # Mean-Reversion TP already handles choppy risk (quick scalps, tight trail).
+        # Double-dipping by ALSO halving position size killed profitability.
+        # Crypto is choppy >60% of the time — can't run at half-power most days.
+        return 0.80
     else:  # Regime.NUKE
         return 0.0   # Halts new buys completely
 
