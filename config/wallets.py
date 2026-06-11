@@ -63,11 +63,11 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    # TUNED: 68→62 — Base L2 gems typically score 60-76 due to less liquidity
-    # depth and fewer data signals vs Ethereum. 68 was filtering out ALL Base
-    # gems. Lowered to 62 for paper-mode validation (2026-06-09).
-    min_gem_score=62.0,
-    express_lane_score=74.0,
+    # TUNED 2026-06-11: 62→55 — increase trade volume for parabolic gains.
+    # Tokens scoring 55-62 still pass safety checks (liquidity, age, holders).
+    # Defensive guardrails (rapid decay, emergency exit, hard stop 8%) cap downside.
+    min_gem_score=55.0,
+    express_lane_score=72.0,  # 74→72 — maintain ~17pt gap
     # TP: 1.5x sell 40%, 1.8x sell 35%, 5x sell 25% (Optimized via Shadow Account Backtest)
     tp1_mult=1.5,
     tp1_sell_pct=0.40,
@@ -93,9 +93,9 @@ CONSERVATIVE_PROFILE = StrategyProfile(
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    # TUNED: 72→65 — Arbitrum gems scoring 60-70 were all blocked.
-    min_gem_score=65.0,
-    express_lane_score=76.0,
+    # TUNED 2026-06-11: 65→58 — more nuclear entries, guardrails protect
+    min_gem_score=58.0,
+    express_lane_score=74.0,  # Nuclear needs higher quality for express
     # TP: 2x sell 25%, 5x sell 30%, 15x sell 20%
     tp1_mult=2.0,
     tp1_sell_pct=0.25,

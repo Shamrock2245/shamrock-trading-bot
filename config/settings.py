@@ -422,14 +422,14 @@ SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
 SCANNER_PARALLEL_CHAINS = os.getenv("SCANNER_PARALLEL_CHAINS", "true").lower() == "true"
 SCANNER_MAX_WORKERS = int(os.getenv("SCANNER_MAX_WORKERS", "4"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
-# Conservative profile: min_gem_score=65.0 | Nuclear profile: min_gem_score=82.0 (express-lane quality only)
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # TUNED: 68→62 — reduce garbage entries while keeping quality bar (task/strategy-tuning)
+# Conservative profile: min_gem_score=55.0 | Nuclear profile: min_gem_score=65.0
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "55.0"))              # TUNED 2026-06-11: 62→55 — increase trade frequency (0.8/hr → target 2-3/hr). Guardrails protect downside.
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))       # TUNED: 50k→25k — avoid illiquid traps; 25k is minimum viable pool depth
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED: 168h→72h — focus on fresh tokens (3 days max)
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
 # Express lane: skip full TA pipeline and execute immediately if score >= this
-EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "78.0"))  # TUNED: 72→78 — restore meaningful TA filter gap (MIN_GEM_SCORE=68, need 10pt gap)
+EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "72.0"))  # TUNED 2026-06-11: 78→72 — maintain ~17pt gap above MIN_GEM_SCORE=55
 
 # Volume spike threshold for breakout detection (multiplier vs 24h average)
 VOLUME_SPIKE_THRESHOLD = float(os.getenv("VOLUME_SPIKE_THRESHOLD", "5.0"))
