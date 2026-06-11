@@ -705,16 +705,25 @@ def _execute_copy_trade(signal: AlphaSignal, on_trade_callback: Optional[Callabl
     # ── Gate 3: Size based on OUR wallet balance, not alpha's ────────────────
     # Use wallet_router to get current balance of our primary wallet on this chain
     try:
-        from core.wallet_router import get_native_balance, get_native_price_usd
         from config.wallets import WALLETS
         from config.chains import CHAINS
+        from config import settings as _settings
         chain_cfg = CHAINS.get(signal.chain)
         primary = WALLETS.get("primary")
         if chain_cfg and primary:
-            addr = primary.solana_address if chain_cfg.is_solana else primary.address
-            bal = get_native_balance(addr, signal.chain)
-            price = get_native_price_usd(chain_cfg.native_token)
-            wallet_balance_usd = bal * price
+            # FIXED 2026-06-11: In paper mode, use simulated balance instead of
+            # real on-chain balance. The scanner uses PAPER_WALLET_BALANCE_USD
+            # but copy trades were checking real balance ($0 on ETH) and rejecting
+            # everything with "primary wallet balance $0.00 too low".
+            is_paper = _settings.get_current_mode() == "paper"
+            if is_paper:
+                wallet_balance_usd = getattr(_settings, "PAPER_WALLET_BALANCE_USD", 1000.0)
+            else:
+                from core.wallet_router import get_native_balance, get_native_price_usd
+                addr = primary.solana_address if chain_cfg.is_solana else primary.address
+                bal = get_native_balance(addr, signal.chain)
+                price = get_native_price_usd(chain_cfg.native_token)
+                wallet_balance_usd = bal * price
             if wallet_balance_usd < 10:
                 logger.warning(
                     f"⛔ Copy trade skipped: {signal.token_symbol} — "
