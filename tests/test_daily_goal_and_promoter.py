@@ -88,29 +88,35 @@ class TestDailyGoalEngine:
     def test_strategy_mode_protect_at_100pct(self, tmp_path):
         """Strategy mode switches to 'protect' at 100%+ of goal."""
         engine, _ = make_fresh_engine(tmp_path)
-        with patch("core.paper_to_live_promoter.check_and_promote"):
-            engine.record_profit(520.0, source="arb_cross_dex")
+        with patch("core.daily_goal_engine.settings") as mock_settings:
+            mock_settings.MODE = "live"
+            with patch("core.paper_to_live_promoter.check_and_promote"):
+                engine.record_profit(520.0, source="arb_cross_dex")
         assert engine.strategy_mode == "protect"
 
     def test_strategy_mode_bank_it_at_150pct(self, tmp_path):
         """Strategy mode switches to 'bank_it' at 150%+ of goal."""
         engine, _ = make_fresh_engine(tmp_path)
-        with patch("core.paper_to_live_promoter.check_and_promote"):
-            engine.record_profit(800.0, source="arb_cross_dex")
+        with patch("core.daily_goal_engine.settings") as mock_settings:
+            mock_settings.MODE = "live"
+            with patch("core.paper_to_live_promoter.check_and_promote"):
+                engine.record_profit(800.0, source="arb_cross_dex")
         assert engine.strategy_mode == "bank_it"
 
     def test_strategy_mode_catch_up_after_6pm(self, tmp_path):
         """Strategy mode switches to 'catch_up' after 6 PM UTC if below 30%."""
         engine, _ = make_fresh_engine(tmp_path)
-        with patch("core.paper_to_live_promoter.check_and_promote"):
-            engine.record_profit(50.0, source="arb_cross_dex")  # Only 10% of $500
-        # Simulate 6 PM UTC
-        from datetime import datetime, timezone
-        mock_dt = MagicMock()
-        mock_dt.hour = 19  # 7 PM UTC
-        with patch("core.daily_goal_engine.datetime") as mock_datetime:
-            mock_datetime.now.return_value = mock_dt
-            engine._update_strategy_mode()
+        with patch("core.daily_goal_engine.settings") as mock_settings:
+            mock_settings.MODE = "live"
+            with patch("core.paper_to_live_promoter.check_and_promote"):
+                engine.record_profit(50.0, source="arb_cross_dex")  # Only 10% of $500
+            # Simulate 6 PM UTC
+            from datetime import datetime, timezone
+            mock_dt = MagicMock()
+            mock_dt.hour = 19  # 7 PM UTC
+            with patch("core.daily_goal_engine.datetime") as mock_datetime:
+                mock_datetime.now.return_value = mock_dt
+                engine._update_strategy_mode()
         assert engine.strategy_mode == "catch_up"
 
     def test_tier_advance_after_5_consecutive_hits(self, tmp_path):
@@ -535,14 +541,16 @@ class TestGoalEnginePromoterIntegration:
     def test_full_day_cycle(self, tmp_path):
         """Simulate a full day: record profits, close day, check tier."""
         engine, _ = make_fresh_engine(tmp_path)
-        with patch("core.paper_to_live_promoter.check_and_promote"):
-            # Simulate 10 trades totaling $620
-            for i in range(10):
-                engine.record_profit(62.0, source="arb_cross_dex")
+        with patch("core.daily_goal_engine.settings") as mock_settings:
+            mock_settings.MODE = "live"
+            with patch("core.paper_to_live_promoter.check_and_promote"):
+                # Simulate 10 trades totaling $620
+                for i in range(10):
+                    engine.record_profit(62.0, source="arb_cross_dex")
 
-        assert engine.today_profit_usd == pytest.approx(620.0)
-        assert engine.progress_pct == pytest.approx(124.0)
-        assert engine.strategy_mode in ("protect", "bank_it")
+            assert engine.today_profit_usd == pytest.approx(620.0)
+            assert engine.progress_pct == pytest.approx(124.0)
+            assert engine.strategy_mode in ("protect", "bank_it")
 
         # Close the day
         with patch("core.daily_goal_engine.datetime") as mock_dt:
