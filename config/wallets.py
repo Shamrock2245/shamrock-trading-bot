@@ -84,7 +84,7 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     max_position_pct=12.0,         # 5→12% — max $120 on $1000 account
     kelly_clamp_max=0.20,          # 0.15→0.20 — Kelly can go to 20%
     max_position_usd=5_000.0,
-    max_concurrent=6,              # 5→6 — more positions = more volume
+    max_concurrent=10,             # 5→10 — more positions = more volume
     # Fast fail — TUNED: 30-minute window, 7% threshold
     fast_fail_down_pct=7.0,        # 10→7% — faster kill switch
     fast_fail_hours=0.5,           # 1.5→0.5h — 30-minute fast fail window
@@ -111,7 +111,7 @@ NUCLEAR_PROFILE = StrategyProfile(
     max_position_pct=15.0,         # 10→15%
     kelly_clamp_max=0.35,          # 0.25→0.35 — nuclear can bet bigger
     max_position_usd=0.0,
-    max_concurrent=4,              # 3→4 — more nuclear slots
+    max_concurrent=6,              # 3→6 — more nuclear slots
     # Fast fail
     fast_fail_down_pct=10.0,       # 12→10%
     fast_fail_hours=1.0,           # 1.5→1.0h
@@ -371,7 +371,7 @@ WALLETS: dict[str, WalletConfig] = {
         # TUNED 2026-06-11: Added ethereum mainnet — most scanner candidates are ETH tokens
         chains=["ethereum", "base", "arbitrum", "solana"],
         max_position_size_pct=5.0,
-        max_concurrent_positions=5,
+        max_concurrent_positions=10,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
         min_eth_balance_alert=float(os.getenv("MIN_ETH_BALANCE_ALERT", "0.05")),
         strategy_profile=CONSERVATIVE_PROFILE,
@@ -388,7 +388,7 @@ WALLETS: dict[str, WalletConfig] = {
         # TUNED 2026-06-11: Added ethereum mainnet — most scanner candidates are ETH tokens
         chains=["ethereum", "base", "arbitrum", "solana"],
         max_position_size_pct=60.0,
-        max_concurrent_positions=3,
+        max_concurrent_positions=6,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "2.0")),
         min_eth_balance_alert=float(os.getenv("MIN_ETH_BALANCE_ALERT", "0.05")),
         strategy_profile=NUCLEAR_PROFILE,
