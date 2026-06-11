@@ -652,10 +652,17 @@ async def run_bot_loop():
         position_usd = max(allocation.position_size_usd, float(getattr(candidate, "copy_trade_size_usd", 0.0))) * size_mult
 
         # ── ETHEREUM ENTRY GATE ───────────────────────────────────────────────
+        # In paper mode, gas costs nothing — use relaxed thresholds.
+        # In live mode, env vars default to 90/200 to avoid burning gas on marginals.
         if token.chain.lower() == "ethereum":
             import os
-            eth_min_score = int(os.getenv("ETH_MAINNET_MIN_GEM_SCORE", "90"))
-            eth_min_usd = float(os.getenv("ETH_MAINNET_MIN_POSITION_USD", "200"))
+            is_paper = os.getenv("PAPER_MODE", "true").lower() == "true"
+            if is_paper:
+                eth_min_score = int(os.getenv("ETH_MAINNET_MIN_GEM_SCORE", "65"))
+                eth_min_usd = float(os.getenv("ETH_MAINNET_MIN_POSITION_USD", "50"))
+            else:
+                eth_min_score = int(os.getenv("ETH_MAINNET_MIN_GEM_SCORE", "90"))
+                eth_min_usd = float(os.getenv("ETH_MAINNET_MIN_POSITION_USD", "200"))
             
             if candidate.gem_score < eth_min_score:
                 logger.info(f"⛽ ETHEREUM GATE: Skipping {token.symbol} — gem_score {candidate.gem_score} < {eth_min_score} (ETH gas too expensive for marginal gems)")
