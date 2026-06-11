@@ -3,24 +3,31 @@ dashboard/nav.py — Persistent navigation bar for every page.
 
 Renders a Binance/Dexscreener-style top nav bar that appears on all pages.
 Import and call `render_nav()` at the top of each page module.
+
+v2: Grouped navigation (Trading / Intelligence / System) with visual dividers.
 """
 
 import streamlit as st
 
 # Page registry: (label, emoji, url_path)
-# url_path must match the Streamlit multipage filename convention
+# Organized into logical groups with None as group separator
 PAGES = [
+    # ── Trading ──────────────────────────────────────────────────
     ("Command Center", "☘️", "/"),
     ("Scanner", "🔍", "/Gem_Scanner"),
-    ("Analytics", "📊", "/Analytics"),
     ("Gem Advisor", "🧠", "/Gem_Advisor"),
     ("Positions", "💰", "/Positions"),
-    ("Health", "🏥", "/System_Health"),
-    ("Wallets", "👛", "/Wallet_Overview"),
+    None,  # ── group divider ──
+    # ── Intelligence ─────────────────────────────────────────────
+    ("Analytics", "📊", "/Analytics"),
     ("Alpha", "🤝", "/Alpha_Wallets"),
     ("Sniper", "🎯", "/Sniper_Wallets"),
-    ("Paycheck", "🏦", "/Paycheck_Wallet"),
     ("Paper P&L", "📈", "/Paper_PnL"),
+    None,  # ── group divider ──
+    # ── System ───────────────────────────────────────────────────
+    ("Wallets", "👛", "/Wallet_Overview"),
+    ("Paycheck", "🏦", "/Paycheck_Wallet"),
+    ("Health", "🏥", "/System_Health"),
 ]
 
 # CSS for the nav bar — injected once per page
@@ -81,19 +88,41 @@ _NAV_CSS = """
     white-space: nowrap;
     transition: all 0.18s ease;
     flex-shrink: 0;
+    position: relative;
 }
 .shamrock-nav a.nav-link:hover {
     background: rgba(0, 208, 156, 0.08);
     color: #E6EDF3;
+    transform: scale(1.02);
 }
 .shamrock-nav a.nav-link.active {
     background: rgba(0, 208, 156, 0.12);
     color: #00D09C;
     font-weight: 700;
 }
+/* Active page bottom accent bar */
+.shamrock-nav a.nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 20%;
+    right: 20%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00D09C, transparent);
+    border-radius: 2px;
+}
 .shamrock-nav a.nav-link .nav-emoji {
     font-size: 0.82rem;
     line-height: 1;
+}
+
+/* ── Group Divider ─────────────────────────────────────────────────── */
+.nav-group-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(48, 54, 61, 0.5);
+    margin: 0 6px;
+    flex-shrink: 0;
 }
 
 /* ── Live Pulse ────────────────────────────────────────────────────── */
@@ -115,14 +144,20 @@ _NAV_CSS = """
 
 
 def render_nav(current_page: str = ""):
-    """Render the persistent top navigation bar.
+    """Render the persistent top navigation bar with grouped pages.
     
     Args:
         current_page: The label of the currently active page (e.g. "Analytics").
                       Used to highlight the active nav link.
     """
     links_html = ""
-    for label, emoji, path in PAGES:
+    for item in PAGES:
+        if item is None:
+            # Group separator
+            links_html += '<div class="nav-group-sep"></div>'
+            continue
+
+        label, emoji, path = item
         is_active = "active" if label == current_page else ""
         links_html += (
             f'<a class="nav-link {is_active}" href="{path}">'

@@ -447,3 +447,105 @@ def render_empty_state(icon: str, title: str, subtitle: str = ""):
         f'</div>',
         unsafe_allow_html=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section Headers (Zone Dividers)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_section_header(icon: str, title: str, subtitle: str = ""):
+    """Render a premium section header / zone divider.
+    
+    Used to visually separate logical zones on the Command Center
+    (Portfolio Overview, Market Intelligence, Active Trading, etc.)
+    
+    Args:
+        icon:     Emoji or icon string.
+        title:    Section title (rendered uppercase).
+        subtitle: Optional right-aligned subtitle text.
+    """
+    sub_html = (
+        f'<span class="zone-subtitle">{subtitle}</span>'
+    ) if subtitle else ""
+
+    st.markdown(
+        f'<div class="zone-header">'
+        f'<span class="zone-icon">{icon}</span>'
+        f'<span class="zone-title">{title}</span>'
+        f'{sub_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_zone_start(zone_class: str = ""):
+    """Open a zone container div for visual grouping.
+    
+    Args:
+        zone_class: Optional CSS class suffix (e.g., "trading", "intelligence", "system")
+    """
+    cls = f"zone-container zone-{zone_class}" if zone_class else "zone-container"
+    st.markdown(f'<div class="{cls}">', unsafe_allow_html=True)
+
+
+def render_zone_end():
+    """Close a zone container div."""
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wallet Management Cards
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_wallet_card_html(
+    address: str,
+    label: str = "",
+    chain_type: str = "evm",
+    source: str = "system",
+) -> str:
+    """Return HTML for a single wallet card (for use in Alpha Wallets page).
+    
+    Args:
+        address:    Wallet address.
+        label:      Human-readable label.
+        chain_type: "evm" or "solana".
+        source:     "system", "dashboard", or "vip".
+    
+    Returns:
+        HTML string for the wallet card.
+    """
+    # Avatar icon based on chain
+    avatar_icon = "⟠" if chain_type == "evm" else "◎"
+    avatar_bg = (
+        "rgba(98,126,234,0.12)" if chain_type == "evm"
+        else "rgba(153,69,255,0.12)"
+    )
+    avatar_border = (
+        "rgba(98,126,234,0.25)" if chain_type == "evm"
+        else "rgba(153,69,255,0.25)"
+    )
+
+    # Source badge
+    badge_map = {
+        "system": ("SYSTEM", "badge-system"),
+        "dashboard": ("CUSTOM", "badge-custom"),
+        "vip": ("⭐ VIP", "badge-vip"),
+    }
+    badge_text, badge_class = badge_map.get(source, ("SYSTEM", "badge-system"))
+
+    # Display label or truncated address
+    display_label = label if label else f"{address[:6]}...{address[-4:]}"
+    display_addr = f"{address[:8]}...{address[-6:]}"
+
+    return (
+        f'<div class="wallet-card">'
+        f'<div class="wallet-avatar" style="background:{avatar_bg};'
+        f'border-color:{avatar_border};">{avatar_icon}</div>'
+        f'<div class="wallet-info">'
+        f'<div class="wallet-label">{display_label}</div>'
+        f'<div class="wallet-address">{display_addr}</div>'
+        f'</div>'
+        f'<span class="wallet-badge {badge_class}">{badge_text}</span>'
+        f'</div>'
+    )
+

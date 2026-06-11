@@ -19,7 +19,10 @@ import plotly.graph_objects as go
 
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, CHAIN_COLORS, CHAIN_EMOJI, DANGER, WARNING
 from nav import render_nav
-from state import get_trades, get_positions, get_bot_status, get_force_scan_request, request_force_scan
+from state import (get_trades, get_positions, get_bot_status, get_force_scan_request,
+                   request_force_scan, get_all_alpha_wallets, add_dashboard_alpha_wallet,
+                   remove_dashboard_alpha_wallet)
+from components import render_section_header, render_wallet_card_html
 
 st.set_page_config(
     page_title="Shamrock | Alpha Wallets",
@@ -138,90 +141,9 @@ for _wc in ["primary_base", "primary_bsc", "primary_ethereum", "primary_solana",
         _rebalance_plans[_wc] = _plan
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Alpha Wallet Definitions
+# Alpha Wallet Management (Dynamic)
 # ─────────────────────────────────────────────────────────────────────────────
-ALPHA_WALLETS = [
-    {
-        "address": "0x6b75d8af000000e20b7a7ddf000ba900b4009a80",
-        "label": "Lookonchain Alpha",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "Tracked by Lookonchain — consistent early gem entries",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-        "label": "Vitalik (Signal Only)",
-        "network": "EVM",
-        "tier": 3,
-        "notes": "High-signal whale — large moves indicate macro sentiment",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0x28c6c06298d514db089934071355e5743bf21d60",
-        "label": "Binance Hot Wallet 14",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "Binance institutional flow — early accumulation signal",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
-        "label": "Binance Hot Wallet 15",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "Binance institutional flow — early accumulation signal",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",
-        "label": "Binance Cold Reserve",
-        "network": "EVM",
-        "tier": 2,
-        "notes": "Large reserve movements = macro signal",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0xf977814e90da44bfa03b6295a0616a897441acec",
-        "label": "Binance Hot Wallet 8",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "High-frequency institutional flow",
-        "chain": "bsc",
-    },
-    {
-        "address": "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
-        "label": "Base Ecosystem Whale",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "Top Base chain accumulator — early DeFi/gem entries",
-        "chain": "base",
-    },
-    {
-        "address": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
-        "label": "Base Gem Sniper",
-        "network": "EVM",
-        "tier": 1,
-        "notes": "Consistent early entries on Base launches",
-        "chain": "base",
-    },
-    {
-        "address": "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
-        "label": "Binance Hot Wallet 1",
-        "network": "EVM",
-        "tier": 2,
-        "notes": "Primary Binance hot wallet — large volume signal",
-        "chain": "ethereum",
-    },
-    {
-        "address": "0x9696f59e4d72e237be84ffd425dcad154bf96976",
-        "label": "Known Accumulator",
-        "network": "EVM",
-        "tier": 2,
-        "notes": "Tracked accumulator — consistent mid-cap entries",
-        "chain": "ethereum",
-    },
-]
+ALPHA_WALLETS = get_all_alpha_wallets()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Header
@@ -232,12 +154,72 @@ st.markdown(
     '<span style="font-size:1.7rem;">🤝</span>'
     '<div>'
     '<h1>ALPHA WALLET MONITOR</h1>'
-    '<div class="subtitle">10 tracked alpha wallets · Copy-trade status · Capital distribution · What the bot is doing right now</div>'
+    f'<div class="subtitle">{len(ALPHA_WALLETS)} tracked alpha wallets · Copy-trade status · Capital distribution</div>'
     '</div>'
     '</div>'
     '</div>',
     unsafe_allow_html=True,
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wallet Management — Add / Remove
+# ─────────────────────────────────────────────────────────────────────────────
+render_section_header("🔧", "Wallet management", f"{len(ALPHA_WALLETS)} tracked")
+
+with st.expander("➕ Add a new alpha wallet", expanded=False, icon=":material/add_circle:"):
+    with st.form("add_wallet_form", clear_on_submit=True):
+        form_cols = st.columns([3, 2, 1])
+        with form_cols[0]:
+            new_address = st.text_input(
+                "Wallet address",
+                placeholder="0x... or Solana base58 address",
+            )
+        with form_cols[1]:
+            new_label = st.text_input(
+                "Label",
+                placeholder="e.g., Based Whale #3",
+            )
+        with form_cols[2]:
+            new_chain = st.selectbox(
+                "Chain",
+                ["evm", "solana"],
+                index=0,
+            )
+        submitted = st.form_submit_button("Add wallet", use_container_width=True)
+        if submitted:
+            if not new_address:
+                st.error("Address is required")
+            elif not new_label:
+                st.error("Label is required")
+            elif new_chain == "evm" and (not new_address.startswith("0x") or len(new_address) != 42):
+                st.error("Invalid EVM address (must be 0x + 40 hex chars)")
+            else:
+                if add_dashboard_alpha_wallet(new_address, new_label, new_chain):
+                    st.success(f"✅ Added {new_label}")
+                    st.rerun()
+                else:
+                    st.warning("Wallet already exists in the tracked list")
+
+# Show dashboard-added wallets with remove buttons
+_dashboard_wallets = [w for w in ALPHA_WALLETS if w.get("source") == "dashboard"]
+if _dashboard_wallets:
+    st.caption(f"{len(_dashboard_wallets)} custom wallet(s) added from dashboard")
+    for dw in _dashboard_wallets:
+        card_col, btn_col = st.columns([6, 1])
+        with card_col:
+            st.markdown(
+                render_wallet_card_html(
+                    address=dw["address"],
+                    label=dw.get("label", ""),
+                    chain_type=dw.get("chain_type", "evm"),
+                    source="dashboard",
+                ),
+                unsafe_allow_html=True,
+            )
+        with btn_col:
+            if st.button("🗑️", key=f"rm_{dw['address'][:10]}", help="Remove this wallet"):
+                remove_dashboard_alpha_wallet(dw["address"])
+                st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bot Activity Banner
@@ -512,46 +494,50 @@ for ct in copy_trades:
     sym = ct.get("token_symbol", "")
     copy_trade_map[sym] = ct
 
-tier_counts = {1: 0, 2: 0, 3: 0}
+source_counts = {"system": 0, "dashboard": 0, "vip": 0}
 for w in ALPHA_WALLETS:
-    tier_counts[w["tier"]] = tier_counts.get(w["tier"], 0) + 1
+    src = w.get("source", "system")
+    source_counts[src] = source_counts.get(src, 0) + 1
+
+_copy_delta_cls = "positive" if copy_trades else "neutral"
+_copy_delta_txt = f"{len(copy_trades)} copied" if copy_trades else "Monitoring"
 
 # Summary stats
-col_t1, col_t2, col_t3, col_total = st.columns(4)
-with col_t1:
+col_s1, col_s2, col_s3, col_total = st.columns(4)
+with col_s1:
     st.markdown(
         f'<div class="stat-card">'
-        f'<div class="stat-icon">🥇</div>'
-        f'<div class="stat-label">Tier 1 Wallets</div>'
-        f'<div class="stat-value">{tier_counts.get(1,0)}</div>'
-        f'<div class="stat-delta positive">2-wallet trigger</div>'
+        f'<div class="stat-icon">⚙️</div>'
+        f'<div class="stat-label">System Wallets</div>'
+        f'<div class="stat-value">{source_counts.get("system", 0)}</div>'
+        f'<div class="stat-delta neutral">From config</div>'
         f'</div>', unsafe_allow_html=True,
     )
-with col_t2:
+with col_s2:
     st.markdown(
         f'<div class="stat-card">'
-        f'<div class="stat-icon">🥈</div>'
-        f'<div class="stat-label">Tier 2 Wallets</div>'
-        f'<div class="stat-value">{tier_counts.get(2,0)}</div>'
-        f'<div class="stat-delta neutral">1-wallet trigger</div>'
+        f'<div class="stat-icon">🛠️</div>'
+        f'<div class="stat-label">Custom Wallets</div>'
+        f'<div class="stat-value">{source_counts.get("dashboard", 0)}</div>'
+        f'<div class="stat-delta positive">Dashboard-added</div>'
         f'</div>', unsafe_allow_html=True,
     )
-with col_t3:
+with col_s3:
     st.markdown(
         f'<div class="stat-card">'
-        f'<div class="stat-icon">📡</div>'
-        f'<div class="stat-label">Tier 3 (Signal)</div>'
-        f'<div class="stat-value">{tier_counts.get(3,0)}</div>'
-        f'<div class="stat-delta neutral">Macro signal only</div>'
+        f'<div class="stat-icon">⭐</div>'
+        f'<div class="stat-label">VIP Wallets</div>'
+        f'<div class="stat-value">{source_counts.get("vip", 0)}</div>'
+        f'<div class="stat-delta positive">Priority copy</div>'
         f'</div>', unsafe_allow_html=True,
     )
 with col_total:
     st.markdown(
         f'<div class="stat-card">'
         f'<div class="stat-icon">🤝</div>'
-        f'<div class="stat-label">Copy Trades</div>'
-        f'<div class="stat-value">{len(copy_trades)}</div>'
-        f'<div class="stat-delta {"positive" if copy_trades else "neutral"}">{"Executed" if copy_trades else "Monitoring"}</div>'
+        f'<div class="stat-label">Total Tracked</div>'
+        f'<div class="stat-value">{len(ALPHA_WALLETS)}</div>'
+        f'<div class="stat-delta {_copy_delta_cls}">{_copy_delta_txt}</div>'
         f'</div>', unsafe_allow_html=True,
     )
 
@@ -561,38 +547,14 @@ st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
 left_col, right_col = st.columns(2)
 for i, wallet in enumerate(ALPHA_WALLETS):
     col = left_col if i % 2 == 0 else right_col
-    addr = wallet["address"]
-    short_addr = addr[:10] + "..." + addr[-6:]
-    tier = wallet["tier"]
-    tier_class = f"tier-{tier}"
-    tier_label = {1: "Tier 1 — Express", 2: "Tier 2 — Standard", 3: "Tier 3 — Signal"}.get(tier, "")
-    chain = wallet.get("chain", "ethereum")
-    chain_emoji = CHAIN_EMOJI.get(chain, "⬡")
-    chain_color = CHAIN_COLORS.get(chain, "#8B949E")
-
-    # Check if this wallet has triggered any copy trades (simplified heuristic)
-    card_class = "alpha-card"
-
     with col:
         st.markdown(
-            f'<div class="{card_class}">'
-            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
-            f'<div>'
-            f'<div class="wallet-label">{wallet["label"]}</div>'
-            f'<div class="wallet-addr">{short_addr}</div>'
-            f'</div>'
-            f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">'
-            f'<span class="tier-badge {tier_class}">{tier_label}</span>'
-            f'<span style="color:{chain_color};font-size:0.65rem;">{chain_emoji} {chain.capitalize()}</span>'
-            f'</div>'
-            f'</div>'
-            f'<div style="color:#484F58;font-size:0.7rem;line-height:1.5;margin-bottom:8px;">{wallet["notes"]}</div>'
-            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
-            f'<span class="status-pill pill-monitoring">● Monitoring</span>'
-            f'<a href="https://debank.com/profile/{addr}" target="_blank" '
-            f'style="color:#484F58;font-size:0.65rem;text-decoration:none;">View on DeBank →</a>'
-            f'</div>'
-            f'</div>',
+            render_wallet_card_html(
+                address=wallet["address"],
+                label=wallet.get("label", ""),
+                chain_type=wallet.get("chain_type", "evm"),
+                source=wallet.get("source", "system"),
+            ),
             unsafe_allow_html=True,
         )
 

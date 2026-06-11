@@ -42,7 +42,9 @@ from state import (
     request_manual_sell,
     request_manual_close,
     request_manual_buy,
+    get_all_alpha_wallets,
 )
+from components import render_section_header
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page Config
@@ -496,7 +498,9 @@ try:
 except Exception:
     pass
 
-# ── P&L Hero ──────────────────────────────────────────────────────────────────
+# ── ZONE 1: PORTFOLIO OVERVIEW ────────────────────────────────────────────────
+render_section_header("📊", "Portfolio overview", "Realized + unrealized performance")
+
 pnl_class = "positive" if realized_pnl > 0 else ("negative" if realized_pnl < 0 else "zero")
 pnl_sign = "+" if realized_pnl > 0 else ""
 pnl_subtitle = (
@@ -658,7 +662,9 @@ for _label, _href, _count in _nav_links:
 _nav_html += '</div>'
 st.markdown(_nav_html, unsafe_allow_html=True)
 
-# ── Live Data Panels (replaced nav cards) ────────────────────────────────────
+# ── ZONE 3: ACTIVE TRADING ────────────────────────────────────────────────────
+render_section_header("⚡", "Active trading", "Open positions & recent executions")
+
 _dp_left, _dp_right = st.columns([3, 2])
 
 with _dp_left:
@@ -680,7 +686,9 @@ with _dp_left:
             _pnl_color = "#00D09C" if _pnl_pct >= 0 else "#FF4757"
             _pnl_sign = "+" if _pnl_pct >= 0 else ""
             _chain_emoji = CHAIN_EMOJI.get(_chain, "⬡")
-            _size = float(_p.get("position_size_usd", 0))
+            _size = float(_p.get("position_size_usd", 0) or 0)
+            if _size == 0:
+                _size = _entry * float(_p.get("remaining_quantity", _p.get("quantity", 0)))
             _rows_html += (
                 f'<div style="display:flex;align-items:center;padding:8px 12px;'
                 f'border-bottom:1px solid rgba(48,54,61,0.3);gap:10px;">'
@@ -805,9 +813,9 @@ with _dp_right:
             unsafe_allow_html=True,
         )
 
-st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
+# ── ZONE 2: MARKET INTELLIGENCE ──────────────────────────────────────────────
+render_section_header("🌐", "Market intelligence", "Macro regime · Bot mode · Strategy")
 
-# ── Bot Activity Ticker ──────────────────────────────────────────────────────
 bot_mode = adaptive_state.get("mode", "unknown").upper()
 consec_wins = offensive_state.get("consecutive_wins", 0)
 consec_losses = offensive_state.get("consecutive_losses", 0)
@@ -975,55 +983,85 @@ with st.container(horizontal=True):
 
 st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
-# ── Copy-Trade & Rebalance Live Feed ─────────────────────────────────────────
+# ── ZONE 4: STRATEGY & SYSTEM ────────────────────────────────────────────────
+render_section_header("🔧", "Strategy & system", "Copy-trade · Rebalance · Watchlist")
+
 ct_col, rb_col = st.columns([1, 1])
 
 with ct_col:
     st.markdown("#### 🤝 Copy-Trade Monitor")
-    # Show alpha wallet tracking status
-    _alpha_evm = [
-        "0x6b75d8af000000e20b7a7ddf000ba900b4009a80",
-        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
-        "0x28c6c06298d514db089934071355e5743bf21d60",
-        "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
-        "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",
-        "0xf977814e90da44bfa03b6295a0616a897441acec",
-        "0x95222290dd7278aa3ddd389cc1e1d165cc4bafe5",
-        "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
-        "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
-        "0x9696f59e4d72e237be84ffd425dcad154bf96976",
-    ]
-    _alpha_labels = [
-        "Lookonchain Alpha", "Vitalik (Signal)", "Binance 14", "Binance 15",
-        "Binance Cold", "Binance 8", "Base Ecosystem Whale", "Base Gem Sniper",
-        "Binance Hot", "Known Accumulator",
-    ]
+    # Dynamic alpha wallet list from config (no more hardcoded addresses)
+    _alpha_wallets = get_all_alpha_wallets()
+    _alpha_evm = [w for w in _alpha_wallets if w.get("chain_type") == "evm"]
+    _alpha_sol = [w for w in _alpha_wallets if w.get("chain_type") == "solana"]
+    _total_alpha = len(_alpha_wallets)
+
+    # Dynamic copy-trade settings from config
+    try:
+        from config.settings import (
+            WALLET_MONITOR_MIN_BUY_USD,
+            WALLET_MONITOR_TIER1_COUNT,
+            WALLET_MONITOR_TIER2_COUNT,
+            WALLET_MONITOR_MAX_COPY_USD,
+            WALLET_MONITOR_MAX_BUY_AGE,
+            WALLET_MONITOR_ENABLED,
+        )
+        _ct_min_buy = WALLET_MONITOR_MIN_BUY_USD
+        _ct_t1 = WALLET_MONITOR_TIER1_COUNT
+        _ct_t2 = WALLET_MONITOR_TIER2_COUNT
+        _ct_max = WALLET_MONITOR_MAX_COPY_USD
+        _ct_age = WALLET_MONITOR_MAX_BUY_AGE
+        _ct_enabled = WALLET_MONITOR_ENABLED
+    except ImportError:
+        _ct_min_buy, _ct_t1, _ct_t2, _ct_max, _ct_age, _ct_enabled = 50, 2, 1, 100, 300, True
+
     # Find copy trades from trade history
     _copy_trades = [t for t in trades_data if t.get("strategy_tag") == "copy_trade"
                     or "copy" in str(t.get("reason", "")).lower()]
     _last_copy = _copy_trades[-1] if _copy_trades else None
 
+    _status_badge = (
+        f'● ACTIVE · {_total_alpha} wallets' if _ct_enabled
+        else '○ DISABLED'
+    )
+    _status_cls = (
+        'background:rgba(0,208,156,0.12);color:#00D09C;border:1px solid rgba(0,208,156,0.25);'
+        if _ct_enabled
+        else 'background:rgba(139,148,158,0.12);color:#8B949E;border:1px solid rgba(139,148,158,0.25);'
+    )
+
     st.markdown(
         f'<div class="glass-card" style="padding:14px 16px;">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
         f'<span style="color:#E6EDF3;font-size:0.8rem;font-weight:700;">Alpha Wallets Tracked</span>'
-        f'<span style="background:rgba(0,208,156,0.12);color:#00D09C;font-size:0.68rem;'
-        f'font-weight:700;padding:2px 10px;border-radius:20px;border:1px solid rgba(0,208,156,0.25);">'
-        f'● ACTIVE · {len(_alpha_evm)} wallets</span>'
+        f'<span style="{_status_cls}font-size:0.68rem;'
+        f'font-weight:700;padding:2px 10px;border-radius:20px;">'
+        f'{_status_badge}</span>'
         f'</div>'
         f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">',
         unsafe_allow_html=True,
     )
-    for _addr, _lbl in zip(_alpha_evm[:8], _alpha_labels[:8]):
-        _short = _addr[:6] + "..." + _addr[-4:]
+    for _w in _alpha_wallets[:8]:
+        _addr = _w.get("address", "")
+        _lbl = _w.get("label", "") or f"{_addr[:6]}...{_addr[-4:]}"
+        _short = _addr[:6] + "..." + _addr[-4:] if len(_addr) > 10 else _addr
+        _src = _w.get("source", "system")
+        _dot_color = "#FFD700" if _src == "vip" else ("#00D09C" if _src == "system" else "#58A6FF")
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
             f'border-bottom:1px solid rgba(48,54,61,0.3);">'
-            f'<span style="width:6px;height:6px;border-radius:50%;background:#00D09C;'
+            f'<span style="width:6px;height:6px;border-radius:50%;background:{_dot_color};'
             f'display:inline-block;flex-shrink:0;"></span>'
             f'<span style="color:#8B949E;font-size:0.68rem;font-family:monospace;">{_short}</span>'
             f'<span style="color:#484F58;font-size:0.65rem;">{_lbl}</span>'
             f'</div>',
+            unsafe_allow_html=True,
+        )
+    if _total_alpha > 8:
+        st.markdown(
+            f'<div style="padding:4px 0;color:#484F58;font-size:0.65rem;text-align:center;">'
+            f'+ {_total_alpha - 8} more · <a href="/Alpha_Wallets" target="_self" '
+            f'style="color:#58A6FF;text-decoration:none;">View all →</a></div>',
             unsafe_allow_html=True,
         )
     st.markdown(
@@ -1032,11 +1070,11 @@ with ct_col:
         f'<div style="color:#484F58;font-size:0.65rem;font-weight:700;'
         f'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Copy-Trade Settings</div>'
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-        f'<span style="color:#8B949E;font-size:0.72rem;">Min Buy: <b style="color:#E6EDF3;">$50</b></span>'
-        f'<span style="color:#8B949E;font-size:0.72rem;">Tier 1: <b style="color:#E6EDF3;">2 wallets</b></span>'
-        f'<span style="color:#8B949E;font-size:0.72rem;">Tier 2: <b style="color:#E6EDF3;">1 wallet</b></span>'
-        f'<span style="color:#8B949E;font-size:0.72rem;">Max Copy: <b style="color:#E6EDF3;">$100</b></span>'
-        f'<span style="color:#8B949E;font-size:0.72rem;">Age Window: <b style="color:#E6EDF3;">5 min</b></span>'
+        f'<span style="color:#8B949E;font-size:0.72rem;">Min Buy: <b style="color:#E6EDF3;">${_ct_min_buy}</b></span>'
+        f'<span style="color:#8B949E;font-size:0.72rem;">Tier 1: <b style="color:#E6EDF3;">{_ct_t1} wallets</b></span>'
+        f'<span style="color:#8B949E;font-size:0.72rem;">Tier 2: <b style="color:#E6EDF3;">{_ct_t2} wallet</b></span>'
+        f'<span style="color:#8B949E;font-size:0.72rem;">Max Copy: <b style="color:#E6EDF3;">${_ct_max}</b></span>'
+        f'<span style="color:#8B949E;font-size:0.72rem;">Age: <b style="color:#E6EDF3;">{_ct_age}s</b></span>'
         f'</div>'
         + (f'<div style="margin-top:8px;padding:6px 10px;background:rgba(0,208,156,0.06);'
            f'border-radius:6px;border-left:3px solid #00D09C;">'
@@ -1047,7 +1085,7 @@ with ct_col:
            f'<div style="margin-top:8px;padding:6px 10px;background:rgba(255,184,77,0.06);'
            f'border-radius:6px;border-left:3px solid #FFB84D;">'
            f'<span style="color:#FFB84D;font-size:0.7rem;">⏳ Monitoring — no copy trades yet. '
-           f'Waiting for alpha wallet buy ≥ $50</span>'
+           f'Waiting for alpha wallet buy ≥ ${_ct_min_buy}</span>'
            f'</div>')
         + '</div></div>',
         unsafe_allow_html=True,
@@ -1201,85 +1239,10 @@ with chart_c2:
             unsafe_allow_html=True,
         )
 
-# ── Recent Trades Feed + Gem Candidates Row ───────────────────────────────────
+# ── Gem Candidates (full width) ──────────────────────────────────────────────
 st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
-trades_col, gems_col = st.columns([1, 2])
 
-with trades_col:
-    st.markdown("#### 📜 Recent Trades")
-    if trades_data:
-        _recent = sorted(trades_data, key=lambda t: t.get("timestamp", ""), reverse=True)[:12]
-        for _t in _recent:
-            _dir = _t.get("direction", "buy")
-            _sym = _t.get("symbol", "???")
-            _chain = _t.get("chain", "")
-            _pnl = _t.get("pnl_usd", 0)
-            _ts = _t.get("timestamp", "")[:16]
-            _price = _t.get("price_usd", 0)
-            _emoji = CHAIN_EMOJI.get(_chain, "⬡")
-
-            if _dir == "buy":
-                _dir_badge = ('<span style="background:rgba(0,208,156,0.12);color:#00D09C;'
-                              'font-size:0.62rem;font-weight:800;padding:1px 6px;'
-                              'border-radius:4px;">BUY</span>')
-                _pnl_html = ""
-            else:
-                _dir_badge = ('<span style="background:rgba(255,71,87,0.12);color:#FF4757;'
-                              'font-size:0.62rem;font-weight:800;padding:1px 6px;'
-                              'border-radius:4px;">SELL</span>')
-                _pnl_color = "#00D09C" if _pnl >= 0 else "#FF4757"
-                _pnl_sign = "+" if _pnl >= 0 else ""
-                _pnl_html = (f'<span style="color:{_pnl_color};font-size:0.72rem;'
-                             f'font-weight:700;font-family:monospace;">'
-                             f'{_pnl_sign}${abs(_pnl):,.2f}</span>')
-
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;'
-                f'border-bottom:1px solid rgba(48,54,61,0.3);">'
-                f'{_dir_badge}'
-                f'<span style="color:#E6EDF3;font-size:0.78rem;font-weight:600;">{_sym}</span>'
-                f'<span style="color:#484F58;font-size:0.65rem;">{_emoji} {_chain[:3]}</span>'
-                f'<span style="flex:1;"></span>'
-                f'{_pnl_html}'
-                f'<span style="color:#30363D;font-size:0.6rem;font-family:monospace;">{_ts[11:]}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-        # Win/Loss summary bar
-        _buys = len([t for t in trades_data if t.get("direction") == "buy"])
-        _sells_w = len([t for t in sells if t.get("pnl_usd", 0) > 0])
-        _sells_l = len(sells) - _sells_w
-        _total_bar = max(_sells_w + _sells_l, 1)
-        _w_pct = (_sells_w / _total_bar) * 100
-        st.markdown(
-            f'<div style="margin-top:10px;">'
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
-            f'<span style="color:#00D09C;font-size:0.68rem;font-weight:700;">'
-            f'✅ {_sells_w} wins</span>'
-            f'<span style="color:#FF4757;font-size:0.68rem;font-weight:700;">'
-            f'❌ {_sells_l} losses</span>'
-            f'</div>'
-            f'<div style="height:6px;background:rgba(255,71,87,0.3);border-radius:3px;overflow:hidden;">'
-            f'<div style="width:{_w_pct:.0f}%;height:100%;background:#00D09C;border-radius:3px;"></div>'
-            f'</div>'
-            f'<div style="color:#484F58;font-size:0.62rem;text-align:center;margin-top:4px;">'
-            f'{_buys} buys · {len(sells)} sells · {win_rate:.0f}% win rate</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div class="glass-card" style="text-align:center;padding:2rem;">'
-            '<div style="font-size:1.4rem;margin-bottom:6px;">📜</div>'
-            '<div style="color:#8B949E;">No trades yet</div>'
-            '<div style="color:#484F58;font-size:0.72rem;margin-top:4px;">'
-            'Trades appear after the bot executes a buy or sell</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-with gems_col:
+with st.container():
     st.markdown("#### 💎 Latest Gem Candidates")
     if latest_gems:
         seen = {}

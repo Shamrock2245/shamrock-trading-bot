@@ -522,3 +522,133 @@ def clear_processed_manual_commands() -> None:
         except (ValueError, TypeError):
             pass
     _write_manual_commands(kept)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alpha Wallet Management (Dashboard → Bot IPC)
+#
+# Dashboard-added wallets are stored in data/dashboard/alpha_wallets.json.
+# The bot's wallet_monitor reads from config/settings.SMART_MONEY_WALLETS.
+# Phase 1: Dashboard manages its own list + displays merged view.
+# Phase 2 (future): Bot reads from this file as an overlay.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ALPHA_WALLETS_FILE = "alpha_wallets.json"
+
+
+def get_dashboard_alpha_wallets() -> list:
+    """Read dashboard-managed alpha wallets from JSON file."""
+    data = _read_json(_ALPHA_WALLETS_FILE, {"wallets": []})
+    if isinstance(data, dict):
+        return data.get("wallets", [])
+    return data if isinstance(data, list) else []
+
+
+def add_dashboard_alpha_wallet(
+    address: str,
+    label: str,
+    chain_type: str = "evm",
+) -> bool:
+    """
+    Add a new alpha wallet to the dashboard-managed list.
+
+    Args:
+        address:    Wallet address (0x... for EVM, base58 for Solana).
+        label:      Human-readable label (e.g., "Based Whale #3").
+        chain_type: "evm" or "solana".
+
+    Returns:
+        True if added, False if already exists.
+    """
+    wallets = get_dashboard_alpha_wallets()
+    # Dedupe check (case-insensitive for EVM)
+    normalized = address.strip().lower()
+    for w in wallets:
+        if w.get("address", "").lower() == normalized:
+            return False  # Already exists
+
+    wallets.append({
+        "address": address.strip(),
+        "label": label.strip(),
+        "chain_type": chain_type.lower(),
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "source": "dashboard",
+    })
+    _write_json(_ALPHA_WALLETS_FILE, {"wallets": wallets})
+    return True
+
+
+def remove_dashboard_alpha_wallet(address: str) -> bool:
+    """
+    Remove a wallet from the dashboard-managed list.
+    System wallets (from config/settings) cannot be removed here.
+
+    Returns:
+        True if removed, False if not found.
+    """
+    wallets = get_dashboard_alpha_wallets()
+    normalized = address.strip().lower()
+    new_wallets = [w for w in wallets if w.get("address", "").lower() != normalized]
+    if len(new_wallets) == len(wallets):
+        return False  # Not found
+    _write_json(_ALPHA_WALLETS_FILE, {"wallets": new_wallets})
+    return True
+
+
+def get_all_alpha_wallets() -> list:
+    """
+    Merge system wallets (from config/settings.SMART_MONEY_WALLETS) with
+    dashboard-added wallets. Returns a unified list of dicts with:
+        address, label, chain_type, source ("system" | "dashboard" | "vip")
+
+    System wallets are read from config at import time; this function is
+    safe to call from the dashboard (read-only from config perspective).
+    """
+    try:
+        from config.settings import SMART_MONEY_WALLETS, VIP_COPY_WALLETS
+        from config.settings import ALPHA_WALLETS_SOLANA
+    except ImportError:
+        SMART_MONEY_WALLETS = []
+        VIP_COPY_WALLETS = set()
+        ALPHA_WALLETS_SOLANA = []
+
+    vip_set = {a.lower() for a in VIP_COPY_WALLETS} if VIP_COPY_WALLETS else set()
+
+    # Build unified list, tracking seen addresses for dedup
+    seen: set = set()
+    merged: list = []
+
+    # System EVM wallets
+    for addr in SMART_MONEY_WALLETS:
+        key = addr.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            source = "vip" if key in vip_set else "system"
+            merged.append({
+                "address": addr.strip(),
+                "label": "",  # System wallets don't have labels in config
+                "chain_type": "evm",
+                "source": source,
+            })
+
+    # System Solana wallets
+    for addr in ALPHA_WALLETS_SOLANA:
+        key = addr.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            merged.append({
+                "address": addr.strip(),
+                "label": "",
+                "chain_type": "solana",
+                "source": "system",
+            })
+
+    # Dashboard-added wallets (overlay)
+    for w in get_dashboard_alpha_wallets():
+        key = w.get("address", "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(w)
+
+    return merged
+
