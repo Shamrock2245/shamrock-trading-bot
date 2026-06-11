@@ -1894,6 +1894,9 @@ class PositionMonitor:
         last_auto_tune_time = 0.0
         AUTO_TUNE_INTERVAL = 900.0  # 15 minutes
         
+        last_hourly_report_time = 0.0
+        HOURLY_REPORT_INTERVAL = 3600.0  # 60 minutes
+        
         while self._running:
             try:
                 self.run_once()
@@ -1921,6 +1924,15 @@ class PositionMonitor:
                         last_auto_tune_time = current_time
                     except Exception as at_e:
                         logger.error(f"Auto-Tuner Error: {at_e}")
+                        
+                # Run Hourly Report every 60 minutes
+                if current_time - last_hourly_report_time >= HOURLY_REPORT_INTERVAL:
+                    try:
+                        from core.hourly_report import send_hourly_report
+                        send_hourly_report()
+                        last_hourly_report_time = current_time
+                    except Exception as hr_e:
+                        logger.error(f"Hourly Report Error: {hr_e}")
                         
             except Exception as e:
                 logger.error(f"Position monitor loop error: {e}", exc_info=True)
