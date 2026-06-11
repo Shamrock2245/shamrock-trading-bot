@@ -798,6 +798,16 @@ def route_trade(
             max_position_usd = wallet_balance_usd * effective_max_pct
             position_size_usd = max_position_usd * multiplier * regime_mult
             kelly_pct = effective_max_pct * multiplier
+            
+        # ── Shamrock Guard Pre-Execution Check ─────────────────────────────────
+        try:
+            from core.shamrock_guard import ShamrockGuard
+            is_allowed, block_reason = ShamrockGuard.check_trade_guard(position_size_usd)
+            if not is_allowed:
+                logger.warning(f"Wallet {wallet.alias} trade blocked by guard: {block_reason}")
+                continue
+        except Exception as e:
+            logger.error(f"Error checking ShamrockGuard: {e}")
 
         # ── Apply absolute USD cap from profile ───────────────────────────────
         # Use the GREATER of fixed cap or auto-scaling % cap (so it grows with the wallet)

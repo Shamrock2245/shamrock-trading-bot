@@ -1890,6 +1890,10 @@ class PositionMonitor:
             f"Position monitor started — checking every "
             f"{settings.POSITION_CHECK_INTERVAL_SECONDS}s"
         )
+        
+        last_auto_tune_time = 0.0
+        AUTO_TUNE_INTERVAL = 900.0  # 15 minutes
+        
         while self._running:
             try:
                 self.run_once()
@@ -1907,6 +1911,17 @@ class PositionMonitor:
                         _hb_tmp.replace(_hb_path)
                 except Exception:
                     pass  # heartbeat write is best-effort
+                    
+                # Run Auto-Tuner Cycle every 15 minutes
+                current_time = time.time()
+                if current_time - last_auto_tune_time >= AUTO_TUNE_INTERVAL:
+                    try:
+                        from core.llm_auto_tuner import run_auto_tuner_cycle
+                        run_auto_tuner_cycle()
+                        last_auto_tune_time = current_time
+                    except Exception as at_e:
+                        logger.error(f"Auto-Tuner Error: {at_e}")
+                        
             except Exception as e:
                 logger.error(f"Position monitor loop error: {e}", exc_info=True)
             time.sleep(settings.POSITION_CHECK_INTERVAL_SECONDS)
