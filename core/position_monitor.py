@@ -1988,7 +1988,10 @@ def register_position(
         "entry_price": entry_price,
         "quantity": quantity,
         "remaining_quantity": quantity,
-        "entry_value_usd": entry_value_usd if entry_value_usd > 0 else (entry_price * quantity),
+        "entry_value_usd": min(
+            entry_value_usd if entry_value_usd > 0 else (entry_price * quantity),
+            500.0  # Hard cap: no single position can exceed $500 on a $1000 account
+        ),
         "highest_price": entry_price,
         "current_price": entry_price,
         "entry_time": now,
