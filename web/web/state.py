@@ -119,6 +119,25 @@ class AppState(rx.State):
         return f"{self.daily_progress_pct:.1f}%"
 
     @rx.var
+    def daily_history_display(self) -> list[dict[str, str]]:
+        """List of daily historical profit records."""
+        history = self.daily_goal.get("daily_history", [])
+        formatted = []
+        try:
+            for h in reversed(history):  # Newest to oldest
+                profit = float(h.get("profit_usd", 0.0))
+                sign = "+" if profit >= 0 else ""
+                formatted.append({
+                    "date": str(h.get("date", "Unknown")),
+                    "profit": f"{sign}${profit:,.2f}",
+                    "profit_color": "var(--green-9)" if profit >= 0 else "var(--red-9)",
+                    "trades": str(h.get("trades", 0))
+                })
+        except Exception:
+            pass
+        return formatted
+
+    @rx.var
     def open_positions(self) -> list[dict[str, str]]:
         """Open positions only, pre-formatted."""
         formatted = []

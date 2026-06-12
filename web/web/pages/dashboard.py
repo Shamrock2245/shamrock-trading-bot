@@ -46,6 +46,28 @@ def progress_bar(pct: rx.Var) -> rx.Component:
     )
 
 
+def ledger_row(item: dict) -> rx.Component:
+    return rx.hstack(
+        rx.text(item["date"], weight="bold", size="3"),
+        rx.spacer(),
+        rx.badge(
+            item["trades"] + " Trades",
+            color_scheme="gray",
+            variant="soft",
+        ),
+        rx.text(
+            item["profit"],
+            weight="bold",
+            color=item["profit_color"],
+            size="4",
+        ),
+        width="100%",
+        align_items="center",
+        padding="1em",
+        border_bottom="1px solid rgba(255,255,255,0.05)",
+    )
+
+
 @rx.page(route="/", title="Command Center", on_load=AppState.load_data)
 def index() -> rx.Component:
     return dashboard_layout(
@@ -215,6 +237,34 @@ def index() -> rx.Component:
                 border="1px solid rgba(16, 185, 129, 0.2)",
                 border_radius="12px",
                 width="100%",
+            ),
+
+            rx.box(margin_top="1em"),
+
+            # ── Daily Profit Ledger ───────────────────────────────────────────
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("calendar", color="var(--blue-9)"),
+                    rx.heading("Daily Profit Ledger", size="5"),
+                    width="100%",
+                    align_items="center",
+                    spacing="2",
+                ),
+                rx.vstack(
+                    rx.foreach(AppState.daily_history_display, ledger_row),
+                    width="100%",
+                    spacing="0",
+                    background="rgba(255,255,255,0.02)",
+                    border_radius="8px",
+                    border="1px solid rgba(255,255,255,0.05)",
+                    overflow="hidden",
+                ),
+                width="100%",
+                padding="1.5em",
+                background="rgba(255,255,255,0.03)",
+                border="1px solid rgba(255,255,255,0.05)",
+                border_radius="16px",
+                spacing="3",
             ),
 
             rx.box(margin_top="1em"),
