@@ -35,28 +35,36 @@ class AppState(rx.State):
 
     # ── Computed display vars (avoids f-string + state var bugs) ──────────────
     @rx.var
-    def total_pnl_display(self) -> str:
+    def realized_pnl_display(self) -> str:
         """Today's realized P&L formatted for display."""
         val = self.daily_goal.get("today_profit_usd", 0.0)
         try:
-            fval = float(val)
+            fval = float(val or 0.0)
             sign = "+" if fval >= 0 else ""
             return f"{sign}${fval:,.2f}"
         except (TypeError, ValueError):
             return "$0.00"
 
     @rx.var
-    def win_rate_display(self) -> str:
-        """Win rate from daily history."""
-        history = self.daily_goal.get("daily_history", [])
-        if not history:
-            return "0%"
+    def unrealized_pnl_usd(self) -> float:
+        """Total unrealized P&L in USD for open positions."""
+        total = 0.0
         try:
-            hits = sum(1 for d in history if d.get("hit", False))
-            rate = hits / len(history) * 100
-            return f"{rate:.0f}%"
+            for p in self.positions_list:
+                if p.get("status") == "open":
+                    entry_val = float(p.get("entry_value_usd", 0.0))
+                    pnl_pct = float(p.get("unrealized_pnl_pct", 0.0)) / 100.0
+                    total += (entry_val * pnl_pct)
         except Exception:
-            return "0%"
+            pass
+        return total
+
+    @rx.var
+    def unrealized_pnl_display(self) -> str:
+        """Total unrealized P&L formatted for display."""
+        val = self.unrealized_pnl_usd
+        sign = "+" if val >= 0 else ""
+        return f"{sign}${val:,.2f}"
 
     @rx.var
     def open_positions_count(self) -> int:

@@ -95,15 +95,15 @@ def index() -> rx.Component:
             # ── Key Stats Row ─────────────────────────────────────────────────
             rx.grid(
                 stat_card(
-                    "Today's P&L",
-                    rx.text(AppState.total_pnl_display, size="5", weight="bold"),
+                    "Realized P&L",
+                    rx.text(AppState.realized_pnl_display, size="5", weight="bold"),
                     "dollar-sign",
                     "green",
                 ),
                 stat_card(
-                    "Win Rate",
-                    rx.text(AppState.win_rate_display, size="5", weight="bold"),
-                    "trending-up",
+                    "Unrealized P&L",
+                    rx.text(AppState.unrealized_pnl_display, size="5", weight="bold"),
+                    "activity",
                     "blue",
                 ),
                 stat_card(
