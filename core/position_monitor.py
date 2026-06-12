@@ -966,11 +966,35 @@ def evaluate_position(pos: dict, current_price: float,
 
     # After final TP, remaining position rides with dynamic trailing stop
 
-    # ── Time-based exit: dead capital is wasted capital ───────────────────────
+    # ── Time-Based ROI Decay (Freqtrade Style) ──────────────────────────────────
     if entry_time and not tp1_hit:
         try:
             entry_dt = datetime.fromisoformat(str(entry_time).replace("Z", "+00:00"))
-            age_hours = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+            age_minutes = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 60
+            
+            # Find the active decay bracket
+            target_roi = None
+            if hasattr(settings, "PROGRESSIVE_ROI_DECAY"):
+                sorted_decay = sorted(settings.PROGRESSIVE_ROI_DECAY.items(), reverse=True)
+                for minutes, roi_pct in sorted_decay:
+                    if age_minutes >= float(minutes):
+                        target_roi = roi_pct
+                        break
+            
+            # Execute progressive take profit
+            if target_roi is not None and target_roi > 0 and gain_pct >= target_roi:
+                logger.info(
+                    f"⏱️ ROI Decay Triggered: {pos.get('token_symbol')} held for {age_minutes:.0f}m, "
+                    f"exiting at {gain_pct:.1f}% (target was {target_roi:.1f}%)"
+                )
+                return {
+                    "reason": f"progressive_roi_decay ({age_minutes:.0f}m, {gain_pct:.1f}% >= {target_roi:.1f}%) [{profile_name}]",
+                    "sell_pct": 1.0,  # Sell remaining position to free capital
+                    "urgency": "normal",
+                }
+                
+            # Fallback to the old dead capital exit if no progressive decay fired
+            age_hours = age_minutes / 60
             if age_hours >= settings.TIME_EXIT_HOURS and gain_pct < settings.TIME_EXIT_MIN_GAIN_PCT:
                 return {
                     "reason": f"time_exit_{settings.TIME_EXIT_HOURS:.0f}h (gain={gain_pct:.1f}%) [{profile_name}]",

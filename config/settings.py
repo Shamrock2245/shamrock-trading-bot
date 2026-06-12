@@ -132,6 +132,16 @@ TAKE_PROFIT_TP3_SELL_PCT = float(os.getenv("TAKE_PROFIT_TP3_SELL_PCT", "0.25")) 
 TIME_EXIT_HOURS = float(os.getenv("TIME_EXIT_HOURS", "8.0"))               # TUNED: 24h→8h — stop holding dead positions overnight
 TIME_EXIT_MIN_GAIN_PCT = float(os.getenv("TIME_EXIT_MIN_GAIN_PCT", "5.0"))   # TUNED: 10%→5% — exit sooner if not performing
 
+# Freqtrade-style Progressive ROI Decay: acceptable minimum ROI decreases over time
+# Format: {minutes_held: minimum_profit_percent}
+PROGRESSIVE_ROI_DECAY = {
+    0: 50.0,       # Start by aiming for 50%
+    60: 30.0,      # After 1 hour, accept 30% profit
+    120: 15.0,     # After 2 hours, accept 15% profit
+    240: 5.0,      # After 4 hours, accept 5% profit
+    480: 0.0       # After 8 hours, exit at break-even or better
+}
+
 # ── Pre-TP1 Peak Protection (CRITICAL: prevents holding through full reversals) ─
 # If a position builds gains but never hits TP1, we still protect those gains.
 # Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
