@@ -369,7 +369,7 @@ WALLETS: dict[str, WalletConfig] = {
         role="Safety net — conservative gem sniping",
         strategies=["gem_snipe", "momentum", "breakout"],
         # TUNED 2026-06-11: Added ethereum mainnet — most scanner candidates are ETH tokens
-        chains=["ethereum", "base", "arbitrum"], # Removed solana
+        chains=["ethereum", "base", "arbitrum", "bsc"], # Added bsc for arb opportunities
         max_position_size_pct=5.0,
         max_concurrent_positions=10,
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5")),
@@ -386,7 +386,7 @@ WALLETS: dict[str, WalletConfig] = {
         role="Nuclear predator — aggressive momentum + explosive compounding",
         strategies=["gem_snipe", "momentum", "breakout", "nuclear"],
         # TUNED 2026-06-11: Added ethereum mainnet — most scanner candidates are ETH tokens
-        chains=["ethereum", "base", "arbitrum", "solana"],
+        chains=["ethereum", "base", "arbitrum", "solana", "bsc"],
         max_position_size_pct=25.0, # Reduced to use judiciously
         max_concurrent_positions=3, # Reduced to use judiciously
         daily_loss_limit_eth=float(os.getenv("DAILY_LOSS_LIMIT_ETH_B", "2.0")),
