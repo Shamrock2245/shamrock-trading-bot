@@ -5,6 +5,14 @@
 
 Risk management isn't about being conservative. It's about **surviving long enough for compounding to work**. One blown account and you start over from zero.
 
+## The Goal Progression & Compounding
+The bot operates in phased financial goals. As it achieves each milestone, it dynamically scales up its position sizing and profit targets. The system leverages realized gains to increase buying power, allowing exponential compounding.
+
+**Phase 1 ($500/day Target):** Focus on consistency and survival. Capital preservation is priority #1. Position scaling is cautious.
+**Phase 2 ($1,000/day Target):** Reached when the portfolio clears the first $10k milestone. Win-streak accelerators take effect faster.
+**Phase 3 ($5,000/day Target):** Leverages substantial house money. Nuclear wallet sizing increases, allowing massive leverage on high-conviction signals.
+**Phase 4 ($10,000+/day Target):** Compound/Whale mode. Full auto-tune scaling and heavy pyramid compounding to maximize ROI on all profitable trades.
+
 ## Pre-Trade Risk Checks (`core/risk.py`)
 
 ### Phase 1 ($5K–$15K)
@@ -72,6 +80,16 @@ Dead money is the enemy. These guardrails cut underperformers FAST:
 | 2-3 | 1.25x | -1 pt from MIN_GEM_SCORE |
 | 4-5 | 1.5x | -2 pts |
 | 6+ | **2.0x** (Full Kelly) | -3 pts (capped at -10) |
+
+## ShamrockGuard & Daily Goal Protection
+
+The `ShamrockGuard` oversees portfolio-level targets, acting to secure profits once the bot is near its daily target (e.g. $500/day).
+
+| Trigger | Condition | Action |
+|---------|-----------|--------|
+| **Bank-It Mode** | Daily PnL >= 90% of Daily Target ($450) | Restricts new entries, scales Kelly multiplier to 0.2x. Focuses entirely on protecting realized profits. |
+| **Daily Drawdown Limit** | Daily PnL <= -20% of Portfolio ($200 on $1k) | Soft halts trading for the remainder of the day. Only extreme nuclear gems allowed. |
+| **Max Drawdown Limit** | Portfolio drops 30% from ATH | Pauses trading completely until manual override. |
 
 ## Portfolio-Level Risk
 

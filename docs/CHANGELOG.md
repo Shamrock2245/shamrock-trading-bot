@@ -8,6 +8,13 @@
 ```
 
 ---
+## [2.1.0] — 2026-06-11
+### Added
+- **LLM Auto-Tuner (Trading-as-Git):** Added `core/llm_auto_tuner.py` which polls every 15 minutes to quant-tune trailing stops using reasoning from `gpt-4o-mini`.
+- **ShamrockGuard:** Added `core/shamrock_guard.py` to enforce daily profit goals (e.g. $500/day) using "Bank-It Mode" and strict daily drawdown caps.
+- **Hourly Reports:** Added `core/hourly_report.py` to compile metrics (PnL, position counts, active regimes) and dispatch them hourly via Slack and Telegram.
+
+---
 ## [2.0.0] — 2026-03-30
 ### Added
 - **Upgrade 1 (MEV):** Wired `execute_via_flashbots()` into `executor.py` as primary path for Ethereum/Base/Arbitrum. Routing: CoW -> Flashbots bundle -> 1inch for Ethereum; Flashbots Protect RPC -> 1inch for Base/Arbitrum.

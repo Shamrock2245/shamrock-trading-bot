@@ -190,6 +190,7 @@ class AppState(rx.State):
         if password == correct_pin:
             self.is_authenticated = True
             self.auth_error = ""
+            self._read_data()
         else:
             self.auth_error = "Invalid PIN. Access denied."
 

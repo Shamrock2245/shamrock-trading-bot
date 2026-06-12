@@ -1,10 +1,10 @@
-# Shamrock Trading Bot — Current Status (May 29, 2026)
+# Shamrock Trading Bot — Current Status (June 11, 2026)
 
-## 🟢 Pipeline Status: FULLY LIVE — 14-Signal Scanner + 29-Indicator TA + 12 Offensive Guardrails
+## 🟢 Pipeline Status: FULLY LIVE — 14-Signal Scanner + 29-Indicator TA + 12 Guardrails + AI Auto-Tuner
 
 The entire trade pipeline is wired and working end-to-end:
 ```
-9 Discovery Sources ✅ → 14-Signal Scoring ✅ → Rug Protection ✅ → Moralis Enrichment ✅ → 29-Indicator TA ✅ → Strategy ✅ → Offensive Guardrails ✅ → Wallet Router ✅ → Executor ✅
+9 Discovery Sources ✅ → 14-Signal Scoring ✅ → Rug Protection ✅ → Moralis Enrichment ✅ → 29-Indicator TA ✅ → Strategy ✅ → Offensive Guardrails ✅ → ShamrockGuard ✅ → Wallet Router ✅ → Executor ✅
 ```
 
 ### What's Working
@@ -14,6 +14,9 @@ The entire trade pipeline is wired and working end-to-end:
 - **Rug Protection**: Dev wallet age/frequency/sell pattern analysis + fuzzy-match copycat detection (instant-reject)
 - **Moralis Pro Integration**: Primary enrichment — buying pressure, on-chain strength, security scores, holder analytics, discovery tokens
 - **Binance Pulse**: Smart money signals, social hype, unified rankings (free, no key)
+- **LLM Auto-Tuner (Trading-as-Git)**: AI quantitative tuning of active positions. Modifies trailing stops based on logic reasoning via `gpt-4o-mini`.
+- **ShamrockGuard**: Global risk protector. Scales position sizing relative to the $500/day profit goal, and enforces maximum daily drawdowns.
+- **Hourly Reports**: Hourly dispatches to Telegram and Slack with current PnL, active regime, and position count.
 - **Signal Engine**: Micro-cap scoring path produces strong composites (80-86 for good gems)
 - **Dual-Wallet Architecture**: Conservative (Primary, 5% max) + Nuclear (Wallet B, 60% max)
 - **Jupiter (SOL)**: Quote API + swap execution working perfectly
@@ -95,6 +98,9 @@ Jupiter (SOL) / 1inch (EVM) / Trader Joe (AVAX) → Sign → Broadcast
 | `core/position_monitor.py` | Trailing stops, dual TP ladders, pyramid scaling |
 | `core/solana_executor.py` | Jupiter integration, tx signing |
 | `core/wallet_router.py` | Dual-wallet routing, Kelly sizing, phase scaling |
+| `core/hourly_report.py` | Slack & TG Hourly updates on PnL & positions |
+| `core/shamrock_guard.py` | Bank-It Mode & strict Drawdown limiting |
+| `core/llm_auto_tuner.py` | LLM quantitative tuning with TaG methodology |
 | `config/wallets.py` | Conservative + Nuclear strategy profiles |
 | `config/settings.py` | 200+ configurable thresholds |
 | `main.py` | Bot loop orchestrator |
@@ -103,7 +109,7 @@ Jupiter (SOL) / 1inch (EVM) / Trader Joe (AVAX) → Sign → Broadcast
 | Container | Status | Purpose |
 |-----------|--------|---------|
 | `shamrock-bot` | 🟢 Healthy | Main trading bot (LIVE mode) |
-| `shamrock-dashboard` | 🟢 Healthy | Streamlit UI on :8501 |
+| `shamrock-dashboard` | 🟢 Healthy | Reflex UI on :3000 |
 | `shamrock-health` | 🟢 Healthy | 5-min health checks |
 | `shamrock-db` | 🟢 Running | Shared data volume (Alpine + SQLite) |
 | `shamrock-paper` | ⚪ Profile-gated | Paper trading mode (opt-in via `--profile paper`) |

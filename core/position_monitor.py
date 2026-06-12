@@ -1902,7 +1902,7 @@ class PositionMonitor:
                 self.run_once()
                 # Write heartbeat so health check can detect if this thread dies
                 try:
-                    _hb_path = POSITIONS_FILE.parent / "bot_status.json"
+                    _hb_path = Path(os.getenv("BOT_STATUS_FILE", str(POSITIONS_FILE.parent / "bot_status.json")))
                     if _hb_path.exists():
                         import json as _hb_json
                         with open(_hb_path, "r") as _hf:

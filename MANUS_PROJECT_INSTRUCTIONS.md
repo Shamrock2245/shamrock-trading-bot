@@ -199,6 +199,13 @@ MAX_POSITION_SIZE_PERCENT = 5.0%   # Per-position cap as % of portfolio
 MAX_PORTFOLIO_EXPOSURE    = 75.0%  # Max total deployed capital
 ```
 
+### Pyramiding Amounts of Daily Goals
+The bot operates in phased financial goals that "pyramid" as capital grows. It leverages realized gains to increase buying power and dynamic position sizing for exponential compounding:
+- **Phase 1 (Seed):** $500/day Target (Survival & consistency)
+- **Phase 2 (Growth):** $1,000/day Target (Activates past the first $10K milestone)
+- **Phase 3 (Acceleration):** $5,000/day Target (Heavy nuclear wallet leverage)
+- **Phase 4 (Compound/Whale):** $10,000+/day Target (Full auto-tune scaling)
+
 ---
 
 ## 🛠 Data Providers (ALL LIVE)
@@ -290,9 +297,9 @@ After a strong win, slippage tolerance is raised to capture fast-moving plays:
 
 ---
 
-## 📊 Dashboard (LIVE at http://5.161.126.32:8501)
+## 📊 Dashboard (LIVE at http://5.161.126.32:3000)
 
-Built with Streamlit. 6 pages:
+Built with Reflex. 6 pages:
 
 | Page | Content |
 |------|---------|
@@ -351,6 +358,8 @@ MAX_PORTFOLIO_EXPOSURE_PCT=75.0
 8. **Never touch private keys in code** — all secrets via env vars only.
 9. **Test on paper mode first** — `PAPER_TRADING=true` before any new execution logic goes live.
 10. **The signal engine has 29 indicators** — do not add more without removing something. Complexity kills speed.
+11. **Trading-as-Git Auto-Tuning (OpenAlice Architecture)** — The `LLMAutoTuner` manages parameter adjustments dynamically in paper mode. We must continually learn from the [OpenAlice](https://github.com/TraderAlice/OpenAlice) repo. Rely on its JSON commits rather than hard-coding static trailing stops when possible, and refer to OpenAlice when tuning AI reasoning models.
+12. **Defend the Daily Goal** — Do not override `ShamrockGuard`. If the bot is within striking distance of the daily profit target, allow "Bank-It Mode" to scale back risk.
 
 ---
 
@@ -360,7 +369,7 @@ MAX_PORTFOLIO_EXPOSURE_PCT=75.0
 # Running on Hetzner VPS (root@5.161.126.32)
 # Four Docker containers:
 #   shamrock-bot        — main trading engine
-#   shamrock-dashboard  — Streamlit UI on :8501
+#   shamrock-dashboard  — Reflex UI on :3000
 #   shamrock-health     — health monitoring
 #   shamrock-db         — local data persistence
 
@@ -384,7 +393,7 @@ docker compose restart bot
 | Priority | Task | Why |
 |----------|------|-----|
 | 🔴 High | Improve TP exit timing using Grok sentiment reversals | Exit when narrative turns, not just price |
-| 🔴 High | Copy-trade pilot via Moralis Streams webhook | Mirror smart wallets in real-time |
+| 🔴 High | AI-Driven Auto-Tuning Adjustments | The LLMAutoTuner is running, but we need to monitor its decisions and optimize its prompt to hit $500/day consistently |
 | 🟠 Medium | `getDiscoveryToken` deep intel pre-entry | 60+ data points per token before buy |
 | 🟠 Medium | Sharpen Pump.fun graduation filter | Add liquidity + holder minimum to graduated tokens |
 | 🟡 Low | Per-chain win rate analytics | Some chains may be systematically worse |

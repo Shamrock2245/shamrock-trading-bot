@@ -4,7 +4,7 @@ scripts/health_check.py — Shamrock Trading Bot health monitor.
 Runs as a long-lived process in the shamrock-health Docker container.
 Checks every 60 seconds:
   1. Bot has completed a scan cycle in the last 5 minutes
-  2. Dashboard is responding on port 8501
+  2. Dashboard is responding on port 3000
   3. Output files exist and are fresh
   4. Writes health status to output/health.json
   5. Sends Slack alert if any check fails

@@ -1,6 +1,6 @@
 # Shamrock Bot — Infrastructure Upgrades (v2.0)
 
-This document describes the four major infrastructure upgrades implemented to scale the bot from
+This document describes the six major infrastructure upgrades implemented to scale the bot from
 its current $5k starting capital toward 7-figure performance. Each upgrade is production-ready,
 fully wired into the existing pipeline, and controlled via environment variables.
 
@@ -202,6 +202,58 @@ ALPHA_WALLETS_SOLANA: list[str] = [
 
 ---
 
+## Upgrade 5 — Trading-as-Git AI Auto-Tuner
+
+### Problem
+Trailing stops and take-profit ladders were entirely static and rules-based. The bot couldn't reason about when a meme coin was showing a momentary dip versus a structural trend reversal.
+
+### Solution
+
+**New file: `core/llm_auto_tuner.py`**
+
+The `LLMAutoTuner` operates as an asynchronous agent using the "Trading-as-Git" methodology.
+
+**Tuning Pipeline:**
+1. Polls every 15 minutes.
+2. Extracts live active positions and relevant metrics.
+3. Packages the metrics and submits them to `gpt-4o-mini` with a specific prompt (derived from the `OpenAlice` concept).
+4. The LLM provides a JSON payload "commit" of parameter adjustments (e.g. tightening trailing stops).
+5. The tuner applies the commit to the active positions to lock in gains or give winning trades more room to breathe.
+
+### New Environment Variables
+```
+OPENAI_API_KEY=<your_openai_api_key>      # Required for Auto-Tuner
+```
+
+---
+
+## Upgrade 6 — ShamrockGuard & Hourly Reports
+
+### Problem
+The bot could hit a major home run (e.g., $800 profit), but standard position sizing and rules-based stop losses might risk giving back substantial portions of those gains during later choppy conditions. There was no overarching daily profit targeting. Also, the user had no way to monitor status without logging into the dashboard.
+
+### Solution
+
+**New files: `core/shamrock_guard.py` & `core/hourly_report.py`**
+
+**ShamrockGuard Logic:**
+1. Allows setting a `DAILY_PROFIT_TARGET` (default $500).
+2. Constantly checks portfolio PnL.
+3. If PnL hits ≥ 90% of the target, triggers **Bank-It Mode**, throttling position sizing (e.g., 0.2x multiplier) to secure profits.
+4. If Daily PnL hits ≤ -20% of portfolio, halts new entries for the rest of the day.
+
+**Hourly Reports Logic:**
+1. Integrated into `PositionMonitor`.
+2. Every 60 minutes, compiles metrics: current daily PnL, active positions, and active regime.
+3. Dispatches reports via Slack and Telegram.
+
+### New Environment Variables
+```
+DAILY_PROFIT_TARGET_USD=500           # Target to hit Bank-It Mode
+```
+
+---
+
 ## Summary of Modified Files
 
 | File | Change |
@@ -214,6 +266,9 @@ ALPHA_WALLETS_SOLANA: list[str] = [
 | `ml/weight_optimizer.py` | **New** — XGBoost dynamic weight optimizer |
 | `scanner/gem_scanner.py` | **Upgraded** — Bundle gate wired in; ML dynamic weights in scoring formula |
 | `main.py` | **Upgraded** — WalletMonitor daemon started in `run_bot_loop()` |
+| `core/llm_auto_tuner.py` | **New** — AI Auto-Tuner with gpt-4o-mini |
+| `core/shamrock_guard.py` | **New** — Daily targets and Bank-it mode |
+| `core/hourly_report.py` | **New** — Status reporting every 60m |
 | `config/settings.py` | **Upgraded** — All new env vars documented with safe defaults |
 
 ---
@@ -240,8 +295,12 @@ ML_WEIGHT_MIN_TRADES=20
 WALLET_MONITOR_ENABLED=true
 WALLET_MONITOR_COPY_SIZE_PCT=0.5
 WALLET_MONITOR_MAX_COPY_USD=500
+
+# Upgrade 5 & 6: AI Auto-Tuning & Protection
+OPENAI_API_KEY=<your_openai_key>
+DAILY_PROFIT_TARGET_USD=500
 ```
 
 ---
 
-*Last updated: 2026-03-30 | Branch: feature/4-upgrades-mev-bundle-ml-copytrade*
+*Last updated: 2026-06-11 | Branch: feature/ai-auto-tuner-and-guard*

@@ -70,7 +70,15 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
 - **Fastlane execution** — dedicated queue with latency tracking, freshness-decay position sizing, and SLO alerts
 - **Multi-wallet confirmation** — 2+ alpha wallets buying the same token within 2 minutes triggers a high-conviction signal
 
-### 🧠 Machine Learning & AI
+### 🧠 Machine Learning & AI Tuning
+- **Goal Progression & Compounding (Pyramiding Daily Goals)** — The bot operates in phased financial goals that "pyramid" as capital grows:
+  - **Phase 1 (Seed):** $500/day Target (Survival & consistency)
+  - **Phase 2 (Growth):** $1,000/day Target (Activates past the first $10K milestone)
+  - **Phase 3 (Acceleration):** $5,000/day Target (Heavy nuclear wallet leverage)
+  - **Phase 4 (Compound/Whale):** $10,000+/day Target (Full auto-tune scaling)
+  As targets are met, it leverages realized gains to increase buying power and dynamic position sizing for exponential compounding.
+- **LLM Auto-Tuner (OpenAlice TaG)** — Reasoning-driven agent powered by `gpt-4o-mini` that reviews active positions every 15 minutes, adjusts trailing stops, and commits parameter updates using a "Trading-as-Git" workflow.
+- **ShamrockGuard & Daily Goals** — Enforces a strict daily target (e.g. $500/day) and dynamically scales down position sizes or enters "Bank-It Mode" to protect profits when the target is nearing completion. Protects against excessive daily drawdowns.
 - **TimesFM Forecaster** — Google's 200M-param foundation model runs locally on the VPS; forecasts 4-hour price direction as a confirmation signal before entry
 - **RL Position Sizer** — reinforcement learning agent that trains every 24 hours on completed trades and learns optimal position size multipliers per situation
 - **XGBoost Weight Optimizer** — ML-driven score weight tuning from realized PnL data
@@ -87,7 +95,7 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
 - [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) / [MEV Blocker](https://mevblocker.io/) for MEV protection
 
 ### 📊 Portfolio Dashboard (9 Pages)
-Streamlit-powered UI at `http://5.161.126.32:8501`:
+Reflex-powered UI at `http://5.161.126.32:3000`:
 
 | Page | Purpose |
 |------|---------|
@@ -105,6 +113,7 @@ Streamlit-powered UI at `http://5.161.126.32:8501`:
 ### 🔔 Notifications
 - **Slack** multi-channel alerts — gems, trades, stop-losses, circuit breakers, daily summaries
 - **Telegram** bot integration — score-change alerts, trade notifications, copy-trade signals
+- **Hourly Status Reports** — automated summary dispatched to Slack & Telegram with daily goal progress, PnL, active positions, and active regime.
 - Configurable priority levels per event type
 
 ---
@@ -199,8 +208,8 @@ python main.py --positions              # Show all open positions and PnL
 
 ### Dashboard
 ```bash
-# Launch Streamlit portfolio dashboard
-streamlit run dashboard/app.py
+# Launch Reflex portfolio dashboard
+reflex run --env prod
 ```
 
 ---
@@ -374,6 +383,7 @@ Built studying the best in the ecosystem:
 | **OctoBot** | Modular plugin system, built-in UI | [GitHub](https://github.com/Drakkar-Software/OctoBot) |
 | **jesse** | Clean strategy framework, excellent docs | [GitHub](https://github.com/jesse-ai/jesse) |
 | **awesome-crypto-trading-bots** | Curated list of tools, libraries, and bots | [GitHub](https://github.com/botcrypto-io/awesome-crypto-trading-bots) |
+| **OpenAlice** | AI-driven quantitative trading, dynamic tuning ("Trading-as-Git") | [GitHub](https://github.com/TraderAlice/OpenAlice) |
 
 ---
 
@@ -397,7 +407,7 @@ The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS. It is always sca
 | Container | Purpose | Port |
 |-----------|---------|------|
 | `shamrock-bot` | Main trading bot (LIVE mode) | 8787 (Moralis Streams webhook) |
-| `shamrock-dashboard` | Streamlit portfolio UI | 8501 |
+| `shamrock-dashboard` | Reflex portfolio UI | 3000 |
 | `shamrock-health` | 5-minute health check cron | — |
 | `shamrock-db` | Shared data volume (Alpine + SQLite) | — |
 | `shamrock-paper` | Paper trading mode (opt-in profile) | — |
