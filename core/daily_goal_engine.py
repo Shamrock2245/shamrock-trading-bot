@@ -107,6 +107,7 @@ class DailyGoalState:
     today_arb_profit_usd: float = 0.0
     today_gem_profit_usd: float = 0.0
     today_scalp_profit_usd: float = 0.0
+    goal_locked_today: bool = False
 
     # Historical daily records (last 30 days)
     daily_history: list[dict] = field(default_factory=list)  # [{date, profit, target, hit}]
@@ -268,6 +269,15 @@ class DailyGoalEngine:
                 "ARB_MIN_PROFIT_USD": 20.0,
                 "scan_interval_seconds": 30,
             }
+        elif mode == "parabolic":
+            return {
+                "ARB_MIN_SPREAD_PCT": 0.4,           # Very aggressive threshold
+                "ARB_TRIANGULAR_MIN_PROFIT_PCT": 0.6,
+                "ARB_CROSS_CHAIN_MIN_SPREAD_PCT": 1.5,
+                "ARB_MAX_POSITION_USD": 8000.0 * tier_position_multiplier,
+                "ARB_MIN_PROFIT_USD": 5.0,
+                "scan_interval_seconds": 5,
+            }
         else:  # normal
             return {
                 "ARB_MIN_SPREAD_PCT": 0.8,
@@ -285,8 +295,8 @@ class DailyGoalEngine:
         """
         mode = self.get_strategy_mode()
         base_score = getattr(settings, "MIN_GEM_SCORE", 65.0)
-        if mode == "catch_up":
-            return max(base_score - 2.0, 58.0)   # Lower by 2pts (catch-up)
+        if mode in ("catch_up", "parabolic"):
+            return max(base_score - 2.0, 58.0)   # Lower by 2pts (catch-up / parabolic)
         elif mode in ("protect", "bank_it"):
             return min(base_score + 3.0, 78.0)   # Raise by 3pts (be selective)
         return None  # Normal: use default
@@ -308,6 +318,8 @@ class DailyGoalEngine:
             return 0.70 * tier_bonus   # 30% smaller positions
         elif mode == "bank_it":
             return 0.50 * tier_bonus   # 50% smaller — just protecting gains
+        elif mode == "parabolic":
+            return 1.50 * tier_bonus   # 50% bigger positions for exponential scaling
         else:
             return 1.0 * tier_bonus    # Normal
 
@@ -464,6 +476,7 @@ class DailyGoalEngine:
             self._state.today_arb_profit_usd = 0.0
             self._state.today_gem_profit_usd = 0.0
             self._state.today_scalp_profit_usd = 0.0
+            self._state.goal_locked_today = False
             self._state.strategy_mode = "normal"
             self._save_state()
 
@@ -485,23 +498,53 @@ class DailyGoalEngine:
 
         # Bank it: 150%+ of goal
         if progress >= BANK_IT_THRESHOLD_PCT:
+            s.goal_locked_today = True
+            if getattr(settings, "PARABOLIC_MODE_ENABLED", False) is True:
+                if s.strategy_mode != "parabolic":
+                    s.strategy_mode = "parabolic"
+                    s.mode_activated_at = datetime.now(timezone.utc).isoformat()
+                    logger.info(f"🚀 PARABOLIC MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal - Pushing for max gains!")
+            else:
+                if s.strategy_mode != "bank_it":
+                    s.strategy_mode = "bank_it"
+                    s.mode_activated_at = datetime.now(timezone.utc).isoformat()
+                    logger.info(f"🏦 BANK IT MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal")
+                    try:
+                        from core.profit_sweeper import execute_sweep
+                        execute_sweep()
+                    except Exception as e:
+                        logger.error(f"❌ Failed to execute profit sweep: {e}")
+            return
+
+        # Protect / Parabolic: 100%+ of goal
+        if progress >= PROTECT_MODE_THRESHOLD_PCT:
+            s.goal_locked_today = True
+            if getattr(settings, "PARABOLIC_MODE_ENABLED", False) is True:
+                if s.strategy_mode != "parabolic":
+                    s.strategy_mode = "parabolic"
+                    s.mode_activated_at = datetime.now(timezone.utc).isoformat()
+                    logger.info(f"🚀 PARABOLIC MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal - Pushing for max gains!")
+            else:
+                if s.strategy_mode not in ("protect", "bank_it"):
+                    s.strategy_mode = "protect"
+                    s.mode_activated_at = datetime.now(timezone.utc).isoformat()
+                    logger.info(f"🛡️ PROTECT MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal")
+            return
+
+        # Dropped below 100% after locking? Protect the locked goal!
+        if s.goal_locked_today and progress < PROTECT_MODE_THRESHOLD_PCT:
             if s.strategy_mode != "bank_it":
                 s.strategy_mode = "bank_it"
                 s.mode_activated_at = datetime.now(timezone.utc).isoformat()
-                logger.info(f"🏦 BANK IT MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal")
+                logger.warning(
+                    f"🔒 GOAL LOCK ENFORCED: Dropped from parabolic peak to ${s.today_profit_usd:.2f} "
+                    f"({progress:.0f}%). Locking down to preserve tier goal!"
+                )
                 try:
                     from core.profit_sweeper import execute_sweep
                     execute_sweep()
                 except Exception as e:
-                    logger.error(f"❌ Failed to execute profit sweep: {e}")
-            return
-
-        # Protect: 100%+ of goal
-        if progress >= PROTECT_MODE_THRESHOLD_PCT:
-            if s.strategy_mode not in ("protect", "bank_it"):
-                s.strategy_mode = "protect"
-                s.mode_activated_at = datetime.now(timezone.utc).isoformat()
-                logger.info(f"🛡️ PROTECT MODE: ${s.today_profit_usd:.2f} = {progress:.0f}% of goal")
+                    pass
             return
 
         # Catch-up: behind pace after 6 PM UTC
@@ -517,7 +560,7 @@ class DailyGoalEngine:
             return
 
         # Normal
-        if s.strategy_mode not in ("protect", "bank_it"):
+        if s.strategy_mode not in ("protect", "bank_it", "parabolic"):
             s.strategy_mode = "normal"
 
     def _evaluate_tier_change(self, today_hit: bool) -> None:

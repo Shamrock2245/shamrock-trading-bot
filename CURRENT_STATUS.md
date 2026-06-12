@@ -17,6 +17,10 @@ The entire trade pipeline is wired and working end-to-end:
 - **LLM Auto-Tuner (Trading-as-Git)**: AI quantitative tuning of active positions. Modifies trailing stops based on logic reasoning via `gpt-4o-mini`.
 - **ShamrockGuard**: Global risk protector. Scales position sizing relative to the $500/day profit goal, and enforces maximum daily drawdowns.
 - **Hourly Reports**: Hourly dispatches to Telegram and Slack with current PnL, active regime, and position count.
+- **Progression of Goals & Pyramiding**:
+  - We target a daily goal starting at $500/day profit.
+  - When the daily goal is met, we *leverage our gains to make more*, establishing a pyramiding structure.
+  - Goals compound (e.g., $500 → $1,000 → $2,500) as realized profit gives us "House Money" to scale up position sizes (Nuclear Wallet unlocks up to 60% sizing) aggressively without risking our principal.
 - **Signal Engine**: Micro-cap scoring path produces strong composites (80-86 for good gems)
 - **Dual-Wallet Architecture**: Conservative (Primary, 5% max) + Nuclear (Wallet B, 60% max)
 - **Jupiter (SOL)**: Quote API + swap execution working perfectly
