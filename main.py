@@ -1359,7 +1359,7 @@ async def run_bot_loop():
                 run_optuna_cycle(force=False)
             except Exception as _optuna_err:
                 logger.warning(f"Optuna tuner daemon cycle error: {_optuna_err}")
-            _time.sleep(3600)  # Check hourly (run_optuna_cycle enforces 12h interval internally)
+            _time.sleep(900)  # Check every 15 mins (run_optuna_cycle enforces interval internally)
 
     _optuna_thread = threading.Thread(target=_optuna_tuner_daemon, daemon=True, name="optuna-autotuner")
     _optuna_thread.start()

@@ -24,6 +24,7 @@ def update_env(file_path):
         'MAX_TOKEN_AGE_HOURS': '168.0',
         'MORALIS_MAX_TRACKED_WALLETS': '500',
         'MIN_LIQUIDITY_USD': '5000',
+        'OPTUNA_INTERVAL_HOURS': '0.5',
         'TAKE_PROFIT_TP1_MULT': '1.6425',
         'TAKE_PROFIT_TP1_SELL_PCT': '0.3373',
         'TAKE_PROFIT_TP2_MULT': '3.75',
