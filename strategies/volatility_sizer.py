@@ -22,7 +22,7 @@ Volatility Zones:
 
 Integration: called from offensive_guardrails.calculate_offensive_position_size()
 
-Feature flag: VOLATILITY_SIZING_ENABLED (default: false)
+Feature flag: VOLATILITY_SIZING_ENABLED (default: true — aligned with config/settings.py)
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
-VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "false").lower() == "true"
+# Default changed from "false" to "true" to match config/settings.py VOLATILITY_SIZING_ENABLED default
+VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "true").lower() == "true"
 
 # ATR thresholds (as % of price)
 ATR_ULTRA_HIGH_PCT = float(os.getenv("ATR_ULTRA_HIGH_PCT", "15.0"))

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from config import settings
+from data.models import GemCandidate, Token  # noqa: F401 — used in type hints for _register()
 
 logger = logging.getLogger(__name__)
 

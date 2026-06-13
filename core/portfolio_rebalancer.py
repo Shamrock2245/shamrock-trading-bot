@@ -604,11 +604,17 @@ def execute_liquidations(plan: RebalancePlan, wallet) -> int:
                 from core.solana_executor import execute_solana_sell
                 sol_public_key = wallet.solana_address or wallet.address
                 sol_key_env = wallet.solana_private_key_env or wallet.private_key_env
+                # Convert UI balance to raw token amount (smallest unit)
+                _decimals = token.get("decimals", 9)  # Solana tokens default to 9 decimals
+                _token_amount_raw = int(token.get("balance", 0) * (10 ** _decimals))
+                if _token_amount_raw <= 0:
+                    logger.warning(f"Skip Solana liquidation of {symbol}: zero balance")
+                    continue
                 tx = execute_solana_sell(
                     token_mint=address,
+                    token_amount=_token_amount_raw,
                     wallet_public_key=sol_public_key,
                     wallet_private_key_env=sol_key_env,
-                    sell_percentage=100,
                     is_paper=is_paper,
                 )
                 if tx:

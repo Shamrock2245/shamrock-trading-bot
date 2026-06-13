@@ -1224,7 +1224,12 @@ class BlackSwanSweeper:
                 )
 
             send_telegram_message(tg_msg)
-            notify_alert(slack_msg)
+            _alert_title = (
+                f"BLACK SWAN: {event.protocol_name}"
+                if shorted else
+                f"EXPLOIT DETECTED: {event.protocol_name}"
+            )
+            notify_alert(title=_alert_title, message=slack_msg, level="critical")
         except Exception as e:
             logger.error(f"🦅 Notification error: {e}")
 
@@ -1242,9 +1247,14 @@ class BlackSwanSweeper:
                 f"PnL: {pnl_emoji} <b>${pnl:+.2f}</b>"
             )
             send_telegram_message(tg_msg)
-            notify_alert(f"🛡️ Black Swan short {symbol} closed ({reason}) | PnL: ${pnl:+.2f}")
+            notify_alert(
+                title=f"Black Swan Short Closed: {symbol}",
+                message=f"🛡️ Black Swan short {symbol} closed ({reason}) | PnL: ${pnl:+.2f}",
+                level="info" if pnl >= 0 else "warning",
+            )
         except Exception as e:
             logger.error(f"🦅 Close notification error: {e}")
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

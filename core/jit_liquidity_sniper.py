@@ -401,7 +401,7 @@ class MempoolWatcher:
         """
         try:
             import web3
-            from web3 import Web3, LegacyWebSocketProvider
+            from web3 import Web3  # LegacyWebSocketProvider removed in web3 v7; using websockets directly
         except ImportError:
             logger.error("web3 not installed — JIT live mempool watch unavailable")
             return
@@ -949,10 +949,39 @@ class JITExecutor:
         )
 
         try:
+            # Sign the transaction before submitting to Flashbots Protect
+            # submit_via_flashbots_protect expects a signed raw tx hex string
+            try:
+                from web3 import Web3
+                from web3.middleware import ExtraDataToPOAMiddleware
+                _rpc_url = _PRIVATE_RPC.get(chain, "https://rpc.flashbots.net/fast")
+                # Use HTTP RPC for signing (not the private relay URL)
+                _http_rpc = os.getenv(
+                    f"{chain.upper()}_RPC_URL",
+                    os.getenv("ETH_RPC_URL", "https://rpc.flashbots.net"),
+                )
+                _w3 = Web3(Web3.HTTPProvider(_http_rpc, request_kwargs={"timeout": 10}))
+                if chain in ("base", "polygon", "bsc"):
+                    _w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                # Fill nonce and gas price if missing
+                _sender = _w3.eth.account.from_key(private_key).address
+                if "nonce" not in tx:
+                    tx["nonce"] = _w3.eth.get_transaction_count(_sender)
+                if "gasPrice" not in tx and "maxFeePerGas" not in tx:
+                    tx["gasPrice"] = _w3.eth.gas_price
+                if "chainId" not in tx:
+                    tx["chainId"] = _w3.eth.chain_id
+                _signed = _w3.eth.account.sign_transaction(tx, private_key)
+                _raw_hex = _signed.raw_transaction.hex()
+            except Exception as _sign_err:
+                return JITResult(
+                    success=False,
+                    opportunity=opp,
+                    error=f"JIT tx signing failed: {_sign_err}",
+                )
             result = submit_via_flashbots_protect(
-                tx=tx,
-                private_key=private_key,
-                chain=chain,
+                signed_raw_tx=_raw_hex,
+                rpc_url=private_rpc,
             )
 
             if result.success:

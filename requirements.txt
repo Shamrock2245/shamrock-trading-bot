@@ -34,6 +34,10 @@ scikit-learn>=1.3.0          # StandardScaler, cross_val_score for ML pipeline
 optuna>=4.0.0                # Bayesian hyperparameter optimization (TPE, NSGAIIISampler)
 optuna-dashboard             # Interactive web dashboard for optimization studies
 openai>=1.0.0                # LLM Auto-Tuning via OpenAlice reasoning architecture
+gymnasium>=0.29.0            # OpenAI Gym successor — required by ml/rl_position_sizer.py
+stable-baselines3>=2.2.0     # PPO/RL agent — required by ml/rl_position_sizer.py
+scipy>=1.11.0                # KS-test drift detection — required by ml/drift_detector.py
+timesfm>=1.0.0               # Google TimesFM price forecasting — required by ml/timesfm_signal.py
 
 # ── Configuration ────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0         # Load .env file into environment variables

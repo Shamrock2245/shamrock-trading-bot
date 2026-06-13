@@ -24,7 +24,7 @@ Probability estimation:
   - P(TP1) 30-60% → suggest tighter trailing stop
   - P(TP1) < 30% → early_exit_recommended = True
 
-Feature flag: DYNAMIC_TP_ENABLED (default: false)
+Feature flag: DYNAMIC_TP_ENABLED (default: true — aligned with config/settings.py)
 """
 
 from __future__ import annotations
@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
-DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "false").lower() == "true"
+# Default changed from "false" to "true" to match config/settings.py DYNAMIC_TP_ENABLED default
+DYNAMIC_TP_ENABLED = os.getenv("DYNAMIC_TP_ENABLED", "true").lower() == "true"
 
 # ATR multipliers for each TP level (in units of ATR)
 TP1_ATR_MULT = float(os.getenv("TP1_ATR_MULT", "3.0"))

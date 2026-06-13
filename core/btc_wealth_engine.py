@@ -204,13 +204,30 @@ class BTCWealthEngine:
             # Live mode execution
             try:
                 if chain == "solana":
-                    # Swap Solana USDC/SOL to Wrapped BTC (via Jupiter)
-                    from core.solana_executor import execute_solana_swap
-                    # Jupiter handles Wrapped BTC on Solana (e.g. WBTC mint or tBTC)
-                    # For Solana, we'll swap to WBTC mint: 3NZ9JbZq46vyNs9F127J1L6FFZSp9Li1W2FX7z4y1pPv
-                    # Let's use USDC as source or SOL
-                    # This is wrapped inside the solana executor
-                    success = True # Mocking success for safe integration
+                    # Swap SOL → Wrapped BTC on Solana via Jupiter (execute_solana_buy)
+                    # execute_solana_swap does not exist; execute_solana_buy routes via Jupiter V6
+                    from core.solana_executor import execute_solana_buy
+                    SOLANA_WBTC_MINT = "3NZ9JbZq46vyNs9F127J1L6FFZSp9Li1W2FX7z4y1pPv"
+                    sol_wallet = getattr(settings, "SOLANA_WALLET_ADDRESS", "")
+                    sol_key_env = "SOLANA_PRIVATE_KEY"
+                    # Estimate SOL amount from USD value
+                    _sol_price = 150.0  # Fallback
+                    try:
+                        from core.price_fetcher import get_native_price_usd
+                        _sol_price = get_native_price_usd("SOL") or _sol_price
+                    except Exception:
+                        pass
+                    sol_amount = usd_amount / max(_sol_price, 0.001)
+                    _tx = execute_solana_buy(
+                        token_mint=SOLANA_WBTC_MINT,
+                        sol_amount=sol_amount,
+                        wallet_public_key=sol_wallet,
+                        wallet_private_key_env=sol_key_env,
+                        is_paper=False,
+                    )
+                    success = bool(_tx)
+                    if _tx:
+                        tx_hash = _tx
                 else:
                     # EVM Swap via 1inch
                     from core.executor import TradeExecutor

@@ -356,7 +356,8 @@ def execute_jupiter_route_arb(
         jito_result = execute_solana_via_jito(signed_tx, client)
 
         if jito_result and jito_result.success:
-            tx_sig = jito_result.tx_hash
+            # JitoResult uses tx_signature (not tx_hash) — see core/mev_protection.py:74
+            tx_sig = jito_result.tx_signature or jito_result.bundle_id or "jito_bundle_submitted"
         else:
             # Fallback: direct RPC submission
             raw_tx = bytes(signed_tx)
