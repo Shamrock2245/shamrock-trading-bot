@@ -401,7 +401,7 @@ class MempoolWatcher:
         """
         try:
             import web3
-            from web3 import Web3
+            from web3 import Web3, LegacyWebSocketProvider
         except ImportError:
             logger.error("web3 not installed — JIT live mempool watch unavailable")
             return
@@ -419,7 +419,7 @@ class MempoolWatcher:
         retry_delay = 5
         while self._running:
             try:
-                w3 = Web3(web3.WebSocketProvider(ws_url))
+                w3 = Web3(LegacyWebSocketProvider(ws_url, websocket_timeout=60))
                 if not w3.is_connected():
                     raise ConnectionError(f"WebSocket RPC not connected: {ws_url}")
 
