@@ -33,6 +33,8 @@ def update_env(file_path):
         'STOP_LOSS_PERCENT': '9.0',
         'HARD_STOP_LOSS_PERCENT': '16.5913',
         'PRE_TP1_TRAILING_STOP_PCT': '22.7903',
+        'JIT_ENABLED': 'true',
+        'BLACK_SWAN_ENABLED': 'true',
     }
 
     new_lines = []

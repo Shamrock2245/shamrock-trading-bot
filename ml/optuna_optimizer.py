@@ -79,7 +79,7 @@ def _create_objective(trades: list[dict]):
         fast_fail_down_pct = trial.suggest_float("fast_fail_down_pct", 5.0, 20.0)
 
         # ── Position Sizing ──────────────────────────────────────────
-        max_position_pct = trial.suggest_float("max_position_pct", 2.0, 12.0)
+        max_position_pct = trial.suggest_float("max_position_pct", 5.0, 25.0)
         god_mode_kelly_mult = trial.suggest_float("god_mode_kelly_mult", 1.5, 4.0)
 
         # ── Time Exit ────────────────────────────────────────────────
