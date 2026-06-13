@@ -1289,20 +1289,25 @@ async def run_bot_loop():
     )
 
     # ── MEV Extractor: JIT Liquidity Sniper + Backrun Engine ──────────────────────────────────────────────────────────────────────────────
-    _mev_extractor = None
-    try:
-        from core.mev_extractor import get_mev_extractor
-        _mev_extractor = get_mev_extractor()
-        _mev_extractor.start()
-        logger.info(
-            "✅ MEV Extractor daemon started — "
-            "JIT Liquidity Sniper ACTIVE | "
-            f"min_trade=${getattr(settings, 'JIT_MIN_TRADE_SIZE_USD', 100000):,.0f} | "
-            f"max_flash=${getattr(settings, 'JIT_MAX_FLASH_BORROW_USD', 500000):,.0f} | "
-            "Private RPC routing: Flashbots/Jito"
-        )
-    except Exception as _mev_err:
-        logger.warning(f"MEV Extractor failed to start: {_mev_err}")
+    def _mev_daemon():
+        """Background thread: runs the MEV Extractor Engine."""
+        try:
+            import asyncio
+            from core.mev_extractor import get_mev_extractor
+            _mev_extractor = get_mev_extractor()
+            asyncio.run(_mev_extractor.run())
+        except Exception as _mev_err:
+            logger.warning(f"MEV Extractor failed to run: {_mev_err}")
+
+    _mev_thread = threading.Thread(target=_mev_daemon, daemon=True, name="mev-extractor")
+    _mev_thread.start()
+    logger.info(
+        "✅ MEV Extractor daemon started — "
+        "JIT Liquidity Sniper ACTIVE | "
+        f"min_trade=${getattr(settings, 'JIT_MIN_TRADE_SIZE_USD', 100000):,.0f} | "
+        f"max_flash=${getattr(settings, 'JIT_MAX_FLASH_BORROW_USD', 500000):,.0f} | "
+        "Private RPC routing: Flashbots/Jito"
+    )
 
     # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
     def _rl_training_daemon():

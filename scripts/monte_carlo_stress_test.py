@@ -43,8 +43,8 @@ def run_monte_carlo(trades: List[Dict], iterations: int = 500, max_slippage_pct:
 
     logger.info(f"Running Monte Carlo Stress Test ({iterations} iterations)...")
     
-    baseline_pnl = sum(t.get("realized_pnl", 0.0) for t in trades)
-    baseline_win_rate = sum(1 for t in trades if t.get("realized_pnl", 0.0) > 0) / len(trades)
+    baseline_pnl = sum(t.get("pnl_usd", 0.0) for t in trades)
+    baseline_win_rate = sum(1 for t in trades if t.get("pnl_usd", 0.0) > 0) / len(trades)
     
     iteration_pnls = []
     iteration_win_rates = []
@@ -53,8 +53,8 @@ def run_monte_carlo(trades: List[Dict], iterations: int = 500, max_slippage_pct:
         simulated_pnl = 0.0
         wins = 0
         for trade in trades:
-            original_pnl = trade.get("realized_pnl", 0.0)
-            position_size = trade.get("position_size", 100.0)
+            original_pnl = trade.get("pnl_usd", 0.0)
+            position_size = trade.get("value_usd", 100.0)
             
             # Inject random slippage penalty (e.g., up to 15% worse execution)
             # We assume slippage always hurts us (negative impact)
