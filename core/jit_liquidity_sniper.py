@@ -426,16 +426,17 @@ class MempoolWatcher:
                 logger.info("JIT MempoolWatcher: WebSocket RPC connected")
                 retry_delay = 5  # Reset on successful connection
 
-                # Subscribe to pending transactions
-                sub_id = w3.eth.subscribe("newPendingTransactions")
-
-                for tx_hash in w3.eth.filter("pending").get_new_entries():
-                    if not self._running:
-                        break
-                    try:
-                        self._process_pending_tx(w3, tx_hash.hex())
-                    except Exception as tx_err:
-                        logger.debug(f"JIT tx processing error: {tx_err}")
+                # Polling for pending transactions (synchronous fallback for v7)
+                tx_filter = w3.eth.filter("pending")
+                while self._running:
+                    for tx_hash in tx_filter.get_new_entries():
+                        if not self._running:
+                            break
+                        try:
+                            self._process_pending_tx(w3, tx_hash.hex())
+                        except Exception as tx_err:
+                            logger.debug(f"JIT tx processing error: {tx_err}")
+                    time.sleep(0.5)
 
             except Exception as conn_err:
                 logger.warning(
