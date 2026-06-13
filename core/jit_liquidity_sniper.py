@@ -416,27 +416,48 @@ class MempoolWatcher:
 
         logger.info(f"JIT MempoolWatcher: connecting to {ws_url}")
 
+        from websockets.sync.client import connect
+        import json
+
+        # Setup standard HTTP provider for fetching tx details
+        http_url = rpc_url.replace("wss://", "https://").replace("ws://", "http://")
+        try:
+            w3_http = Web3(web3.HTTPProvider(http_url))
+        except Exception as e:
+            logger.error(f"Failed to create HTTP provider for JIT: {e}")
+            return
+
         retry_delay = 5
         while self._running:
             try:
-                w3 = Web3(LegacyWebSocketProvider(ws_url, websocket_timeout=60))
-                if not w3.is_connected():
-                    raise ConnectionError(f"WebSocket RPC not connected: {ws_url}")
+                with connect(ws_url, close_timeout=10) as ws:
+                    logger.info("JIT MempoolWatcher: WebSocket RPC connected (raw)")
+                    retry_delay = 5  # Reset on successful connection
 
-                logger.info("JIT MempoolWatcher: WebSocket RPC connected")
-                retry_delay = 5  # Reset on successful connection
-
-                # Polling for pending transactions (synchronous fallback for v7)
-                tx_filter = w3.eth.filter("pending")
-                while self._running:
-                    for tx_hash in tx_filter.get_new_entries():
-                        if not self._running:
-                            break
-                        try:
-                            self._process_pending_tx(w3, tx_hash.hex())
-                        except Exception as tx_err:
-                            logger.debug(f"JIT tx processing error: {tx_err}")
-                    time.sleep(0.5)
+                    # Send eth_subscribe request
+                    sub_req = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_subscribe",
+                        "params": ["newPendingTransactions"]
+                    }
+                    ws.send(json.dumps(sub_req))
+                    
+                    # Wait for subscription confirmation
+                    sub_resp = json.loads(ws.recv())
+                    if "error" in sub_resp:
+                        raise ValueError(f"Subscription failed: {sub_resp['error']}")
+                    
+                    # Listen for pending transactions
+                    while self._running:
+                        msg = json.loads(ws.recv())
+                        if "params" in msg and "result" in msg["params"]:
+                            tx_hash = msg["params"]["result"]
+                            if isinstance(tx_hash, str):
+                                try:
+                                    self._process_pending_tx(w3_http, tx_hash)
+                                except Exception as tx_err:
+                                    logger.debug(f"JIT tx processing error: {tx_err}")
 
             except Exception as conn_err:
                 logger.warning(
