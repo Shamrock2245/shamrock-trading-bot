@@ -21,7 +21,7 @@ def update_env(file_path):
         'MORALIS_BTC_WHALE_MIN_BTC': '1.0',
         'MIN_GEM_SCORE': '68.75',
         'EXPRESS_LANE_SCORE': '85.15',
-        'MAX_TOKEN_AGE_HOURS': '168.0',
+        'MAX_TOKEN_AGE_HOURS': '168',
         'MORALIS_MAX_TRACKED_WALLETS': '500',
         'MIN_LIQUIDITY_USD': '5000',
         'OPTUNA_INTERVAL_HOURS': '0.5',
