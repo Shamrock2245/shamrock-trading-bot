@@ -419,7 +419,7 @@ class MempoolWatcher:
         retry_delay = 5
         while self._running:
             try:
-                w3 = Web3(web3.WebSocketProvider(ws_url, websocket_timeout=60))
+                w3 = Web3(web3.WebSocketProvider(ws_url))
                 if not w3.is_connected():
                     raise ConnectionError(f"WebSocket RPC not connected: {ws_url}")
 
