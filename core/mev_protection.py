@@ -214,6 +214,9 @@ def submit_via_flashbots_protect(
     Lightweight path for Base and Arbitrum — no bundle signing needed.
     The tx is forwarded to builders privately, bypassing the public mempool.
     """
+    if signed_raw_tx is None:
+        logger.error("Transaction build failed; cannot submit to Flashbots.")
+        return FlashbotsResult(success=False, error="Transaction is None", execution_path="flashbots_protect")
     if (settings.get_current_mode() == "paper"):
         logger.info("[PAPER] Flashbots Protect RPC: simulated private tx submission")
         return FlashbotsResult(success=True, tx_hash="0x" + "0" * 64, execution_path="flashbots_protect")

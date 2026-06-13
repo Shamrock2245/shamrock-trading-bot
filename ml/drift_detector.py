@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 _TRADES_PATH = Path("output/trades.json")
 _TRAINING_STATS_PATH = Path("output/training_stats.json")
 _DRIFT_REPORT_PATH = Path("output/drift_report.json")
+_TA_CACHE_PATH = Path("output/ta_cache.json")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 # Fraction of indicators that must show drift to trigger the fallback flag.

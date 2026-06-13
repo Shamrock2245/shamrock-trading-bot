@@ -1341,12 +1341,15 @@ async def run_bot_loop():
             except Exception as _xgb_daemon_err:
                 logger.warning(f"XGBoost training daemon cycle error: {_xgb_daemon_err}")
             _time.sleep(21600)  # Check every 6 hours (6 * 3600)
-    _xgb_thread = threading.Thread(target=_xgboost_training_daemon, daemon=True, name="xgboost-optimizer")
-    _xgb_thread.start()
-    logger.info(
-        "✅ XGBoost Weight Optimizer daemon started — "
-        "retrains scoring weights on completed trades every 6h"
-    )
+    if settings.ML_WEIGHT_OPTIMIZER_ENABLED:
+        _xgb_thread = threading.Thread(target=_xgboost_training_daemon, daemon=True, name="xgboost-optimizer")
+        _xgb_thread.start()
+        logger.info(
+            "✅ XGBoost Weight Optimizer daemon started — "
+            "retrains scoring weights on completed trades every 6h"
+        )
+    else:
+        logger.info("⏸️ XGBoost Weight Optimizer disabled via config.")
 
     # ── Optuna Auto-Tuner: background optimization daemon ─────────────────────────────────────────────────────────────────────────────
     def _optuna_tuner_daemon():

@@ -186,7 +186,7 @@ AAVE_POOL_ADDRESS_BASE = os.getenv("AAVE_POOL_ADDRESS_BASE", "0xA238Dd80C259a72e
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 
 # ── Upgrade 2: Bundle Detector ───────────────────────────────────────────────
-BUNDLE_DETECTOR_ENABLED = os.getenv("BUNDLE_DETECTOR_ENABLED", "true").lower() == "true"
+BUNDLE_DETECT_ENABLED = os.getenv("BUNDLE_DETECT_ENABLED", "true").lower() == "true"
 BUNDLE_REJECT_THRESHOLD = float(os.getenv("BUNDLE_REJECT_THRESHOLD", "0.20"))  # Reject if >20% supply sniped in block 0
 
 # ── Upgrade 3: ML Weight Optimizer ───────────────────────────────────────────
@@ -304,7 +304,7 @@ MORALIS_SAFETY_BUFFER_PCT = float(os.getenv("MORALIS_SAFETY_BUFFER_PCT", "0.15")
 # BTC Wealth Retention Engine
 # ─────────────────────────────────────────────────────────────────────────────
 # Enable/disable BTC profit sweep (sweeps trading profits into BTC)
-BTC_WEALTH_ENGINE_ENABLED = os.getenv("BTC_WEALTH_ENGINE_ENABLED", "true").lower() == "true"
+BTC_ROTATION_ENABLED = os.getenv("BTC_ROTATION_ENABLED", "true").lower() == "true"
 # Minimum USD profit to trigger a BTC sweep (avoid micro-sweeps)
 BTC_WEALTH_MIN_SWEEP_USD = float(os.getenv("BTC_WEALTH_MIN_SWEEP_USD", "50.0"))
 # % of realized profit to convert to BTC (0.0–1.0)

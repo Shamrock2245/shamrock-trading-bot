@@ -46,6 +46,7 @@ from typing import Optional
 from config import settings
 from config.wallets import WALLETS, WalletConfig, get_wallets_for_chain
 from config.chains import CHAINS, ChainConfig
+from data.providers.session_manager import get_session
 
 logger = logging.getLogger(__name__)
 

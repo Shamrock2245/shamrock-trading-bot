@@ -61,6 +61,7 @@ import logging
 import os
 import threading
 import time
+import websockets
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

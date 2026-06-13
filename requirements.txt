@@ -17,6 +17,7 @@ base58>=2.1.1                # Base58 encoding/decoding for Solana keys
 # ── HTTP / Async ─────────────────────────────────────────────────────────────
 requests>=2.31.0             # Synchronous HTTP (DexScreener, GoPlus, etc.)
 aiohttp>=3.9.0               # Async HTTP for concurrent API calls
+websockets>=11.0.3           # WebSocket client for Mempool/Streams
 
 # ── Data / Analysis ──────────────────────────────────────────────────────────
 pandas>=2.0.0                # DataFrames for OHLCV and signal processing
