@@ -224,7 +224,8 @@ class MoralisStreamsManager:
             self._sync_current_alpha_wallets()
             return
 
-        webhook = f"{self.webhook_url}/moralis/streams"
+        # Use webhook_url as-is — it already contains the full path (e.g. http://5.161.126.32:8787/moralis/streams)
+        webhook = self.webhook_url.rstrip("/")
         body = {
             "webhookUrl": webhook,
             "description": "Shamrock Trading Bot — Alpha Wallet ERC20 Transfer Monitor",
@@ -273,7 +274,7 @@ class MoralisStreamsManager:
 
         # Only monitor Base and Arbitrum — that's where our gems live
         whale_chains = ["0x2105", "0xa4b1"]
-        webhook = f"{self.webhook_url}/moralis/streams"
+        webhook = self.webhook_url.rstrip("/")  # already full path
 
         body = {
             "webhookUrl": webhook,
@@ -299,7 +300,7 @@ class MoralisStreamsManager:
 
         # Monitor Base and Arbitrum factories only — Ethereum excluded (CU budget conservation)
         liquidity_chains = ["0x2105", "0xa4b1"]
-        webhook = f"{self.webhook_url}/moralis/streams"
+        webhook = self.webhook_url.rstrip("/")  # already full path
 
         body = {
             "webhookUrl": webhook,
@@ -335,7 +336,7 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: Solana discovery stream already exists: {self._managed_streams[TAG_SOLANA_DISCOVERY]}")
             return
 
-        webhook = f"{self.webhook_url}/moralis/streams"
+        webhook = self.webhook_url.rstrip("/")  # already full path
         addresses = []
         if settings.PUMP_FUN_PROGRAM_ID:
             addresses.append(settings.PUMP_FUN_PROGRAM_ID)
@@ -556,7 +557,7 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: BTC stream already exists: {self._managed_streams[TAG_BTC_WHALE_WATCH]}")
             return
 
-        webhook = f"{self.webhook_url}/moralis/streams"
+        webhook = self.webhook_url.rstrip("/")  # already full path
         # We watch the top 100 Bitcoin whale addresses
         # Let's pull some prominent whale addresses or watch all transfers > 50 BTC
         # Moralis Bitcoin Streams supports 'allAddresses' or a list of addresses.
@@ -583,7 +584,7 @@ class MoralisStreamsManager:
             self._sync_solana_alpha_wallets()
             return
 
-        webhook = f"{self.webhook_url}/moralis/streams"
+        webhook = self.webhook_url.rstrip("/")  # already full path
         addresses = list(settings.SOLANA_SMART_MONEY_WALLETS) if settings.SOLANA_SMART_MONEY_WALLETS else []
 
         body = {
