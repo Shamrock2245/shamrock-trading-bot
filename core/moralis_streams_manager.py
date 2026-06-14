@@ -567,7 +567,7 @@ class MoralisStreamsManager:
             "description": "Shamrock Trading Bot — Bitcoin Whale Watch (all transfers > 10 BTC)",
             "tag": TAG_BTC_WHALE_WATCH,
             "allAddresses": True,
-            "chainIds": ["btc-mainnet"],
+            "network": ["mainnet"],
             "includeInputs": True,
         }
 
