@@ -230,14 +230,17 @@ def get_top_trader_signal(token_address: str, chain: str) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. EVM SNIPERS — Launch Sniper Detection
-#    GET /erc20/{address}/snipers
-#    Detects coordinated sniper bots at token launch.
-#    TRADING SIGNAL: High sniper count = coordinated dump setup = REJECT
+#    MIGRATED June 4 2026: GET /erc20/{address}/snipers REMOVED from Moralis.
+#    Now uses moralis_sniper_detection.discover_sniper_convergence() which
+#    queries GET /wallets/{addr}/swaps for known alpha wallets — richer signal.
+#    TRADING SIGNAL: High sniper convergence = coordinated dump setup = REJECT
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_evm_snipers(token_address: str, chain: str) -> dict:
     """
     Detect sniper bot activity on an EVM token at launch.
+    MIGRATED June 4 2026: /erc20/{addr}/snipers REMOVED.
+    Now uses moralis_sniper_detection (wallet swap convergence) for same signal.
     Returns sniper count, total sniped USD, and risk level.
     """
     if not _available(chain) or chain not in CHAIN_HEX:
@@ -245,27 +248,24 @@ def get_evm_snipers(token_address: str, chain: str) -> dict:
     cache_key = f"evm_snipers_{chain}_{token_address.lower()}"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
     try:
-        resp = get_session().get(
-            f"{BASE_URL}/erc20/{token_address}/snipers",
-            params={"chain": CHAIN_HEX[chain]},
-            headers=_headers(),
-            timeout=8,
+        from data.providers.moralis_sniper_detection import discover_sniper_convergence
+        convergences = discover_sniper_convergence()
+        token_lower = token_address.lower()
+        match = next(
+            (c for c in convergences
+             if c.get("token_address", "").lower() == token_lower
+             and c.get("chain", "") == chain),
+            None
         )
-        if resp.status_code in (400, 404, 429):
-            return {"sniper_count": 0, "risk_level": "unknown", "total_sniped_usd": 0.0}
-        resp.raise_for_status()
-        data = resp.json()
-        snipers = data.get("result", []) if isinstance(data, dict) else []
-        sniper_count = len(snipers)
-        total_sniped = sum(_safe_float(s.get("amount_usd", 0)) for s in snipers)
+        sniper_count = match.get("sniper_count", 0) if match else 0
+        total_sniped = _safe_float(match.get("total_buy_usd", 0)) if match else 0.0
 
         if sniper_count >= 10:
             risk = "critical"
         elif sniper_count >= 5:
             risk = "high"
-        elif sniper_count >= 2:
+        elif sniper_count >= 3:
             risk = "medium"
         elif sniper_count >= 1:
             risk = "low"
@@ -276,7 +276,7 @@ def get_evm_snipers(token_address: str, chain: str) -> dict:
             "sniper_count":     sniper_count,
             "risk_level":       risk,
             "total_sniped_usd": round(total_sniped, 2),
-            "snipers":          snipers[:5],  # Top 5 for logging
+            "snipers":          match.get("sniper_wallets", [])[:5] if match else [],
         }
         _set_cache(cache_key, result)
         if sniper_count > 0:
@@ -944,51 +944,105 @@ def get_all_wallet_defi_exposure(wallet_address: str) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. CHAIN METRICS — Macro Market Heat
-#    GET /volume/chains
-#    GET /volume/categories
+#    MIGRATED June 4 2026: GET /volume/chains and GET /volume/categories REMOVED.
+#    Replacement: DeFiLlama /v2/chains for EVM chain TVL/volume, plus
+#    Moralis /tokens/trending aggregated by chain for activity signal.
 #    TRADING SIGNAL: Hot chain = more liquidity, better fills, more gems
 # ─────────────────────────────────────────────────────────────────────────────
 
+# DeFiLlama chain name mapping (their slugs differ from ours)
+_DEFILLAMA_CHAIN_MAP = {
+    "ethereum": "Ethereum",
+    "base":     "Base",
+    "arbitrum": "Arbitrum",
+    "polygon":  "Polygon",
+    "bsc":      "BSC",
+    "avalanche":"Avalanche",
+    "solana":   "Solana",
+}
+
 def get_chain_metrics() -> dict:
     """
-    Get volume metrics for all chains.
+    Get volume/TVL metrics for all chains.
+    MIGRATED June 4 2026: /volume/chains removed from Moralis.
+    Now uses DeFiLlama /v2/chains (free, no key, 24h vol + TVL) as primary,
+    with Moralis /tokens/trending aggregated by chain as secondary signal.
     Returns chain heat scores — use to weight position sizing per chain.
     """
-    if not MORALIS_API_KEY:
-        return {}
     cache_key = "chain_metrics"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
+    import math
+    result = {}
     try:
+        # Primary: DeFiLlama chain TVL + 24h volume (free, no rate limit)
         resp = get_session().get(
-            f"{BASE_URL}/volume/chains",
-            headers=_headers(),
+            "https://api.llama.fi/v2/chains",
             timeout=10,
         )
-        if resp.status_code in (400, 404, 429):
-            return {}
-        resp.raise_for_status()
-        data = resp.json()
-        chains = data.get("result", data) if isinstance(data, dict) else data
-        result = {}
-        for c in (chains or []):
-            chain_id = c.get("chain_id", "")
-            # Map hex chain IDs back to our names
-            chain_name = next((k for k, v in CHAIN_HEX.items() if v == chain_id), chain_id)
-            result[chain_name] = {
-                "volume_24h":       _safe_float(c.get("volume_24h", 0)),
-                "volume_change_pct": _safe_float(c.get("volume_change_24h_percentage", 0)),
-                "transactions_24h": _safe_int(c.get("transactions_24h", 0)),
-                "active_addresses": _safe_int(c.get("active_addresses_24h", 0)),
-                "heat_score":       min(100.0, _safe_float(c.get("volume_24h", 0)) / 1_000_000),
-            }
-        _set_cache(cache_key, result)
-        logger.info(f"Chain metrics: {len(result)} chains loaded")
-        return result
+        if resp.status_code == 200:
+            chains_data = resp.json()
+            for c in (chains_data or []):
+                name = c.get("name", "")
+                our_name = next(
+                    (k for k, v in _DEFILLAMA_CHAIN_MAP.items() if v == name), None
+                )
+                if not our_name:
+                    continue
+                tvl = _safe_float(c.get("tvl", 0))
+                vol_24h = _safe_float(c.get("volume24h", tvl * 0.05))  # fallback: 5% of TVL
+                change_pct = _safe_float(c.get("change_1d", 0))
+                result[our_name] = {
+                    "volume_24h":        vol_24h,
+                    "tvl_usd":           tvl,
+                    "volume_change_pct": change_pct,
+                    "transactions_24h":  _safe_int(c.get("txsStats", {}).get("txsCount", 0)),
+                    "active_addresses":  0,  # Not available from DeFiLlama
+                    "heat_score":        min(100.0, math.log10(max(vol_24h, 1)) * 8 +
+                                             (10 if change_pct >= 10 else 0)),
+                }
     except Exception as e:
-        logger.debug(f"Chain metrics error: {e}")
-        return {}
+        logger.debug(f"DeFiLlama chain metrics error: {e}")
+
+    # Secondary: Moralis trending tokens — count trending tokens per chain as activity proxy
+    if MORALIS_API_KEY:
+        try:
+            _rate_check()
+            resp2 = get_session().get(
+                f"{BASE_URL}/tokens/trending",
+                headers=_headers(),
+                timeout=8,
+            )
+            if resp2.status_code == 200:
+                trending = resp2.json()
+                tokens = trending.get("result", trending) if isinstance(trending, dict) else trending
+                chain_token_counts: dict[str, int] = {}
+                for t in (tokens or []):
+                    cid = t.get("chain_id", "")
+                    cname = next((k for k, v in CHAIN_HEX.items() if v == cid), None)
+                    if cname:
+                        chain_token_counts[cname] = chain_token_counts.get(cname, 0) + 1
+                for cname, count in chain_token_counts.items():
+                    if cname in result:
+                        # Boost heat score by trending token count
+                        result[cname]["heat_score"] = min(
+                            100.0, result[cname]["heat_score"] + count * 2
+                        )
+                        result[cname]["trending_tokens"] = count
+                    else:
+                        result[cname] = {
+                            "volume_24h": 0, "tvl_usd": 0, "volume_change_pct": 0,
+                            "transactions_24h": 0, "active_addresses": 0,
+                            "heat_score": min(100.0, count * 5),
+                            "trending_tokens": count,
+                        }
+        except Exception as e:
+            logger.debug(f"Moralis trending chain signal error: {e}")
+
+    if result:
+        _set_cache(cache_key, result)
+        logger.info(f"Chain metrics: {len(result)} chains loaded via DeFiLlama+Moralis")
+    return result
 
 
 def get_chain_heat(chain: str) -> float:
@@ -1022,6 +1076,9 @@ def get_chain_heat(chain: str) -> float:
 def get_category_metrics() -> dict:
     """
     Get volume metrics by token category (meme, defi, gaming, etc.).
+    MIGRATED June 4 2026: /volume/categories removed from Moralis.
+    Now uses GET /tokens/categories (confirmed working) as primary,
+    then cross-references with /tokens/trending to compute volume proxies.
     Returns which categories are trending — use to weight discovery sources.
     """
     if not MORALIS_API_KEY:
@@ -1029,32 +1086,71 @@ def get_category_metrics() -> dict:
     cache_key = "category_metrics"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
+    result = {}
     try:
+        # Primary: GET /tokens/categories — confirmed working as of June 2026
+        _rate_check()
         resp = get_session().get(
-            f"{BASE_URL}/volume/categories",
+            f"{BASE_URL}/tokens/categories",
             headers=_headers(),
             timeout=10,
         )
-        if resp.status_code in (400, 404, 429):
-            return {}
-        resp.raise_for_status()
-        data = resp.json()
-        categories = data.get("result", data) if isinstance(data, dict) else data
-        result = {}
-        for cat in (categories or []):
-            name = cat.get("category", "")
-            result[name] = {
-                "volume_24h":        _safe_float(cat.get("volume_24h", 0)),
-                "volume_change_pct": _safe_float(cat.get("volume_change_24h_percentage", 0)),
-                "market_cap":        _safe_float(cat.get("market_cap", 0)),
-                "trending":          _safe_float(cat.get("volume_change_24h_percentage", 0)) >= 20,
-            }
-        _set_cache(cache_key, result)
-        return result
+        if resp.status_code == 200:
+            data = resp.json()
+            categories = data.get("result", data) if isinstance(data, dict) else data
+            for cat in (categories or []):
+                name = cat.get("category", cat.get("name", ""))
+                if not name:
+                    continue
+                result[name] = {
+                    "volume_24h":        _safe_float(cat.get("volume_24h", 0)),
+                    "volume_change_pct": _safe_float(cat.get("volume_change_24h_percentage",
+                                                              cat.get("change_24h", 0))),
+                    "market_cap":        _safe_float(cat.get("market_cap", 0)),
+                    "token_count":       _safe_int(cat.get("token_count", 0)),
+                    "trending":          False,  # Will be set below
+                }
     except Exception as e:
-        logger.debug(f"Category metrics error: {e}")
-        return {}
+        logger.debug(f"Category metrics /tokens/categories error: {e}")
+
+    # Secondary: use /tokens/trending to mark hot categories
+    try:
+        _rate_check()
+        resp2 = get_session().get(
+            f"{BASE_URL}/tokens/trending",
+            headers=_headers(),
+            timeout=8,
+        )
+        if resp2.status_code == 200:
+            trending = resp2.json()
+            tokens = trending.get("result", trending) if isinstance(trending, dict) else trending
+            cat_counts: dict[str, int] = {}
+            for t in (tokens or []):
+                for cat_tag in (t.get("categories") or t.get("category", "").split(",")):
+                    cat_tag = cat_tag.strip().lower()
+                    if cat_tag:
+                        cat_counts[cat_tag] = cat_counts.get(cat_tag, 0) + 1
+            for cat_name, count in cat_counts.items():
+                # Normalize to match our category names
+                matched = next(
+                    (k for k in result if k.lower() == cat_name), cat_name
+                )
+                if matched in result:
+                    result[matched]["trending"] = count >= 3
+                    result[matched]["trending_token_count"] = count
+                else:
+                    result[matched] = {
+                        "volume_24h": 0, "volume_change_pct": 0,
+                        "market_cap": 0, "token_count": count,
+                        "trending": count >= 3,
+                        "trending_token_count": count,
+                    }
+    except Exception as e:
+        logger.debug(f"Category trending signal error: {e}")
+
+    if result:
+        _set_cache(cache_key, result)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────

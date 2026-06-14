@@ -105,12 +105,21 @@ def age_hours(created_ms):
 # Moralis Money (Primary Source)
 # ─────────────────────────────────────────────────────────────────────────────
 def moralis_top_gainers(chain_slug: str) -> list:
+    """MIGRATED June 4 2026: /tokens/top-gainers returns 404.
+    Now uses /tokens/trending sorted by price_percent_change_usd.1h descending."""
     if not MORALIS_KEY: return []
-    data = safe_get(f"{MORALIS_BASE}/tokens/top-gainers",
-                    params={"chain": chain_slug, "time_frame": "1h"},
+    data = safe_get(f"{MORALIS_BASE}/tokens/trending",
+                    params={"chain": chain_slug},
                     headers=MORALIS_HEADERS)
     tokens = (data or {}).get("result", data if isinstance(data, list) else [])
-    logger.info(f"[Moralis] top-gainers {chain_slug}: {len(tokens)}")
+    # Sort by 1h price change descending to approximate top-gainers behavior
+    def _pc1h(t):
+        pc = t.get("price_percent_change_usd", {})
+        if isinstance(pc, dict):
+            return float(pc.get("1h", pc.get("oneHour", 0)) or 0)
+        return float(t.get("price_change_1h", 0) or 0)
+    tokens = sorted(tokens, key=_pc1h, reverse=True)
+    logger.info(f"[Moralis] top-gainers(trending) {chain_slug}: {len(tokens)}")
     return tokens
 
 def moralis_trending(chain_slug: str) -> list:
