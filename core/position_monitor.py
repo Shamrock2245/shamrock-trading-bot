@@ -1534,6 +1534,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                 pnl_usd=total_position_pnl,
                 token_symbol=pos.get("symbol", ""),
                 wallet=pos.get("wallet", "primary"),
+                chain=pos.get("chain", "ethereum"),
                 trade_id=pos.get("id", ""),
             )
             if compound_result.get("phase_changed"):

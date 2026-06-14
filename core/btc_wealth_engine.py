@@ -178,7 +178,7 @@ class BTCWealthEngine:
         
         return rotation_usd
 
-    def execute_rotation(self, usd_amount: float, chain: str = "ethereum") -> bool:
+    def execute_rotation(self, usd_amount: float, chain: str = "ethereum", wallet_alias: str = "primary") -> bool:
         """
         Execute the rotation by swapping USD worth of native/stable tokens into BTC.
         Uses executor.py for EVM chains or solana_executor.py for Solana.
@@ -229,11 +229,65 @@ class BTCWealthEngine:
                     if _tx:
                         tx_hash = _tx
                 else:
-                    # EVM Swap via 1inch
+                    # EVM Swap via 1inch/CowSwap
+                    from core.executor import TradeExecutor, TradeParams
+                    from config.wallets import get_wallet
+                    
+                    # Target BTC asset per chain
+                    BTC_ASSETS = {
+                        "ethereum": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",  # WBTC
+                        "base": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",      # cbBTC
+                        "arbitrum": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",  # WBTC
+                        "bsc": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",       # BTCB
+                    }
+                    
+                    target_btc = BTC_ASSETS.get(chain)
+                    if not target_btc:
+                        logger.warning(f"No BTC asset mapped for chain {chain}. Skipping EVM rotation.")
+                        return False
+                        
+                    wallet = get_wallet(wallet_alias)
+                    
+                    # Assume we are swapping from the chain's native token since PNL is tracked in native terms
+                    # or USDC. For simplicity, the TradeExecutor uses '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+                    # for native token swaps.
                     from core.executor import TradeExecutor
-                    # Swap stablecoin/native to WBTC
-                    # WBTC Ethereum: 0x2260fac5e5542a773aa44fbcfedf7c193bc2c599
-                    success = True # Mocking success for safe integration
+                    NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+                    
+                    # Estimate Native amount from USD value
+                    _native_price = 3000.0
+                    try:
+                        from core.price_fetcher import get_native_price_usd
+                        # Fallbacks
+                        if chain == "base" or chain == "arbitrum":
+                            _native_price = get_native_price_usd("ETH") or _native_price
+                        elif chain == "bsc":
+                            _native_price = get_native_price_usd("BNB") or 600.0
+                        else:
+                            _native_price = get_native_price_usd("ETH") or _native_price
+                    except Exception:
+                        pass
+                        
+                    native_amount = usd_amount / max(_native_price, 0.001)
+                    amount_in_wei = int(native_amount * 10**18)
+                    
+                    params = TradeParams(
+                        wallet=wallet,
+                        chain=chain,
+                        token_in=NATIVE_TOKEN,
+                        token_out=target_btc,
+                        amount_in_wei=amount_in_wei,
+                        slippage_bps=200,  # 2% slippage for blue chips
+                    )
+                    
+                    executor = TradeExecutor(is_paper=False)
+                    result = executor.execute_trade(params)
+                    
+                    success = result.success
+                    if success:
+                        tx_hash = result.tx_hash or "0x_success"
+                    else:
+                        logger.error(f"BTC Wealth Engine: EVM Swap failed: {result.error}")
             except Exception as e:
                 logger.error(f"BTC Wealth Engine: Live rotation execution failed: {e}")
                 success = False

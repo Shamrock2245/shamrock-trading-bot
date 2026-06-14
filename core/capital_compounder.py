@@ -390,6 +390,7 @@ def record_trade_pnl(
     pnl_usd: float,
     token_symbol: str = "",
     wallet: str = "primary",
+    chain: str = "ethereum",
     trade_id: str = "",
 ) -> dict:
     """
@@ -457,9 +458,14 @@ def record_trade_pnl(
     if pnl_usd > 0:
         try:
             from core.btc_wealth_engine import btc_wealth_engine
-            btc_rotation_amount = btc_wealth_engine.evaluate_rotation(pnl_usd)
+            btc_rotation_amount = btc_wealth_engine.evaluate_rotation(pnl_usd, chain=chain)
+            if btc_rotation_amount > 0:
+                success = btc_wealth_engine.execute_rotation(btc_rotation_amount, chain=chain, wallet_alias=wallet)
+                if success:
+                    # Deduct the rotated amount from the sweep amount
+                    sweep_amount = max(0.0, sweep_amount - btc_rotation_amount)
         except Exception as _btc_err:
-            logger.debug(f"BTC rotation skipped: {_btc_err}")
+            logger.debug(f"BTC rotation skipped/failed: {_btc_err}")
 
     # Apply sweep
     if sweep_amount > 0:
