@@ -172,10 +172,10 @@ JITO_AUTH_KEY = os.getenv("JITO_AUTH_KEY", "")  # Optional: Jito auth keypair fo
 # Sandwich Bot: monitors Base/Solana mempools for large swaps with >2% slippage
 # Liquidation Hunter: monitors Hyperliquid + Aave V3 for under-collateralised positions
 # Both strategies execute ONLY if net profit after gas/bribes is strictly positive.
-MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "false").lower() == "true"
+MEV_SANDWICH_ENABLED = os.getenv("MEV_SANDWICH_ENABLED", "true").lower() == "true"  # ENABLED: high-conviction only, $2+ net profit gate
 JIT_ENABLED = os.getenv("JIT_ENABLED", "false").lower() == "true"  # DISABLED: requires $100K+ capital per trade
 MEV_LIQUIDATION_ENABLED = os.getenv("MEV_LIQUIDATION_ENABLED", "true").lower() == "true"
-MEV_MIN_NET_PROFIT_USD = float(os.getenv("MEV_MIN_NET_PROFIT_USD", "1.0"))  # Min net profit to execute
+MEV_MIN_NET_PROFIT_USD = float(os.getenv("MEV_MIN_NET_PROFIT_USD", "2.0"))  # Min net profit to execute — $2 floor filters noise, keeps only high-conviction sandwiches
 MEV_MAX_POSITION_USD = float(os.getenv("MEV_MAX_POSITION_USD", "500.0"))   # Max capital per sandwich
 MEV_SLIPPAGE_THRESHOLD_PCT = float(os.getenv("MEV_SLIPPAGE_THRESHOLD_PCT", "2.0"))  # Min victim slippage %
 # Aave V3 Pool addresses (canonical, verified on-chain)

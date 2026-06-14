@@ -189,99 +189,19 @@ def get_spl_token_balances(address: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Token Snipers  (GET /token/{network}/pairs/{pairAddress}/snipers) — 50 CU
+# 4. Token Snipers  (DEPRECATED June 4 2026)
+#    GET /token/{network}/pairs/{pairAddress}/snipers was REMOVED from Moralis.
+#    No replacement endpoint exists. Function returns safe empty result.
+#    EVM sniper detection still works via moralis_intelligence.get_evm_snipers().
 # ─────────────────────────────────────────────────────────────────────────────
 def get_token_snipers(pair_address: str, blocks_after_creation: int = 10) -> dict:
     """
-    Get snipers for a Solana token pair.
-
-    Args:
-        pair_address: The Raydium/Orca pair address
-        blocks_after_creation: How many blocks after pool creation to scan (default: 10)
-
-    Returns:
-        {
-            "sniper_count": int,
-            "total_sniped_usd": float,
-            "snipers": [{
-                "wallet": str,
-                "tokens_sniped": float,
-                "usd_sniped": float,
-                "realized_profit_pct": float,
-                "current_balance": float,
-                "sold": bool,
-            }],
-            "risk_level": "low" | "medium" | "high" | "critical",
-        }
+    DEPRECATED June 4 2026: /token/{network}/pairs/{pairAddress}/snipers REMOVED.
+    Returns a safe empty result. Callers should use moralis_intelligence.get_evm_snipers()
+    for EVM sniper detection. No Solana equivalent currently available.
     """
-    if not _available() or not pair_address:
-        return {"sniper_count": 0, "total_sniped_usd": 0, "snipers": [], "risk_level": "unknown"}
-
-    cache_key = f"snipers_{pair_address}"
-    if _is_cached(cache_key):
-        return _get_cache(cache_key)
-
-    _rate_check()
-    try:
-        params = {}
-        if blocks_after_creation:
-            params["blocksAfterCreation"] = blocks_after_creation
-
-        resp = get_session().get(
-            f"{BASE_URL}/token/{NETWORK}/pairs/{pair_address}/snipers",
-            params=params,
-            headers=_headers(),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-
-        # Parse the response
-        raw_snipers = raw.get("result", [])
-        total_sniped_usd = sum(s.get("totalSnipedUsd", 0) for s in raw_snipers)
-
-        snipers = []
-        for s in raw_snipers:
-            snipers.append({
-                "wallet": s.get("walletAddress", ""),
-                "tokens_sniped": s.get("totalTokensSniped", 0),
-                "usd_sniped": s.get("totalSnipedUsd", 0),
-                "realized_profit_pct": s.get("realizedProfitPercentage", 0),
-                "current_balance": s.get("currentBalance", 0),
-                "sold": s.get("totalTokensSold", 0) > 0,
-                "sell_txns": s.get("totalSellTransactions", 0),
-            })
-
-        # Risk classification based on sniper behavior
-        sniper_count = len(snipers)
-        dumped_count = sum(1 for s in snipers if s["sold"])
-
-        if sniper_count >= 10 or total_sniped_usd >= 50_000:
-            risk_level = "critical"
-        elif sniper_count >= 5 or dumped_count >= 3:
-            risk_level = "high"
-        elif sniper_count >= 2:
-            risk_level = "medium"
-        else:
-            risk_level = "low"
-
-        result = {
-            "sniper_count": sniper_count,
-            "total_sniped_usd": total_sniped_usd,
-            "snipers": snipers,
-            "risk_level": risk_level,
-            "dumped_count": dumped_count,
-        }
-
-        _set_cache(cache_key, result)
-        logger.info(
-            f"🎯 Snipers for {pair_address[:8]}...: "
-            f"{sniper_count} snipers (${total_sniped_usd:,.0f} sniped) — risk={risk_level}"
-        )
-        return result
-    except Exception as e:
-        logger.warning(f"Moralis snipers fetch failed for {pair_address}: {e}")
-        return {"sniper_count": 0, "total_sniped_usd": 0, "snipers": [], "risk_level": "unknown"}
+    # Endpoint removed June 4 2026 — return safe empty result, no API call made
+    return {"sniper_count": 0, "total_sniped_usd": 0.0, "snipers": [], "risk_level": "unknown", "dumped_count": 0}
 
 
 def get_sniper_score(pair_address: str) -> float:

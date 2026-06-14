@@ -1891,82 +1891,95 @@ def get_entity_label(address: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 18. MARKET METRICS API — Global crypto market data (replaces CoinGecko)
-# GET /market-data/global/market-cap
-# GET /market-data/top-cryptocurrencies-by-market-cap
+# 18. MARKET METRICS — Global crypto market data
+#     MIGRATED June 4 2026: /market-data/global/market-cap and
+#     /market-data/top-cryptocurrencies-by-market-cap REMOVED from Moralis.
+#     Moralis Universal Market Metrics API is documented but returns 404 (not live).
+#     Fallback: CoinGecko /global and /coins/markets (free, no API key required).
 # ─────────────────────────────────────────────────────────────────────────────
+_COINGECKO_BASE = "https://api.coingecko.com/api/v3"
+
+
 def get_global_market_metrics() -> Optional[dict]:
     """
-    Fetch global crypto market metrics from Moralis Market Metrics API.
-    Used in macro_filter.py as a primary data source (replaces CoinGecko).
-    Returns total market cap, BTC dominance, 24h volume, and market cap change.
+    Fetch global crypto market metrics.
+    MIGRATED June 2026: Moralis /market-data/global/market-cap REMOVED.
+    Now uses CoinGecko /global endpoint (free, no key required).
+    Returns total market cap, BTC/ETH dominance, 24h volume, market cap change.
     """
-    if not MORALIS_API_KEY:
-        return None
     cache_key = "global_market_metrics"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/market-data/global/market-cap",
-            headers=_headers(),
+            f"{_COINGECKO_BASE}/global",
             timeout=10,
         )
-        if resp.status_code in (400, 404, 429):
+        if resp.status_code in (429, 503):
+            logger.debug("CoinGecko /global rate-limited — skipping")
             return None
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json().get("data", {})
+        mcap = data.get("total_market_cap", {})
+        vol = data.get("total_volume", {})
         result = {
-            "total_market_cap_usd": _safe_float(data.get("total_market_cap_usd", 0)),
-            "btc_dominance_pct": _safe_float(data.get("btc_dominance", 0)),
-            "market_cap_change_24h_pct": _safe_float(data.get("market_cap_change_24h_percentage", 0)),
+            "total_market_cap_usd": _safe_float(mcap.get("usd", 0)),
+            "total_volume_24h_usd": _safe_float(vol.get("usd", 0)),
+            "btc_dominance_pct": _safe_float(data.get("market_cap_percentage", {}).get("btc", 0)),
+            "eth_dominance_pct": _safe_float(data.get("market_cap_percentage", {}).get("eth", 0)),
+            "market_cap_change_24h_pct": _safe_float(data.get("market_cap_change_percentage_24h_usd", 0)),
+            "active_coins": _safe_int(data.get("active_cryptocurrencies", 0)),
         }
         _set_cache(cache_key, result)
         return result
     except Exception as e:
-        logger.debug(f"Moralis Market Metrics error: {e}")
+        logger.debug(f"Global market metrics (CoinGecko fallback) error: {e}")
         return None
 
 
 def get_top_crypto_by_market_cap(limit: int = 10) -> list[dict]:
     """
-    Fetch top cryptocurrencies by market cap from Moralis.
-    Used in macro_filter.py to check BTC/ETH/SOL price trends.
+    Fetch top cryptocurrencies by market cap.
+    MIGRATED June 2026: Moralis /market-data/top-cryptocurrencies-by-market-cap REMOVED.
+    Now uses CoinGecko /coins/markets (free, no key required).
     """
-    if not MORALIS_API_KEY:
-        return []
     cache_key = f"top_crypto_mcap_{limit}"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/market-data/top-cryptocurrencies-by-market-cap",
-            params={"top": limit},
-            headers=_headers(),
+            f"{_COINGECKO_BASE}/coins/markets",
+            params={
+                "vs_currency": "usd",
+                "order": "market_cap_desc",
+                "per_page": limit,
+                "page": 1,
+                "sparkline": False,
+                "price_change_percentage": "24h,7d",
+            },
             timeout=10,
         )
-        if resp.status_code in (400, 404, 429):
+        if resp.status_code in (429, 503):
+            logger.debug("CoinGecko /coins/markets rate-limited — skipping")
             return []
         resp.raise_for_status()
-        data = resp.json()
-        coins = data.get("result", []) if isinstance(data, dict) else []
+        coins = resp.json()
         result = [
             {
                 "symbol": c.get("symbol", "").upper(),
                 "name": c.get("name", ""),
-                "price_usd": _safe_float(c.get("price_usd", 0)),
-                "market_cap_usd": _safe_float(c.get("market_cap_usd", 0)),
-                "price_change_24h_pct": _safe_float(c.get("price_24h_percent_change", 0)),
-                "price_change_7d_pct": _safe_float(c.get("price_7d_percent_change", 0)),
+                "price_usd": _safe_float(c.get("current_price", 0)),
+                "market_cap_usd": _safe_float(c.get("market_cap", 0)),
+                "price_change_24h_pct": _safe_float(c.get("price_change_percentage_24h", 0)),
+                "price_change_7d_pct": _safe_float(c.get("price_change_percentage_7d_in_currency", 0)),
+                "volume_24h_usd": _safe_float(c.get("total_volume", 0)),
             }
             for c in coins
         ]
         _set_cache(cache_key, result)
         return result
     except Exception as e:
-        logger.debug(f"Moralis top coins error: {e}")
+        logger.debug(f"Top coins by market cap (CoinGecko fallback) error: {e}")
         return []
 
 

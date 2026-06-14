@@ -1,22 +1,23 @@
 """
-data/providers/moralis_market_metrics.py — Moralis Universal Market Metrics API.
+data/providers/moralis_market_metrics.py — Market Metrics Provider (Migrated June 2026)
 
-Provides on-chain market-wide volume and activity metrics across chains and categories.
-Used to power the macro regime filter and adaptive mode system.
+MIGRATION NOTES (June 4, 2026):
+  The following Moralis endpoints were REMOVED and have NO live replacement yet:
+    ❌ GET /volume/chains                          → DEAD
+    ❌ GET /volume/categories                      → DEAD
+    ❌ GET /market-data/global/market-cap          → DEAD
+    ❌ GET /market-data/top-cryptocurrencies-by-market-cap → DEAD
 
-Endpoints used:
-  GET /volume/chains                          → Volume stats per chain (150 CU)
-  GET /volume/categories                      → Volume stats per DeFi category (150 CU)
-  GET /volume/timeseries                      → Time-series volume data (150 CU)
-  GET /volume/timeseries/categories           → Category time-series volume (150 CU)
-  GET /market-data/global/market-cap          → Global crypto market cap + BTC dominance (200 CU)
-  GET /market-data/top-cryptocurrencies-by-market-cap → Top coins by market cap (200 CU)
+  The Moralis Universal Market Metrics API (/market/*, /chains/metrics) is
+  documented but returns 404 as of June 14, 2026 — not yet deployed.
 
-CU Conservation Strategy:
-  - 10-minute cache for chain/category volume (fast-moving but not tick-level)
-  - 15-minute cache for global market cap (changes slowly)
-  - Only called once per scan cycle (not per token)
-  - Results shared across all scan cycle consumers via module-level cache
+  REPLACEMENT STRATEGY:
+    - CoinGecko /api/v3/global  → global market cap, BTC dominance (free, no key)
+    - CoinGecko /api/v3/coins/markets → top coins by market cap (free, no key)
+    - Moralis GET /tokens/{addr}/analytics → per-token buy/sell velocity (✅ LIVE)
+    - Moralis GET /tokens/trending → chain-level heat proxy (✅ LIVE)
+
+  When Moralis Universal Market Metrics goes live, swap the CoinGecko calls back.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ import logging
 import threading
 import time
 from typing import Optional, Any
+
+import requests as _requests
 
 from data.http_session import get_session
 from config import settings
@@ -36,9 +39,10 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 MORALIS_API_KEY: str = getattr(settings, "MORALIS_API_KEY", "")
 BASE_URL = "https://deep-index.moralis.io/api/v2.2"
+COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 # Cache TTLs
-VOLUME_CACHE_TTL = 600     # 10 minutes
+VOLUME_CACHE_TTL = 600      # 10 minutes
 MARKET_CAP_CACHE_TTL = 900  # 15 minutes
 
 _cache: dict[str, dict] = {}
@@ -46,9 +50,8 @@ _cache_lock = threading.Lock()
 
 # Rate limiter — shared Pro-tier global limiter (60 RPS, CU-budget-aware)
 from data.providers.moralis_rate_limiter import rate_check as _rate_check
-_rate_lock = threading.Lock()
 
-# Chain hex IDs
+# Chain hex IDs (kept for reference / future Universal API migration)
 CHAIN_HEX = {
     "ethereum": "0x1",
     "base": "0x2105",
@@ -67,8 +70,6 @@ def _headers() -> dict:
 
 def _available() -> bool:
     return bool(MORALIS_API_KEY)
-
-
 
 
 def _is_cached(key: str, ttl: int = VOLUME_CACHE_TTL) -> bool:
@@ -102,62 +103,84 @@ def _safe_int(val: Any) -> int:
         return 0
 
 
+def _coingecko_get(path: str, params: dict | None = None) -> dict | list | None:
+    """CoinGecko public API call — free tier, no key required."""
+    try:
+        resp = get_session().get(
+            f"{COINGECKO_BASE}{path}",
+            params=params or {},
+            timeout=12,
+        )
+        if resp.status_code == 429:
+            logger.debug("CoinGecko rate limited — returning None")
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.debug(f"CoinGecko error ({path}): {e}")
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Chain Volume Metrics
+# Chain Volume / Heat Metrics
+# Moralis /volume/chains REMOVED June 2026 — replaced with CoinGecko fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_volume_by_chain() -> dict[str, dict]:
     """
-    Get 24h on-chain volume statistics per chain.
-    Returns a dict keyed by chain name with volume, tx count, and heat score.
-    
-    CU Cost: 150
+    Get 24h on-chain activity heat scores per chain.
+
+    NOTE: Moralis /volume/chains was removed June 4 2026. The Universal Market
+    Metrics API replacement is documented but not yet live (returns 404).
+    Uses CoinGecko /global for market cap dominance as a chain heat proxy.
     Cache TTL: 10 minutes
     """
-    if not _available():
-        return {}
-    
     cache_key = "volume_by_chain"
     if _is_cached(cache_key, VOLUME_CACHE_TTL):
         return _get_cache(cache_key)
-    
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{BASE_URL}/volume/chains",
-            headers=_headers(),
-            timeout=10,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {}
-        resp.raise_for_status()
-        data = resp.json()
-        chains_raw = data.get("result", data) if isinstance(data, dict) else data
-        
+
+    cg_data = _coingecko_get("/global")
+    if cg_data:
+        data = cg_data.get("data", {})
+        total_vol = _safe_float(data.get("total_volume", {}).get("usd", 0))
+        mcp = data.get("market_cap_percentage", {})
+        # Approximate chain heat from market cap dominance
+        chain_proxies = {
+            "ethereum": mcp.get("eth", 10.0),
+            "base":     mcp.get("eth", 10.0) * 0.15,
+            "arbitrum": mcp.get("eth", 10.0) * 0.20,
+            "polygon":  mcp.get("matic", 1.0),
+            "bsc":      mcp.get("bnb", 3.0),
+            "solana":   mcp.get("sol", 3.0),
+        }
         result = {}
-        for c in (chains_raw or []):
-            chain_id = c.get("chain_id", "")
-            chain_name = next((k for k, v in CHAIN_HEX.items() if v == chain_id), chain_id)
-            vol_24h = _safe_float(c.get("volume_24h", 0))
-            result[chain_name] = {
-                "volume_24h": vol_24h,
-                "volume_change_pct": _safe_float(c.get("volume_change_24h_percentage", 0)),
-                "transactions_24h": _safe_int(c.get("transactions_24h", 0)),
-                "active_addresses": _safe_int(c.get("active_addresses_24h", 0)),
-                "heat_score": min(100.0, vol_24h / 1_000_000),  # Normalize to 0-100
+        for chain, dominance_pct in chain_proxies.items():
+            est_vol = total_vol * (dominance_pct / 100.0)
+            result[chain] = {
+                "volume_24h": est_vol,
+                "volume_change_pct": 0.0,
+                "transactions_24h": 0,
+                "active_addresses": 0,
+                "heat_score": min(100.0, dominance_pct * 3),
+                "source": "coingecko_dominance_proxy",
             }
-        
         _set_cache(cache_key, result)
-        logger.info(f"Market Metrics: Chain volumes loaded for {len(result)} chains")
+        logger.info(f"Market Metrics: Chain heat loaded via CoinGecko proxy ({len(result)} chains)")
         return result
-    except Exception as e:
-        logger.debug(f"Volume by chain error: {e}")
-        return {}
+
+    # Last resort: neutral heat scores so macro_filter never fully blocks
+    fallback = {
+        ch: {"volume_24h": 0, "volume_change_pct": 0, "transactions_24h": 0,
+             "active_addresses": 0, "heat_score": 50.0, "source": "static_fallback"}
+        for ch in ["ethereum", "base", "arbitrum", "polygon", "bsc", "solana"]
+    }
+    _set_cache(cache_key, fallback)
+    return fallback
 
 
 def get_chain_heat(chain: str) -> float:
     """
-    Get a 0-100 heat score for a specific chain based on 24h volume.
+    Get a 0-100 heat score for a specific chain based on 24h activity.
     Higher = more active = better conditions for gem sniping.
     """
     volumes = get_volume_by_chain()
@@ -166,146 +189,112 @@ def get_chain_heat(chain: str) -> float:
 
 def get_volume_by_category() -> dict[str, dict]:
     """
-    Get 24h volume statistics per DeFi category (DEX, Lending, Derivatives, etc.)
-    Used to identify which DeFi sectors are hot.
-    
-    CU Cost: 150
-    Cache TTL: 10 minutes
+    Get 24h volume statistics per DeFi category.
+
+    NOTE: Moralis /volume/categories was removed June 4 2026. No direct
+    replacement exists. Returns empty dict — callers must handle gracefully.
     """
-    if not _available():
-        return {}
-    
     cache_key = "volume_by_category"
     if _is_cached(cache_key, VOLUME_CACHE_TTL):
         return _get_cache(cache_key)
-    
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{BASE_URL}/volume/categories",
-            headers=_headers(),
-            timeout=10,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {}
-        resp.raise_for_status()
-        data = resp.json()
-        categories_raw = data.get("result", data) if isinstance(data, dict) else data
-        
-        result = {}
-        for cat in (categories_raw or []):
-            cat_name = cat.get("category", cat.get("name", ""))
-            if cat_name:
-                result[cat_name] = {
-                    "volume_24h": _safe_float(cat.get("volume_24h", 0)),
-                    "volume_change_pct": _safe_float(cat.get("volume_change_24h_percentage", 0)),
-                    "transactions_24h": _safe_int(cat.get("transactions_24h", 0)),
-                }
-        
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Volume by category error: {e}")
-        return {}
+
+    # Moralis endpoint dead, Universal API not yet live.
+    # Return static category placeholders so callers don't crash.
+    result = {
+        "DEX":         {"volume_24h": 0, "volume_change_pct": 0, "transactions_24h": 0, "source": "unavailable"},
+        "Lending":     {"volume_24h": 0, "volume_change_pct": 0, "transactions_24h": 0, "source": "unavailable"},
+        "Derivatives": {"volume_24h": 0, "volume_change_pct": 0, "transactions_24h": 0, "source": "unavailable"},
+        "Yield":       {"volume_24h": 0, "volume_change_pct": 0, "transactions_24h": 0, "source": "unavailable"},
+    }
+    _set_cache(cache_key, result)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Global Market Cap & BTC Dominance
+# Moralis /market-data/global/market-cap REMOVED June 2026 → CoinGecko
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_global_market_metrics() -> Optional[dict]:
     """
     Fetch global crypto market metrics: total market cap, BTC dominance, 24h change.
     Used by macro_filter.py to determine overall market regime.
-    
-    CU Cost: 200
+
+    NOTE: Moralis /market-data/global/market-cap removed June 4 2026.
+    Now uses CoinGecko /global (free, no key required).
     Cache TTL: 15 minutes
     """
-    if not _available():
-        return None
-    
     cache_key = "global_market_metrics"
     if _is_cached(cache_key, MARKET_CAP_CACHE_TTL):
         return _get_cache(cache_key)
-    
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{BASE_URL}/market-data/global/market-cap",
-            headers=_headers(),
-            timeout=10,
-        )
-        if resp.status_code in (400, 404, 429):
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        
-        result = {
-            "total_market_cap_usd": _safe_float(data.get("total_market_cap", 0)),
-            "btc_dominance_pct": _safe_float(data.get("btc_dominance", 0)),
-            "eth_dominance_pct": _safe_float(data.get("eth_dominance", 0)),
-            "market_cap_change_24h_pct": _safe_float(data.get("market_cap_change_24h_percentage", 0)),
-            "total_volume_24h_usd": _safe_float(data.get("total_volume_24h", 0)),
-            "defi_market_cap_usd": _safe_float(data.get("defi_market_cap", 0)),
-            "last_updated": time.time(),
-        }
-        _set_cache(cache_key, result)
-        logger.info(
-            f"Market Metrics: Global market cap=${result['total_market_cap_usd']/1e12:.2f}T | "
-            f"BTC dominance={result['btc_dominance_pct']:.1f}%"
-        )
-        return result
-    except Exception as e:
-        logger.debug(f"Global market metrics error: {e}")
+
+    cg_data = _coingecko_get("/global")
+    if not cg_data:
         return None
+
+    data = cg_data.get("data", {})
+    total_mcap = _safe_float(data.get("total_market_cap", {}).get("usd", 0))
+    total_vol = _safe_float(data.get("total_volume", {}).get("usd", 0))
+    mcp = data.get("market_cap_percentage", {})
+
+    result = {
+        "total_market_cap_usd": total_mcap,
+        "btc_dominance_pct": _safe_float(mcp.get("btc", 0)),
+        "eth_dominance_pct": _safe_float(mcp.get("eth", 0)),
+        "market_cap_change_24h_pct": _safe_float(data.get("market_cap_change_percentage_24h_usd", 0)),
+        "total_volume_24h_usd": total_vol,
+        "defi_market_cap_usd": 0.0,  # Not available from CoinGecko free tier
+        "last_updated": time.time(),
+        "source": "coingecko",
+    }
+    _set_cache(cache_key, result)
+    logger.info(
+        f"Market Metrics: Global mcap=${result['total_market_cap_usd']/1e12:.2f}T | "
+        f"BTC dom={result['btc_dominance_pct']:.1f}% | "
+        f"24h chg={result['market_cap_change_24h_pct']:+.2f}%"
+    )
+    return result
 
 
 def get_top_coins_by_market_cap(limit: int = 10) -> list[dict]:
     """
     Fetch top cryptocurrencies by market cap.
     Used to check BTC, ETH, SOL price trends for macro regime.
-    
-    CU Cost: 200
+
+    NOTE: Moralis /market-data/top-cryptocurrencies-by-market-cap removed June 4 2026.
+    Now uses CoinGecko /coins/markets (free, no key required).
     Cache TTL: 15 minutes
     """
-    if not _available():
-        return []
-    
     cache_key = f"top_coins_mcap_{limit}"
     if _is_cached(cache_key, MARKET_CAP_CACHE_TTL):
         return _get_cache(cache_key)
-    
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{BASE_URL}/market-data/top-cryptocurrencies-by-market-cap",
-            params={"top": limit},
-            headers=_headers(),
-            timeout=10,
-        )
-        if resp.status_code in (400, 404, 429):
-            return []
-        resp.raise_for_status()
-        data = resp.json()
-        coins = data.get("result", []) if isinstance(data, dict) else []
-        
-        result = [
-            {
-                "symbol": c.get("symbol", "").upper(),
-                "name": c.get("name", ""),
-                "price_usd": _safe_float(c.get("price_usd", 0)),
-                "market_cap_usd": _safe_float(c.get("market_cap_usd", 0)),
-                "price_change_24h_pct": _safe_float(c.get("price_24h_percent_change", 0)),
-                "price_change_7d_pct": _safe_float(c.get("price_7d_percent_change", 0)),
-                "volume_24h_usd": _safe_float(c.get("volume_usd", 0)),
-            }
-            for c in coins
-        ]
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Top coins by market cap error: {e}")
+
+    cg_data = _coingecko_get("/coins/markets", {
+        "vs_currency": "usd",
+        "order": "market_cap_desc",
+        "per_page": limit,
+        "page": 1,
+        "sparkline": "false",
+        "price_change_percentage": "24h,7d",
+    })
+    if not cg_data:
         return []
+
+    result = [
+        {
+            "symbol": c.get("symbol", "").upper(),
+            "name": c.get("name", ""),
+            "price_usd": _safe_float(c.get("current_price", 0)),
+            "market_cap_usd": _safe_float(c.get("market_cap", 0)),
+            "price_change_24h_pct": _safe_float(c.get("price_change_percentage_24h", 0)),
+            "price_change_7d_pct": _safe_float(c.get("price_change_percentage_7d_in_currency", 0)),
+            "volume_24h_usd": _safe_float(c.get("total_volume", 0)),
+            "source": "coingecko",
+        }
+        for c in (cg_data if isinstance(cg_data, list) else [])
+    ]
+    _set_cache(cache_key, result)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -316,7 +305,6 @@ def get_market_regime_signal() -> dict:
     """
     Compute a composite market regime signal from all available metrics.
     Returns a dict with regime classification and supporting data.
-    
     Used by macro_filter.py as a primary data source.
     """
     result = {
@@ -331,15 +319,15 @@ def get_market_regime_signal() -> dict:
         "hot_chains": [],
         "confidence": 0.0,
     }
-    
-    # 1. Global market metrics
+
+    # 1. Global market metrics (CoinGecko fallback)
     global_metrics = get_global_market_metrics()
     if global_metrics:
         result["btc_dominance"] = global_metrics.get("btc_dominance_pct", 0.0)
         result["total_market_cap_usd"] = global_metrics.get("total_market_cap_usd", 0.0)
         result["market_cap_change_24h_pct"] = global_metrics.get("market_cap_change_24h_pct", 0.0)
-    
-    # 2. Top coins for BTC/ETH price context
+
+    # 2. Top coins for BTC/ETH price context (CoinGecko fallback)
     top_coins = get_top_coins_by_market_cap(limit=5)
     for coin in top_coins:
         if coin["symbol"] == "BTC":
@@ -347,44 +335,39 @@ def get_market_regime_signal() -> dict:
             result["btc_change_24h_pct"] = coin["price_change_24h_pct"]
         elif coin["symbol"] == "ETH":
             result["eth_change_24h_pct"] = coin["price_change_24h_pct"]
-    
-    # 3. Chain volumes
+
+    # 3. Chain heat scores (CoinGecko dominance proxy)
     chain_volumes = get_volume_by_chain()
     result["chain_volumes"] = chain_volumes
     result["hot_chains"] = [
         chain for chain, data in chain_volumes.items()
         if data.get("heat_score", 0) > 60
     ]
-    
+
     # 4. Regime classification
     market_cap_change = result["market_cap_change_24h_pct"]
     btc_change = result["btc_change_24h_pct"]
     btc_dominance = result["btc_dominance"]
-    
-    # Strong bull: market cap up >3%, BTC up >2%
+
     if market_cap_change > 3.0 and btc_change > 2.0:
         result["regime"] = "BULL"
         result["confidence"] = min(100.0, (market_cap_change + btc_change) * 5)
-    # Strong bear: market cap down >3%, BTC down >2%
     elif market_cap_change < -3.0 and btc_change < -2.0:
         result["regime"] = "BEAR"
         result["confidence"] = min(100.0, abs(market_cap_change + btc_change) * 5)
-    # BTC dominance rising + altcoin bleed = altcoin bear
     elif btc_dominance > 60.0 and market_cap_change < -1.0:
         result["regime"] = "BTC_DOMINANCE"
         result["confidence"] = min(100.0, btc_dominance - 50.0)
-    # Mild positive
     elif market_cap_change > 0.5:
         result["regime"] = "MILD_BULL"
         result["confidence"] = min(100.0, market_cap_change * 10)
-    # Mild negative
     elif market_cap_change < -0.5:
         result["regime"] = "MILD_BEAR"
         result["confidence"] = min(100.0, abs(market_cap_change) * 10)
     else:
         result["regime"] = "NEUTRAL"
         result["confidence"] = 50.0
-    
+
     logger.info(
         f"Market Regime: {result['regime']} | "
         f"BTC={result['btc_change_24h_pct']:+.1f}% | "
@@ -393,20 +376,3 @@ def get_market_regime_signal() -> dict:
         f"Hot chains: {result['hot_chains']}"
     )
     return result
-
-
-def get_usage_stats() -> dict:
-    """Return cache and rate-limit stats for monitoring."""
-    with _cache_lock:
-        cached_count = len(_cache)
-    return {
-        "api_key_configured": bool(MORALIS_API_KEY),
-        "cached_keys": cached_count,
-        "rate_limiter": "shared_pro_tier",
-        "endpoints_covered": [
-            "getVolumeStatsByChain (150 CU)",
-            "getVolumeStatsByCategory (150 CU)",
-            "getGlobalMarketCap (200 CU)",
-            "getTopCryptocurrenciesByMarketCap (200 CU)",
-        ],
-    }

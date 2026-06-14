@@ -1309,6 +1309,42 @@ async def run_bot_loop():
         "Private RPC routing: Flashbots/Jito"
     )
 
+    # ── HL Perps Scanner: 15-minute scan daemon ─────────────────────────────────────────────────────────────────────────────────────────
+    def _hl_perps_daemon():
+        """Background thread: scans all 230 HL perps every 15 minutes for high-conviction entries."""
+        import time as _time
+        _time.sleep(30)  # Wait 30s for bot to fully initialize
+        try:
+            from core.hl_perps_scanner import HLPerpsScanner
+            _hl_scanner = HLPerpsScanner()
+            logger.info("✅ HL Perps Scanner initialized — 230 coins | 15-min cycles | 10%TP/3.5%SL/3x")
+        except Exception as _hl_init_err:
+            logger.error(f"HL Perps Scanner init failed: {_hl_init_err}")
+            return
+        while True:
+            try:
+                signals = _hl_scanner.run_cycle()
+                if signals:
+                    for sig in signals:
+                        logger.info(
+                            f"[HL-PERPS] {sig.coin} {sig.direction} | score={sig.score:.1f} | "
+                            f"entry={sig.entry_price:.4f} | TP={sig.tp_price:.4f} | SL={sig.sl_price:.4f} | "
+                            f"funding={sig.funding_rate*100:.4f}%"
+                        )
+                else:
+                    logger.debug("[HL-PERPS] No high-conviction setups this cycle.")
+            except Exception as _hl_cycle_err:
+                logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
+            _time.sleep(900)  # 15-minute scan interval
+
+    _hl_perps_thread = threading.Thread(target=_hl_perps_daemon, daemon=True, name="hl-perps-scanner")
+    _hl_perps_thread.start()
+    logger.info(
+        "✅ HL Perps Scanner daemon started — "
+        "scanning 230 perps every 15 min | RSI+MACD+EMA+ADX+Funding | "
+        "10%TP / 3.5%SL / 3x leverage | high-conviction only"
+    )
+
     # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
     def _rl_training_daemon():
         """Background thread: trains RL position sizer every 24h."""

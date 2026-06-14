@@ -752,24 +752,57 @@ def get_batch_analytics(tokens: list[dict]) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9. Token Stats  (GET /erc20/{address}/stats)  — Free tier
+# 9. Token Stats  (GET /tokens/{address}/analytics)
+#    MIGRATED June 4 2026: /erc20/{addr}/stats REMOVED → /tokens/{addr}/analytics
+#    New endpoint returns richer buy/sell velocity data, not just transfer counts.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_token_stats(token_address: str, chain: str) -> Optional[dict]:
-    """Transfer count stats — activity proxy. Free tier endpoint."""
+    """
+    Token activity stats — buy/sell velocity, experienced buyers, volume.
+    MIGRATED June 2026: /erc20/{addr}/stats REMOVED → /tokens/{addr}/analytics.
+    Returns richer data: buyer/seller counts and volumes across 5m/1h/6h/24h.
+    """
     if not _available(chain):
         return None
     moralis_chain = CHAIN_MAP[chain]
+    cache_key = f"token_analytics_{chain}_{token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/erc20/{token_address}/stats",
+            f"{BASE_URL}/tokens/{token_address}/analytics",
             params={"chain": moralis_chain},
             headers=_headers(),
             timeout=10,
         )
+        if resp.status_code in (402, 403, 404):
+            return None
         resp.raise_for_status()
-        return resp.json()
-    except Exception:
+        data = resp.json()
+        result = {
+            # Backward-compat key for callers expecting old /erc20/{addr}/stats shape
+            "transfers_total": _safe_int(data.get("totalBuyers24h", 0)) + _safe_int(data.get("totalSellers24h", 0)),
+            # New richer fields from /tokens/{addr}/analytics
+            "buyers_5m":  _safe_int(data.get("totalBuyers5m", 0)),
+            "sellers_5m": _safe_int(data.get("totalSellers5m", 0)),
+            "buyers_1h":  _safe_int(data.get("totalBuyers1h", 0)),
+            "sellers_1h": _safe_int(data.get("totalSellers1h", 0)),
+            "buyers_24h": _safe_int(data.get("totalBuyers24h", 0)),
+            "sellers_24h": _safe_int(data.get("totalSellers24h", 0)),
+            "buy_volume_5m":  _safe_float(data.get("totalBuyVolume5m", 0)),
+            "sell_volume_5m": _safe_float(data.get("totalSellVolume5m", 0)),
+            "buy_volume_1h":  _safe_float(data.get("totalBuyVolume1h", 0)),
+            "sell_volume_1h": _safe_float(data.get("totalSellVolume1h", 0)),
+            "buy_volume_24h": _safe_float(data.get("totalBuyVolume24h", 0)),
+            "sell_volume_24h": _safe_float(data.get("totalSellVolume24h", 0)),
+            "experienced_buyers_1h":  _safe_int(data.get("experiencedBuyers1h", 0)),
+            "experienced_buyers_24h": _safe_int(data.get("experiencedBuyers24h", 0)),
+        }
+        _set_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.debug(f"Moralis token analytics error for {token_address} on {chain}: {e}")
         return None
 
 
@@ -920,15 +953,16 @@ def get_bonding_status(token_address: str, chain: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 13. Aggregated Token Pair Stats  (GET /pairs/{address}/stats)
-#     Buyer/seller velocity across ALL pairs for a token — aggregated view.
-#     Returns buy/sell counts, volume, avg trade size per timeframe.
+# 13. Aggregated Token Pair Stats  (GET /tokens/{address}/analytics)
+#     MIGRATED June 4 2026: /erc20/{addr}/pairs/stats REMOVED
+#     Official replacement: GET /tokens/{tokenAddress}/analytics
+#     Returns buy/sell velocity across all pairs for a token.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
     """
     Get aggregated trading stats across all DEX pairs for a token.
-    Returns buyer/seller counts, volume breakdowns, and avg trade sizes
-    for 5m, 1h, 6h, 24h timeframes — excellent for buy pressure confirmation.
+    MIGRATED June 2026: /erc20/{addr}/pairs/stats REMOVED → /tokens/{addr}/analytics.
+    Returns buyer/seller counts and volumes for 5m, 1h, 24h timeframes.
     """
     if not _available(chain):
         return None
@@ -940,7 +974,7 @@ def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
     _rate_check()
     try:
         resp = get_session().get(
-            f"{BASE_URL}/erc20/{token_address}/pairs/stats",
+            f"{BASE_URL}/tokens/{token_address}/analytics",
             params={"chain": moralis_chain},
             headers=_headers(),
             timeout=10,
@@ -949,31 +983,32 @@ def get_aggregated_pair_stats(token_address: str, chain: str) -> Optional[dict]:
             return None
         resp.raise_for_status()
         data = resp.json()
-        # Extract aggregated stats — may be wrapped in result array
-        stats = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
         result = {
             # 5-minute stats
-            "buyers_5m": _safe_int(stats.get("buyers_5min", 0)),
-            "sellers_5m": _safe_int(stats.get("sellers_5min", 0)),
-            "buy_volume_5m": _safe_float(stats.get("buy_volume_5min_usd", 0)),
-            "sell_volume_5m": _safe_float(stats.get("sell_volume_5min_usd", 0)),
+            "buyers_5m":      _safe_int(data.get("totalBuyers5m", 0)),
+            "sellers_5m":     _safe_int(data.get("totalSellers5m", 0)),
+            "buy_volume_5m":  _safe_float(data.get("totalBuyVolume5m", 0)),
+            "sell_volume_5m": _safe_float(data.get("totalSellVolume5m", 0)),
             # 1-hour stats
-            "buyers_1h": _safe_int(stats.get("buyers_1h", 0)),
-            "sellers_1h": _safe_int(stats.get("sellers_1h", 0)),
-            "buy_volume_1h": _safe_float(stats.get("buy_volume_1h_usd", 0)),
-            "sell_volume_1h": _safe_float(stats.get("sell_volume_1h_usd", 0)),
+            "buyers_1h":      _safe_int(data.get("totalBuyers1h", 0)),
+            "sellers_1h":     _safe_int(data.get("totalSellers1h", 0)),
+            "buy_volume_1h":  _safe_float(data.get("totalBuyVolume1h", 0)),
+            "sell_volume_1h": _safe_float(data.get("totalSellVolume1h", 0)),
             # 24-hour stats
-            "buyers_24h": _safe_int(stats.get("buyers_24h", 0)),
-            "sellers_24h": _safe_int(stats.get("sellers_24h", 0)),
-            "buy_volume_24h": _safe_float(stats.get("buy_volume_24h_usd", 0)),
-            "sell_volume_24h": _safe_float(stats.get("sell_volume_24h_usd", 0)),
-            # Total liquidity
-            "total_liquidity_usd": _safe_float(stats.get("total_liquidity_usd", 0)),
+            "buyers_24h":      _safe_int(data.get("totalBuyers24h", 0)),
+            "sellers_24h":     _safe_int(data.get("totalSellers24h", 0)),
+            "buy_volume_24h":  _safe_float(data.get("totalBuyVolume24h", 0)),
+            "sell_volume_24h": _safe_float(data.get("totalSellVolume24h", 0)),
+            # Experienced buyer signal
+            "experienced_buyers_1h":  _safe_int(data.get("experiencedBuyers1h", 0)),
+            "experienced_buyers_24h": _safe_int(data.get("experiencedBuyers24h", 0)),
+            # Liquidity (not in analytics endpoint — zero placeholder)
+            "total_liquidity_usd": 0.0,
         }
         _set_cache(cache_key, result)
         return result
     except Exception as e:
-        logger.debug(f"Moralis aggregated pair stats error for {token_address} on {chain}: {e}")
+        logger.debug(f"Moralis pair stats (analytics) error for {token_address} on {chain}: {e}")
         return None
 
 
