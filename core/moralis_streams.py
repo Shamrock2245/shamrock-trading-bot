@@ -174,13 +174,16 @@ class MoralisStreamsServer:
                         self.wfile.write(b"invalid signature")
                         return
                 else:
-                    # No secret configured — reject all webhooks to prevent abuse
-                    logger.warning("MoralisStreams: ❌ Rejecting webhook — no secret configured")
-                    parent.metrics["webhooks_invalid_sig"] += 1
-                    self.send_response(403)
-                    self.end_headers()
-                    self.wfile.write(b"webhook secret not configured")
-                    return
+                    # No secret configured — accept but log warning.
+                    # Hard-reject was causing all stream events to be silently dropped
+                    # when MORALIS_STREAMS_WEBHOOK_SECRET is not set in .env.
+                    # WARNING: Set MORALIS_STREAMS_WEBHOOK_SECRET in .env to enable
+                    # signature verification and prevent replay attacks.
+                    logger.warning(
+                        "MoralisStreams: ⚠️ MORALIS_STREAMS_WEBHOOK_SECRET not set — "
+                        "accepting webhook WITHOUT signature verification. "
+                        "Set this env var to enable security."
+                    )
 
                 # ── Parse Payload ─────────────────────────────────────────
                 try:
