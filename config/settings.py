@@ -106,8 +106,8 @@ SOLANA_RPC_FALLBACK = os.getenv("SOLANA_RPC_FALLBACK", "https://solana-mainnet.g
 MAX_POSITION_SIZE_PERCENT = float(os.getenv("MAX_POSITION_SIZE_PERCENT", "20.0"))
 HIGH_CONVICTION_POSITION_PCT = float(os.getenv("HIGH_CONVICTION_POSITION_PCT", "3.5"))  # Score 85+
 MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "5"))
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "12.0"))  # Playbook: 12% trailing after TP1 (must be < hard stop)
-HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "15.0"))  # TUNED: 18→15% — cap single-trade max loss for tighter risk control
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "15.0"))  # WIN-RATE FIX 2026-06-15: 12→15% — micro-cap volatility routinely exceeds 12%, causing premature trailing exits
+HARD_STOP_LOSS_PERCENT = float(os.getenv("HARD_STOP_LOSS_PERCENT", "20.0"))  # WIN-RATE FIX 2026-06-15: 15→20% — 15% hard stop was liquidating normal drawdowns before recovery
 
 # ── Parabolic Parachute (Fibonacci Over-Extension Exit) ──────────────────────
 # Triggers hyper-tight trailing stops when price goes vertical beyond typical Fibonacci extensions.
@@ -146,8 +146,8 @@ PROGRESSIVE_ROI_DECAY = {
 # If a position builds gains but never hits TP1, we still protect those gains.
 # Activates when position is up > PRE_TP1_ACTIVATE_GAIN_PCT (default 15%).
 # Uses a WIDER stop than the post-TP1 trailing (25% vs 15%) to give room to run.
-PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "20.0"))  # TUNED 2026-06-10: 15%→20% — let winners run longer (HOME +$6.27 at 130min hold)
-PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "20.0"))  # TUNED 2026-06-10: 15%→20% — don't tighten trail too early
+PRE_TP1_TRAILING_STOP_PCT = float(os.getenv("PRE_TP1_TRAILING_STOP_PCT", "25.0"))  # WIN-RATE FIX 2026-06-15: 20→25% — wider pre-TP1 window prevents shakeouts on volatile meme coins
+PRE_TP1_ACTIVATE_GAIN_PCT = float(os.getenv("PRE_TP1_ACTIVATE_GAIN_PCT", "25.0"))  # WIN-RATE FIX 2026-06-15: 20→25% — only lock in gains once position has real momentum
 
 # ── Confluence Gate Override ─────────────────────────────────────────────────
 # Hard override: if price drops this much from the high on a profitable position,
@@ -433,13 +433,13 @@ SCANNER_PARALLEL_CHAINS = os.getenv("SCANNER_PARALLEL_CHAINS", "true").lower() =
 SCANNER_MAX_WORKERS = int(os.getenv("SCANNER_MAX_WORKERS", "4"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=55.0 | Nuclear profile: min_gem_score=65.0
-MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "55.0"))              # TUNED 2026-06-11: 62→55 — increase trade frequency (0.8/hr → target 2-3/hr). Guardrails protect downside.
+MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # WIN-RATE FIX 2026-06-15: 55→62 — 55 was too permissive; 12.1% win rate proves low-score entries are noise not signal. 62 filters junk while keeping 2-3 trades/hr.
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))       # TUNED: 50k→25k — avoid illiquid traps; 25k is minimum viable pool depth
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED: 168h→72h — focus on fresh tokens (3 days max)
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
 
 # Express lane: skip full TA pipeline and execute immediately if score >= this
-EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "72.0"))  # TUNED 2026-06-11: 78→72 — maintain ~17pt gap above MIN_GEM_SCORE=55
+EXPRESS_LANE_SCORE = float(os.getenv("EXPRESS_LANE_SCORE", "78.0"))  # WIN-RATE FIX 2026-06-15: 72→78 — maintain ~16pt gap above MIN_GEM_SCORE=62; express lane should be high-conviction only
 
 # Volume spike threshold for breakout detection (multiplier vs 24h average)
 VOLUME_SPIKE_THRESHOLD = float(os.getenv("VOLUME_SPIKE_THRESHOLD", "5.0"))
@@ -544,7 +544,7 @@ MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "200"))
 CAPITAL_RECOVERY_ENABLED = os.getenv("CAPITAL_RECOVERY_ENABLED", "true").lower() == "true"
 CAPITAL_RECOVERY_THRESHOLD_USD = float(os.getenv("CAPITAL_RECOVERY_THRESHOLD_USD", "15.0"))
 CAPITAL_RECOVERY_MAX_POSITION_PCT = float(os.getenv("CAPITAL_RECOVERY_MAX_POSITION_PCT", "15.0"))
-CAPITAL_RECOVERY_MIN_SCORE = float(os.getenv("CAPITAL_RECOVERY_MIN_SCORE", "62.0"))  # Raised from 55 → 62: no more junk entries during recovery
+CAPITAL_RECOVERY_MIN_SCORE = float(os.getenv("CAPITAL_RECOVERY_MIN_SCORE", "65.0"))  # WIN-RATE FIX 2026-06-15: 62→65 — recovery mode must be MORE selective, not less; raise floor during drawdown
 CAPITAL_RECOVERY_MAX_POSITIONS = int(os.getenv("CAPITAL_RECOVERY_MAX_POSITIONS", "3"))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -628,7 +628,7 @@ CASCADE_BOOST_ENABLED = os.getenv("CASCADE_BOOST_ENABLED", "true").lower() == "t
 CASCADE_BOOST_PER_WIN = float(os.getenv("CASCADE_BOOST_PER_WIN", "0.75"))  # FIX: project spec = 0.75 pts per win (was 0.5)
 CASCADE_BOOST_MAX_REDUCTION = float(os.getenv("CASCADE_BOOST_MAX_REDUCTION", "5.0"))  # Reduced from 10 → 5: floor can't drop as far
 CASCADE_BOOST_RECOVERY_PER_LOSS = float(os.getenv("CASCADE_BOOST_RECOVERY_PER_LOSS", "1.0"))  # +1 per loss
-CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "65.0"))  # TUNED: 58→65 — cascade can never drop below the global MIN_GEM_SCORE
+CASCADE_BOOST_FLOOR_SCORE = float(os.getenv("CASCADE_BOOST_FLOOR_SCORE", "62.0"))  # WIN-RATE FIX 2026-06-15: aligned with new MIN_GEM_SCORE=62 — cascade floor = global entry floor
 
 # ── 6. Express Lane Overdrive ─────────────────────────────────────────────────
 # Highest-conviction snipes (score ≥ EXPRESS_LANE_SCORE) get 1.5-2.0x sizing
@@ -660,11 +660,11 @@ PYRAMID_TIER3_TRAILING_STOP_PCT = float(os.getenv("PYRAMID_TIER3_TRAILING_STOP_P
 # Cuts momentum-dead positions quickly to free capital for live opportunities.
 # Replaces the 12-hour underperformer rotation with faster, smarter exits.
 FAST_FAIL_ENABLED = os.getenv("FAST_FAIL_ENABLED", "true").lower() == "true"
-FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "3.0"))               # TUNED: 1h→3h — exit no-movers faster (strategy-tuning task)
-FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "8.0"))          # TUNED: 10%→8% — cut losers earlier
-FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "2.0"))    # TUNED: 3h→2h — cut stalls faster
-FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "10.0"))       # TUNED: 20%→10% — lower momentum bar to survive
-FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "60.0"))  # TUNED: 70%→60% — exit sooner on volume death
+FAST_FAIL_HOURS = float(os.getenv("FAST_FAIL_HOURS", "4.0"))               # WIN-RATE FIX 2026-06-15: 3→4h — micro-caps need time to develop; 3h was killing positions mid-consolidation
+FAST_FAIL_DOWN_PCT = float(os.getenv("FAST_FAIL_DOWN_PCT", "12.0"))          # WIN-RATE FIX 2026-06-15: 8→12% — 8% fast-fail + 15% hard stop = double-trigger on normal 10% dips; 12% aligns with hard stop buffer
+FAST_FAIL_STALL_HOURS = float(os.getenv("FAST_FAIL_STALL_HOURS", "3.0"))    # WIN-RATE FIX 2026-06-15: 2→3h — 2h stall check was firing during normal accumulation phases
+FAST_FAIL_STALL_PCT = float(os.getenv("FAST_FAIL_STALL_PCT", "5.0"))        # WIN-RATE FIX 2026-06-15: 10→5% — require less gain to survive stall check (was rejecting slow-movers that later pumped)
+FAST_FAIL_VOLUME_COLLAPSE_PCT = float(os.getenv("FAST_FAIL_VOLUME_COLLAPSE_PCT", "70.0"))  # WIN-RATE FIX 2026-06-15: 60→70% — 60% collapse threshold was too sensitive; require steeper drop before exit
 
 # ── 9. Momentum Reentry ───────────────────────────────────────────────────────
 # After TP1 is hit on a token, immediately re-enters if volume is still surging.

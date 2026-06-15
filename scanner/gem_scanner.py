@@ -2429,9 +2429,9 @@ class GemScanner:
         # ── FINAL GATE: Solana Meme Coin Quality Floor ─────────────────────────────────────────────────────────────────────────────────────
         # Solana meme coins need a HIGHER bar than EVM tokens. The ecosystem
         # is flooded with low-quality pump-and-dumps. Only take the cream.
-        # TUNED: 65→58 — bundle detector + sniper detection already catch scams;
-        # 65 was over-filtering (8000 rejections, 0 trades in 4 days).
-        SOLANA_MIN_SCORE = 58.0
+        # WIN-RATE FIX 2026-06-15: 58→62 — aligned with global MIN_GEM_SCORE.
+        # 58 was producing too many low-conviction Solana entries (part of 12.1% win rate).
+        SOLANA_MIN_SCORE = 62.0
         if token.chain == "solana" and candidate.gem_score < SOLANA_MIN_SCORE:
             logger.info(
                 f"⛔ SOLANA QUALITY GATE: {token.symbol} score={candidate.gem_score:.1f} "

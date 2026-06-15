@@ -2041,6 +2041,21 @@ def get_engine() -> MEVExtractorEngine:
     return _engine
 
 
+def get_mev_extractor() -> MEVExtractorEngine:
+    """Singleton accessor imported by main.py.
+
+    main.py calls:
+        from core.mev_extractor import get_mev_extractor
+        _mev_extractor = get_mev_extractor()
+        asyncio.run(_mev_extractor.run())
+
+    This is a named alias for get_engine() so the public import surface
+    matches what main.py expects without breaking existing callers of
+    get_engine().
+    """
+    return get_engine()
+
+
 def start_mev_engine() -> None:
     """Entry point for running the MEV engine as a standalone process."""
     logging.basicConfig(

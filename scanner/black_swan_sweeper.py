@@ -797,22 +797,38 @@ class BlackSwanSweeper:
         """
         retry_delay = 5
         watched_sol_addrs = self.resolver.get_all_watched_addresses("solana")
+        # ── 413 FIX: cap subscriptions to 5 high-value addresses only.
+        # Subscribing to many high-traffic programs (Raydium, Jupiter, etc.)
+        # floods the RPC with massive log payloads, causing HTTP 413 on the
+        # WebSocket upgrade handshake.  We cap at 5 and set max_size=256 KiB
+        # so individual notification frames never overflow the receive buffer.
+        _MAX_SOL_SUBS = 5
+        watched_sol_addrs = watched_sol_addrs[:_MAX_SOL_SUBS]
 
         while self._running:
             try:
-                logger.info(f"🦅 SOL WSS connecting: {self.sol_ws_url[:40]}...")
+                logger.info(
+                    f"🦅 SOL WSS connecting: {self.sol_ws_url[:40]}... "
+                    f"(watching {len(watched_sol_addrs)} addresses)"
+                )
                 async with websockets.connect(
                     self.sol_ws_url,
                     ping_interval=20,
                     ping_timeout=30,
                     close_timeout=10,
+                    # Limit inbound frame size to 256 KiB — prevents 413 on
+                    # high-traffic program subscriptions (Raydium/Jupiter).
+                    max_size=256 * 1024,
                 ) as ws:
-                    # Subscribe to logs for each watched Solana address
+                    # Subscribe to logs for each watched Solana address.
+                    # Send ONE subscription request, wait for its ACK, then
+                    # send the next — avoids pipelining a large burst that
+                    # can exceed the RPC node's request-body size limit.
                     sub_id_map: Dict[int, str] = {}  # sub_id → protocol_address
                     req_id = 100
 
-                    for addr in watched_sol_addrs[:20]:  # Limit to 20 subscriptions
-                        await ws.send(json.dumps({
+                    for addr in watched_sol_addrs:
+                        sub_msg = json.dumps({
                             "jsonrpc": "2.0",
                             "id": req_id,
                             "method": "logsSubscribe",
@@ -820,11 +836,26 @@ class BlackSwanSweeper:
                                 {"mentions": [addr]},
                                 {"commitment": "confirmed"},
                             ],
-                        }))
-                        sub_resp = await asyncio.wait_for(ws.recv(), timeout=10)
-                        sub_data = json.loads(sub_resp)
-                        if "result" in sub_data:
-                            sub_id_map[sub_data["result"]] = addr
+                        })
+                        await ws.send(sub_msg)
+                        try:
+                            sub_resp = await asyncio.wait_for(ws.recv(), timeout=10)
+                            sub_data = json.loads(sub_resp)
+                            if "result" in sub_data:
+                                sub_id_map[sub_data["result"]] = addr
+                                logger.debug(
+                                    f"🦅 SOL logsSubscribe ACK | addr={addr[:12]}... "
+                                    f"sub_id={sub_data['result']}"
+                                )
+                            elif "error" in sub_data:
+                                logger.warning(
+                                    f"🦅 SOL logsSubscribe error for {addr[:12]}: "
+                                    f"{sub_data['error']}"
+                                )
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                f"🦅 SOL logsSubscribe timeout for {addr[:12]} — skipping"
+                            )
                         req_id += 1
 
                     logger.info(f"🦅 SOL subscribed to {len(sub_id_map)} program log streams")

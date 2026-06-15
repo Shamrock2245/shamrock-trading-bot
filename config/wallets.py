@@ -63,11 +63,10 @@ class StrategyProfile:
 
 CONSERVATIVE_PROFILE = StrategyProfile(
     name="conservative",
-    # TUNED 2026-06-11: 62→55 — increase trade volume for parabolic gains.
-    # Tokens scoring 55-62 still pass safety checks (liquidity, age, holders).
-    # Defensive guardrails (rapid decay, emergency exit, hard stop 8%) cap downside.
-    min_gem_score=55.0,
-    express_lane_score=72.0,  # 74→72 — maintain ~17pt gap
+    # WIN-RATE FIX 2026-06-15: 55→62 — 12.1% win rate proves 55 was too permissive.
+    # Tokens scoring 55-62 were mostly noise; raising floor to 62 targets real conviction.
+    min_gem_score=62.0,
+    express_lane_score=78.0,  # WIN-RATE FIX 2026-06-15: 72→78 — maintain ~16pt gap above min_gem_score=62
     # TP: 1.5x sell 40%, 1.8x sell 35%, 5x sell 25% (Optimized via Shadow Account Backtest)
     tp1_mult=1.5,
     tp1_sell_pct=0.40,
@@ -75,27 +74,29 @@ CONSERVATIVE_PROFILE = StrategyProfile(
     tp2_sell_pct=0.35,
     tp3_mult=5.0,
     tp3_sell_pct=0.25,
-    # Stops — TUNED 2026-06-10: tightened after paper trades showed $103 single-trade losses
-    hard_stop_pct=8.0,             # 10→8% — cut losers faster ($4 max loss on $50 trade)
-    trailing_stop_pct=6.0,
-    trailing_tighten={1.8: 4.0, 2.5: 3.0},
-    # Sizing — TUNED 2026-06-11: 5→12% for parabolic gains. Avg position was $42, need $120+.
-    # 12% × 6 concurrent = 72% max deployed, 28% reserve.
-    max_position_pct=12.0,         # 5→12% — max $120 on $1000 account
-    kelly_clamp_max=0.20,          # 0.15→0.20 — Kelly can go to 20%
+    # Stops — WIN-RATE FIX 2026-06-15: widened to survive micro-cap volatility
+    # 8% hard stop was triggering on normal 5-10% consolidation dips before pump
+    hard_stop_pct=15.0,            # WIN-RATE FIX: 8→15% — micro-caps need room; $7.50 max loss on $50 trade
+    trailing_stop_pct=10.0,        # WIN-RATE FIX: 6→10% — 6% trail was shaking out positions mid-pump
+    trailing_tighten={1.8: 6.0, 2.5: 4.0},  # Tighten trail at 1.8x and 2.5x (was 4.0/3.0)
+    # Sizing — unchanged: 12% per trade, 10 concurrent
+    max_position_pct=12.0,
+    kelly_clamp_max=0.20,
     max_position_usd=5_000.0,
-    max_concurrent=10,             # 5→10 — more positions = more volume
-    # Fast fail — TUNED: 30-minute window, 7% threshold
-    fast_fail_down_pct=7.0,        # 10→7% — faster kill switch
-    fast_fail_hours=0.5,           # 1.5→0.5h — 30-minute fast fail window
+    max_concurrent=10,
+    # Fast fail — WIN-RATE FIX 2026-06-15: loosened from 30-min/7% to 2h/12%
+    # 30-minute fast fail was the single biggest source of premature exits:
+    # micro-caps consolidate for 1-2h before pumping. 30min = guaranteed loss.
+    fast_fail_down_pct=12.0,       # WIN-RATE FIX: 7→12% — aligns with widened hard stop
+    fast_fail_hours=2.0,           # WIN-RATE FIX: 0.5→2h — 30-min window was killing consolidation plays
     max_slippage_pct=4.0,
 )
 
 NUCLEAR_PROFILE = StrategyProfile(
     name="nuclear",
-    # TUNED 2026-06-11: 65→58 — more nuclear entries, guardrails protect
-    min_gem_score=58.0,
-    express_lane_score=74.0,  # Nuclear needs higher quality for express
+    # WIN-RATE FIX 2026-06-15: 58→65 — nuclear entries need higher conviction bar
+    min_gem_score=65.0,
+    express_lane_score=80.0,  # WIN-RATE FIX 2026-06-15: 74→80 — nuclear express lane = only elite setups
     # TP: 2x sell 25%, 5x sell 30%, 15x sell 20%
     tp1_mult=2.0,
     tp1_sell_pct=0.25,
@@ -103,18 +104,18 @@ NUCLEAR_PROFILE = StrategyProfile(
     tp2_sell_pct=0.30,
     tp3_mult=15.0,
     tp3_sell_pct=0.20,
-    # Stops — TUNED 2026-06-10: tightened for capital preservation
-    hard_stop_pct=10.0,            # 12→10%
-    trailing_stop_pct=20.0,
+    # Stops — WIN-RATE FIX 2026-06-15: widened to match micro-cap volatility profile
+    hard_stop_pct=15.0,            # WIN-RATE FIX: 10→15% — nuclear plays need room for 10-15% dips
+    trailing_stop_pct=20.0,        # Unchanged — nuclear trail is already wide
     trailing_tighten={5.0: 12.0, 10.0: 7.0},
-    # Sizing — TUNED 2026-06-11: 10→15% for parabolic gains, more concurrent
-    max_position_pct=15.0,         # 10→15%
-    kelly_clamp_max=0.35,          # 0.25→0.35 — nuclear can bet bigger
+    # Sizing — unchanged
+    max_position_pct=15.0,
+    kelly_clamp_max=0.35,
     max_position_usd=0.0,
-    max_concurrent=6,              # 3→6 — more nuclear slots
-    # Fast fail
-    fast_fail_down_pct=10.0,       # 12→10%
-    fast_fail_hours=1.0,           # 1.5→1.0h
+    max_concurrent=6,
+    # Fast fail — WIN-RATE FIX 2026-06-15: loosened
+    fast_fail_down_pct=15.0,       # WIN-RATE FIX: 10→15% — nuclear plays need more drawdown room
+    fast_fail_hours=2.0,           # WIN-RATE FIX: 1.0→2.0h — nuclear setups need time to develop
     max_slippage_pct=8.0,
 )
 
