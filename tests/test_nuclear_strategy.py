@@ -151,24 +151,24 @@ class TestHardStops:
     """Hard stop should use profile-specific percentages."""
 
     def test_nuclear_hard_stop_at_10pct(self):
-        """Nuclear hard stop is -10%, should fire at -12%."""
+        """Nuclear hard stop is -15%, should fire at -16%."""
         pos = _make_position(entry_price=1.0)
-        # Price dropped 12% — below nuclear's 10% threshold
-        result = evaluate_position(pos, current_price=0.88, strategy_profile=NUCLEAR_PROFILE)
-        assert result is not None, "Nuclear hard stop should fire at -12%"
+        # Price dropped 16% — below nuclear's 15% threshold
+        result = evaluate_position(pos, current_price=0.84, strategy_profile=NUCLEAR_PROFILE)
+        assert result is not None, "Nuclear hard stop should fire at -16%"
         assert "stop" in result.get("reason", "").lower(), (
             f"Reason should mention 'stop', got: {result.get('reason')}"
         )
 
     def test_conservative_hard_stop_tolerance(self):
-        """Conservative hard stop is -8% (tuned from -10%), should NOT fire at -7%."""
+        """Conservative hard stop is -15%, should NOT fire at -14%."""
         pos = _make_position(entry_price=1.0, strategy_profile="conservative")
-        # Price dropped 7% — within conservative tolerance (hard stop is now 8%)
-        result = evaluate_position(pos, current_price=0.93, strategy_profile=CONSERVATIVE_PROFILE)
-        # Should NOT trigger hard stop (8% threshold)
+        # Price dropped 14% — within conservative tolerance (hard stop is 15%)
+        result = evaluate_position(pos, current_price=0.86, strategy_profile=CONSERVATIVE_PROFILE)
+        # Should NOT trigger hard stop (15% threshold)
         if result is not None:
             assert "stop" not in result.get("reason", "").lower(), (
-                f"Conservative should NOT stop at -7%, got: {result.get('reason')}"
+                f"Conservative should NOT stop at -14%, got: {result.get('reason')}"
             )
 
 
@@ -180,7 +180,7 @@ class TestProfileConfig:
     """Verify the StrategyProfile dataclass values are what we expect."""
 
     def test_nuclear_profile_values(self):
-        # TUNED 2026-06-10: hard stop 12→10%, position 20→10%, kelly 0.50→0.25, concurrent 4→3
+        # TUNED: hard stop widened to 15% for volatile meme coins
         assert NUCLEAR_PROFILE.name == "nuclear"
         assert NUCLEAR_PROFILE.tp1_mult == 2.0
         assert NUCLEAR_PROFILE.tp1_sell_pct == 0.25
@@ -188,21 +188,21 @@ class TestProfileConfig:
         assert NUCLEAR_PROFILE.tp2_sell_pct == 0.30
         assert NUCLEAR_PROFILE.tp3_mult == 15.0
         assert NUCLEAR_PROFILE.tp3_sell_pct == 0.20
-        assert NUCLEAR_PROFILE.hard_stop_pct == 10.0
+        assert NUCLEAR_PROFILE.hard_stop_pct == 15.0
         assert NUCLEAR_PROFILE.trailing_tighten == {5.0: 12.0, 10.0: 7.0}
         assert NUCLEAR_PROFILE.max_position_pct == 15.0  # TUNED 2026-06-11: 10→15% for parabolic
         assert NUCLEAR_PROFILE.kelly_clamp_max == 0.35  # TUNED 2026-06-11: 0.25→0.35
         assert NUCLEAR_PROFILE.max_slippage_pct == 8.0
 
     def test_conservative_profile_values(self):
-        # TUNED 2026-06-10: hard stop 10→8%, position 8→5%, kelly 0.25→0.15
+        # TUNED: hard stop widened to 15% to avoid premature stops in volatile markets
         assert CONSERVATIVE_PROFILE.name == "conservative"
         assert CONSERVATIVE_PROFILE.tp1_mult == 1.5
         assert CONSERVATIVE_PROFILE.tp1_sell_pct == 0.40
         assert CONSERVATIVE_PROFILE.tp2_mult == 1.8
         assert CONSERVATIVE_PROFILE.tp2_sell_pct == 0.35
         assert CONSERVATIVE_PROFILE.tp3_mult == 5.0
-        assert CONSERVATIVE_PROFILE.hard_stop_pct == 8.0
+        assert CONSERVATIVE_PROFILE.hard_stop_pct == 15.0
 
     def test_profile_map_lookups(self):
         """Verify the _PROFILE_MAP used by position_monitor resolves correctly."""

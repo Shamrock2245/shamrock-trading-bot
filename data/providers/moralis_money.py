@@ -4,27 +4,24 @@ data/providers/moralis_money.py — Moralis Money: PRIMARY data source for the S
 Moralis Money is one of the most powerful on-chain intelligence platforms available.
 This module wires in EVERY relevant Moralis endpoint as a first-class data source:
 
-  Discovery (Pro) — migrated June 2026 after POST /discovery/tokens deprecation:
-    GET  /tokens/trending                        → Trending tokens by chain (WORKING — primary discovery)
-    GET  /tokens/trending + local filter         → Filtered Tokens (fallback for deprecated POST /discovery/tokens)
-    GET  /tokens/trending + sort DESC            → Top price gainers (fallback for deprecated endpoint)
-    GET  /tokens/trending + sort ASC             → Top price losers (fallback for deprecated endpoint)
-    GET  /tokens/trending + buy/sell ratio       → Buying pressure (fallback for deprecated endpoint)
-    GET  /tokens/graduated-by-exchange           → Post-bonding graduated tokens (NEW — Sprint 1)
-    GET  /tokens/new-by-exchange                 → Brand-new token listings (NEW — Sprint 1)
+  Discovery (Pro) — migrated June 2026:
+    POST /tokens/filtered                      → PRIMARY discovery — server-side filtering by liquidity, volume, buyers, market cap
+    GET  /tokens/trending                      → Trending tokens by chain (FALLBACK if filtered unavailable)
+    GET  /tokens/graduated-by-exchange         → Post-bonding graduated tokens (NEW — Sprint 1)
+    GET  /tokens/new-by-exchange               → Brand-new token listings (NEW — Sprint 1)
 
   Intelligence (Pro):
-    GET  /tokens/{address}/score                 → Moralis token score (0–100) with volume/tx/supply metrics
-    GET  /tokens/{address}/analytics             → Buy/sell volume, buyers, sellers, net buyers (5m–30d)
-    POST /tokens/analytics                       → Batch analytics for up to 30 tokens at once
+    GET  /tokens/{address}/score               → Moralis token score (0–100) with volume/tx/supply metrics
+    GET  /tokens/{address}/analytics           → Buy/sell volume, buyers, sellers, net buyers (5m–30d)
+    POST /tokens/analytics                     → Batch analytics for up to 30 tokens at once
 
   Pair Data (Free / Pro):
-    GET  /erc20/{address}/pairs                  → Native DEX pair lookup — replaces DexScreener (NEW — Sprint 1)
-    GET  /pairs/{pairAddress}/stats              → Per-pair O/HLCV + buyer/seller velocity (NEW — Sprint 1)
+    GET  /erc20/{address}/pairs                → Native DEX pair lookup — replaces DexScreener (NEW — Sprint 1)
+    GET  /pairs/{pairAddress}/stats            → Per-pair O/HLCV + buyer/seller velocity (NEW — Sprint 1)
 
   Enrichment (Free):
-    GET  /erc20/{address}/stats                  → Transfer count (activity proxy)
-    GET  /erc20/{address}/owners                 → Holder count
+    GET  /tokens/{address}/analytics           → Transfer/trade activity (migrated from /erc20/{address}/stats)
+    GET  /erc20/{address}/owners               → Holder count
 
 Sprint 1 additions:
   - Graduated token feed: catches tokens immediately post-DEX-graduation (full bonding-curve funnel).
@@ -133,16 +130,143 @@ def _available(chain: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared helpers — trending endpoint fallback (June 2026 migration)
-# POST /discovery/tokens was deprecated and returns 404. All discovery
-# functions now call GET /tokens/trending and apply local Python filters.
+# Shared helpers — POST /tokens/filtered (primary) + trending fallback
+# POST /discovery/tokens was deprecated June 4, 2026. The replacement is
+# POST /tokens/filtered which provides server-side filtering by liquidity,
+# volume, net buyers, experienced buyers, market cap, and more.
+# GET /tokens/trending is retained as a fallback if filtered returns errors.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _trending_for_chain(chain: str) -> list[dict]:
-    """Fetch trending tokens for a chain, returning raw API response.
+def _filtered_tokens_query(
+    chain: str,
+    filters: list[dict],
+    sort_by: str = "volumeUsd.1h",
+    sort_order: str = "desc",
+    limit: int = 50,
+) -> list[dict]:
+    """Call POST /tokens/filtered with structured filter criteria.
 
-    This is the single working discovery endpoint after the June 2026
-    deprecation of POST /discovery/tokens.
+    Args:
+        chain: Internal chain name (e.g., "ethereum", "base").
+        filters: List of filter dicts, each with {field, operator, value}.
+                 Joined with AND logic server-side.
+        sort_by: Metric to sort results by.
+        sort_order: "desc" or "asc".
+        limit: Max results to return (API max is typically 100).
+
+    Returns:
+        List of raw token dicts from Moralis, or [] on error.
+        Falls back to _trending_for_chain() on 4xx/5xx errors.
+
+    CU cost: ~150 per call. Budget: 394M/month — this is negligible.
+    """
+    if not _available(chain):
+        return []
+    moralis_chain = CHAIN_MAP[chain]
+
+    # Build cache key from filters for dedup
+    filter_hash = hash(str(sorted(str(f) for f in filters)) + sort_by + sort_order)
+    cache_key = f"_filtered_{chain}_{filter_hash}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    _rate_check()
+    try:
+        body = {
+            "chains": [moralis_chain],
+            "filters": filters,
+            "sortBy": sort_by,
+            "sortOrder": sort_order,
+            "limit": limit,
+        }
+        resp = get_session().post(
+            f"{BASE_URL}/tokens/filtered",
+            json=body,
+            headers=_json_headers(),
+            timeout=15,
+        )
+        if resp.status_code in (402, 403):
+            # Plan limitation — fall back to trending
+            logger.debug(f"POST /tokens/filtered: plan limitation for {chain}, falling back to trending")
+            return []
+        if resp.status_code == 404:
+            # Endpoint not available — fall back to trending
+            logger.debug(f"POST /tokens/filtered: 404 for {chain}, falling back to trending")
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        tokens = data if isinstance(data, list) else data.get("result", data.get("tokens", []))
+        _set_cache(cache_key, tokens)
+        logger.debug(f"POST /tokens/filtered: {len(tokens)} tokens for {chain}")
+        return tokens
+    except Exception as e:
+        logger.debug(f"POST /tokens/filtered error for {chain}: {e}")
+        return []
+
+
+def _filtered_to_standard_format(t: dict, chain: str, source: str) -> dict:
+    """Convert a POST /tokens/filtered response item to the standard format.
+
+    The /tokens/filtered response has a slightly different shape than /tokens/trending.
+    This normalizer handles both shapes gracefully.
+    """
+    # Handle nested period-keyed metrics (filtered uses flat or nested)
+    price_pct = t.get("pricePercentChange", t.get("usdPricePercentChange", {})) or {}
+    volume = t.get("volumeUsd", t.get("totalVolume", {})) or {}
+    buyers = t.get("buyers", {}) or {}
+    sellers = t.get("sellers", {}) or {}
+    net_buyers = t.get("netBuyers", {}) or {}
+    exp_buyers = t.get("experiencedBuyers", {}) or {}
+
+    # Extract 1h metrics — handle both {"1h": val} dict and flat float
+    vol_1h = _safe_float(volume.get("1h", volume) if isinstance(volume, dict) else volume)
+    buyers_1h = _safe_int(buyers.get("1h", buyers) if isinstance(buyers, dict) else buyers)
+    sellers_1h = _safe_int(sellers.get("1h", sellers) if isinstance(sellers, dict) else sellers)
+    net_buyers_1h = _safe_int(net_buyers.get("1h", net_buyers) if isinstance(net_buyers, dict) else net_buyers)
+    exp_buyers_1h = _safe_int(exp_buyers.get("1h", exp_buyers) if isinstance(exp_buyers, dict) else exp_buyers)
+
+    total_txns = max(buyers_1h + sellers_1h, 1)
+    buy_vol_1h = vol_1h * (buyers_1h / total_txns)
+    sell_vol_1h = vol_1h - buy_vol_1h
+
+    return {
+        "token_address": t.get("tokenAddress", t.get("address", "")),
+        "token_symbol":  t.get("symbol", ""),
+        "token_name":    t.get("name", ""),
+        "chain":         chain,
+        "price_usd":     _safe_float(t.get("usdPrice", t.get("price", 0))),
+        "market_cap":    _safe_float(t.get("marketCap", 0)),
+        "liquidity_usd": _safe_float(t.get("totalLiquidityUsd", t.get("liquidityUsd", 0))),
+        "total_holders": _safe_int(t.get("totalHolders", t.get("holders", 0))),
+        "security_score": _safe_int(t.get("securityScore", 0)),
+        "is_honeypot":   False,
+        "buy_tax":       0.0,
+        "sell_tax":      0.0,
+        "is_open_source": True,
+        "experienced_buyers_1h": exp_buyers_1h if exp_buyers_1h else buyers_1h,
+        "net_buyers_1h": net_buyers_1h if net_buyers_1h else (buyers_1h - sellers_1h),
+        "volume_usd_1h": vol_1h,
+        "buy_volume_usd_1h": buy_vol_1h,
+        "sell_volume_usd_1h": sell_vol_1h,
+        "buy_pressure_ratio_1h": (
+            buy_vol_1h / (buy_vol_1h + sell_vol_1h) if (buy_vol_1h + sell_vol_1h) > 0 else 0.5
+        ),
+        "net_volume_usd_1h": buy_vol_1h - sell_vol_1h,
+        "price_change_1h": _safe_float(
+            price_pct.get("1h", price_pct) if isinstance(price_pct, dict) else price_pct
+        ),
+        "price_change_24h": _safe_float(
+            price_pct.get("24h", 0) if isinstance(price_pct, dict) else 0
+        ),
+        "source": source,
+    }
+
+
+def _trending_for_chain(chain: str) -> list[dict]:
+    """Fetch trending tokens for a chain — FALLBACK for POST /tokens/filtered.
+
+    Used when /tokens/filtered is unavailable (plan limitation, 404, etc.).
+    Returns raw API response items.
     """
     if not _available(chain):
         return []
@@ -168,6 +292,7 @@ def _trending_for_chain(chain: str) -> list[dict]:
     except Exception as e:
         logger.debug(f"Trending raw fetch error for {chain}: {e}")
         return []
+
 
 
 def _trending_to_filtered_format(t: dict, chain: str, source: str) -> dict:
@@ -216,8 +341,8 @@ def _trending_to_filtered_format(t: dict, chain: str, source: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Filtered Tokens  (was POST /discovery/tokens — deprecated June 2026)
-#    Now uses GET /tokens/trending + local Python filtering
+# 1. Filtered Tokens  (POST /tokens/filtered → primary, trending → fallback)
+#    Server-side filtering by liquidity, volume, and experienced buyers.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_filtered_tokens(
     chain: str,
@@ -230,15 +355,34 @@ def get_filtered_tokens(
     Filtered token discovery — finds tokens with rising experienced buyer counts,
     minimum liquidity, and acceptable security scores.
 
-    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
-    with local Python filtering as a fallback.
+    Uses POST /tokens/filtered for server-side filtering (primary).
+    Falls back to GET /tokens/trending + local Python filtering if unavailable.
     """
     if not _available(chain):
         return []
     cache_key = f"filtered_{chain}_{min_experienced_buyers_1h}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+
+    # PRIMARY: POST /tokens/filtered — server-side filtering
+    filtered = _filtered_tokens_query(
+        chain,
+        filters=[
+            {"field": "totalLiquidityUsd", "operator": "gte", "value": min_liquidity_usd},
+            {"field": "experiencedBuyers.1h", "operator": "gte", "value": min_experienced_buyers_1h},
+            {"field": "volumeUsd.1h", "operator": "gte", "value": 5000},
+        ],
+        sort_by="experiencedBuyers.1h",
+        sort_order="desc",
+        limit=limit,
+    )
+    if filtered:
+        result = [_filtered_to_standard_format(t, chain, "moralis_filtered") for t in filtered]
+        _set_cache(cache_key, result)
+        logger.info(f"Moralis filtered tokens (via /tokens/filtered): {len(result)} gems on {chain}")
+        return result
+
+    # FALLBACK: GET /tokens/trending + local Python filtering
     raw = _trending_for_chain(chain)
     result = []
     for t in raw:
@@ -252,13 +396,13 @@ def get_filtered_tokens(
     result.sort(key=lambda x: x.get("experienced_buyers_1h", 0), reverse=True)
     result = result[:limit]
     _set_cache(cache_key, result)
-    logger.info(f"Moralis filtered tokens (via trending): {len(result)} gems on {chain}")
+    logger.info(f"Moralis filtered tokens (via trending fallback): {len(result)} gems on {chain}")
     return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1b. Whale Accumulation Discovery  (was POST /discovery/tokens — deprecated June 2026)
-#     Now uses GET /tokens/trending + local net-buyer filtering
+# 1b. Whale Accumulation Discovery  (POST /tokens/filtered → primary)
+#     Finds tokens where experienced wallets are net accumulating.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_whale_accumulation_tokens(
     chain: str,
@@ -271,15 +415,44 @@ def get_whale_accumulation_tokens(
     Whale accumulation detector — finds tokens where experienced wallets
     (500+ lifetime txns) are net accumulating over the past week.
 
-    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
-    with local net-buyer filtering as a fallback.
+    Uses POST /tokens/filtered with netBuyers + experiencedBuyers filters (primary).
+    Falls back to GET /tokens/trending + local net-buyer filtering if unavailable.
     """
     if not _available(chain):
         return []
     cache_key = f"whale_accum_{chain}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
+
+    # PRIMARY: POST /tokens/filtered — server-side net-buyer + experienced-buyer filtering
+    filtered = _filtered_tokens_query(
+        chain,
+        filters=[
+            {"field": "totalLiquidityUsd", "operator": "gte", "value": min_liquidity_usd},
+            {"field": "netBuyers.1h", "operator": "gte", "value": 5},
+            {"field": "experiencedBuyers.1h", "operator": "gte", "value": 3},
+            {"field": "volumeUsd.1h", "operator": "gte", "value": 10000},
+        ],
+        sort_by="netBuyers.1h",
+        sort_order="desc",
+        limit=limit,
+    )
+    if filtered:
+        result = []
+        for t in filtered:
+            item = _filtered_to_standard_format(t, chain, "moralis_whale_accumulation")
+            item["net_experienced_buyers_1w"] = item.get("net_buyers_1h", 0)
+            item["experienced_buyers_1d"] = item.get("experienced_buyers_1h", 0)
+            item["net_volume_usd_1d"] = item.get("volume_usd_1h", 0)
+            item["holder_change_1d"] = _safe_int(t.get("holders", {}).get("1d", 0)) if isinstance(t.get("holders"), dict) else 0
+            item["holder_change_1w"] = 0
+            item["fdv"] = _safe_float(t.get("fullyDilutedValuation", t.get("marketCap", 0)))
+            result.append(item)
+        _set_cache(cache_key, result)
+        logger.info(f"Moralis whale accumulation (via /tokens/filtered): {len(result)} tokens on {chain}")
+        return result
+
+    # FALLBACK: GET /tokens/trending + local net-buyer filtering
     raw = _trending_for_chain(chain)
     result = []
     for t in raw:
@@ -293,7 +466,6 @@ def get_whale_accumulation_tokens(
         if net_buyers < 5:  # Proxy for whale accumulation
             continue
         item = _trending_to_filtered_format(t, chain, "moralis_whale_accumulation")
-        # Add whale-specific fields
         item["net_experienced_buyers_1w"] = net_buyers  # approximation
         item["experienced_buyers_1d"] = buyers_1h
         item["net_volume_usd_1d"] = vol_1h
@@ -304,7 +476,7 @@ def get_whale_accumulation_tokens(
     result.sort(key=lambda x: x.get("net_buyers_1h", 0), reverse=True)
     result = result[:limit]
     _set_cache(cache_key, result)
-    logger.info(f"Moralis whale accumulation (via trending): {len(result)} tokens on {chain}")
+    logger.info(f"Moralis whale accumulation (via trending fallback): {len(result)} tokens on {chain}")
     return result
 
 
@@ -346,10 +518,10 @@ def get_trending_tokens(chain: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Top Gainers  (was POST /discovery/tokens — deprecated June 2026)
-#    Now uses GET /tokens/trending + sort by pricePercentChange DESC
+# 3. Top Gainers  (POST /tokens/filtered → primary, trending → fallback)
+#    Tokens with biggest price gains — sorted by usdPricePercentChange DESC.
 # ─────────────────────────────────────────────────────────────────────────────
-# Map caller time_frame strings to POST /discovery/tokens timeFrame values
+# Map caller time_frame strings for /tokens/filtered sortBy keys
 _TIMEFRAME_MAP = {
     "1h": "oneHour",
     "4h": "fourHours",
@@ -361,19 +533,43 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
     """
     Fetch top-gaining tokens sorted by price change.
 
-    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
-    with local sorting by pricePercentChange DESC.
+    Uses POST /tokens/filtered sorted by usdPricePercentChange DESC (primary).
+    Falls back to GET /tokens/trending + local sorting.
     """
     if not _available(chain):
         return []
     cache_key = f"top_gainers_{chain}_{time_frame}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
-    raw = _trending_for_chain(chain)
-    # Map time_frame to trending response key
-    tf_key = {"1h": "1h", "4h": "4h", "12h": "12h", "24h": "24h", "1d": "24h"}.get(time_frame, "24h")
     limit = 50
+    tf_key = {"1h": "1h", "4h": "4h", "12h": "12h", "24h": "24h", "1d": "24h"}.get(time_frame, "24h")
+
+    # PRIMARY: POST /tokens/filtered — server-side sort by price change DESC
+    filtered = _filtered_tokens_query(
+        chain,
+        filters=[
+            {"field": "totalLiquidityUsd", "operator": "gte", "value": 10000},
+            {"field": f"usdPricePercentChange.{tf_key}", "operator": "gte", "value": 0.01},
+        ],
+        sort_by=f"usdPricePercentChange.{tf_key}",
+        sort_order="desc",
+        limit=limit,
+    )
+    if filtered:
+        result = []
+        for t in filtered:
+            item = _filtered_to_standard_format(t, chain, "moralis_top_gainer")
+            pct_field = t.get("usdPricePercentChange", t.get("pricePercentChange", {})) or {}
+            item["price_change_pct"] = _safe_float(
+                pct_field.get(tf_key, pct_field) if isinstance(pct_field, dict) else pct_field
+            )
+            result.append(item)
+        _set_cache(cache_key, result)
+        logger.info(f"Moralis top gainers (via /tokens/filtered): {len(result)} on {chain}")
+        return result
+
+    # FALLBACK: GET /tokens/trending + local sorting
+    raw = _trending_for_chain(chain)
     result = []
     for t in raw:
         pct = _safe_float((t.get("pricePercentChange") or {}).get(tf_key, 0))
@@ -385,31 +581,56 @@ def get_top_gainers(chain: str, time_frame: str = "1h") -> list[dict]:
     result.sort(key=lambda x: x.get("price_change_pct", 0), reverse=True)
     result = result[:limit]
     _set_cache(cache_key, result)
-    logger.info(f"Moralis top gainers (via trending): {len(result)} on {chain}")
+    logger.info(f"Moralis top gainers (via trending fallback): {len(result)} on {chain}")
     return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Top Losers  (was POST /discovery/tokens — deprecated June 2026)
-#    Now uses GET /tokens/trending + sort by pricePercentChange ASC
+# 4. Top Losers  (POST /tokens/filtered → primary, trending → fallback)
+#    Tokens with strong fundamentals but short-term drops — prime dip buys.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
     """
     Fetch top-losing tokens sorted by price change ASC.
     Tokens with strong fundamentals but short-term price drops are prime dip buys.
 
-    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
-    with local sorting by pricePercentChange ASC.
+    Uses POST /tokens/filtered sorted by usdPricePercentChange ASC (primary).
+    Falls back to GET /tokens/trending + local sorting.
     """
     if not _available(chain):
         return []
     cache_key = f"top_losers_{chain}_{time_frame}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
-    raw = _trending_for_chain(chain)
     tf_key = {"1h": "1h", "4h": "4h", "12h": "12h", "24h": "24h", "1d": "24h"}.get(time_frame, "24h")
     limit = 50
+
+    # PRIMARY: POST /tokens/filtered — server-side sort by price change ASC
+    filtered = _filtered_tokens_query(
+        chain,
+        filters=[
+            {"field": "totalLiquidityUsd", "operator": "gte", "value": 10000},
+            {"field": f"usdPricePercentChange.{tf_key}", "operator": "lte", "value": -0.01},
+        ],
+        sort_by=f"usdPricePercentChange.{tf_key}",
+        sort_order="asc",
+        limit=limit,
+    )
+    if filtered:
+        result = []
+        for t in filtered:
+            item = _filtered_to_standard_format(t, chain, "moralis_top_loser")
+            pct_field = t.get("usdPricePercentChange", t.get("pricePercentChange", {})) or {}
+            item["price_change_pct"] = _safe_float(
+                pct_field.get(tf_key, pct_field) if isinstance(pct_field, dict) else pct_field
+            )
+            result.append(item)
+        _set_cache(cache_key, result)
+        logger.info(f"Moralis top losers (via /tokens/filtered): {len(result)} on {chain}")
+        return result
+
+    # FALLBACK: GET /tokens/trending + local sorting
+    raw = _trending_for_chain(chain)
     result = []
     for t in raw:
         pct = _safe_float((t.get("pricePercentChange") or {}).get(tf_key, 0))
@@ -421,29 +642,54 @@ def get_top_losers(chain: str, time_frame: str = "1h") -> list[dict]:
     result.sort(key=lambda x: x.get("price_change_pct", 0))
     result = result[:limit]
     _set_cache(cache_key, result)
-    logger.info(f"Moralis top losers (via trending): {len(result)} on {chain}")
+    logger.info(f"Moralis top losers (via trending fallback): {len(result)} on {chain}")
     return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Buying Pressure  (was POST /discovery/tokens — deprecated June 2026)
-#    Now uses GET /tokens/trending + buy/sell transaction ratio sorting
+# 5. Buying Pressure  (POST /tokens/filtered → primary, trending → fallback)
+#    Tokens where buy volume dominates sell volume — momentum signal.
 # ─────────────────────────────────────────────────────────────────────────────
 def get_buying_pressure_tokens(chain: str) -> list[dict]:
     """
     Tokens with rising buy pressure — buy volume dominates sell volume.
 
-    POST /discovery/tokens was deprecated June 2026. Now uses GET /tokens/trending
-    with local buy/sell transaction ratio sorting.
+    Uses POST /tokens/filtered with netBuyers filter (primary).
+    Falls back to GET /tokens/trending + local buy/sell ratio sorting.
     """
     if not _available(chain):
         return []
     cache_key = f"buying_pressure_{chain}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
-    # POST /discovery/tokens was deprecated June 2026 — use trending fallback
-    raw = _trending_for_chain(chain)
     limit = 50
+
+    # PRIMARY: POST /tokens/filtered — server-side net-buyer filtering
+    filtered = _filtered_tokens_query(
+        chain,
+        filters=[
+            {"field": "totalLiquidityUsd", "operator": "gte", "value": 10000},
+            {"field": "netBuyers.1h", "operator": "gte", "value": 1},
+            {"field": "volumeUsd.1h", "operator": "gte", "value": 5000},
+        ],
+        sort_by="netBuyers.1h",
+        sort_order="desc",
+        limit=limit,
+    )
+    if filtered:
+        result = []
+        for t in filtered:
+            item = _filtered_to_standard_format(t, chain, "moralis_buying_pressure")
+            buyers_1h = item.get("experienced_buyers_1h", 0)
+            sellers_1h = max(buyers_1h - item.get("net_buyers_1h", 0), 0)
+            item["buy_sell_ratio"] = buyers_1h / max(sellers_1h, 1)
+            result.append(item)
+        _set_cache(cache_key, result)
+        logger.info(f"Moralis buying pressure (via /tokens/filtered): {len(result)} on {chain}")
+        return result
+
+    # FALLBACK: GET /tokens/trending + local buy/sell ratio sorting
+    raw = _trending_for_chain(chain)
     result = []
     for t in raw:
         buy_txns = _safe_int((t.get("buyTransactions") or {}).get("1h", 0))
@@ -456,7 +702,7 @@ def get_buying_pressure_tokens(chain: str) -> list[dict]:
     result.sort(key=lambda x: x.get("buy_sell_ratio", 0), reverse=True)
     result = result[:limit]
     _set_cache(cache_key, result)
-    logger.info(f"Moralis buying pressure (via trending): {len(result)} on {chain}")
+    logger.info(f"Moralis buying pressure (via trending fallback): {len(result)} on {chain}")
     return result
 
 

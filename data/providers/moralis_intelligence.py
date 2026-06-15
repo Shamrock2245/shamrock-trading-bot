@@ -7,7 +7,7 @@ moralis_wallet.py, moralis_price.py, or moralis_solana.py.
 NEW ENDPOINTS ADDED:
   Token Signals (EVM + Solana):
     GET /erc20/{address}/top-traders          → Top profitable traders (smart money)
-    GET /erc20/{address}/snipers              → EVM sniper detection at launch
+    GET /erc20/{address}/snipers              → REMOVED June 2026 — see moralis_sniper_detection.py
     GET /tokens/{address}/score/historical    → Token score timeseries (trending safer/riskier)
     POST /tokens/analytics/timeseries         → Analytics timeseries (momentum building/dying)
     GET /erc20/{address}/holders              → Current holder list with balances
@@ -23,10 +23,10 @@ NEW ENDPOINTS ADDED:
     GET /wallets/{address}/defi/positions     → DeFi positions per protocol
     GET /wallets/{address}/defi/summary       → DeFi protocol summary
 
-  Market Macro:
-    GET /volume/chains                        → Chain-level volume metrics (is the chain hot?)
-    GET /volume/timeseries                    → Chain volume timeseries
-    GET /volume/categories                    → Category metrics (meme, defi, etc.)
+  Market Macro (MIGRATED June 2026 — original /volume/* endpoints removed):
+    CoinGecko /api/v3/global fallback         → Global market cap, BTC dominance
+    DeFiLlama /v2/chains fallback             → Chain TVL/volume metrics
+    GET /tokens/categories                    → Category metrics (meme, defi, etc.)
 
   Universal (Cross-chain):
     GET /tokens/search                        → Token search by name/symbol
@@ -2102,7 +2102,7 @@ def cortex_analyze_token(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 20. TOKEN BONDING STATUS — Pre-trade rug prevention
-# GET /erc20/{address}/bonding-status?chain={chain}       (EVM)
+# GET /tokens/{address}/bonding-status?chain={chain}      (EVM)  — migrated June 2026
 # GET /token/{network}/{address}/bonding-status            (Solana)
 # Returns: graduation %, bonding curve exchange, bonding status, market cap
 # Use case: Block trades on tokens still in bonding curve (pre-graduation)
@@ -2135,7 +2135,7 @@ def get_token_bonding_status(
             params = {}
         else:
             hex_chain = CHAIN_HEX.get(chain, "0x1")
-            url = f"{BASE_URL}/erc20/{token_address}/bonding-status"
+            url = f"{BASE_URL}/tokens/{token_address}/bonding-status"
             params = {"chain": hex_chain}
 
         resp = get_session().get(url, params=params, headers=_headers(), timeout=8)

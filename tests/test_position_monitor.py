@@ -118,10 +118,10 @@ class TestHardStopLoss:
             assert "hard" not in reason, f"Hard stop should NOT fire at -4%, got: {reason}"
 
     def test_nuclear_hard_stop_tighter(self):
-        """Nuclear profile has 10% hard stop — should fire at -12%."""
+        """Nuclear profile has 15% hard stop — should fire at -16%."""
         pos = _pos(entry_price=1.0, profile="nuclear")
-        result = _eval(pos, current_price=0.88)  # -12% → below 10% threshold
-        assert result is not None, "Nuclear hard stop should fire at -12%"
+        result = _eval(pos, current_price=0.84)  # -16% → below 15% threshold
+        assert result is not None, "Nuclear hard stop should fire at -16%"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
