@@ -380,7 +380,7 @@ st.markdown(
     '-webkit-background-clip:text;-webkit-text-fill-color:transparent;">'
     'Command center</h1>'
     '<span style="color:#484F58;font-size:0.75rem;">'
-    'Moralis Intelligence · Cortex AI · Copy-Trade · Sniper Defense</span>'
+    'Moralis Intelligence · Token Scoring · Copy-Trade · Sniper Defense</span>'
     '</div>'
     f'{_mode_badge}'
     '</div>',
