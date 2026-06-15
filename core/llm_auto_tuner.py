@@ -4,13 +4,21 @@ core/llm_auto_tuner.py — Reasoning-Driven Auto-Tuning Engine (OpenAlice style)
 Ingests live market data, current daily PnL, and active positions, 
 then queries an LLM to auto-tune position parameters (e.g., trailing stops) 
 using natural language reasoning (Trading-as-Git).
+
+Dedup:
+    - Internal 30-minute cooldown (_last_run_time) prevents double-runs
+      even if called from multiple sites.
+    - File-based lock (output/auto_tune_lock.json) survives restarts
+      so the tuner doesn't fire immediately after a reboot within the
+      30-min window.
 """
 
 import json
 import logging
 import os
 import time
-from typing import Dict, Any, List
+from pathlib import Path
+from typing import Dict, Any, List, Optional
 from openai import OpenAI
 
 from config import settings
@@ -19,7 +27,46 @@ from core.position_monitor import load_positions, save_positions
 
 logger = logging.getLogger(__name__)
 
-# Cache OpenAI client
+# ─────────────────────────────────────────────────────────────────────────────
+# Dedup: 30-minute minimum interval (in-memory + file-based)
+# ─────────────────────────────────────────────────────────────────────────────
+AUTO_TUNE_COOLDOWN_SECONDS = 1800.0  # 30 minutes
+
+_last_run_time: float = 0.0
+_LOCK_FILE = Path(os.getenv("AUTO_TUNE_LOCK_FILE", "output/auto_tune_lock.json"))
+
+
+def _read_lock_timestamp() -> float:
+    """Read the last successful run timestamp from the lock file."""
+    try:
+        if _LOCK_FILE.exists():
+            with open(_LOCK_FILE, "r") as f:
+                data = json.load(f)
+                return float(data.get("last_run_time", 0.0))
+    except Exception:
+        pass
+    return 0.0
+
+
+def _write_lock_timestamp(ts: float) -> None:
+    """Persist the last successful run timestamp to the lock file."""
+    try:
+        _LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _LOCK_FILE.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump({
+                "last_run_time": ts,
+                "last_run_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
+                "cooldown_seconds": AUTO_TUNE_COOLDOWN_SECONDS,
+            }, f, indent=2)
+        tmp.replace(_LOCK_FILE)
+    except Exception as e:
+        logger.debug(f"Auto-Tuner lock file write failed (non-blocking): {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenAI Client
+# ─────────────────────────────────────────────────────────────────────────────
 _openai_client = None
 
 def get_openai_client():
@@ -31,6 +78,11 @@ def get_openai_client():
             return None
         _openai_client = OpenAI(api_key=api_key)
     return _openai_client
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Tuning Command Generation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, target_pnl: float) -> List[Dict[str, Any]]:
     """
@@ -117,16 +169,57 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
         logger.error(f"Error querying OpenAI for tuning commands: {e}")
         return []
 
-def run_auto_tuner_cycle():
-    """Run a single cycle of the LLM auto-tuner."""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main Entry Point (with dedup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_auto_tuner_cycle(force: bool = False) -> None:
+    """
+    Run a single cycle of the LLM auto-tuner.
+
+    Enforces a 30-minute minimum interval between runs via both an in-memory
+    timestamp and a file-based lock (survives restarts).  Pass force=True to
+    bypass the cooldown (e.g. from CLI / __main__).
+    """
+    global _last_run_time
+
+    now = time.time()
+
+    if not force:
+        # Check in-memory timestamp first (fast path)
+        if _last_run_time > 0 and (now - _last_run_time) < AUTO_TUNE_COOLDOWN_SECONDS:
+            remaining = AUTO_TUNE_COOLDOWN_SECONDS - (now - _last_run_time)
+            logger.debug(
+                f"🧠 Auto-Tuner dedup: skipping — last run {now - _last_run_time:.0f}s ago, "
+                f"next in {remaining:.0f}s"
+            )
+            return
+
+        # Check file-based lock (survives restarts)
+        file_ts = _read_lock_timestamp()
+        if file_ts > 0 and (now - file_ts) < AUTO_TUNE_COOLDOWN_SECONDS:
+            _last_run_time = file_ts  # Sync in-memory with file
+            remaining = AUTO_TUNE_COOLDOWN_SECONDS - (now - file_ts)
+            logger.debug(
+                f"🧠 Auto-Tuner dedup (file lock): skipping — last run {now - file_ts:.0f}s ago, "
+                f"next in {remaining:.0f}s"
+            )
+            return
+
     engine = get_daily_goal_engine()
     daily_pnl = engine.today_profit_usd
     target_pnl = engine.current_target_usd
     
-    logger.info("🧠 Running LLM Auto-Tuner Cycle...")
+    logger.info("🧠 Running LLM Auto-Tuner Cycle (30-min interval)...")
     
     positions = load_positions()
     commands = generate_tuning_commands(positions, daily_pnl, target_pnl)
+
+    # Update timestamps regardless of whether commands were generated
+    # (we don't want to re-run immediately if there were no open positions)
+    _last_run_time = now
+    _write_lock_timestamp(now)
     
     if not commands:
         logger.info("🧠 Auto-Tuner: No tuning commands generated.")
@@ -157,4 +250,5 @@ def run_auto_tuner_cycle():
         logger.info("💾 Auto-Tuner: Saved updated positions to disk.")
 
 if __name__ == "__main__":
-    run_auto_tuner_cycle()
+    run_auto_tuner_cycle(force=True)
+

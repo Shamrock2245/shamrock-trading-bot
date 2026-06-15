@@ -1917,7 +1917,7 @@ class PositionMonitor:
         )
         
         last_auto_tune_time = 0.0
-        AUTO_TUNE_INTERVAL = 900.0  # 15 minutes
+        AUTO_TUNE_INTERVAL = 1800.0  # 30 minutes — single deduped auto-tune check
         
         last_hourly_report_time = 0.0
         HOURLY_REPORT_INTERVAL = 3600.0  # 60 minutes

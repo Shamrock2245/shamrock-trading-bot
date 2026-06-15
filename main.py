@@ -517,23 +517,12 @@ async def run_bot_loop():
     except Exception as _bss_err:
         logger.warning(f"BlackSwanSweeper init failed (non-blocking): {_bss_err}")
 
-    # ── Start MEV Extractor Engine (Sandwich Bot + Liquidation Hunter) ────────────
-    # Runs as an asyncio background task alongside the main bot loop.
-    # Executes ONLY when net profit after gas/bribes is strictly positive.
-    _mev_engine = None
-    if settings.MEV_SANDWICH_ENABLED or settings.MEV_LIQUIDATION_ENABLED:
-        try:
-            from core.mev_extractor import get_engine as _get_mev_engine
-            _mev_engine = _get_mev_engine()
-            asyncio.ensure_future(_mev_engine.run())
-            logger.info(
-                f"🟢 MEV Extractor Engine started | "
-                f"Sandwich: {'ON' if settings.MEV_SANDWICH_ENABLED else 'OFF'} | "
-                f"Liquidation: {'ON' if settings.MEV_LIQUIDATION_ENABLED else 'OFF'} | "
-                f"Min profit: ${settings.MEV_MIN_NET_PROFIT_USD:.2f}"
-            )
-        except Exception as _mev_err:
-            logger.warning(f"MEV Extractor Engine init failed (non-blocking): {_mev_err}")
+    # ── MEV Extractor Engine (Sandwich Bot + Liquidation Hunter) ────────────────
+    # Launched below as a daemon thread (_mev_daemon at line ~1291) which creates
+    # its own event loop. Do NOT also start it here via asyncio.ensure_future()
+    # — that would double-launch the singleton, causing duplicate mempool
+    # monitoring, duplicate WebSocket connections, and doubled compute.
+    # The daemon thread uses get_mev_extractor() (Manus fix, commit 25a4af1).
 
     def _latency_seconds(ts_start) -> float:
         return max(0.0, (datetime.now(timezone.utc) - ts_start).total_seconds())

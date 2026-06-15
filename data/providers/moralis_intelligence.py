@@ -2080,10 +2080,9 @@ def get_top_crypto_by_market_cap(limit: int = 10) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 19. CORTEX AI — AI-powered on-chain analysis
-# POST /cortex/chat
-# Sends a natural language query grounded in Moralis on-chain data.
-# Returns an AI-generated analysis with on-chain evidence.
+# 19. CORTEX AI — DEPRECATED (sunset June 4, 2026)
+# Replaced by getTokenScore + getTokenAnalytics (see moralis_money.py,
+# moralis_data.py) which are already integrated into the gem scanner.
 # ─────────────────────────────────────────────────────────────────────────────
 def cortex_analyze_token(
     token_address: str,
@@ -2092,13 +2091,12 @@ def cortex_analyze_token(
     question: str = "",
 ) -> Optional[dict]:
     """
-    DEPRECATED: Moralis sunset the hosted Cortex API (`/cortex/chat`) on June 4, 2026,
-    in favor of open-source "Onchain Skills".
-    
-    To avoid dead HTTP requests, potential timeouts, and rate-limit credit waste
-    in the real-time scanning loop, this has been permanently deactivated.
+    PERMANENTLY DEACTIVATED.
+
+    Moralis sunset the hosted Cortex API (`/cortex/chat`) on June 4, 2026.
+    Replaced by `getTokenScore` + `getTokenAnalytics` endpoints, which are
+    already integrated via moralis_money.py and moralis_data.py.
     """
-    logger.debug(f"Cortex AI query skipped for {symbol or token_address} (Hosted Cortex API sunset on June 4, 2026)")
     return None
 
 

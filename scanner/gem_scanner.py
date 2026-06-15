@@ -151,9 +151,8 @@ try:
 except ImportError:
     _GROK_SENTIMENT_AVAILABLE = False
 
-# NOTE: Moralis Cortex API deprecated — removed June 2, 2026.
-# Replacement: Moralis "Onchain Skills" (when available).
-# See: https://moralis.com changelog — sunset date June 4, 2026.
+# Moralis Cortex API was deprecated June 4, 2026.
+# Replaced by getTokenScore + getTokenAnalytics (already integrated via moralis_money.py).
 
 try:
     from data.providers.moralis_money import get_historical_price_context as _get_historical_price_context
@@ -1825,8 +1824,8 @@ class GemScanner:
                     logger.debug(f"Grok sentiment fallback failed for {token.symbol}: {e}")
                     candidate.grok_sentiment_score = 50.0
 
-            # NOTE: Moralis Cortex AI was removed — API deprecated June 4, 2026.
-            # When Moralis "Onchain Skills" API is available, add it here.
+            # Moralis Cortex AI was deprecated June 4, 2026 — replaced by
+            # getTokenScore + getTokenAnalytics (integrated via moralis_money.py).
 
         # ── Moralis Money Enrichment (PRIMARY source — 27% weight) ─────────────
         # ⚡ Now runs IN the parallel pool above. Results from enrichment_results.

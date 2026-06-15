@@ -641,6 +641,9 @@ class BlackSwanSweeper:
                     ping_interval=20,
                     ping_timeout=30,
                     close_timeout=10,
+                    # Match SOL listener fix (commit 25a4af1): large blocks
+                    # with full transactions can exceed the default frame limit.
+                    max_size=2**20,  # 1 MB
                 ) as ws:
                     # Subscribe to new block headers
                     await ws.send(json.dumps({
