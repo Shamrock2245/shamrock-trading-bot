@@ -224,11 +224,28 @@ class AppState(rx.State):
     def logout(self):
         self.is_authenticated = False
 
+    _task_running: bool = False
+
+    @rx.background
+    async def auto_refresh_task(self):
+        """Background task to auto-refresh data every 5 seconds."""
+        import asyncio
+        while True:
+            await asyncio.sleep(5)
+            async with self:
+                if self.is_authenticated:
+                    self._read_data()
+
     # ── Data Loading ──────────────────────────────────────────────────────────
     def load_data(self):
         """Load JSON files from the bot's output. Called on page load."""
         if self.is_authenticated:
             self._read_data()
+        
+        # Start the background task once per session
+        if not self._task_running:
+            self._task_running = True
+            return AppState.auto_refresh_task()
 
     def _read_data(self):
         """Read data from the bot's output directories."""
