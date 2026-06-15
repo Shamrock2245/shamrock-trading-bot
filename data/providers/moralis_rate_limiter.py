@@ -15,11 +15,9 @@ PROBLEM SOLVED:
   using a proper sliding window algorithm tuned for Pro-tier throughput.
 
 BUDGET CONTROL:
-  Pro plan = 100M CU/month. Average endpoint costs ~50 CU.
-  100M / 50 = 2M calls/month = ~46 calls/sec sustained.
+  CU budget read from settings.MORALIS_MONTHLY_CU_BUDGET (set via .env).
+  Current plan: 394M CU/month. Average endpoint costs ~50 CU.
   We set our ceiling at 60 RPS (75% of 80) to leave headroom and avoid overage.
-  At 60 RPS × avg 50 CU, that's 3M CU/hr = 72M CU/day under full blast.
-  In practice, scan cycles run ~5 mins/15 mins, so actual usage << 72M CU/day.
 
   CU tracking: each call records its CU cost. If monthly CU budget approaches
   90%, we downshift to 20 RPS to prevent overage billing.
@@ -39,15 +37,18 @@ import threading
 import time
 from collections import deque
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
-# ── Pro Plan Constants ────────────────────────────────────────────────────────
+# ── Plan Constants (read from settings → .env for single source of truth) ─────
 PRO_RPS_LIMIT = 60           # 75% of 80 RPS — leaves 20 RPS headroom
 PRO_WINDOW_SECONDS = 4.0     # Moralis evaluates over a 4-second rolling window
 PRO_MAX_IN_WINDOW = int(PRO_RPS_LIMIT * PRO_WINDOW_SECONDS)  # 240 calls per 4s window
 
-# CU Budget Control
-MONTHLY_CU_BUDGET = 100_000_000  # 100M CU/month
+# CU Budget Control — reads from settings.MORALIS_MONTHLY_CU_BUDGET (.env)
+# to stay in sync with core/moralis_cu_budget.py
+MONTHLY_CU_BUDGET: int = getattr(settings, "MORALIS_MONTHLY_CU_BUDGET", 100_000_000)
 CU_BUDGET_WARNING_PCT = 0.70     # Downshift at 70% budget consumed
 CU_BUDGET_CRITICAL_PCT = 0.85    # Hard throttle at 85% budget consumed
 DOWNSHIFT_RPS = 20               # Reduced RPS when approaching budget limit

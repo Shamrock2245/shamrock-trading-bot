@@ -1,23 +1,25 @@
 """
 data/providers/moralis_market_metrics.py — Market Metrics Provider (Migrated June 2026)
 
-MIGRATION NOTES (June 4, 2026):
-  The following Moralis endpoints were REMOVED and have NO live replacement yet:
+MIGRATION NOTES (June 4, 2026 — updated June 15, 2026):
+  The following Moralis endpoints were REMOVED:
     ❌ GET /volume/chains                          → DEAD
     ❌ GET /volume/categories                      → DEAD
     ❌ GET /market-data/global/market-cap          → DEAD
     ❌ GET /market-data/top-cryptocurrencies-by-market-cap → DEAD
 
-  The Moralis Universal Market Metrics API (/market/*, /chains/metrics) is
-  documented but returns 404 as of June 14, 2026 — not yet deployed.
+  REPLACEMENT ENDPOINTS (available in Moralis Discovery API):
+    ✅ GET /discovery/volume/stats/chains               → replaces /volume/chains
+    ✅ GET /discovery/volume/stats/categories            → replaces /volume/categories
+    ✅ GET /discovery/tokens/top-by-market-cap           → replaces /market-data/top-*
+    ✅ GET /discovery/tokens/trending                    → chain-level heat proxy
+    ✅ GET /tokens/{addr}/analytics                      → per-token buy/sell velocity
 
-  REPLACEMENT STRATEGY:
+  CURRENT FALLBACK (working):
     - CoinGecko /api/v3/global  → global market cap, BTC dominance (free, no key)
     - CoinGecko /api/v3/coins/markets → top coins by market cap (free, no key)
-    - Moralis GET /tokens/{addr}/analytics → per-token buy/sell velocity (✅ LIVE)
-    - Moralis GET /tokens/trending → chain-level heat proxy (✅ LIVE)
 
-  When Moralis Universal Market Metrics goes live, swap the CoinGecko calls back.
+  TODO: Migrate from CoinGecko fallback to Moralis Discovery API above.
 """
 
 from __future__ import annotations
