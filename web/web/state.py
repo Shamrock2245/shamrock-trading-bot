@@ -226,7 +226,7 @@ class AppState(rx.State):
 
     _task_running: bool = False
 
-    @rx.background
+    @rx.event(background=True)
     async def auto_refresh_task(self):
         """Background task to auto-refresh data every 5 seconds."""
         import asyncio
