@@ -487,11 +487,84 @@ class HLPerpsScanner:
         if current_price <= 0:
             return None
 
-        # Score the market
+        # Score the market (8-indicator built-in engine)
         score, direction, components = _score_signal(closes, volumes, funding_rate)
 
         if direction == "none" or score < HL_PERPS_MIN_SCORE:
             return None
+
+        # ── 29-Indicator TA Confirmation Gate ────────────────────────────────
+        # Blend the full 29-indicator engine from strategies/indicators.py
+        # with the built-in 8-indicator HL score for higher-quality entries.
+        # Final score = 60% HL score + 40% TA29 average
+        # Direction must AGREE — both systems must confirm LONG or SHORT.
+        try:
+            import pandas as pd
+            from strategies.indicators import run_all_indicators, detect_divergence, _manual_rsi
+
+            # Build DataFrame from candle data
+            highs = [float(c["h"]) for c in candles]
+            lows = [float(c["l"]) for c in candles]
+            opens = [float(c["o"]) for c in candles]
+            df = pd.DataFrame({
+                "open": opens, "high": highs, "low": lows,
+                "close": closes, "volume": volumes,
+            })
+
+            ta29 = run_all_indicators(df)
+            ta29_avg = (ta29.trend_score + ta29.momentum_score + ta29.volume_score) / 3.0
+
+            # Directional agreement check
+            if direction == "long" and ta29.trend_score < 45:
+                logger.debug(
+                    f"[HL-PERPS] {coin}: HL says LONG (score={score:.0f}) but "
+                    f"TA29 trend={ta29.trend_score:.0f} < 45 — VETOED"
+                )
+                return None
+            elif direction == "short" and ta29.trend_score > 55:
+                logger.debug(
+                    f"[HL-PERPS] {coin}: HL says SHORT (score={score:.0f}) but "
+                    f"TA29 trend={ta29.trend_score:.0f} > 55 — VETOED"
+                )
+                return None
+
+            # Blend scores: 60% HL built-in + 40% TA29
+            original_score = score
+            score = 0.6 * score + 0.4 * ta29_avg
+
+            # Divergence bonus
+            try:
+                rsi_series = [_manual_rsi(closes[:i+1]) for i in range(len(closes)-1, max(len(closes)-15, 13), -1)]
+                rsi_series = [r for r in rsi_series if r is not None]
+                if len(rsi_series) >= 5 and len(closes) >= 15:
+                    div = detect_divergence(closes[-15:], rsi_series[-15:] if len(rsi_series) >= 15 else rsi_series)
+                    if div == "bullish" and direction == "long":
+                        score += 10.0
+                        components["divergence"] = "bullish"
+                    elif div == "bearish" and direction == "short":
+                        score += 10.0
+                        components["divergence"] = "bearish"
+            except Exception:
+                pass  # Divergence is a bonus, not required
+
+            logger.info(
+                f"[HL-PERPS] {coin} TA29 gate: HL={original_score:.0f} + TA29="
+                f"(trend={ta29.trend_score:.0f}, mom={ta29.momentum_score:.0f}, "
+                f"vol={ta29.volume_score:.0f}, avg={ta29_avg:.0f}) → blended={score:.0f}"
+            )
+            components["ta29_trend"] = ta29.trend_score
+            components["ta29_momentum"] = ta29.momentum_score
+            components["ta29_volume"] = ta29.volume_score
+            components["ta29_avg"] = ta29_avg
+
+            # Re-check minimum score after blending
+            if score < HL_PERPS_MIN_SCORE:
+                logger.debug(f"[HL-PERPS] {coin}: blended score {score:.0f} < {HL_PERPS_MIN_SCORE} — filtered")
+                return None
+
+        except Exception as _ta29_err:
+            # Graceful degradation — use 8-indicator score only
+            logger.debug(f"[HL-PERPS] {coin}: TA29 gate unavailable ({_ta29_err}) — using HL score only")
 
         # Calculate TP/SL prices
         sl_pct = HL_PERPS_STOP_LOSS_PCT / 100

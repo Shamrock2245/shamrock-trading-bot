@@ -1,0 +1,54 @@
+{
+  "episode_id": "ep-2026-06-16-002",
+  "date": "2026-06-16",
+  "category": "trade_execution",
+  "title": "Strategy Lock: 4 strategies only until $10k/day",
+  "severity": "critical",
+  "what_happened": {
+    "summary": "User mandated that the bot runs ONLY 4 low-risk strategies until $10k/day target. All gem sniping and swing trading disabled. HL perps must use the full 29-indicator signal engine for entries, not just its built-in 8-indicator system.",
+    "strategies_locked": [
+      {
+        "name": "CEX/DEX Stat Arb",
+        "module": "core/stat_arb.py",
+        "risk": "low",
+        "type": "delta-neutral basis trade"
+      },
+      {
+        "name": "Liquidation Hunting",
+        "module": "core/mev_extractor.py (Strategy 2 only)",
+        "risk": "low",
+        "type": "protocol bounty"
+      },
+      {
+        "name": "Coinbase Arb",
+        "module": "core/arb_executor.py + scanner/arb_scanner.py",
+        "risk": "low",
+        "type": "cross-exchange spread"
+      },
+      {
+        "name": "HL Perps",
+        "module": "core/hl_perps_scanner.py",
+        "risk": "medium",
+        "type": "directional with leverage",
+        "upgrade_needed": "Replace 8-indicator scoring with full 29-indicator engine from strategies/indicators.py"
+      }
+    ],
+    "strategies_disabled": ["gem_sniping", "swing_trading", "sandwich_mev"],
+    "milestones": {
+      "first_target": "$500/day consistently → switch from paper to live",
+      "final_target": "$10k/day → unlock additional strategies"
+    }
+  },
+  "user_feedback": {
+    "quote_1": "keep THOSE as the ONLY strategies we are using until we get to 10k",
+    "quote_2": "lets start really testing our paper strategies on the HL perps because i want you to pick our entry points based off of the 29 real metrics",
+    "quote_3": "i want good entries and exits, with our balances only going up"
+  },
+  "action_items": [
+    "Wire all 4 strategies into main.py as parallel daemon threads",
+    "Upgrade HL perps scanner to use full 29-indicator TAResult from strategies/indicators.py",
+    "Disable gem sniping and swing trading in main loop",
+    "Add Coinbase API credentials to server .env (DONE)",
+    "Verify each strategy produces paper trades within 1 hour of deployment"
+  ]
+}

@@ -452,6 +452,20 @@
       "files": ["output/daily_floor.json", "output/adaptive_mode_state.json"],
       "source_episode": "ep-2026-06-16-001",
       "evolution_marker": "2026-06-16 | CRITICAL | User reported this issue recurs in every conversation"
+    },
+    {
+      "id": "ops-004",
+      "category": "operations",
+      "name": "strategy_lock_until_10k",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "PRIME DIRECTIVE: The bot runs ONLY these 3 low-risk strategies until reaching $10k/day consistent profitability: (1) CEX/DEX Stat Arb — delta-neutral basis trades via stat_arb.py, (2) HL Perps — Hyperliquid perpetual futures trading using full 29-indicator signal engine for entries, (3) Coinbase Arb — CEX/DEX price discrepancy arb via arb_executor.py + arb_scanner.py + coinbase_client.py. NO gem sniping, NO swing trading, NO MEV (sandwich OR liquidation). These 3 strategies are the ONLY income streams. They must run as parallel daemon threads in main.py and produce positive results daily.",
+      "rule": "Do NOT enable, suggest, or work on gem sniping, swing trading, or ANY MEV until the bot consistently hits $10k/day with these 3 strategies. All development effort goes to making these 3 strategies profitable. The $500/day milestone is the first target (paper → live transition), then scale to $10k/day.",
+      "anti_pattern": "Adding or re-enabling gem sniping, swing trading, or MEV without user approval. Diverting effort to new strategies before these 3 are consistently profitable.",
+      "files": ["main.py", "core/stat_arb.py", "core/hl_perps_scanner.py", "core/coinbase_client.py", "core/arb_executor.py", "scanner/arb_scanner.py", "strategies/indicators.py"],
+      "source_episode": "ep-2026-06-16-002",
+      "evolution_marker": "2026-06-16 | CRITICAL | User directive: ONLY these 4 strategies until $10k/day"
     }
   ]
 }

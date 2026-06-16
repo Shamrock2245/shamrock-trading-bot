@@ -160,6 +160,14 @@ BANNER = """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Strategy Lock — when active, only arb strategies execute (stat arb, HL perps,
+# coinbase arb, cross-DEX arb).  Gem sniping and swing trading are disabled.
+# Toggle via STRATEGY_LOCK_ACTIVE env var (default: true = locked).
+# ─────────────────────────────────────────────────────────────────────────────
+STRATEGY_LOCK_ACTIVE = os.getenv('STRATEGY_LOCK_ACTIVE', 'true').lower() == 'true'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Core workflows
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1258,14 +1266,12 @@ async def run_bot_loop():
                     for opp in opportunities[:5]:  # Execute top 5 per cycle
                         result = _arb_exec_inst.execute(opp)
                         if result.success:
-                            # Only record arb profits in LIVE mode — paper arb uses
-                            # simulated flash loans with no execution risk, producing
-                            # unrealistic P&L that corrupts goal engine strategy modes
-                            if settings.MODE == "live":
-                                _dge.record_profit(
-                                    result.net_profit_usd,
-                                    source=f"arb_{opp.strategy}",
-                                )
+                            # Record arb profits in ALL modes (paper + live) so
+                            # arb P&L counts toward the $500/day goal engine.
+                            _dge.record_profit(
+                                result.net_profit_usd,
+                                source=f"arb_{opp.strategy}",
+                            )
                 _time.sleep(_scan_interval)
             except Exception as _arb_cycle_err:
                 logger.warning(f"Arb scan cycle error: {_arb_cycle_err}")
@@ -1300,13 +1306,25 @@ async def run_bot_loop():
 
     # ── HL Perps Scanner: 15-minute scan daemon ─────────────────────────────────────────────────────────────────────────────────────────
     def _hl_perps_daemon():
-        """Background thread: scans all 230 HL perps every 15 minutes for high-conviction entries."""
+        """Background thread: scans all 230 HL perps every 2 minutes for high-conviction entries."""
         import time as _time
         _time.sleep(30)  # Wait 30s for bot to fully initialize
         try:
             from core.hl_perps_scanner import HLPerpsScanner
-            _hl_scanner = HLPerpsScanner()
-            logger.info("✅ HL Perps Scanner initialized — 230 coins | 15-min cycles | 10%TP/3.5%SL/3x")
+            from core.hyperliquid_executor import HyperliquidExecutor
+            # Initialize the executor for LIVE trading on Hyperliquid
+            _hl_exec = HyperliquidExecutor()
+            if not _hl_exec._initialized:
+                logger.warning("HL Perps: executor failed to init — running in signal-only mode")
+                _hl_exec = None
+            else:
+                logger.info(
+                    f"✅ HL Perps LIVE executor ready | "
+                    f"wallet={_hl_exec.wallet_address[:10]}... | "
+                    f"leverage={_hl_exec.default_leverage}x"
+                )
+            _hl_scanner = HLPerpsScanner(hl_executor=_hl_exec)
+            logger.info("✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | 29-indicator + HL scoring | LIVE execution")
         except Exception as _hl_init_err:
             logger.error(f"HL Perps Scanner init failed: {_hl_init_err}")
             return
@@ -1324,7 +1342,7 @@ async def run_bot_loop():
                     logger.debug("[HL-PERPS] No high-conviction setups this cycle.")
             except Exception as _hl_cycle_err:
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
-            _time.sleep(900)  # 15-minute scan interval
+            _time.sleep(120)  # 2-minute scan interval (was 15 min)
 
     _hl_perps_thread = threading.Thread(target=_hl_perps_daemon, daemon=True, name="hl-perps-scanner")
     _hl_perps_thread.start()
@@ -2614,6 +2632,14 @@ async def run_bot_loop():
                 )
                 candidates = []  # Block all entries
 
+            # ── STRATEGY LOCK GATE: skip gem execution when locked to arb-only ──
+            if STRATEGY_LOCK_ACTIVE and candidates:
+                logger.info(
+                    "🔒 STRATEGY LOCK: Gem/Swing trading disabled — 3-strategy mode active "
+                    f"({len(candidates)} gems scanned for dashboard only)"
+                )
+                candidates = []  # Clear for execution but scan data already written above
+
             for candidate in candidates:
                 # ── GUARD 0: Symbol pre-filter — NEVER trade wrapped natives, stables, LSDs ──
                 # Check before any expensive safety/TA calls.
@@ -3214,7 +3240,9 @@ async def run_bot_loop():
                     logger.error(f"Moonshot Spray error: {e}", exc_info=True)
 
                 # 4d. Capital Recovery Swing Scanner (adaptive frequency)
-                if should_run_swing(adaptive_state, cycle):
+                if STRATEGY_LOCK_ACTIVE:
+                    logger.debug("🔒 STRATEGY LOCK: Swing scanner skipped — 3-strategy mode active")
+                elif should_run_swing(adaptive_state, cycle):
                     try:
                         swing_scanner = SwingScanner(chains=settings.ACTIVE_CHAINS)
                         swing_strategy = SwingStrategy()

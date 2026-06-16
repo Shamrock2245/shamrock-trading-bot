@@ -14,10 +14,10 @@ we lock in that spread with a delta-neutral position:
 As the futures premium decays toward zero (funding rate arbitrage forces
 convergence), we close both legs and pocket the spread minus fees.
 
-Entry Gate:  spread > STAT_ARB_ENTRY_THRESHOLD_PCT (default 2.5%)
+Entry Gate:  spread > STAT_ARB_ENTRY_THRESHOLD_PCT (default 1.5%)
 Exit Gate:   spread < STAT_ARB_EXIT_THRESHOLD_PCT  (default 0.5%)
 Max Hold:    STAT_ARB_MAX_HOLD_HOURS               (default 24h)
-Trade Size:  STAT_ARB_TRADE_SIZE_USD               (default $50 per leg)
+Trade Size:  STAT_ARB_TRADE_SIZE_USD               (default $100 per leg)
 
 Spread Calculation:
   spread_pct = (perp_price - spot_price) / spot_price * 100
@@ -58,10 +58,10 @@ logger = logging.getLogger(__name__)
 # Settings (all overridable via .env)
 # ─────────────────────────────────────────────────────────────────────────────
 STAT_ARB_ENABLED: bool = os.getenv("STAT_ARB_ENABLED", "true").lower() == "true"
-ENTRY_THRESHOLD: float = float(os.getenv("STAT_ARB_ENTRY_THRESHOLD_PCT", "2.5"))
+ENTRY_THRESHOLD: float = float(os.getenv("STAT_ARB_ENTRY_THRESHOLD_PCT", "1.5"))
 EXIT_THRESHOLD: float = float(os.getenv("STAT_ARB_EXIT_THRESHOLD_PCT", "0.5"))
-TRADE_SIZE_USD: float = float(os.getenv("STAT_ARB_TRADE_SIZE_USD", "50.0"))
-MAX_POSITIONS: int = int(os.getenv("STAT_ARB_MAX_POSITIONS", "5"))
+TRADE_SIZE_USD: float = float(os.getenv("STAT_ARB_TRADE_SIZE_USD", "100.0"))
+MAX_POSITIONS: int = int(os.getenv("STAT_ARB_MAX_POSITIONS", "8"))
 MAX_HOLD_HOURS: float = float(os.getenv("STAT_ARB_MAX_HOLD_HOURS", "24.0"))
 SCAN_INTERVAL: float = float(os.getenv("STAT_ARB_SCAN_INTERVAL_SECONDS", "15.0"))
 MIN_DEX_LIQUIDITY: float = float(os.getenv("STAT_ARB_MIN_DEX_LIQUIDITY_USD", "10000.0"))

@@ -52,7 +52,9 @@ except ImportError:
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 COINBASE_API_KEY = getattr(settings, "COINBASE_API_KEY_NAME", "") or os.getenv("COINBASE_API_KEY_NAME", "")
-COINBASE_API_SECRET = getattr(settings, "COINBASE_API_PRIVATE_KEY", "") or os.getenv("COINBASE_API_PRIVATE_KEY", "")
+_raw_secret = getattr(settings, "COINBASE_API_PRIVATE_KEY", "") or os.getenv("COINBASE_API_PRIVATE_KEY", "")
+# Docker env_file passes \n as literal "\\n" — PEM keys need real newlines
+COINBASE_API_SECRET = _raw_secret.replace("\\n", "\n") if _raw_secret else ""
 COINBASE_ENABLED = bool(COINBASE_API_KEY and COINBASE_API_SECRET and _sdk_available)
 
 # Taker fee (conservative estimate for position sizing)
