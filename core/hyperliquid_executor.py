@@ -445,8 +445,7 @@ class HyperliquidExecutor:
                     sym,
                     side == "buy",  # is_buy
                     coin_size,
-                    None,  # default slippage (3%)
-                    None,  # no cloid
+                    0.03,  # 3% slippage tolerance (SDK sends IOC limit at mid ± 3%)
                 )
 
                 if not result or result.get("status") != "ok":

@@ -97,6 +97,22 @@
       "confidence": 0.98,
       "applications": 1,
       "source": "ep-2026-06-09-001"
+    },
+    {
+      "id": "hl_unified_vs_cross_balance",
+      "pattern": "Hyperliquid Unified accounts store funds in spot clearinghouse, NOT perps margin. user_state() returns $0 for Unified mode. ALWAYS query spot_user_state() first — if USDC balance > 0, use it. Only fall back to user_state() for Cross margin accounts. New HL accounts default to Unified mode.",
+      "category": "trade_execution",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-16-hl-unified-balance"
+    },
+    {
+      "id": "hl_exchange_requires_wallet",
+      "pattern": "Hyperliquid Exchange() MUST be initialized with a real eth_account.Account wallet object, never wallet=None. Without the wallet, all transaction signing silently fails — open_long/open_short return None. Use: Account.from_key(private_key).",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-16-hl-unified-balance"
     }
   ]
 }

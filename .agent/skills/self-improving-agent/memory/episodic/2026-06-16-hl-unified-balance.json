@@ -1,0 +1,54 @@
+{
+  "episode_id": "ep-2026-06-16-hl-unified-balance",
+  "timestamp": "2026-06-16T23:07:00Z",
+  "category": "trade_execution",
+  "severity": "critical",
+  "skill_used": "hyperliquid_executor",
+  "task": "Fix HL perps executor showing $0 balance despite $149.80 in wallet",
+  "outcome": "success",
+  "key_insights": {
+    "what_went_well": [
+      "Two-tier scoring pipeline (filter=30 → exec=50) worked perfectly",
+      "Guard pipeline (R/R ratio, TP direction) caught bad trades correctly",
+      "ATOM LONG golden pocket signal was high quality (R/R=3.5x, score=61)"
+    ],
+    "what_went_wrong": [
+      "Exchange() initialized with wallet=None — could not sign any transactions",
+      "get_balance() used user_state() which returns $0 for Unified accounts",
+      "Bot spent hours generating perfect signals that could never execute",
+      "User deposited $150 that appeared 'lost' from bot's perspective"
+    ],
+    "root_cause": "Hyperliquid Unified Account mode stores funds in spot clearinghouse, not perps margin. user_state() only queries perps margin. spot_user_state() is required for Unified accounts.",
+    "fix_applied": [
+      "Exchange() now initialized with eth_account.Account.from_key(private_key) for transaction signing",
+      "get_balance() now tries spot_user_state() first (Unified), falls back to user_state() (Cross)",
+      "Balance response includes 'mode' field to distinguish Unified vs Cross"
+    ],
+    "files_modified": [
+      "core/hyperliquid_executor.py"
+    ]
+  },
+  "pattern_extracted": {
+    "name": "hyperliquid_unified_vs_cross_balance",
+    "description": "Hyperliquid has two account modes: Unified and Cross. user_state() only works for Cross margin. For Unified accounts (default for new accounts), must use spot_user_state() to get the actual USDC balance.",
+    "confidence": 0.95,
+    "category": "trade_execution",
+    "rule": "ALWAYS check spot_user_state() first when querying Hyperliquid balances. If it returns >0 USDC, use that. Only fall back to user_state() for Cross margin accounts."
+  },
+  "anti_patterns": [
+    {
+      "name": "exchange_wallet_none",
+      "description": "Never initialize Exchange(wallet=None) — it silently prevents all transaction signing. Always pass the eth_account.Account object.",
+      "confidence": 1.0
+    },
+    {
+      "name": "single_balance_endpoint",
+      "description": "Don't assume a single API endpoint covers all account types. DEXes often have multiple clearinghouse modes.",
+      "confidence": 0.9
+    }
+  ],
+  "user_feedback": {
+    "rating": 2,
+    "comments": "User was very upset — deposited $150 and bot showed $0. Critical trust issue."
+  }
+}
