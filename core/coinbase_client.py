@@ -68,7 +68,7 @@ _price_cache: dict[str, tuple[float, float]] = {}  # product_id -> (price, times
 # Tracked products for arb scanning
 COINBASE_ARB_PAIRS = os.getenv(
     "COINBASE_ARB_PAIRS",
-    "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,MATIC-USD,ARB-USD,OP-USD,DOGE-USD,XRP-USD"
+    "BTC-USD,ETH-USD,SOL-USD,AVAX-USD,LINK-USD,POL-USD,ARB-USD,OP-USD,DOGE-USD,XRP-USD"
 ).split(",")
 
 
