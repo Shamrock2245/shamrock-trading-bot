@@ -403,7 +403,7 @@ class HyperliquidExecutor:
                         f"💱 Hyperliquid: auto-transferring ${transfer_amount:.2f} "
                         f"from Spot → Perps (Unified account)"
                     )
-                    result = self._exchange.transfer_between_spot_and_perp(
+                    result = self._exchange.usd_class_transfer(
                         transfer_amount, True  # True = Spot→Perps
                     )
                     if result and result.get("status") == "ok":
@@ -481,13 +481,31 @@ class HyperliquidExecutor:
                     0.03,  # 3% slippage tolerance (SDK sends IOC limit at mid ± 3%)
                 )
 
+                # Log full result for debugging
+                logger.info(f"Hyperliquid market_open result for {sym}: {result}")
+
                 if not result or result.get("status") != "ok":
                     logger.error(f"Hyperliquid order failed for {sym}: {result}")
                     return None
 
+                # Check for resting/filled statuses in response
+                response = result.get("response", {})
+                data = response.get("data", {})
+                statuses = data.get("statuses", [])
+                if statuses:
+                    first_status = statuses[0]
+                    if "error" in first_status:
+                        logger.error(f"Hyperliquid order rejected for {sym}: {first_status['error']}")
+                        return None
+                    if "resting" not in first_status and "filled" not in first_status:
+                        logger.warning(f"Hyperliquid order status unknown for {sym}: {first_status}")
+
                 # Wait for fill confirmation
-                time.sleep(0.5)
+                time.sleep(1.0)
                 fills = self._get_recent_fills(sym)
+                if not fills:
+                    logger.warning(f"⚠️ Hyperliquid: no fills found for {sym} — order may have been cancelled (IOC)")
+                    return None
                 fill_price = float(fills[0].get("px", price)) if fills else price
                 fill_size = float(fills[0].get("sz", coin_size)) if fills else coin_size
 
