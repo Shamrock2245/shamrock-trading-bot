@@ -515,16 +515,16 @@ class HLPerpsScanner:
             ta29_avg = (ta29.trend_score + ta29.momentum_score + ta29.volume_score) / 3.0
 
             # Directional agreement check
-            if direction == "long" and ta29.trend_score < 45:
+            if direction == "long" and ta29.trend_score < 35:
                 logger.debug(
                     f"[HL-PERPS] {coin}: HL says LONG (score={score:.0f}) but "
-                    f"TA29 trend={ta29.trend_score:.0f} < 45 — VETOED"
+                    f"TA29 trend={ta29.trend_score:.0f} < 35 — VETOED"
                 )
                 return None
-            elif direction == "short" and ta29.trend_score > 55:
+            elif direction == "short" and ta29.trend_score > 65:
                 logger.debug(
                     f"[HL-PERPS] {coin}: HL says SHORT (score={score:.0f}) but "
-                    f"TA29 trend={ta29.trend_score:.0f} > 55 — VETOED"
+                    f"TA29 trend={ta29.trend_score:.0f} > 65 — VETOED"
                 )
                 return None
 
@@ -566,16 +566,93 @@ class HLPerpsScanner:
             # Graceful degradation — use 8-indicator score only
             logger.debug(f"[HL-PERPS] {coin}: TA29 gate unavailable ({_ta29_err}) — using HL score only")
 
-        # Calculate TP/SL prices
-        sl_pct = HL_PERPS_STOP_LOSS_PCT / 100
-        tp_pct = HL_PERPS_TAKE_PROFIT_PCT / 100
+        # ── Fibonacci Precision Entry Gate ────────────────────────────────────
+        # Use Fibonacci retracement levels for mathematically sound entries.
+        # For LONG: price should be near a Fib support (0.618, 0.5, 0.382)
+        # For SHORT: price should be near a Fib resistance (0.236, 0.382)
+        # Golden pocket (0.618-0.65) entries get the highest score boost.
+        # Fib extensions set take-profit targets instead of fixed percentages.
+        fib_tp = None
+        fib_sl = None
+        fib_zone = "none"
+        fib_confidence = 0.0
+        try:
+            import pandas as pd
+            from strategies.fibonacci import check_fibonacci_alignment, FibResult
 
-        if direction == "long":
-            stop_loss = current_price * (1 - sl_pct)
-            take_profit = current_price * (1 + tp_pct)
+            # Build DataFrame if not already built (may exist from TA29 gate)
+            if 'df' not in dir():
+                highs = [float(c["h"]) for c in candles]
+                lows = [float(c["l"]) for c in candles]
+                opens = [float(c["o"]) for c in candles]
+                df = pd.DataFrame({
+                    "open": opens, "high": highs, "low": lows,
+                    "close": closes, "volume": volumes,
+                })
+
+            fib_direction = "buy" if direction == "long" else "sell"
+            fib_result = check_fibonacci_alignment(df, current_price, direction=fib_direction)
+
+            fib_zone = fib_result.current_zone
+            fib_confidence = fib_result.confidence
+            components["fib_zone"] = fib_zone
+            components["fib_confidence"] = fib_confidence
+
+            # Score boost based on Fib zone
+            if fib_result.aligned:
+                if fib_zone == "golden_pocket":
+                    score += 20.0  # Strongest mathematical edge
+                    components["fib_boost"] = 20
+                elif fib_zone in ("fib_618", "fib_500"):
+                    score += 15.0
+                    components["fib_boost"] = 15
+                elif fib_zone in ("fib_382", "fib_786"):
+                    score += 10.0
+                    components["fib_boost"] = 10
+                else:
+                    score += 5.0
+                    components["fib_boost"] = 5
+
+                logger.info(
+                    f"[HL-PERPS] {coin} FIB ALIGNED: zone={fib_zone} | "
+                    f"confidence={fib_confidence:.0f} | boost=+{components.get('fib_boost', 0)} | "
+                    f"support=${fib_result.nearest_support:.4f} | "
+                    f"resistance=${fib_result.nearest_resistance:.4f}"
+                )
+
+            # Use Fib levels for mathematically precise TP/SL
+            if fib_result.nearest_support > 0 and fib_result.nearest_resistance > 0:
+                if direction == "long":
+                    # SL just below nearest Fib support, TP at nearest resistance/extension
+                    fib_sl = fib_result.nearest_support * 0.995  # 0.5% below support
+                    # Use first extension target if available, else resistance
+                    if fib_result.take_profit_targets:
+                        fib_tp = fib_result.take_profit_targets[0]["price"]
+                    else:
+                        fib_tp = fib_result.nearest_resistance
+                else:
+                    # SL just above nearest Fib resistance, TP at nearest support
+                    fib_sl = fib_result.nearest_resistance * 1.005  # 0.5% above resistance
+                    fib_tp = fib_result.nearest_support
+
+        except Exception as _fib_err:
+            logger.debug(f"[HL-PERPS] {coin}: Fibonacci analysis failed ({_fib_err})")
+
+        # Calculate TP/SL prices — prefer Fib-based if available, else fixed %
+        if fib_tp and fib_sl and fib_tp > 0 and fib_sl > 0:
+            take_profit = fib_tp
+            stop_loss = fib_sl
+            tp_source = "fib"
         else:
-            stop_loss = current_price * (1 + sl_pct)
-            take_profit = current_price * (1 - tp_pct)
+            sl_pct = HL_PERPS_STOP_LOSS_PCT / 100
+            tp_pct = HL_PERPS_TAKE_PROFIT_PCT / 100
+            if direction == "long":
+                stop_loss = current_price * (1 - sl_pct)
+                take_profit = current_price * (1 + tp_pct)
+            else:
+                stop_loss = current_price * (1 + sl_pct)
+                take_profit = current_price * (1 - tp_pct)
+            tp_source = "fixed"
 
         # Build reasoning string
         rsi_val = components.get("rsi")
@@ -590,6 +667,8 @@ class HLPerpsScanner:
             f"funding={funding_rate*100:.4f}%/8h",
             f"fade={fund_sig}" if fund_sig else "",
             f"mom_1h={components.get('momentum_1h', 0):.2f}%" if components.get("momentum_1h") else "",
+            f"fib={fib_zone}" if fib_zone != "none" else "",
+            f"tp_src={tp_source}",
         ]
         reasoning = " | ".join(p for p in reasoning_parts if p)
 
@@ -614,8 +693,8 @@ class HLPerpsScanner:
 
         logger.info(
             f"📡 HL PERPS SIGNAL | {direction.upper()} {coin} @ ${current_price:.4f} | "
-            f"score={score:.0f} | TP=${take_profit:.4f} | SL=${stop_loss:.4f} | "
-            f"R/R={signal.r_r_ratio:.1f}x | {reasoning}"
+            f"score={score:.0f} | TP=${take_profit:.4f} ({tp_source}) | SL=${stop_loss:.4f} | "
+            f"R/R={signal.r_r_ratio:.1f}x | fib={fib_zone} | {reasoning}"
         )
 
         return signal
