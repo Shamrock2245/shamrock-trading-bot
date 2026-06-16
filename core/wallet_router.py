@@ -260,7 +260,8 @@ def calculate_kelly_position_pct(
     loss_rate = 1 - adjusted_win_rate
 
     # 3. Kelly Calculation
-    b = dynamic_avg_win / dynamic_avg_loss
+    safe_loss = max(dynamic_avg_loss, 0.0001)
+    b = max(dynamic_avg_win / safe_loss, 0.0001)
     kelly_full = (adjusted_win_rate * b - loss_rate) / b
 
     dynamic_kelly_fraction = params.kelly_fraction * confidence_mult

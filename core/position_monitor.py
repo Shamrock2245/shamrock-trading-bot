@@ -1271,6 +1271,29 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
     pnl_usd = sell_qty * (current_price - entry_price)
     pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
 
+    # ── P&L Sanity Cap (Paper Mode) ───────────────────────────────────────
+    # Micro-cap tokens can produce absurd P&L because quantity is enormous
+    # (e.g. $2 buys 666M tokens at $0.000003 → 1% drop = $13.3K loss).
+    # Cap P&L at ±entry_value_usd so a $2 paper position can't move P&L by $700.
+    if is_paper:
+        entry_value = float(pos.get("entry_value_usd", 0)) or (entry_price * remaining_qty)
+        sell_entry_value = entry_value * sell_pct  # Pro-rata for partial sells
+        if sell_entry_value > 0:
+            max_loss = -sell_entry_value  # Can't lose more than you invested
+            max_gain = sell_entry_value * 5.0  # Cap at 500% gain
+            if pnl_usd < max_loss:
+                logger.debug(
+                    f"P&L cap: {pos.get('token_symbol')} raw=${pnl_usd:.2f} → "
+                    f"capped=${max_loss:.2f} (entry_value=${sell_entry_value:.2f})"
+                )
+                pnl_usd = max_loss
+            elif pnl_usd > max_gain:
+                logger.debug(
+                    f"P&L cap: {pos.get('token_symbol')} raw=${pnl_usd:.2f} → "
+                    f"capped=${max_gain:.2f} (entry_value=${sell_entry_value:.2f})"
+                )
+                pnl_usd = max_gain
+
     now = datetime.now(timezone.utc).isoformat()
 
     trade_record = {
@@ -2073,6 +2096,18 @@ def register_position(
     if is_paper is None:
         from config import settings
         is_paper = settings.get_current_mode() != "live"
+
+    # ── Minimum Price Filter (Paper Mode) ─────────────────────────────────
+    # Reject micro-cap tokens (< $0.001) in paper mode to prevent absurd P&L
+    # distortion. A $2 buy of a $0.000003 token = 666M tokens; a 1% drop =
+    # -$13K on the ledger. These tokens also have zero real liquidity.
+    min_paper_price = float(os.environ.get("MIN_PAPER_TOKEN_PRICE", "0.001"))
+    if is_paper and entry_price < min_paper_price and entry_price > 0:
+        logger.info(
+            f"🚫 PAPER FILTER: {token_symbol} rejected — price ${entry_price:.8f} "
+            f"below minimum ${min_paper_price} (prevents P&L distortion)"
+        )
+        return None
 
     # ── DEDUP: Check for existing open position with same token+chain+wallet ──
     existing = [p for p in positions if
