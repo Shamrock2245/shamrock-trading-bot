@@ -94,8 +94,12 @@ class HyperliquidExecutor:
             api_url = constants.TESTNET_API_URL if self.use_testnet else constants.MAINNET_API_URL
 
             self._info = Info(api_url, skip_ws=True)
+
+            # Initialize Exchange with private key for signing
+            from eth_account import Account
+            _wallet = Account.from_key(self.private_key)
             self._exchange = Exchange(
-                wallet=None,  # We'll use account_address + signing
+                wallet=_wallet,
                 base_url=api_url,
                 account_address=self.wallet_address,
                 vault_address=None,
@@ -188,10 +192,36 @@ class HyperliquidExecutor:
             return sym in _HL_PERP_TICKERS
 
     def get_balance(self) -> dict:
-        """Get account balance and margin info."""
+        """Get account balance and margin info.
+        
+        Handles both Unified and Cross margin accounts.
+        Unified accounts store funds in spot clearinghouse (spot_user_state),
+        while Cross accounts use the regular user_state endpoint.
+        """
         if not self.is_available():
             return {"error": "not initialized"}
         try:
+            # Try Unified account first (spot_user_state)
+            try:
+                spot_state = self._info.spot_user_state(self.wallet_address)
+                balances = spot_state.get("balances", [])
+                usdc_balance = 0.0
+                for b in balances:
+                    if b.get("coin") in ("USDC", "USDT"):
+                        usdc_balance += float(b.get("total", 0)) - float(b.get("hold", 0))
+                if usdc_balance > 0:
+                    logger.debug(f"Hyperliquid: Unified account balance=${usdc_balance:.2f}")
+                    return {
+                        "account_value": usdc_balance,
+                        "total_margin_used": float(sum(float(b.get("hold", 0)) for b in balances)),
+                        "withdrawable": usdc_balance,
+                        "positions": 0,
+                        "mode": "unified",
+                    }
+            except Exception:
+                pass  # Fall through to Cross margin check
+
+            # Cross margin fallback
             state = self._info.user_state(self.wallet_address)
             margin = state.get("marginSummary", {})
             return {
@@ -199,6 +229,7 @@ class HyperliquidExecutor:
                 "total_margin_used": float(margin.get("totalMarginUsed", 0)),
                 "withdrawable": float(margin.get("withdrawable", 0)),
                 "positions": len(state.get("assetPositions", [])),
+                "mode": "cross",
             }
         except Exception as e:
             logger.error(f"Hyperliquid balance check failed: {e}")
