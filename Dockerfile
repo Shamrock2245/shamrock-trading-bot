@@ -68,7 +68,7 @@ COPY . .
 # Create necessary directories with correct ownership
 RUN mkdir -p /app/logs /app/output /app/data && \
     chown -R shamrock:shamrock /app && \
-    chmod -R 755 /app/logs /app/output
+    chmod -R 775 /app/logs /app/output /app/data
 
 # Switch to non-root user
 USER shamrock

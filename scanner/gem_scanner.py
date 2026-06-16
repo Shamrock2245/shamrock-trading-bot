@@ -429,13 +429,25 @@ class GemScanner:
             future_to_name = {
                 pool.submit(fn): name for name, fn in fetchers.items()
             }
-            for future in as_completed(future_to_name, timeout=_SOURCE_TIMEOUT + 5):
-                name = future_to_name[future]
-                try:
-                    raw_data[name] = future.result(timeout=_SOURCE_TIMEOUT)
-                except Exception as e:
-                    logger.warning(f"Source '{name}' failed/timed out: {e}")
-                    raw_data[name] = []
+            try:
+                for future in as_completed(future_to_name, timeout=_SOURCE_TIMEOUT + 10):
+                    name = future_to_name[future]
+                    try:
+                        raw_data[name] = future.result(timeout=_SOURCE_TIMEOUT)
+                    except Exception as e:
+                        logger.warning(f"Source '{name}' failed/timed out: {e}")
+                        raw_data[name] = []
+            except TimeoutError:
+                # One or more futures still pending — cancel them and continue
+                # with the results we already collected.
+                for f, n in future_to_name.items():
+                    if not f.done():
+                        f.cancel()
+                        logger.warning(
+                            f"Source '{n}' timed out after {_SOURCE_TIMEOUT + 10}s — "
+                            f"cancelled, continuing with partial results"
+                        )
+                        raw_data.setdefault(n, [])
 
         _fetch_elapsed = time.monotonic() - _scan_start
         logger.info(

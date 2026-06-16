@@ -371,13 +371,21 @@ class MoralisStreamsManager:
 
             time.sleep(settings.MORALIS_STREAMS_HEALTH_INTERVAL)
 
+    def _get_network_for_tag(self, tag: str) -> str:
+        """Return the correct Moralis network type for a stream tag."""
+        if tag in (TAG_SOLANA_DISCOVERY, TAG_SOLANA_ALPHA_WALLETS):
+            return "solana"
+        elif tag == TAG_BTC_WHALE_WATCH:
+            return "bitcoin"
+        return "evm"
+
     def _run_health_check(self) -> None:
         """Check all managed streams and handle error/terminated states."""
         self.metrics["health_checks"] += 1
         self.metrics["last_health_check"] = time.time()
 
         for tag, stream_id in list(self._managed_streams.items()):
-            net = "solana" if tag == TAG_SOLANA_DISCOVERY else "evm"
+            net = self._get_network_for_tag(tag)
             info = self._get_stream(stream_id, network=net)
             if not info:
                 logger.warning(f"MoralisStreamsManager: Stream {tag} ({stream_id}) not found — will recreate")
@@ -389,13 +397,17 @@ class MoralisStreamsManager:
             if status == "active":
                 continue
             elif status == "error":
+                # Per Moralis docs: streams auto-terminate after 24h in error state.
+                # Proactively delete and recreate instead of waiting.
                 logger.warning(
                     f"MoralisStreamsManager: Stream {tag} ({stream_id}) is in ERROR state — "
                     f"message: {info.get('statusMessage', 'unknown')}. "
-                    f"Will auto-terminate in 24h if not fixed."
+                    f"Deleting and recreating proactively (auto-terminates after 24h)."
                 )
-                # Try to unpause/reset by updating the stream
-                self._update_stream_status(stream_id, "active", network=net)
+                self._delete_stream(stream_id, network=net)
+                del self._managed_streams[tag]
+                self._recreate_stream(tag)
+                self.metrics["streams_recreated"] += 1
             elif status == "paused":
                 logger.info(f"MoralisStreamsManager: Stream {tag} ({stream_id}) is paused — resuming")
                 self._update_stream_status(stream_id, "active", network=net)
@@ -429,33 +441,49 @@ class MoralisStreamsManager:
     # Moralis API Calls
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _create_stream(self, body: dict, network: str = "evm") -> Optional[str]:
-        """Create a new stream. Returns stream ID or None."""
-        try:
-            # CRITICAL: Moralis uses PUT for create, NOT POST
-            resp = get_session().put(
-                f"{BASE_URL}/streams/{network}",
-                headers=self._headers,
-                json=body,
-                timeout=30,
-            )
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                stream_id = data.get("id")
-                self.metrics["streams_created"] += 1
-                logger.info(f"MoralisStreamsManager: Created stream {body.get('tag')} → {stream_id}")
-                return stream_id
-            else:
-                logger.error(
-                    f"MoralisStreamsManager: Failed to create stream {body.get('tag')}: "
-                    f"{resp.status_code} {resp.text}"
+    def _create_stream(self, body: dict, network: str = "evm", max_retries: int = 3) -> Optional[str]:
+        """Create a new stream with retry on transient errors. Returns stream ID or None."""
+        for attempt in range(1, max_retries + 1):
+            try:
+                # CRITICAL: Moralis uses PUT for create, NOT POST
+                resp = get_session().put(
+                    f"{BASE_URL}/streams/{network}",
+                    headers=self._headers,
+                    json=body,
+                    timeout=30,
                 )
-                self.metrics["errors"] += 1
-                return None
-        except Exception as e:
-            logger.error(f"MoralisStreamsManager: Error creating stream: {e}")
-            self.metrics["errors"] += 1
-            return None
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    stream_id = data.get("id")
+                    self.metrics["streams_created"] += 1
+                    logger.info(f"MoralisStreamsManager: Created stream {body.get('tag')} → {stream_id}")
+                    return stream_id
+                elif resp.status_code in (502, 503) and attempt < max_retries:
+                    # Transient Moralis outage — retry with exponential backoff
+                    wait = 2 ** attempt
+                    logger.warning(
+                        f"MoralisStreamsManager: Transient {resp.status_code} creating stream "
+                        f"{body.get('tag')} — retry {attempt}/{max_retries} in {wait}s"
+                    )
+                    time.sleep(wait)
+                    continue
+                else:
+                    logger.error(
+                        f"MoralisStreamsManager: Failed to create stream {body.get('tag')}: "
+                        f"{resp.status_code} {resp.text[:200]}"
+                    )
+                    self.metrics["errors"] += 1
+                    return None
+            except Exception as e:
+                if attempt < max_retries:
+                    wait = 2 ** attempt
+                    logger.warning(f"MoralisStreamsManager: Error creating stream (attempt {attempt}): {e} — retrying in {wait}s")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"MoralisStreamsManager: Error creating stream after {max_retries} attempts: {e}")
+                    self.metrics["errors"] += 1
+                    return None
+        return None
 
     def _get_stream(self, stream_id: str, network: str = "evm") -> Optional[dict]:
         """Get a specific stream's info."""
@@ -500,28 +528,28 @@ class MoralisStreamsManager:
             return False
 
     def _replace_addresses(self, stream_id: str, addresses: list[str], network: str = "evm") -> bool:
-        """Replace all addresses on a stream (PATCH)."""
+        """Replace all addresses on a stream. Per Moralis docs: use PATCH."""
         if not addresses:
             return True
         try:
-            # Moralis expects address in body as {"address": [...]}
-            resp = get_session().post(
+            # CRITICAL: Moralis docs specify PATCH for replacing addresses, not POST
+            resp = get_session().patch(
                 f"{BASE_URL}/streams/{network}/{stream_id}/address",
                 headers=self._headers,
                 json={"address": addresses},
                 timeout=30,
             )
             if resp.status_code in (200, 201):
-                logger.debug(f"MoralisStreamsManager: Added {len(addresses)} addresses to stream {stream_id}")
+                logger.debug(f"MoralisStreamsManager: Replaced {len(addresses)} addresses on stream {stream_id}")
                 return True
             else:
                 logger.error(
-                    f"MoralisStreamsManager: Failed to add addresses to {stream_id}: "
-                    f"{resp.status_code} {resp.text}"
+                    f"MoralisStreamsManager: Failed to replace addresses on {stream_id}: "
+                    f"{resp.status_code} {resp.text[:200]}"
                 )
                 return False
         except Exception as e:
-            logger.error(f"MoralisStreamsManager: Error adding addresses: {e}")
+            logger.error(f"MoralisStreamsManager: Error replacing addresses: {e}")
             return False
 
     def _update_stream_status(self, stream_id: str, status: str, network: str = "evm") -> bool:

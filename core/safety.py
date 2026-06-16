@@ -47,6 +47,10 @@ _SAFETY_CACHE_TTL = 300  # 5 minutes — same token won't be re-checked within t
 # Blocked tokens get a longer cache (they won't become safe)
 _BLOCKED_CACHE_TTL = 3600  # 1 hour for blocked tokens
 
+# Stale cache TTL — when ALL providers fail, we'll accept a stale result
+# up to this age rather than blocking the trade outright.
+_STALE_CACHE_TTL = 900  # 15 minutes — last resort before fail-closed
+
 
 def _cache_key(token_address: str, chain: str) -> str:
     return f"{chain}:{token_address.lower()}"
@@ -66,6 +70,30 @@ def _get_cached(token_address: str, chain: str) -> Optional["SafetyResult"]:
             return result
         else:
             del _safety_cache[key]
+    return None
+
+
+def _get_stale_cached(token_address: str, chain: str) -> Optional["SafetyResult"]:
+    """Return a stale cached result (up to _STALE_CACHE_TTL) as a last resort.
+
+    This is only used when ALL providers fail — we'd rather use a slightly-old
+    result than block a trade outright.  Stale results from a previous
+    fail-closed are excluded (block_reason contains 'fail-closed').
+    """
+    key = _cache_key(token_address, chain)
+    if key in _safety_cache:
+        ts, result = _safety_cache[key]
+        age = time.time() - ts
+        # Skip stale results that were themselves fail-closed artifacts
+        if result.block_reason and "fail-closed" in result.block_reason:
+            return None
+        if age < _STALE_CACHE_TTL:
+            logger.info(
+                f"Safety STALE cache HIT: {token_address[:10]}... ({chain}) — "
+                f"age={age:.0f}s, {'SAFE' if result.is_safe else 'BLOCKED'}"
+            )
+            result.from_cache = True
+            return result
     return None
 
 
@@ -135,7 +163,7 @@ class SafetyResult:
 # API Wrappers (with retry + rate-limit awareness)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=3, max=15))
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=3, max=10))
 def _call_goplus(token_address: str, chain_id: str) -> dict:
     """Call GoPlus Security API."""
     url = f"https://api.gopluslabs.io/api/v1/token_security/{chain_id}"
@@ -152,7 +180,7 @@ def _call_goplus(token_address: str, chain_id: str) -> dict:
     return result.get(token_address.lower(), {})
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=3, max=15))
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=3, max=10))
 def _call_honeypot_is(token_address: str, chain_id: int) -> dict:
     """Call Honeypot.is API — simulates buy+sell on-chain."""
     url = "https://api.honeypot.is/v2/IsHoneypot"
@@ -702,6 +730,17 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
 
     # ── Fail-closed: require at least 1 provider to confirm safety ────────
     if providers_succeeded == 0:
+        # Before blocking, check for a recent stale cache result.
+        # If we checked this token recently and got a real answer,
+        # use that instead of blocking outright.
+        stale = _get_stale_cached(token_address, chain)
+        if stale is not None:
+            logger.warning(
+                f"⚠️ ALL safety providers failed for {token_address} — "
+                f"using stale cached result (age<{_STALE_CACHE_TTL}s)"
+            )
+            return stale
+
         logger.error(
             f"🚨 ALL safety providers failed for {token_address} — "
             f"blocking trade (fail-closed policy)"
@@ -709,7 +748,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
         result.is_safe = False
         result.block_reason = "All safety providers unavailable — fail-closed"
         _log_blocked(result)
-        _set_cached(token_address, chain, result)
+        # Do NOT cache fail-closed results — next scan should retry fresh
         return result
 
     # ── All checks passed ─────────────────────────────────────────────────────

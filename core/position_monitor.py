@@ -76,10 +76,14 @@ POSITIONS_FILE = Path(settings.POSITIONS_FILE)
 POSITIONS_BACKUP = POSITIONS_FILE.with_name("positions.backup.json")
 TRADES_FILE = Path(settings.TRADES_FILE)
 SELL_FAILURES_FILE = Path("/app/output/sell_failures.json")
-TRADE_LEDGER_FILE = Path("/app/output/trade_ledger.jsonl")  # IMMUTABLE — never pruned
+TRADE_LEDGER_FILE = Path(os.environ.get("TRADE_LEDGER_FILE", "/app/output/trade_ledger.jsonl"))  # IMMUTABLE — never pruned
 _save_counter = 0
 _running_pnl_usd = 0.0  # Running total P&L, loaded from ledger on startup
 POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+try:
+    TRADE_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass  # /app may not exist outside Docker — ledger writes will gracefully fail
 
 # Thread-safe lock for positions file (prevents race conditions between
 # monitor thread, fastlane worker, gas_manager, and capital_rotator)

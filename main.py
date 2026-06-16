@@ -3236,8 +3236,12 @@ async def run_bot_loop():
                             # Calculate position size using live wallet balance
                             try:
                                 from core.wallet_router import get_wallet_balance_usd
-                                _swing_wallet = routed[0] if routed else None
-                                _swing_bal = get_wallet_balance_usd(_swing_wallet) if _swing_wallet else 500.0
+                                # Use the first allocation from the gem-scan routing if available;
+                                # otherwise fall back to a default balance.
+                                _swing_bal = 500.0
+                                if routed and len(routed) >= 1:
+                                    _swing_wallet = routed[0].wallet if hasattr(routed[0], 'wallet') else routed[0]
+                                    _swing_bal = get_wallet_balance_usd(_swing_wallet) if _swing_wallet else 500.0
                             except Exception:
                                 _swing_bal = 500.0
                             pos_size_usd = swing_strategy.calculate_position_size(
@@ -3249,17 +3253,20 @@ async def run_bot_loop():
                                 continue
 
                             # Route to best wallet
-                            routed = route_trade_all(
+                            swing_routed = route_trade_all(
                                 chain=sc.chain,
                                 gem_score=decision.ta_composite,
                                 is_express=False,
                                 candidate=None,
                             )
-                            if not routed:
+                            if not swing_routed:
                                 logger.debug(f"Swing: no wallet route for {sc.symbol}/{sc.chain}")
                                 continue
 
-                            wallet_conf, pos_size_native = routed[0], routed[1]
+                            # route_trade_all returns list[TradeAllocation]; use first match
+                            swing_alloc = swing_routed[0]
+                            wallet_conf = swing_alloc.wallet
+                            pos_size_native = swing_alloc.position_size_native
 
                             logger.info(
                                 f"🔄 SWING TRADE: {sc.symbol}/{sc.chain} — "
