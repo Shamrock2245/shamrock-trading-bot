@@ -702,10 +702,35 @@ class HLPerpsScanner:
             )
             return None
 
+        # ── R/R Ratio Guard (OpenAlice Guard Pipeline) ────────────────────────
+        # Reject signals where TP/SL math doesn't make sense.
+        # Minimum R/R = 1.5x to ensure favorable risk/reward on every trade.
+        MIN_RR_RATIO = 1.5
+        rr = signal.r_r_ratio
+
+        # Sanity: TP must be on the correct side of entry
+        if direction == "long" and take_profit <= current_price:
+            logger.warning(
+                f"[HL-PERPS] {coin} LONG rejected: TP=${take_profit:.4f} ≤ entry=${current_price:.4f} — invalid Fib target"
+            )
+            return None
+        if direction == "short" and take_profit >= current_price:
+            logger.warning(
+                f"[HL-PERPS] {coin} SHORT rejected: TP=${take_profit:.4f} ≥ entry=${current_price:.4f} — invalid Fib target"
+            )
+            return None
+
+        if rr < MIN_RR_RATIO:
+            logger.info(
+                f"[HL-PERPS] {coin} {direction.upper()} R/R={rr:.1f}x < {MIN_RR_RATIO}x — "
+                f"rejected (score={score:.0f}, fib={fib_zone})"
+            )
+            return None
+
         logger.info(
             f"📡 HL PERPS SIGNAL | {direction.upper()} {coin} @ ${current_price:.4f} | "
             f"score={score:.0f} | TP=${take_profit:.4f} ({tp_source}) | SL=${stop_loss:.4f} | "
-            f"R/R={signal.r_r_ratio:.1f}x | fib={fib_zone} | {reasoning}"
+            f"R/R={rr:.1f}x | fib={fib_zone} | {reasoning}"
         )
 
         return signal
