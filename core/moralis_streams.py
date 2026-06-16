@@ -119,7 +119,7 @@ class MoralisStreamsServer:
             def do_POST(self):
                 recv_time = time.time()
 
-                if self.path not in ("/moralis/streams", "/webhooks/moralis/streams"):
+                if self.path not in ("/webhook", "/moralis/streams", "/webhooks/moralis/streams"):
                     self.send_response(404)
                     self.end_headers()
                     return
