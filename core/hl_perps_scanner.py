@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
-HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "65.0"))
+HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "65.0"))  # Initial filter (lets coins reach Fib analysis)
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "50.0"))  # Post-Fib execution threshold
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "100.0"))
 HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "6"))
@@ -397,7 +398,7 @@ class HLPerpsScanner:
             logger.info(
                 f"✅ HLPerpsScanner initialized | {n_perps} perps available | "
                 f"scan_interval={HL_PERPS_SCAN_INTERVAL}s | "
-                f"min_score={HL_PERPS_MIN_SCORE} | leverage={HL_PERPS_LEVERAGE}x"
+                f"filter={HL_PERPS_MIN_SCORE} → exec={HL_PERPS_EXEC_SCORE} | leverage={HL_PERPS_LEVERAGE}x"
             )
         except ImportError:
             logger.error("❌ hyperliquid-python-sdk not installed — pip install hyperliquid-python-sdk")
@@ -690,6 +691,16 @@ class HLPerpsScanner:
             momentum_1h=components.get("momentum_1h"),
             reasoning=reasoning,
         )
+
+        # ── Final execution threshold (post Fib + TA29) ─────────────────────
+        # MIN_SCORE is the initial filter to let coins REACH the analysis.
+        # EXEC_SCORE is the real bar — only Fib-boosted, TA29-confirmed signals trade.
+        if score < HL_PERPS_EXEC_SCORE:
+            logger.info(
+                f"[HL-PERPS] {coin} {direction.upper()} score={score:.0f} < exec_threshold={HL_PERPS_EXEC_SCORE} "
+                f"(fib={fib_zone}, tp_src={tp_source}) — NEAR MISS, not trading"
+            )
+            return None
 
         logger.info(
             f"📡 HL PERPS SIGNAL | {direction.upper()} {coin} @ ${current_price:.4f} | "
