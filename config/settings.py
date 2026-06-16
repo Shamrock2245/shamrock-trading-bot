@@ -54,6 +54,13 @@ FLASHBOTS_RPC_URL = os.getenv("FLASHBOTS_RPC_URL", "https://rpc.flashbots.net")
 FLASHBOTS_SIGNING_KEY = os.getenv("FLASHBOTS_SIGNING_KEY", "")
 COW_API_URL = os.getenv("COW_API_URL", "https://api.cow.fi/mainnet")
 
+# Coinbase Advanced Trade API (CDP — Coinbase Developer Platform)
+# JWT auth with EC private key. Permissions: Trade only (no withdrawals).
+# Used for CEX/DEX stat arb — spot price source + order execution.
+COINBASE_API_KEY_NAME = os.getenv("COINBASE_API_KEY_NAME", "")
+COINBASE_API_PRIVATE_KEY = os.getenv("COINBASE_API_PRIVATE_KEY", "")
+COINBASE_ENABLED = bool(COINBASE_API_KEY_NAME and COINBASE_API_PRIVATE_KEY)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DEX APIs
 # ─────────────────────────────────────────────────────────────────────────────

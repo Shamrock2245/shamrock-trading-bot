@@ -76,7 +76,9 @@ POSITIONS_FILE = Path(settings.POSITIONS_FILE)
 POSITIONS_BACKUP = POSITIONS_FILE.with_name("positions.backup.json")
 TRADES_FILE = Path(settings.TRADES_FILE)
 SELL_FAILURES_FILE = Path("/app/output/sell_failures.json")
+TRADE_LEDGER_FILE = Path("/app/output/trade_ledger.jsonl")  # IMMUTABLE — never pruned
 _save_counter = 0
+_running_pnl_usd = 0.0  # Running total P&L, loaded from ledger on startup
 POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Thread-safe lock for positions file (prevents race conditions between
@@ -167,12 +169,75 @@ def _append_to_file(filepath: Path, record: dict, max_records: int = 10_000) -> 
     tmp_path.replace(filepath)
 
 
+def _append_to_ledger(record: dict) -> None:
+    """Append a trade to the IMMUTABLE ledger (JSONL — one JSON line per trade).
+
+    This file is NEVER pruned. It is the permanent audit trail of every trade
+    the bot has ever executed. JSONL format ensures partial writes can't corrupt
+    the entire file — at worst, the last line is incomplete.
+
+    Each line includes a running_total_pnl_usd field for quick balance tracking.
+    """
+    global _running_pnl_usd
+    try:
+        TRADE_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        pnl = float(record.get("pnl_usd", 0) or 0)
+        _running_pnl_usd += pnl
+        ledger_record = {
+            **record,
+            "running_total_pnl_usd": round(_running_pnl_usd, 4),
+            "ledger_seq": _get_ledger_seq(),
+        }
+        with open(TRADE_LEDGER_FILE, "a") as f:
+            f.write(json.dumps(ledger_record, default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception as e:
+        logger.error(f"Failed to write to immutable ledger: {e}")
+
+
+def _get_ledger_seq() -> int:
+    """Return the next sequence number for the ledger (count of existing lines)."""
+    try:
+        if TRADE_LEDGER_FILE.exists():
+            with open(TRADE_LEDGER_FILE) as f:
+                return sum(1 for _ in f)
+        return 0
+    except Exception:
+        return -1
+
+
+def _load_running_pnl() -> float:
+    """Load the running P&L total from the last line of the ledger."""
+    try:
+        if TRADE_LEDGER_FILE.exists():
+            with open(TRADE_LEDGER_FILE, "rb") as f:
+                # Seek to end and scan backwards for last newline
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return 0.0
+                # Read last 4KB (enough for one JSON line)
+                f.seek(max(0, size - 4096))
+                lines = f.read().decode("utf-8", errors="replace").strip().split("\n")
+                if lines:
+                    last = json.loads(lines[-1])
+                    return float(last.get("running_total_pnl_usd", 0))
+    except Exception as e:
+        logger.warning(f"Could not load running P&L from ledger: {e}")
+    return 0.0
+
+
+# Initialize running P&L from ledger on module load
+_running_pnl_usd = _load_running_pnl()
+
+
 def append_trade(trade: dict) -> None:
     """Append a completed trade to the appropriate log file.
 
     Failed sells (with 'error' key or no tx_hash) go to sell_failures.json.
     Successful trades (including paper sells with tx_hash='0x000...0') go
-    to the main trades file.
+    to the main trades file AND the immutable JSONL ledger.
     """
     try:
         is_paper = trade.get("is_paper", False)
@@ -187,6 +252,7 @@ def append_trade(trade: dict) -> None:
             logger.debug(f"Sell failure logged to {SELL_FAILURES_FILE}")
         else:
             _append_to_file(TRADES_FILE, trade)
+            _append_to_ledger(trade)  # IMMUTABLE — never pruned
     except Exception as e:
         logger.error(f"Failed to append trade: {e}")
 
@@ -2074,6 +2140,26 @@ def register_position(
         f"entry=${entry_price:.6f} | qty={quantity:.4f} | "
         f"wallet={wallet} | {'PAPER' if is_paper else 'LIVE'}"
     )
+
+    # Log BUY to immutable ledger (P&L is 0 at entry — realized on sell)
+    _append_to_ledger({
+        "timestamp": now,
+        "token_address": token_address,
+        "token_symbol": token_symbol,
+        "chain": chain,
+        "wallet": wallet,
+        "action": "BUY",
+        "quantity": quantity,
+        "price_usd": entry_price,
+        "value_usd": entry_price * quantity,
+        "pnl_usd": 0.0,
+        "pnl_pct": 0.0,
+        "is_paper": is_paper,
+        "tx_hash": tx_hash,
+        "gem_score": gem_score,
+        "strategy_profile": strategy_profile,
+    })
+
     return position
 
 # ─────────────────────────────────────────────────────────────────────────────
