@@ -1334,12 +1334,13 @@ async def run_bot_loop():
                 if signals:
                     for sig in signals:
                         logger.info(
-                            f"[HL-PERPS] {sig.coin} {sig.direction} | score={sig.score:.1f} | "
-                            f"entry={sig.entry_price:.4f} | TP={sig.tp_price:.4f} | SL={sig.sl_price:.4f} | "
+                            f"[HL-PERPS] 📡 {sig.coin} {sig.direction.upper()} | score={sig.score:.1f} | "
+                            f"entry=${sig.entry_price:.4f} | TP=${sig.take_profit_price:.4f} | "
+                            f"SL=${sig.stop_loss_price:.4f} | R/R={sig.r_r_ratio:.1f}x | "
                             f"funding={sig.funding_rate*100:.4f}%"
                         )
                 else:
-                    logger.debug("[HL-PERPS] No high-conviction setups this cycle.")
+                    logger.info("[HL-PERPS] Scan complete — no setups passed Fib + TA29 gate this cycle.")
             except Exception as _hl_cycle_err:
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
             _time.sleep(120)  # 2-minute scan interval (was 15 min)

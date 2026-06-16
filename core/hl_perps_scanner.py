@@ -797,6 +797,7 @@ class HLPerpsScanner:
 
         signals: list[PerpSignal] = []
         scanned = 0
+        near_misses: list[tuple[str, float, str]] = []  # (coin, score, direction)
 
         for coin in scan_list:
             # Skip if already in a position
@@ -827,9 +828,10 @@ class HLPerpsScanner:
                 f"daily_pnl=${self.daily_pnl:+.2f}"
             )
         else:
-            logger.debug(
-                f"HLPerpsScanner scan #{self.scan_count}: {scanned} coins scanned | "
-                f"0 signals | {elapsed:.1f}s"
+            logger.info(
+                f"🔍 HL PERPS SCAN #{self.scan_count}: {scanned} coins | "
+                f"0 signals (min_score={HL_PERPS_MIN_SCORE}) | {elapsed:.1f}s | "
+                f"Fib + TA29 gate active"
             )
 
         self._save_state(signals)
