@@ -140,7 +140,8 @@ def _get_client() -> Optional["RESTClient"]:
 def get_price(product_id: str = "BTC-USD") -> Optional[CoinbasePrice]:
     """Get current price for a Coinbase product (e.g., 'BTC-USD', 'SOL-USD').
 
-    Uses SDK's get_product() which returns bid/ask/price in a single call.
+    Uses SDK's get_product() for price + volume, then get_best_bid_ask()
+    for accurate bid/ask spread.
     Results are cached for 5 seconds to avoid rate limits.
     """
     # Check cache
@@ -154,28 +155,28 @@ def get_price(product_id: str = "BTC-USD") -> Optional[CoinbasePrice]:
 
     try:
         product = client.get_product(product_id)
-        bid = float(product.quote_increment or 0)
-        ask = float(product.quote_increment or 0)
-
-        # get_product returns price, bid_ask via market data
         price = float(getattr(product, "price", 0) or 0)
+        vol = float(getattr(product, "volume_24h", 0) or 0)
 
-        # For bid/ask, use the best_bid/best_ask or fall back to ticker
-        best_bid = price  # Fallback
+        # Get real bid/ask via best_bid_ask (pass as list for proper URL encoding)
+        best_bid = price
         best_ask = price
         try:
-            ticker = client.get("/api/v3/brokerage/best_bid_ask", params={"product_ids": product_id})
+            ticker = client.get_best_bid_ask(product_ids=[product_id])
             if hasattr(ticker, "pricebooks") and ticker.pricebooks:
                 pb = ticker.pricebooks[0]
-                if hasattr(pb, "bids") and pb.bids:
-                    best_bid = float(pb.bids[0].get("price", price))
-                if hasattr(pb, "asks") and pb.asks:
-                    best_ask = float(pb.asks[0].get("price", price))
+                bids = getattr(pb, "bids", [])
+                asks = getattr(pb, "asks", [])
+                if bids:
+                    best_bid = float(bids[0].get("price", price) if isinstance(bids[0], dict)
+                                    else getattr(bids[0], "price", price))
+                if asks:
+                    best_ask = float(asks[0].get("price", price) if isinstance(asks[0], dict)
+                                    else getattr(asks[0], "price", price))
         except Exception:
-            pass  # Fallback to mid price
+            pass  # Fallback to mid price from get_product
 
         mid = (best_bid + best_ask) / 2 if best_bid and best_ask else price
-        vol = float(getattr(product, "volume_24h", 0) or 0)
 
         result = CoinbasePrice(
             product_id=product_id,
@@ -194,7 +195,11 @@ def get_price(product_id: str = "BTC-USD") -> Optional[CoinbasePrice]:
 
 
 def get_prices_batch(product_ids: list[str] = None) -> dict[str, CoinbasePrice]:
-    """Fetch prices for multiple products efficiently."""
+    """Fetch prices for multiple products efficiently.
+
+    Uses the SDK's get_best_bid_ask() which properly handles repeated
+    product_ids query params.
+    """
     if product_ids is None:
         product_ids = COINBASE_ARB_PAIRS
 
@@ -204,11 +209,8 @@ def get_prices_batch(product_ids: list[str] = None) -> dict[str, CoinbasePrice]:
         return results
 
     try:
-        # Use best_bid_ask endpoint for batch efficiency
-        ticker = client.get(
-            "/api/v3/brokerage/best_bid_ask",
-            params={"product_ids": ",".join(product_ids)}
-        )
+        # SDK method properly encodes repeated product_ids params
+        ticker = client.get_best_bid_ask(product_ids=product_ids)
         if hasattr(ticker, "pricebooks"):
             for pb in ticker.pricebooks:
                 pid = getattr(pb, "product_id", "")
@@ -216,8 +218,10 @@ def get_prices_batch(product_ids: list[str] = None) -> dict[str, CoinbasePrice]:
                     continue
                 bids = getattr(pb, "bids", [])
                 asks = getattr(pb, "asks", [])
-                best_bid = float(bids[0].get("price", 0)) if bids else 0
-                best_ask = float(asks[0].get("price", 0)) if asks else 0
+                best_bid = float(bids[0].get("price", 0) if isinstance(bids[0], dict)
+                                else getattr(bids[0], "price", 0)) if bids else 0
+                best_ask = float(asks[0].get("price", 0) if isinstance(asks[0], dict)
+                                else getattr(asks[0], "price", 0)) if asks else 0
                 mid = (best_bid + best_ask) / 2
                 results[pid] = CoinbasePrice(
                     product_id=pid,
@@ -230,6 +234,11 @@ def get_prices_batch(product_ids: list[str] = None) -> dict[str, CoinbasePrice]:
                 _price_cache[pid] = (results[pid], time.time())
     except Exception as e:
         logger.warning(f"Coinbase batch price fetch failed: {e}")
+        # Fallback: fetch individually
+        for pid in product_ids[:5]:  # Limit to avoid rate limits
+            p = get_price(pid)
+            if p:
+                results[pid] = p
 
     return results
 
