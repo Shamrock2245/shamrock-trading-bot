@@ -733,3 +733,92 @@ def get_cache_stats() -> dict:
         "entries": len(_price_cache),
         "cache_ttl_seconds": _PRICE_CACHE_TTL,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coinbase CEX Price Source (Cross-Venue Arb)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Map token symbols to Coinbase product IDs
+_SYMBOL_TO_COINBASE: dict[str, str] = {
+    "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD",
+    "AVAX": "AVAX-USD", "LINK": "LINK-USD", "MATIC": "MATIC-USD",
+    "ARB": "ARB-USD", "OP": "OP-USD", "DOGE": "DOGE-USD",
+    "XRP": "XRP-USD", "ADA": "ADA-USD", "DOT": "DOT-USD",
+    "UNI": "UNI-USD", "AAVE": "AAVE-USD", "NEAR": "NEAR-USD",
+    "ATOM": "ATOM-USD", "FIL": "FIL-USD", "LTC": "LTC-USD",
+    "WBTC": "BTC-USD", "WETH": "ETH-USD",
+}
+
+
+def get_coinbase_price(symbol: str) -> Optional[DexPrice]:
+    """Get Coinbase CEX price as a DexPrice for cross-venue comparison.
+
+    Returns a DexPrice with dex='coinbase' so it can be directly compared
+    against DEX prices in the arb surface. Liquidity is effectively infinite
+    on Coinbase for major pairs.
+    """
+    try:
+        from core.coinbase_client import get_price as cb_get_price, COINBASE_ENABLED
+        if not COINBASE_ENABLED:
+            return None
+    except ImportError:
+        return None
+
+    product_id = _SYMBOL_TO_COINBASE.get(symbol.upper())
+    if not product_id:
+        return None
+
+    price_data = cb_get_price(product_id)
+    if not price_data or price_data.mid <= 0:
+        return None
+
+    return DexPrice(
+        dex="coinbase",
+        chain="cex",  # Special chain identifier for CEX venues
+        token_in="USD",
+        token_out=symbol.upper(),
+        token_in_symbol="USD",
+        token_out_symbol=symbol.upper(),
+        price=price_data.mid,
+        price_impact_pct=0.0,  # Negligible on CEX for normal sizes
+        liquidity_usd=1_000_000.0,  # Effectively infinite for arb-sized trades
+        buy_pressure=0.5,
+        pair_address=product_id,
+        source="coinbase",
+    )
+
+
+def get_cex_dex_spread(symbol: str, chain: str = "solana") -> Optional[dict]:
+    """Compare Coinbase CEX price against DEX price for a symbol.
+
+    Returns spread info if both prices are available:
+      - positive spread = CEX > DEX → buy on DEX, sell on CEX
+      - negative spread = DEX > CEX → buy on CEX, sell on DEX
+    """
+    cex_price = get_coinbase_price(symbol)
+    if not cex_price:
+        return None
+
+    # Get DEX price via Jupiter (Solana) or DexScreener
+    dex_price = None
+    if chain == "solana":
+        dex_price_val = get_jupiter_price(symbol)
+        if dex_price_val and dex_price_val > 0:
+            dex_price = dex_price_val
+    # TODO: Add EVM DEX price fetching for other chains
+
+    if not dex_price or dex_price <= 0:
+        return None
+
+    spread_pct = (cex_price.price - dex_price) / dex_price * 100
+
+    return {
+        "symbol": symbol,
+        "cex_price": cex_price.price,
+        "dex_price": dex_price,
+        "spread_pct": spread_pct,
+        "cex_venue": "coinbase",
+        "dex_venue": f"jupiter_{chain}",
+        "direction": "buy_dex_sell_cex" if spread_pct > 0 else "buy_cex_sell_dex",
+    }

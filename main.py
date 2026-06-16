@@ -1334,6 +1334,66 @@ async def run_bot_loop():
         "10%TP / 3.5%SL / 3x leverage | high-conviction only"
     )
 
+    # ── Coinbase CEX/DEX Arb Scanner Daemon ──────────────────────────────────────────────
+    def _coinbase_arb_daemon():
+        """Background thread: scans Coinbase CEX vs DEX prices for arb opportunities."""
+        import time as _time
+        _time.sleep(60)  # Wait 60s for full init
+
+        try:
+            from core.coinbase_client import COINBASE_ENABLED, health_check, COINBASE_ARB_PAIRS
+            from data.providers.arb_price_feed import get_cex_dex_spread
+            if not COINBASE_ENABLED:
+                logger.info("Coinbase CEX/DEX arb scanner disabled — no API credentials")
+                return
+
+            hc = health_check()
+            logger.info(f"✅ Coinbase client health: {hc}")
+        except Exception as _cb_init_err:
+            logger.warning(f"Coinbase arb scanner init failed: {_cb_init_err}")
+            return
+
+        # Map product IDs to symbols
+        _symbols = [p.split("-")[0] for p in COINBASE_ARB_PAIRS]
+        _state_file = Path("./data/dashboard/coinbase_arb_state.json")
+
+        while True:
+            try:
+                spreads = []
+                for symbol in _symbols:
+                    spread = get_cex_dex_spread(symbol, chain="solana")
+                    if spread:
+                        spreads.append(spread)
+                        if abs(spread["spread_pct"]) > 0.5:  # Log notable spreads
+                            logger.info(
+                                f"[CB-ARB] {symbol}: CEX=${spread['cex_price']:.4f} vs "
+                                f"DEX=${spread['dex_price']:.4f} | spread={spread['spread_pct']:+.3f}% | "
+                                f"{'⚡ ACTIONABLE' if abs(spread['spread_pct']) > 1.0 else 'monitoring'}"
+                            )
+
+                # Save state for dashboard
+                if spreads:
+                    _state_file.parent.mkdir(parents=True, exist_ok=True)
+                    import json as _json
+                    state = {
+                        "last_scan": datetime.now(timezone.utc).isoformat(),
+                        "spreads": sorted(spreads, key=lambda s: abs(s["spread_pct"]), reverse=True),
+                        "opportunities": [s for s in spreads if abs(s["spread_pct"]) > 1.0],
+                    }
+                    with open(_state_file, "w") as f:
+                        _json.dump(state, f, indent=2, default=str)
+
+                _time.sleep(20)  # Scan every 20 seconds
+            except Exception as _cb_cycle_err:
+                logger.warning(f"Coinbase arb scan cycle error: {_cb_cycle_err}")
+                _time.sleep(60)
+
+    _coinbase_arb_thread = threading.Thread(target=_coinbase_arb_daemon, daemon=True, name="coinbase-arb-scanner")
+    _coinbase_arb_thread.start()
+    logger.info(
+        "✅ Coinbase CEX/DEX Arb Scanner daemon started — "
+        "scanning 10 pairs every 20s | Coinbase vs Jupiter/DEX spreads"
+    )
     # ── RL Position Sizer: background training daemon ─────────────────────────────────────────────────────────────────────────────────────
     def _rl_training_daemon():
         """Background thread: trains RL position sizer every 24h."""

@@ -7,6 +7,7 @@
 web3>=6.0.0                  # Ethereum/EVM chain interaction
 eth-account>=0.10.0          # Account management (sign txns from env vars)
 hyperliquid-python-sdk>=0.22.0  # Hyperliquid perps DEX SDK (zero-gas leveraged trading)
+coinbase-advanced-py>=1.0.0     # Coinbase Advanced Trade API (CEX spot trading + price feed)
 
 # ── Blockchain / Web3 (Solana) ────────────────────────────────────────────────
 # Solana trade execution via Jupiter aggregator
