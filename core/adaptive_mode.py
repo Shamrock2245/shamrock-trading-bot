@@ -30,6 +30,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# ── Paper Mode: bypass recovery mode entirely ─────────────────────────────────
+# In paper mode, HWM inflates from unrealized paper gains and creates a
+# permanent RECOVERY MODE trap.  Cap HWM to paper starting capital and
+# always evaluate as NORMAL.  (Recurring issue: ep-2026-06-16-001)
+from config import settings as _settings
+_IS_PAPER = _settings.IS_PAPER
+_PAPER_STARTING_CAPITAL = _settings.PAPER_WALLET_BALANCE_USD
+
 # ── State persistence ─────────────────────────────────────────────────────────
 _STATE_FILE = Path(os.environ.get(
     "ADAPTIVE_MODE_STATE",
@@ -158,6 +166,13 @@ def update_capital(state: AdaptiveModeState, portfolio_value_usd: float) -> None
     """
     state.current_capital_usd = portfolio_value_usd
 
+    if _IS_PAPER:
+        # Paper mode: HWM is always the paper starting capital.
+        # Never let unrealized paper gains inflate the HWM.
+        state.high_water_mark_usd = _PAPER_STARTING_CAPITAL
+        state.drawdown_pct = 0.0
+        return
+
     # Update high-water mark
     if portfolio_value_usd > state.high_water_mark_usd:
         state.high_water_mark_usd = portfolio_value_usd
@@ -199,6 +214,14 @@ def evaluate_mode(state: AdaptiveModeState) -> BotMode:
     """
     current = BotMode(state.mode)
     now = time.time()
+
+    # ── PAPER MODE: always NORMAL ─────────────────────────────────────────
+    # Paper trades use simulated capital.  Recovery mode is meaningless
+    # and its HWM-based triggers create false permanent lockouts.
+    if _IS_PAPER:
+        if current == BotMode.RECOVERY:
+            reset_hwm_to_current(state, reason="paper mode — forcing NORMAL")
+        return BotMode.NORMAL
 
     # ── ADAPTIVE_FORCE_NORMAL override ────────────────────────────────────────
     # If set via env var, immediately reset HWM and return NORMAL.

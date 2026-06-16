@@ -1,0 +1,43 @@
+{
+  "episode_id": "ep-2026-06-16-001",
+  "date": "2026-06-16",
+  "category": "guardrails",
+  "title": "Phantom HWM / Capital Preservation Mode blocking all paper trades (RECURRING)",
+  "severity": "critical",
+  "recurrence_count": "3+ (user confirmed this is 'an everyday/every conversation thing')",
+  "what_happened": {
+    "summary": "Bot was finding 12+ gem candidates per scan cycle but executing ZERO trades because two state files had phantom high-water marks from paper trading price fluctuations.",
+    "root_cause": "DailyFloorGuardian (daily_floor.json) had floor=$5,872 and AdaptiveMode (adaptive_mode_state.json) had HWM=$6,383 — both from paper-simulated portfolio valuations that spiked and crashed. Actual paper capital was $500. This triggered CAPITAL PRESERVATION MODE (blocking all entries) and RECOVERY MODE (92% drawdown).",
+    "symptoms": [
+      "🛡️ CAPITAL PRESERVATION MODE: skipping all 12 candidates. Floor=$5,872.54 | Current=$500.00 | Daily P&L=-91.5%",
+      "🔴 RECOVERY MODE | Capital: $500 | HWM: $6383 | Drawdown: 92.2% | Swing wins: 0",
+      "Zero trades for 7+ hours despite scanner finding candidates every cycle"
+    ],
+    "fix_applied": "Reset both state files: floor_usd=500, high_water_mark_usd=500, is_preservation_mode=false, mode=normal",
+    "files_modified": [
+      "output/daily_floor.json (on server)",
+      "output/adaptive_mode_state.json (on server)"
+    ]
+  },
+  "key_insight": "Paper mode should NOT enforce capital preservation against phantom portfolio values. The floor/HWM ratchets up based on unrealized paper gains from held positions whose prices spike, but when those positions close at a loss, the HWM stays inflated permanently. This creates a one-way trap: HWM only goes up, actual capital only goes down, drawdown grows until CAPITAL PRESERVATION permanently blocks all trading.",
+  "user_feedback": {
+    "quote": "this is an everyday/every conversation thing now that you are not acknowledging or remembering the goal of when to turn paper mode off. it should be when the bot shows it can make $500 a day",
+    "rating": 3,
+    "frustration_level": "high — user is tired of re-explaining this every session"
+  },
+  "golden_rules_extracted": [
+    {
+      "rule": "Paper mode stays ON until the bot demonstrates consistent $500/day profitability. This is the ONLY criterion for switching to live.",
+      "priority": "critical"
+    },
+    {
+      "rule": "In paper mode, capital preservation and recovery mode should either be disabled or use the actual paper starting balance ($500) as the baseline, not phantom unrealized HWM values.",
+      "priority": "critical"
+    },
+    {
+      "rule": "When starting any new conversation about the trading bot, ALWAYS check daily_floor.json and adaptive_mode_state.json for phantom HWM values and reset them if they don't match actual capital.",
+      "priority": "critical"
+    }
+  ],
+  "recommended_code_fix": "In paper mode, either (a) disable DailyFloorGuardian entirely, or (b) cap HWM/floor to a configurable PAPER_STARTING_CAPITAL value and bypass capital preservation. The ratchet-up logic in daily_floor_guardian.py line 283-292 is the root cause — it locks in unrealized paper gains as the new floor, then real capital can never recover to that phantom level."
+}

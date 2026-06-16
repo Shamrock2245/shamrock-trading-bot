@@ -53,6 +53,14 @@ FLOOR_MIN_PORTFOLIO_USD = float(os.environ.get("FLOOR_MIN_PORTFOLIO_USD", "10.0"
 # How many hours before midnight to lock the floor snapshot (default: lock at 23:00 UTC)
 FLOOR_LOCK_HOUR_UTC = int(os.environ.get("FLOOR_LOCK_HOUR_UTC", "0"))  # midnight
 
+# ── Paper Mode: bypass capital preservation entirely ──────────────────────────
+# Paper mode must NEVER block trades due to phantom HWM/floor values from
+# unrealized paper gains.  The floor ratchet inflates floor_usd when paper
+# positions spike, but actual paper capital stays fixed.  This creates a
+# permanent preservation trap.  (Recurring issue: ep-2026-06-16-001)
+_IS_PAPER = settings.IS_PAPER
+_PAPER_STARTING_CAPITAL = settings.PAPER_WALLET_BALANCE_USD
+
 
 @dataclass
 class DailyFloorState:
@@ -198,9 +206,14 @@ class DailyFloorGuardian:
                 state.prev_floor_usd = state.floor_usd
                 state.prev_floor_date = state.floor_date
 
-            # Set today's floor to the higher of: current value OR yesterday's floor
-            # This ensures the floor only ever goes UP over time
-            new_floor = max(portfolio_usd, state.prev_floor_usd * 0.98)  # Allow 2% grace on roll
+            if _IS_PAPER:
+                # Paper mode: floor is always the paper starting capital.
+                # Never ratchet up from unrealized paper gains.
+                new_floor = _PAPER_STARTING_CAPITAL
+            else:
+                # Live mode: floor ratchets up over time
+                # Set today's floor to the higher of: current value OR yesterday's floor
+                new_floor = max(portfolio_usd, state.prev_floor_usd * 0.98)  # Allow 2% grace on roll
             state.floor_usd = round(new_floor, 2)
             state.floor_date = today_str
             state.floor_set_at = now_iso
@@ -209,7 +222,7 @@ class DailyFloorGuardian:
 
             logger.info(
                 f"📅 DAILY FLOOR SET: ${state.floor_usd:,.2f} for {today_str} "
-                f"(portfolio=${portfolio_usd:,.2f})"
+                f"(portfolio=${portfolio_usd:,.2f}){' [PAPER MODE]' if _IS_PAPER else ''}"
             )
 
         # ── Step 2: Update current value and stats ────────────────────────────
@@ -236,8 +249,20 @@ class DailyFloorGuardian:
         if state.floor_usd > 0 and portfolio_usd < state.floor_usd:
             breach_pct = round((state.floor_usd - portfolio_usd) / state.floor_usd * 100, 2)
 
-        if portfolio_usd < breach_threshold and not state.is_preservation_mode:
-            # ── ENTER PRESERVATION MODE ───────────────────────────────────────
+        if _IS_PAPER:
+            # ── PAPER MODE: Never enter capital preservation ──────────────────
+            # Paper trades use simulated capital — there's nothing real to
+            # preserve.  The bot must keep trading to validate strategy.
+            if state.is_preservation_mode:
+                state.is_preservation_mode = False
+                state.preservation_reason = ""
+                logger.info(
+                    "🟢 Paper mode: capital preservation bypassed "
+                    "(no real capital at risk)"
+                )
+
+        elif portfolio_usd < breach_threshold and not state.is_preservation_mode:
+            # ── ENTER PRESERVATION MODE (live only) ───────────────────────────
             state.is_preservation_mode = True
             state.preservation_entered_at = now_iso
             state.preservation_entries += 1
@@ -280,16 +305,19 @@ class DailyFloorGuardian:
 
         # ── Step 4: Update the floor upward if we're doing well ──────────────
         # Ratchet: if we're significantly above the floor, raise it to lock in gains
-        ratchet_threshold = state.floor_usd * 1.15  # 15% above floor
-        if portfolio_usd >= ratchet_threshold and not state.is_preservation_mode:
-            new_floor = round(portfolio_usd * 0.92, 2)  # Lock in 92% of current value
-            if new_floor > state.floor_usd:
-                old_floor = state.floor_usd
-                state.floor_usd = new_floor
-                logger.info(
-                    f"📈 FLOOR RATCHET UP: ${old_floor:,.2f} → ${new_floor:,.2f} "
-                    f"(portfolio=${portfolio_usd:,.2f}, locking in gains)"
-                )
+        # SKIP in paper mode — paper unrealized gains inflate the floor permanently
+        # and create a one-way trap (HWM up, actual capital down). (ep-2026-06-16-001)
+        if not _IS_PAPER:
+            ratchet_threshold = state.floor_usd * 1.15  # 15% above floor
+            if portfolio_usd >= ratchet_threshold and not state.is_preservation_mode:
+                new_floor = round(portfolio_usd * 0.92, 2)  # Lock in 92% of current value
+                if new_floor > state.floor_usd:
+                    old_floor = state.floor_usd
+                    state.floor_usd = new_floor
+                    logger.info(
+                        f"📈 FLOOR RATCHET UP: ${old_floor:,.2f} → ${new_floor:,.2f} "
+                        f"(portfolio=${portfolio_usd:,.2f}, locking in gains)"
+                    )
 
         _save_state(state)
 
