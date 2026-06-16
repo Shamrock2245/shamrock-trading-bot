@@ -387,12 +387,45 @@ class HyperliquidExecutor:
         balance = self.get_balance()
         withdrawable = balance.get("withdrawable", 0)
         account_value = balance.get("account_value", 0)
+        balance_mode = balance.get("mode", "unknown")
+
+        # ── AUTO-TRANSFER: Unified accounts need Spot→Perps transfer ──
+        if balance_mode == "unified" and withdrawable > 0:
+            try:
+                # Check if perps margin is empty (needs transfer)
+                perp_state = self._info.user_state(self.wallet_address)
+                perp_margin = float(perp_state.get("marginSummary", {}).get("accountValue", 0))
+                if perp_margin < actual_size_usd:
+                    # Transfer what we need (plus 10% buffer) from Spot to Perps
+                    transfer_amount = min(withdrawable, actual_size_usd * 1.5)
+                    transfer_amount = round(transfer_amount, 2)
+                    logger.info(
+                        f"💱 Hyperliquid: auto-transferring ${transfer_amount:.2f} "
+                        f"from Spot → Perps (Unified account)"
+                    )
+                    result = self._exchange.transfer_between_spot_and_perp(
+                        transfer_amount, True  # True = Spot→Perps
+                    )
+                    if result and result.get("status") == "ok":
+                        logger.info(f"✅ Spot→Perps transfer successful: ${transfer_amount:.2f}")
+                        import time as _t
+                        _t.sleep(1)  # Wait for settlement
+                    else:
+                        logger.warning(f"⚠️ Spot→Perps transfer result: {result}")
+            except Exception as xfer_err:
+                logger.warning(f"Spot→Perps transfer failed: {xfer_err} — trying order anyway")
+
         if withdrawable < actual_size_usd:
-            logger.warning(
-                f"Hyperliquid: insufficient margin — need ${actual_size_usd:.2f}, "
-                f"available ${withdrawable:.2f}"
-            )
-            return None
+            # Re-check after potential transfer
+            balance = self.get_balance()
+            withdrawable = balance.get("withdrawable", 0)
+            account_value = balance.get("account_value", 0)
+            if withdrawable < actual_size_usd:
+                logger.warning(
+                    f"Hyperliquid: insufficient margin — need ${actual_size_usd:.2f}, "
+                    f"available ${withdrawable:.2f}"
+                )
+                return None
 
         # ── CAPITAL PROTECTION: never risk >10% of account on one trade ─
         if account_value > 0 and actual_size_usd > account_value * 0.10:
