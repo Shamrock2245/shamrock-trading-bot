@@ -114,6 +114,7 @@ class PerpSignal:
     funding_rate: Optional[float] = None  # per 8h
     bb_position: Optional[str] = None   # "lower", "upper", "middle"
     momentum_1h: Optional[float] = None  # 1h price change %
+    ema_support_px: Optional[float] = None # EMA 21 value for retracement limit entries
     reasoning: str = ""
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -261,6 +262,7 @@ def _score_signal(
     ema9 = _ema(closes, 9)
     ema21 = _ema(closes, 21)
     if ema9 is not None and ema21 is not None:
+        components["ema21"] = ema21
         spread_pct = (ema9 - ema21) / ema21 * 100
         if ema9 > ema21:
             components["ema_cross"] = "bullish"
@@ -379,6 +381,7 @@ class HLPerpsScanner:
         self.daily_pnl_reset_date: str = ""
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.last_signals: list[PerpSignal] = []
+        self.pending_retracements: dict[str, dict] = {}  # coin -> {"signal": PerpSignal, "target_px": float, "expires_at": float}
 
         # Stats
         self.total_wins: int = 0
@@ -716,6 +719,7 @@ class HLPerpsScanner:
             funding_rate=funding_rate,
             bb_position=components.get("bb_zone"),
             momentum_1h=components.get("momentum_1h"),
+            ema_support_px=components.get("ema21"),
             reasoning=reasoning,
         )
 
@@ -866,6 +870,34 @@ class HLPerpsScanner:
         self.scan_count += 1
         cycle_start = time.time()
 
+        # ── Retracement Sniper: Check pending entries ──
+        if self.pending_retracements and self.hl_executor and self.hl_executor.is_available():
+            current_time = time.time()
+            for coin in list(self.pending_retracements.keys()):
+                pending = self.pending_retracements[coin]
+                if current_time > pending["expires_at"]:
+                    logger.debug(f"Retracement sniper expired for {coin} (no dip detected)")
+                    del self.pending_retracements[coin]
+                    continue
+                
+                try:
+                    current_px = self.hl_executor.get_price(coin)
+                    if not current_px: continue
+
+                    signal = pending["signal"]
+                    trigger = False
+                    if signal.direction == "long" and current_px <= pending["target_px"]:
+                        trigger = True
+                    elif signal.direction == "short" and current_px >= pending["target_px"]:
+                        trigger = True
+                        
+                    if trigger:
+                        logger.info(f"🎯 RETRACEMENT SNIPER TRIGGERED for {coin}! Target {pending['target_px']} hit at {current_px}.")
+                        self._execute_signal(signal)
+                        del self.pending_retracements[coin]
+                except Exception as e:
+                    logger.warning(f"Retracement sniper check failed for {coin}: {e}")
+
         # Fetch all funding rates in one call (efficiency)
         funding_rates = self._get_all_funding_rates()
 
@@ -891,9 +923,24 @@ class HLPerpsScanner:
                 signals.append(signal)
                 self.signals_generated += 1
 
-                # Execute immediately
-                self._execute_signal(signal)
-
+                # Retracement Sniper: delay entry until price pulls back to the EMA21 support line
+                # Limit duration to 60 minutes.
+                if signal.ema_support_px and signal.ema_support_px > 0:
+                    target_px = round(signal.ema_support_px, 4)
+                else:
+                    # Fallback to 1.5% discount if EMA isn't available
+                    discount = 0.015
+                    if signal.direction == "long":
+                        target_px = round(signal.entry_price * (1 - discount), 4)
+                    else:
+                        target_px = round(signal.entry_price * (1 + discount), 4)
+                    
+                self.pending_retracements[signal.coin] = {
+                    "signal": signal,
+                    "target_px": target_px,
+                    "expires_at": time.time() + 3600
+                }
+                logger.info(f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} | Waiting for dip to ${target_px}...")
         # Sort by score descending for logging
         signals.sort(key=lambda s: s.score, reverse=True)
         self.last_signals = signals
