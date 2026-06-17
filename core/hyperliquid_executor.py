@@ -389,31 +389,8 @@ class HyperliquidExecutor:
         account_value = balance.get("account_value", 0)
         balance_mode = balance.get("mode", "unknown")
 
-        # ── AUTO-TRANSFER: Unified accounts need Spot→Perps transfer ──
-        if balance_mode == "unified" and withdrawable > 0:
-            try:
-                # Check if perps margin is empty (needs transfer)
-                perp_state = self._info.user_state(self.wallet_address)
-                perp_margin = float(perp_state.get("marginSummary", {}).get("accountValue", 0))
-                if perp_margin < actual_size_usd:
-                    # Transfer what we need (plus 10% buffer) from Spot to Perps
-                    transfer_amount = min(withdrawable, actual_size_usd * 1.5)
-                    transfer_amount = round(transfer_amount, 2)
-                    logger.info(
-                        f"💱 Hyperliquid: auto-transferring ${transfer_amount:.2f} "
-                        f"from Spot → Perps (Unified account)"
-                    )
-                    result = self._exchange.usd_class_transfer(
-                        transfer_amount, True  # True = Spot→Perps
-                    )
-                    if result and result.get("status") == "ok":
-                        logger.info(f"✅ Spot→Perps transfer successful: ${transfer_amount:.2f}")
-                        import time as _t
-                        _t.sleep(1)  # Wait for settlement
-                    else:
-                        logger.warning(f"⚠️ Spot→Perps transfer result: {result}")
-            except Exception as xfer_err:
-                logger.warning(f"Spot→Perps transfer failed: {xfer_err} — trying order anyway")
+        # Unified accounts share equity — no Spot→Perps transfer needed.
+        # In Unified mode, HL automatically allocates margin from Spot balance.
 
         if withdrawable < actual_size_usd:
             # Re-check after potential transfer
