@@ -703,6 +703,31 @@ class HyperliquidExecutor:
             logger.warning(f"Hyperliquid: funding rate check failed for {coin}: {e}")
             return True  # Allow on error — TP/SL still protect us
 
+    def withdraw_profit_usd(self, amount_usd: float, destination_address: str) -> bool:
+        """
+        Withdraw USDC from the Hyperliquid L2 bridge to an L1 Arbitrum address.
+        Fee is flat $1 USDC.
+        """
+        if not self._initialized or not self._exchange:
+            logger.error("Hyperliquid: Cannot withdraw — not initialized")
+            return False
+        
+        try:
+            logger.info(f"🏦 Hyperliquid: Initiating withdrawal of ${amount_usd:.2f} to {destination_address}")
+            result = self._exchange.withdraw_from_bridge(amount_usd, destination_address)
+            
+            # The SDK returns a dict with status. Check if successful.
+            if result and result.get("status") == "ok":
+                logger.info(f"✅ Hyperliquid: Successfully withdrew ${amount_usd:.2f} to {destination_address}")
+                return True
+            else:
+                logger.error(f"❌ Hyperliquid: Withdrawal failed. SDK returned: {result}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Hyperliquid: Exception during withdrawal of ${amount_usd:.2f}: {e}", exc_info=True)
+            return False
+
     def get_status(self) -> dict:
         """Comprehensive status for dashboard/logging."""
         balance = self.get_balance() if self.is_available() else {}
