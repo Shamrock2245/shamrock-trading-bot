@@ -19,6 +19,8 @@ import json
 from datetime import datetime, timezone
 
 from core.hyperliquid_executor import HyperliquidExecutor
+from core import coinbase_client
+from core import solana_executor
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,13 @@ FUNDING_POLL_INTERVAL: float = float(os.getenv("FUNDING_POLL_INTERVAL_SECONDS", 
 FUNDING_POSITION_SIZE_USD: float = float(os.getenv("FUNDING_POSITION_SIZE_USD", "100.0"))
 
 _STATE_FILE = Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard")) / "funding_farms.json"
+
+SOLANA_MINTS = {
+    "WIF": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+    "BONK": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+    "POPCAT": "7GCihgDB8xsUKnmRoDk3ZxjsWq1yXhtCGqj8KjHhFfB3",
+    "MEW": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREqcMCNtT2"
+}
 
 class FundingFarmer:
     def __init__(self, hl_executor: HyperliquidExecutor):
@@ -55,15 +64,38 @@ class FundingFarmer:
 
     def _execute_hedge(self, coin: str, side: str, size_usd: float) -> bool:
         """
-        Execute the opposing hedge on a spot DEX.
+        Execute the opposing hedge on a spot DEX/CEX.
         If we SHORT on HL, we BUY SPOT here.
         If we LONG on HL, we SELL SPOT here (or short elsewhere).
         """
-        # Placeholder for actual DEX/CEX execution logic (Coinbase/Solana)
-        # In a real scenario, this would call core.coinbase_client or a Solana executor.
         logger.info(f"FundingFarmer: Executing hedge {side.upper()} SPOT for {coin} size ${size_usd}")
-        # Assuming success for the sake of the delta-neutral lock
-        return True
+        
+        if side.lower() == "sell":
+            logger.warning(f"FundingFarmer: Spot selling (shorting) not supported natively yet. Aborting farm for {coin}.")
+            return False
+
+        try:
+            # 1. Check if it's a Solana token
+            if coin.upper() in SOLANA_MINTS:
+                mint = SOLANA_MINTS[coin.upper()]
+                logger.info(f"FundingFarmer: Routing {coin} hedge to Solana (Jupiter).")
+                # execute_solana_buy takes (token_address, amount_usd)
+                res = solana_executor.execute_solana_buy(mint, size_usd)
+                return res is not None
+
+            # 2. Check if it's supported on Coinbase
+            elif f"{coin.upper()}-USD" in coinbase_client.COINBASE_ARB_PAIRS:
+                logger.info(f"FundingFarmer: Routing {coin} hedge to Coinbase Advanced.")
+                res = coinbase_client.market_buy(f"{coin.upper()}-USD", size_usd, is_paper=False)
+                return res is not None
+                
+            else:
+                logger.warning(f"FundingFarmer: {coin} is not supported on Coinbase or Solana. Cannot hedge.")
+                return False
+                
+        except Exception as e:
+            logger.error(f"FundingFarmer: Error executing spot hedge for {coin}: {e}", exc_info=True)
+            return False
 
     def scan_and_farm(self):
         """Scan for extreme funding rates and open delta-neutral positions."""
@@ -82,26 +114,26 @@ class FundingFarmer:
                 hourly_rate = self._get_hourly_funding(coin)
                 
                 if abs(hourly_rate) >= FUNDING_EXTREME_THRESHOLD:
-                    logger.info(f"🌾 Extreme funding detected on {coin}: {hourly_rate*100:.4f}%/hr")
+                    # V1 Constraint: Only farm positive funding (Short HL, Buy Spot)
+                    if hourly_rate <= 0:
+                        logger.debug(f"FundingFarmer: {coin} has extreme NEGATIVE funding, but spot shorting is unsupported. Skipping.")
+                        continue
+                        
+                    logger.info(f"🌾 Extreme positive funding detected on {coin}: {hourly_rate*100:.4f}%/hr")
                     
-                    # If funding is positive, longs pay shorts. We want to SHORT on HL.
-                    # If funding is negative, shorts pay longs. We want to LONG on HL.
-                    hl_side = "sell" if hourly_rate > 0 else "buy"
-                    hedge_side = "buy" if hl_side == "sell" else "sell"
+                    # Positive funding = longs pay shorts. We SHORT on HL, BUY on Spot.
+                    hl_side = "sell"
+                    hedge_side = "buy"
                     
                     with self._lock:
-                        # 1. Execute Hedge first (or simultaneously)
+                        # 1. Execute Hedge first
                         hedge_ok = self._execute_hedge(coin, hedge_side, FUNDING_POSITION_SIZE_USD)
                         if not hedge_ok:
                             logger.error(f"FundingFarmer: Hedge failed for {coin}, aborting HL entry.")
                             continue
                             
-                        # 2. Execute HL position
-                        # We use 1x leverage for the funding farm to minimize liquidation risk on the leg
-                        if hl_side == "sell":
-                            result = self.hl_executor.open_short(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
-                        else:
-                            result = self.hl_executor.open_long(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
+                        # 2. Execute HL position (1x leverage)
+                        result = self.hl_executor.open_short(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
                             
                         if result:
                             self.active_farms[coin] = {
@@ -112,8 +144,19 @@ class FundingFarmer:
                             }
                             logger.info(f"✅ Delta-Neutral Farm established for {coin}")
                         else:
-                            logger.error(f"FundingFarmer: HL entry failed for {coin}, MUST UNWIND HEDGE!")
-                            # In production, add logic to immediately unwind the spot hedge here
+                            logger.error(f"🚨 HEDGE ROLLBACK 🚨 HL entry failed for {coin}! Unwinding Spot {hedge_side.upper()} position.")
+                            # Immediate Rollback (Sell what we just bought)
+                            if coin.upper() in SOLANA_MINTS:
+                                mint = SOLANA_MINTS[coin.upper()]
+                                solana_executor.execute_solana_sell(mint, 100.0) # Sell 100%
+                            elif f"{coin.upper()}-USD" in coinbase_client.COINBASE_ARB_PAIRS:
+                                # We need base_size to sell on Coinbase, so fetch price
+                                price_data = coinbase_client.get_price(f"{coin.upper()}-USD")
+                                if price_data and price_data.mid > 0:
+                                    base_size = FUNDING_POSITION_SIZE_USD / price_data.mid
+                                    coinbase_client.market_sell(f"{coin.upper()}-USD", base_size, is_paper=False)
+                                else:
+                                    logger.error(f"FATAL ROLLBACK ERROR: Could not fetch Coinbase price to unwind {coin}!")
                             
             self._save_state()
                             
