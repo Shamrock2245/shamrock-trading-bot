@@ -1353,6 +1353,192 @@ async def run_bot_loop():
         "10%TP / 3.5%SL / 3x leverage | high-conviction only"
     )
 
+    # ── Dynamic Trailing Profit-Lock Monitor ───────────────────────────────────────────────────
+    # Monitors all open HL perp positions every 8 seconds.
+    # Once a position achieves >5% ROE, the static SL is cancelled and replaced
+    # with a trailing stop 1.5% behind the current mark price.
+    # The trailing stop ratchets up (longs) / down (shorts) as price moves in our favour.
+    # State is persisted to data/dashboard/hl_trailing_state.json on every update.
+    # ─────────────────────────────────────────────────────────────────────────────
+    _TRAILING_ROE_TRIGGER_PCT: float = float(os.getenv("HL_TRAILING_ROE_TRIGGER_PCT", "5.0"))
+    _TRAILING_DISTANCE_PCT: float = float(os.getenv("HL_TRAILING_DISTANCE_PCT", "1.5"))
+    _TRAILING_POLL_SECONDS: float = float(os.getenv("HL_TRAILING_POLL_SECONDS", "8.0"))
+
+    # Shared reference to the executor — populated by _hl_perps_daemon once it starts
+    _trailing_exec_ref: list = []  # mutable container so inner function can write to it
+
+    def _hl_trailing_monitor_daemon():
+        """Background thread: dynamic trailing profit-lock for all open HL perp positions."""
+        import time as _time
+        _time.sleep(45)  # Wait for HL perps daemon to initialize the executor
+
+        # Grab the executor reference once it is available
+        _exec = None
+        for _ in range(30):  # up to 4 minutes of waiting
+            if _trailing_exec_ref:
+                _exec = _trailing_exec_ref[0]
+                break
+            _time.sleep(8)
+
+        if _exec is None:
+            logger.warning(
+                "⚠️ Trailing monitor: could not obtain HL executor reference — daemon exiting"
+            )
+            return
+
+        logger.info(
+            f"🔒 Trailing Profit-Lock monitor ACTIVE | "
+            f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | "
+            f"trail={_TRAILING_DISTANCE_PCT}% behind mark | "
+            f"poll={_TRAILING_POLL_SECONDS}s"
+        )
+
+        while True:
+            try:
+                # Snapshot positions to avoid holding lock during price fetches
+                positions_snapshot = list(_exec.positions.values())
+
+                for pos in positions_snapshot:
+                    try:
+                        mark_price = _exec.get_price(pos.coin)
+                        if not mark_price or mark_price <= 0:
+                            continue
+
+                        # ── Update peak / trough ───────────────────────────────────────
+                        price_updated = False
+                        if pos.side == "long" and mark_price > pos.highest_price:
+                            pos.highest_price = mark_price
+                            price_updated = True
+                        elif pos.side == "short" and mark_price < pos.lowest_price:
+                            pos.lowest_price = mark_price
+                            price_updated = True
+
+                        # Persist peak/trough update (cheap JSON write)
+                        if price_updated:
+                            _exec._save_trailing_state()
+
+                        # ── Calculate ROE (Return on Equity) ─────────────────────────
+                        if pos.side == "long":
+                            price_move_pct = (mark_price - pos.entry_price) / pos.entry_price * 100
+                        else:
+                            price_move_pct = (pos.entry_price - mark_price) / pos.entry_price * 100
+                        roe_pct = price_move_pct * pos.leverage
+
+                        # ── Activate trailing once ROE threshold is breached ────────────
+                        if not pos.trailing_stop_active and roe_pct >= _TRAILING_ROE_TRIGGER_PCT:
+                            pos.trailing_stop_active = True
+                            _exec._save_trailing_state()
+                            logger.info(
+                                f"🔒 TRAILING ACTIVATED | {pos.coin} {pos.side.upper()} | "
+                                f"entry=${pos.entry_price:.4f} | mark=${mark_price:.4f} | "
+                                f"ROE={roe_pct:.1f}% ≥ {_TRAILING_ROE_TRIGGER_PCT}% trigger"
+                            )
+
+                        # ── Ratchet the trailing stop if active ──────────────────────
+                        if pos.trailing_stop_active:
+                            trail_mult = _TRAILING_DISTANCE_PCT / 100
+                            if pos.side == "long":
+                                # Trail is 1.5% below the highest mark price seen
+                                candidate_sl = pos.highest_price * (1 - trail_mult)
+                                # Only ratchet UP — never move SL backwards
+                                if candidate_sl > (pos.stop_loss_price or 0):
+                                    _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+                            else:  # short
+                                # Trail is 1.5% above the lowest mark price seen
+                                candidate_sl = pos.lowest_price * (1 + trail_mult)
+                                # Only ratchet DOWN — never move SL backwards
+                                current_sl = pos.stop_loss_price or float("inf")
+                                if candidate_sl < current_sl:
+                                    _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+
+                    except Exception as _pos_err:
+                        logger.debug(f"Trailing monitor: error processing {pos.coin}: {_pos_err}")
+
+            except Exception as _loop_err:
+                logger.warning(f"Trailing monitor loop error: {_loop_err}")
+
+            _time.sleep(_TRAILING_POLL_SECONDS)
+
+    # Patch the HL perps daemon to register the executor reference once ready
+    _orig_hl_perps_daemon = _hl_perps_daemon
+
+    def _hl_perps_daemon_with_trailing_ref():
+        """Wrapper that registers the executor in _trailing_exec_ref for the trailing monitor."""
+        import time as _time
+        _time.sleep(30)
+        try:
+            from core.hl_perps_scanner import HLPerpsScanner
+            from core.hyperliquid_executor import HyperliquidExecutor
+            _hl_exec = HyperliquidExecutor()
+            if not _hl_exec._initialized:
+                logger.warning("HL Perps: executor failed to init — running in signal-only mode")
+                _hl_exec = None
+            else:
+                logger.info(
+                    f"✅ HL Perps LIVE executor ready | "
+                    f"wallet={_hl_exec.wallet_address[:10]}... | "
+                    f"leverage={_hl_exec.default_leverage}x"
+                )
+                # Register for trailing monitor
+                _trailing_exec_ref.append(_hl_exec)
+            _hl_scanner = HLPerpsScanner(hl_executor=_hl_exec)
+            logger.info("✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | 29-indicator + HL scoring | LIVE execution")
+        except Exception as _hl_init_err:
+            logger.error(f"HL Perps Scanner init failed: {_hl_init_err}")
+            return
+        while True:
+            try:
+                signals = _hl_scanner.run_cycle()
+                if signals:
+                    for sig in signals:
+                        logger.info(
+                            f"[HL-PERPS] 📡 {sig.coin} {sig.direction.upper()} | score={sig.score:.1f} | "
+                            f"entry=${sig.entry_price:.4f} | TP=${sig.take_profit_price:.4f} | "
+                            f"SL=${sig.stop_loss_price:.4f} | R/R={sig.r_r_ratio:.1f}x | "
+                            f"funding={sig.funding_rate*100:.4f}%"
+                        )
+                else:
+                    logger.info("[HL-PERPS] Scan complete — no setups passed Fib + TA29 gate this cycle.")
+            except Exception as _hl_cycle_err:
+                logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
+            _time.sleep(120)
+
+    # Replace the original daemon with the patched version
+    _hl_perps_thread._target = _hl_perps_daemon_with_trailing_ref
+
+    _hl_trailing_thread = threading.Thread(
+        target=_hl_trailing_monitor_daemon,
+        daemon=True,
+        name="hl-trailing-monitor",
+    )
+    _hl_trailing_thread.start()
+    logger.info(
+        "🔒 Dynamic Trailing Profit-Lock daemon started — "
+        f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | trail={_TRAILING_DISTANCE_PCT}% | "
+        f"poll={_TRAILING_POLL_SECONDS}s | state=data/dashboard/hl_trailing_state.json"
+    )
+
+    # ── Delta-Neutral Funding Rate Farmer ────────────────────────────────────────────────
+    def _funding_farmer_starter():
+        import time as _time
+        _time.sleep(50)
+        _exec = None
+        for _ in range(30):
+            if _trailing_exec_ref:
+                _exec = _trailing_exec_ref[0]
+                break
+            _time.sleep(8)
+        if _exec:
+            from core.funding_farmer import _funding_farmer_daemon
+            _funding_farmer_daemon(_exec)
+            
+    _funding_farmer_thread = threading.Thread(
+        target=_funding_farmer_starter,
+        daemon=True,
+        name="funding-farmer",
+    )
+    _funding_farmer_thread.start()
+
     # ── Coinbase CEX/DEX Arb Scanner Daemon ──────────────────────────────────────────────
     def _coinbase_arb_daemon():
         """Background thread: scans Coinbase CEX vs DEX prices for arb opportunities."""

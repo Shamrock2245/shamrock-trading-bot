@@ -677,6 +677,29 @@ class HLPerpsScanner:
         ]
         reasoning = " | ".join(p for p in reasoning_parts if p)
 
+        # ── Kelly Criterion Position Sizing ──────────────────────────────────────
+        # Scale size exponentially based on signal score (65 to 100)
+        # Min size (score 65) ~ $250, Max size (score 95+) ~ $2,500
+        # Formula: base_size * e^(k * (score - min_score))
+        min_score = HL_PERPS_MIN_SCORE
+        max_score = 95.0
+        min_size = 250.0
+        max_size = 2500.0
+        
+        if score <= min_score:
+            kelly_size_usd = min_size
+        elif score >= max_score:
+            kelly_size_usd = max_size
+        else:
+            # Exponential scaling factor
+            k = math.log(max_size / min_size) / (max_score - min_score)
+            kelly_size_usd = min_size * math.exp(k * (score - min_score))
+            
+        # Ensure we don't exceed the global max position cap if it's set lower,
+        # but for the Kelly upgrade, we allow the calculated size up to max_size.
+        # We cap it strictly at max_size to prevent runaway sizes.
+        kelly_size_usd = min(kelly_size_usd, max_size)
+
         signal = PerpSignal(
             coin=coin,
             direction=direction,
@@ -685,7 +708,7 @@ class HLPerpsScanner:
             stop_loss_price=round(stop_loss, 6),
             take_profit_price=round(take_profit, 6),
             leverage=HL_PERPS_LEVERAGE,
-            position_size_usd=HL_PERPS_MAX_POSITION_USD,
+            position_size_usd=round(kelly_size_usd, 2),
             rsi=rsi_val,
             ema_cross=components.get("ema_cross"),
             macd_signal="buy" if (components.get("macd_hist") or 0) > 0 else "sell",

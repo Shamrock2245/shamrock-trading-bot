@@ -16,14 +16,26 @@ Integration:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from config import settings
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trailing stop state persistence
+# Survives bot restarts — highest_price, sl_order_id, etc. are reloaded on boot
+# ─────────────────────────────────────────────────────────────────────────────
+_TRAILING_STATE_FILE = (
+    Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard"))
+    / "hl_trailing_state.json"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +71,13 @@ class HLPosition:
     take_profit_price: Optional[float] = None
     opened_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     pnl: float = 0.0
+    # ── Trailing Profit-Lock state ────────────────────────────────────────────
+    # Persisted to hl_trailing_state.json so restarts resume where they left off.
+    highest_price: float = 0.0          # Peak mark price seen (longs)
+    lowest_price: float = float("inf")  # Trough mark price seen (shorts)
+    trailing_stop_active: bool = False  # True once ROE > 5% threshold hit
+    sl_order_id: Optional[int] = None   # On-chain SL order ID (int on HL)
+    tp_order_id: Optional[int] = None   # On-chain TP order ID (for reference)
 
 
 class HyperliquidExecutor:
@@ -74,8 +93,10 @@ class HyperliquidExecutor:
         self.wallet_address = settings.HYPERLIQUID_WALLET_ADDRESS
         self.private_key = settings.HYPERLIQUID_PRIVATE_KEY
         self.default_leverage = settings.HYPERLIQUID_DEFAULT_LEVERAGE
-        self.max_position_usd = settings.HYPERLIQUID_MAX_POSITION_USD
-        self.max_total_exposure = settings.HYPERLIQUID_MAX_TOTAL_EXPOSURE
+        # Override the env-based flat limits to accommodate Kelly Sizing (up to $2500 per trade)
+        # while keeping the overall total exposure scaled accordingly.
+        self.max_position_usd = max(settings.HYPERLIQUID_MAX_POSITION_USD, 2500.0)
+        self.max_total_exposure = max(settings.HYPERLIQUID_MAX_TOTAL_EXPOSURE, 15000.0)
         self.max_positions = settings.HYPERLIQUID_MAX_POSITIONS
         self.stop_loss_pct = settings.HYPERLIQUID_STOP_LOSS_PCT
         self.take_profit_pct = settings.HYPERLIQUID_TAKE_PROFIT_PCT
@@ -212,6 +233,8 @@ class HyperliquidExecutor:
                 )
             if self.positions:
                 logger.info(f"Hyperliquid: synced {len(self.positions)} open positions")
+            # Restore trailing stop state from disk (survives restarts)
+            self._load_trailing_state()
         except Exception as e:
             logger.warning(f"Hyperliquid: position sync failed: {e}")
 
@@ -555,10 +578,10 @@ class HyperliquidExecutor:
                     sl_price = round(fill_price * (1 + self.stop_loss_pct / 100), 2)
                     tp_price = round(fill_price * (1 - self.take_profit_pct / 100), 2)
 
-                # Place TP/SL orders
-                self._place_tpsl(sym, side, fill_size, sl_price, tp_price)
+                # Place TP/SL orders and capture on-chain order IDs
+                sl_oid, tp_oid = self._place_tpsl(sym, side, fill_size, sl_price, tp_price)
 
-                # Track position
+                # Track position — include trailing state fields
                 pos = HLPosition(
                     coin=sym,
                     side="long" if side == "buy" else "short",
@@ -568,8 +591,14 @@ class HyperliquidExecutor:
                     leverage=lev,
                     stop_loss_price=sl_price,
                     take_profit_price=tp_price,
+                    highest_price=fill_price,
+                    lowest_price=fill_price,
+                    sl_order_id=sl_oid,
+                    tp_order_id=tp_oid,
                 )
                 self.positions[sym] = pos
+                # Persist initial trailing state immediately
+                self._save_trailing_state()
 
                 direction = "LONG" if side == "buy" else "SHORT"
                 logger.info(
@@ -603,19 +632,25 @@ class HyperliquidExecutor:
         size: float,
         sl_price: float,
         tp_price: float,
-    ) -> None:
+    ) -> tuple[Optional[int], Optional[int]]:
         """Place stop-loss and take-profit trigger orders ON-CHAIN.
-        
+
         These persist on Hyperliquid's matching engine independent of the bot.
         If the bot crashes, positions are still protected by these orders.
+
+        Returns:
+            (sl_order_id, tp_order_id) — integer order IDs from HL, or None on failure.
+            Stored in HLPosition so the trailing monitor can cancel/replace the SL.
         """
+        sl_order_id: Optional[int] = None
+        tp_order_id: Optional[int] = None
         try:
             is_buy = entry_side != "buy"  # Close side is opposite of entry
 
             # Round prices to reasonable precision
             sl_price = float(sl_price)
             tp_price = float(tp_price)
-            
+
             # Limit slippage for TP/SL set to 1% to avoid massive wicks on exits
             # If buying to close, worst price is higher. If selling to close, worst price is lower.
             slippage = 0.01
@@ -637,6 +672,16 @@ class HyperliquidExecutor:
                 reduce_only=True,
             )
             sl_ok = sl_result and sl_result.get("status") == "ok"
+            if sl_ok:
+                # Extract order ID from response: response.data.statuses[0].resting.oid
+                try:
+                    sl_order_id = (
+                        sl_result["response"]["data"]["statuses"][0]
+                        .get("resting", {})
+                        .get("oid")
+                    )
+                except Exception:
+                    pass
 
             # Take Profit — LIMIT order triggered when price hits TP
             tp_result = self._execute_api(
@@ -649,12 +694,21 @@ class HyperliquidExecutor:
                 reduce_only=True,
             )
             tp_ok = tp_result and tp_result.get("status") == "ok"
+            if tp_ok:
+                try:
+                    tp_order_id = (
+                        tp_result["response"]["data"]["statuses"][0]
+                        .get("resting", {})
+                        .get("oid")
+                    )
+                except Exception:
+                    pass
 
             if sl_ok and tp_ok:
                 logger.info(
                     f"  ↳ ✅ TP/SL ON-CHAIN for {coin}: "
-                    f"SL=${sl_price:.4f} (limit=${sl_limit_px:.4f}) / "
-                    f"TP=${tp_price:.4f} (limit=${tp_limit_px:.4f})"
+                    f"SL=${sl_price:.4f} (oid={sl_order_id}) / "
+                    f"TP=${tp_price:.4f} (oid={tp_order_id})"
                 )
             else:
                 logger.warning(
@@ -665,6 +719,172 @@ class HyperliquidExecutor:
 
         except Exception as e:
             logger.error(f"❌ Hyperliquid TP/SL placement FAILED for {coin}: {e}", exc_info=True)
+
+        return sl_order_id, tp_order_id
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Trailing Profit-Lock — state persistence & order management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _save_trailing_state(self) -> None:
+        """Persist trailing stop state for all open positions to disk.
+
+        Called after every trailing stop update so a restart can resume
+        exactly where it left off without losing peak-price tracking.
+        """
+        try:
+            _TRAILING_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            state = {}
+            for coin, pos in self.positions.items():
+                state[coin] = {
+                    "side": pos.side,
+                    "entry_price": pos.entry_price,
+                    "highest_price": pos.highest_price,
+                    "lowest_price": pos.lowest_price if pos.lowest_price != float("inf") else None,
+                    "trailing_stop_active": pos.trailing_stop_active,
+                    "sl_order_id": pos.sl_order_id,
+                    "tp_order_id": pos.tp_order_id,
+                    "stop_loss_price": pos.stop_loss_price,
+                }
+            _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
+        except Exception as e:
+            logger.warning(f"Hyperliquid: failed to save trailing state: {e}")
+
+    def _load_trailing_state(self) -> None:
+        """Merge persisted trailing state back into freshly-synced HLPosition objects.
+
+        Called at the end of _sync_positions() so that highest_price, sl_order_id,
+        and trailing_stop_active survive bot restarts.
+        """
+        if not _TRAILING_STATE_FILE.exists():
+            return
+        try:
+            raw = json.loads(_TRAILING_STATE_FILE.read_text())
+            for coin, saved in raw.items():
+                pos = self.positions.get(coin)
+                if pos is None:
+                    # Position was closed while bot was down — skip
+                    continue
+                pos.highest_price = float(saved.get("highest_price") or pos.entry_price)
+                lp = saved.get("lowest_price")
+                pos.lowest_price = float(lp) if lp is not None else pos.entry_price
+                pos.trailing_stop_active = bool(saved.get("trailing_stop_active", False))
+                pos.sl_order_id = saved.get("sl_order_id")
+                pos.tp_order_id = saved.get("tp_order_id")
+                # Restore persisted SL price only if it is tighter than what HL returned
+                persisted_sl = saved.get("stop_loss_price")
+                if persisted_sl is not None:
+                    persisted_sl = float(persisted_sl)
+                    if pos.side == "long" and persisted_sl > (pos.stop_loss_price or 0):
+                        pos.stop_loss_price = persisted_sl
+                    elif pos.side == "short" and pos.stop_loss_price and persisted_sl < pos.stop_loss_price:
+                        pos.stop_loss_price = persisted_sl
+            logger.info(
+                f"Hyperliquid: trailing state loaded for "
+                f"{len([c for c in raw if c in self.positions])} positions"
+            )
+        except Exception as e:
+            logger.warning(f"Hyperliquid: failed to load trailing state: {e}")
+
+    def _cancel_order(self, coin: str, order_id: int) -> bool:
+        """Cancel a single on-chain order by ID.
+
+        Used by the trailing monitor to remove the stale static SL before
+        placing the new, tighter trailing stop.
+        """
+        try:
+            result = self._execute_api(self._exchange.cancel, coin, order_id)
+            ok = result and result.get("status") == "ok"
+            if ok:
+                logger.debug(f"Hyperliquid: cancelled order oid={order_id} for {coin}")
+            else:
+                logger.warning(f"Hyperliquid: cancel order oid={order_id} for {coin} returned: {result}")
+            return ok
+        except Exception as e:
+            logger.warning(f"Hyperliquid: exception cancelling order oid={order_id} for {coin}: {e}")
+            return False
+
+    def update_trailing_stop(self, coin: str, new_sl_price: float) -> bool:
+        """Cancel the existing on-chain SL and place a new one at new_sl_price.
+
+        Called by the trailing monitor daemon whenever the mark price moves
+        far enough that the trailing stop needs to ratchet up (longs) or
+        down (shorts).
+
+        Thread-safe — acquires self._lock before mutating position state.
+        """
+        with self._lock:
+            pos = self.positions.get(coin)
+            if pos is None:
+                logger.warning(f"Hyperliquid update_trailing_stop: no position for {coin}")
+                return False
+
+            old_sl = pos.stop_loss_price
+            old_oid = pos.sl_order_id
+
+            # Cancel the existing SL order if we have its ID
+            if old_oid is not None:
+                cancelled = self._cancel_order(coin, old_oid)
+                if not cancelled:
+                    # HL may have already filled/cancelled it — proceed anyway
+                    logger.warning(
+                        f"Hyperliquid: could not cancel old SL oid={old_oid} for {coin} — "
+                        f"placing new SL regardless"
+                    )
+
+            # Determine close side (opposite of entry)
+            entry_side = "buy" if pos.side == "long" else "sell"
+            slippage = 0.01
+            is_close_buy = pos.side == "short"  # Closing a short = buy
+            if is_close_buy:
+                sl_limit_px = round(new_sl_price * (1 + slippage), 6)
+            else:
+                sl_limit_px = round(new_sl_price * (1 - slippage), 6)
+
+            try:
+                sl_result = self._execute_api(
+                    self._exchange.order,
+                    coin,
+                    is_close_buy,
+                    pos.size,
+                    sl_limit_px,
+                    {"trigger": {"isMarket": False, "triggerPx": new_sl_price, "tpsl": "sl"}},
+                    reduce_only=True,
+                )
+                sl_ok = sl_result and sl_result.get("status") == "ok"
+                new_oid: Optional[int] = None
+                if sl_ok:
+                    try:
+                        new_oid = (
+                            sl_result["response"]["data"]["statuses"][0]
+                            .get("resting", {})
+                            .get("oid")
+                        )
+                    except Exception:
+                        pass
+
+                if sl_ok:
+                    pos.stop_loss_price = new_sl_price
+                    pos.sl_order_id = new_oid
+                    self._save_trailing_state()
+                    logger.info(
+                        f"🔒 TRAILING STOP RATCHETED | {coin} | "
+                        f"old_sl=${old_sl:.4f} (oid={old_oid}) → "
+                        f"new_sl=${new_sl_price:.4f} (oid={new_oid})"
+                    )
+                    return True
+                else:
+                    logger.error(
+                        f"❌ Hyperliquid: failed to place new trailing SL for {coin}: {sl_result}"
+                    )
+                    return False
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Hyperliquid: exception in update_trailing_stop for {coin}: {e}",
+                    exc_info=True,
+                )
+                return False
 
     def _get_recent_fills(self, coin: str) -> list:
         """Get recent fills for a coin."""
