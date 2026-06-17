@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-06-17T21:38:39.324310+00:00",
+  "scan_count": 153,
+  "signals_generated": 0,
+  "trades_executed": 0,
+  "daily_pnl": 0.0,
+  "daily_loss_limit": 30.0,
+  "enabled": true,
+  "last_signals": []
+}

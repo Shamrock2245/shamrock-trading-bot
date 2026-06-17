@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "entry_threshold_pct": 1.5,
+  "exit_threshold_pct": 0.5,
+  "trade_size_usd": 100.0,
+  "max_positions": 8,
+  "scan_count": 47162,
+  "total_opportunities_found": 32,
+  "total_net_profit_usd": 46.0716,
+  "active_positions": {},
+  "recent_trades": [],
+  "last_updated": "2026-06-17T21:39:48.303282+00:00"
+}
