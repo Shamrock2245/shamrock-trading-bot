@@ -34,6 +34,8 @@ def get_current_mode() -> str:
 MODE = get_current_mode()
 IS_LIVE = MODE == "live"
 IS_PAPER = MODE == "paper"
+# Never throttle after hitting daily goal — keep making money
+PARABOLIC_MODE_ENABLED = os.getenv("PARABOLIC_MODE_ENABLED", "true").lower() == "true"
 # Simulated wallet balance per wallet in paper mode (USD equivalent).
 # Each wallet is treated as having this much capital for position sizing.
 # Set via PAPER_WALLET_BALANCE_USD env var or override in .env.
