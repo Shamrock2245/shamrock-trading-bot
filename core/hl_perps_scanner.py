@@ -382,6 +382,9 @@ class HLPerpsScanner:
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.last_signals: list[PerpSignal] = []
         self.pending_retracements: dict[str, dict] = {}  # coin -> {"signal": PerpSignal, "target_px": float, "expires_at": float}
+        
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_pending_retracements()
 
         # Stats
         self.total_wins: int = 0
@@ -967,6 +970,35 @@ class HLPerpsScanner:
         """Persist scanner state for dashboard display."""
         try:
             import json
+            
+            # Serialize pending retracements
+            pending_serializable = {}
+            for coin, data in self.pending_retracements.items():
+                s = data["signal"]
+                pending_serializable[coin] = {
+                    "target_px": data["target_px"],
+                    "expires_at": data["expires_at"],
+                    "signal": {
+                        "coin": s.coin,
+                        "direction": s.direction,
+                        "score": s.score,
+                        "entry_price": s.entry_price,
+                        "stop_loss_price": s.stop_loss_price,
+                        "take_profit_price": s.take_profit_price,
+                        "leverage": s.leverage,
+                        "position_size_usd": s.position_size_usd,
+                        "rsi": s.rsi,
+                        "ema_cross": s.ema_cross,
+                        "macd_signal": s.macd_signal,
+                        "volume_spike": s.volume_spike,
+                        "funding_rate": s.funding_rate,
+                        "bb_position": s.bb_position,
+                        "momentum_1h": s.momentum_1h,
+                        "ema_support_px": s.ema_support_px,
+                        "reasoning": s.reasoning,
+                    }
+                }
+                
             state = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "scan_count": self.scan_count,
@@ -975,6 +1007,7 @@ class HLPerpsScanner:
                 "daily_pnl": round(self.daily_pnl, 2),
                 "daily_loss_limit": HL_PERPS_DAILY_LOSS_LIMIT,
                 "enabled": self.enabled,
+                "pending_retracements": pending_serializable,
                 "last_signals": [
                     {
                         "coin": s.coin,
@@ -995,6 +1028,53 @@ class HLPerpsScanner:
             _STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
             logger.debug(f"HLPerpsScanner: state save failed: {e}")
+
+    def _load_pending_retracements(self) -> None:
+        """Load pending retracements from state file on startup."""
+        if not _STATE_FILE.exists():
+            return
+        try:
+            import json
+            raw = json.loads(_STATE_FILE.read_text())
+            pending_raw = raw.get("pending_retracements", {})
+            current_time = time.time()
+            
+            for coin, data in pending_raw.items():
+                if current_time > data.get("expires_at", 0):
+                    continue
+                    
+                s_dict = data.get("signal", {})
+                if not s_dict:
+                    continue
+                    
+                signal = PerpSignal(
+                    coin=s_dict.get("coin", coin),
+                    direction=s_dict.get("direction", "long"),
+                    score=s_dict.get("score", 0.0),
+                    entry_price=s_dict.get("entry_price", 0.0),
+                    stop_loss_price=s_dict.get("stop_loss_price", 0.0),
+                    take_profit_price=s_dict.get("take_profit_price", 0.0),
+                    leverage=s_dict.get("leverage", HL_PERPS_LEVERAGE),
+                    position_size_usd=s_dict.get("position_size_usd", HL_PERPS_MAX_POSITION_USD),
+                    rsi=s_dict.get("rsi"),
+                    ema_cross=s_dict.get("ema_cross"),
+                    macd_signal=s_dict.get("macd_signal"),
+                    volume_spike=s_dict.get("volume_spike"),
+                    funding_rate=s_dict.get("funding_rate"),
+                    bb_position=s_dict.get("bb_position"),
+                    momentum_1h=s_dict.get("momentum_1h"),
+                    ema_support_px=s_dict.get("ema_support_px"),
+                    reasoning=s_dict.get("reasoning", "")
+                )
+                
+                self.pending_retracements[coin] = {
+                    "signal": signal,
+                    "target_px": data.get("target_px", 0.0),
+                    "expires_at": data.get("expires_at", 0)
+                }
+            logger.info(f"HLPerpsScanner: loaded {len(self.pending_retracements)} pending retracements from state")
+        except Exception as e:
+            logger.warning(f"HLPerpsScanner: failed to load pending retracements: {e}")
 
     def get_status(self) -> dict:
         """Status dict for dashboard/logging."""

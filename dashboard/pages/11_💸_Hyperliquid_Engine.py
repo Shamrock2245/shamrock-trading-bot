@@ -51,11 +51,21 @@ positions = get_positions()
 # Create a lookup dict for active positions
 pos_lookup = {}
 for p in positions:
-    coin = p.get("coin", "").upper()
+    # state.py bridges position keys to symbol, unrealized_pnl_pct, etc.
+    # However, it doesn't provide absolute unrealized_pnl by default, 
+    # but we can use what's available. We'll map the known keys.
+    coin = p.get("symbol", p.get("coin", "")).upper()
+    
+    # Try to calculate an absolute PnL if we have spent amount and pct
+    pnl_pct = p.get("unrealized_pnl_pct", 0.0)
+    amount_spent = p.get("amount_eth_spent", p.get("amount_sol_spent", 0.0))
+    # If it's a USD-based position, we might not have a direct 'size' field from bridge
+    # but we can do our best with the raw position data if available
+    
     pos_lookup[coin] = {
-        "pnl": p.get("unrealized_pnl", 0.0),
-        "roi": p.get("roi", 0.0),
-        "size": p.get("size", 0.0)
+        "pnl": p.get("unrealized_pnl", 0.0), # fallback if native
+        "roi": pnl_pct,
+        "size": p.get("size", amount_spent)
     }
 
 st.markdown("### 1. Dynamic Trailing Profit-Lock 🔒")
@@ -112,20 +122,34 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("### 2. Retracement Sniper 🎯")
-    last_signals = hl_state.get("last_signals", [])
-    if last_signals:
+    pending_retracements = hl_state.get("pending_retracements", {})
+    if pending_retracements:
         snipes = []
-        for s in last_signals:
+        current_time = time.time()
+        for coin, data in pending_retracements.items():
+            s = data.get("signal", {})
+            expires_at = data.get("expires_at", 0)
+            if current_time > expires_at:
+                continue
+            
+            time_left_sec = expires_at - current_time
+            time_left_str = f"{int(time_left_sec // 60)}m {int(time_left_sec % 60)}s"
+            
             snipes.append({
-                "Coin": s.get("coin"),
+                "Coin": coin,
                 "Direction": s.get("direction", "").upper(),
                 "Score": s.get("score"),
-                "Limit Entry": f"${s.get('entry_price', 0):.4f}",
-                "Status": "⏳ Pending EMA21" if s.get("score", 0) >= 65 else "Filtered"
+                "Target Entry": f"${data.get('target_px', 0):.4f}",
+                "Expires In": time_left_str,
+                "Status": "⏳ Pending Dip"
             })
-        st.dataframe(pd.DataFrame(snipes), use_container_width=True, hide_index=True)
+            
+        if snipes:
+            st.dataframe(pd.DataFrame(snipes), use_container_width=True, hide_index=True)
+        else:
+            st.info("No active pending retracements. Waiting for next high-conviction setup.")
     else:
-        st.info("No recent sniper signals generated.")
+        st.info("No active pending retracements. Waiting for next high-conviction setup.")
 
 with col2:
     st.markdown("### 3. Delta-Neutral Funding Farmer 🌾")

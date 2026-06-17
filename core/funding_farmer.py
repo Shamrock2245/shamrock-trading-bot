@@ -79,8 +79,29 @@ class FundingFarmer:
             if coin.upper() in SOLANA_MINTS:
                 mint = SOLANA_MINTS[coin.upper()]
                 logger.info(f"FundingFarmer: Routing {coin} hedge to Solana (Jupiter).")
-                # execute_solana_buy takes (token_address, amount_usd)
-                res = solana_executor.execute_solana_buy(mint, size_usd)
+                
+                # We need to convert size_usd to sol_amount for execute_solana_buy
+                sol_price_data = coinbase_client.get_price("SOL-USD")
+                if not sol_price_data or sol_price_data.mid <= 0:
+                    logger.error("FundingFarmer: Could not fetch SOL price to calculate hedge amount.")
+                    return False
+                    
+                sol_amount = size_usd / sol_price_data.mid
+                
+                wallet_pub = os.getenv("WALLET_ADDRESS_PRIMARY", "")
+                wallet_priv_env = "WALLET_PRIVATE_KEY_PRIMARY"
+                
+                if not wallet_pub or not os.getenv(wallet_priv_env):
+                    logger.error("FundingFarmer: Solana wallet credentials missing.")
+                    return False
+                    
+                res = solana_executor.execute_solana_buy(
+                    token_mint=mint, 
+                    sol_amount=sol_amount, 
+                    wallet_public_key=wallet_pub, 
+                    wallet_private_key_env=wallet_priv_env,
+                    is_paper=False
+                )
                 return res is not None
 
             # 2. Check if it's supported on Coinbase
@@ -148,7 +169,15 @@ class FundingFarmer:
                             # Immediate Rollback (Sell what we just bought)
                             if coin.upper() in SOLANA_MINTS:
                                 mint = SOLANA_MINTS[coin.upper()]
-                                solana_executor.execute_solana_sell(mint, 100.0) # Sell 100%
+                                wallet_pub = os.getenv("WALLET_ADDRESS_PRIMARY", "")
+                                wallet_priv_env = "WALLET_PRIVATE_KEY_PRIMARY"
+                                solana_executor.execute_solana_sell(
+                                    token_mint=mint,
+                                    sell_percentage=100.0,
+                                    wallet_public_key=wallet_pub,
+                                    wallet_private_key_env=wallet_priv_env,
+                                    is_paper=False
+                                )
                             elif f"{coin.upper()}-USD" in coinbase_client.COINBASE_ARB_PAIRS:
                                 # We need base_size to sell on Coinbase, so fetch price
                                 price_data = coinbase_client.get_price(f"{coin.upper()}-USD")

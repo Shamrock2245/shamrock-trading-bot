@@ -140,7 +140,7 @@ class HyperliquidExecutor:
                 else:
                     raise
 
-    def is_available(self) -> bool:
+    def _initialize_sdk(self) -> None:
         """Initialize Hyperliquid SDK clients."""
         try:
             from hyperliquid.info import Info
@@ -243,7 +243,11 @@ class HyperliquidExecutor:
     # ─────────────────────────────────────────────────────────────────────────
 
     def is_available(self) -> bool:
-        """Check if executor is ready for trading."""
+        """Check if executor is ready for trading. Initializes SDK on first call if needed."""
+        if not self.enabled:
+            return False
+        if not self._initialized or self._exchange is None:
+            self._initialize_sdk()
         return self.enabled and self._initialized and self._exchange is not None
 
     @staticmethod
@@ -366,6 +370,7 @@ class HyperliquidExecutor:
                     pnl = self._calc_pnl(pos, float(close_price))
                     self.daily_pnl += pnl
                     del self.positions[sym]
+                    self._save_trailing_state()  # Ensure deleted position is removed from trailing state
 
                     logger.info(
                         f"✅ Hyperliquid CLOSE {sym} | "
