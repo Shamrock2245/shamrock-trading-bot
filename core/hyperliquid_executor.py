@@ -424,14 +424,14 @@ class HyperliquidExecutor:
                 )
                 return None
 
-        # ── CAPITAL PROTECTION: never risk >10% of account on one trade ─
-        if account_value > 0 and actual_size_usd > account_value * 0.10:
-            actual_size_usd = round(account_value * 0.10, 2)
+        # ── CAPITAL PROTECTION: never risk >20% of account on one trade ─
+        if account_value > 0 and actual_size_usd > account_value * 0.20:
+            actual_size_usd = round(account_value * 0.20, 2)
             logger.info(
-                f"Hyperliquid: position capped to 10% of account = ${actual_size_usd:.2f}"
+                f"Hyperliquid: position capped to 20% of account = ${actual_size_usd:.2f}"
             )
             if actual_size_usd < 5.0:
-                logger.warning(f"Hyperliquid: 10% cap too small (${actual_size_usd:.2f}) — skip")
+                logger.warning(f"Hyperliquid: 20% cap too small (${actual_size_usd:.2f}) — skip")
                 return None
 
         # ── CAPITAL PROTECTION: funding rate check ─────────────────────
