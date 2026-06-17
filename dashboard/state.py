@@ -652,3 +652,15 @@ def get_all_alpha_wallets() -> list:
 
     return merged
 
+
+def get_hl_scanner_state() -> dict:
+    """Read the latest Hyperliquid scanner state."""
+    return _read_json("hl_perps_state.json", {})
+
+def get_hl_trailing_state() -> dict:
+    """Read the trailing profit-lock state."""
+    return _read_json("hl_trailing_state.json", {})
+
+def get_funding_farms() -> dict:
+    """Read the active delta-neutral funding farms."""
+    return _read_json("funding_farms.json", {})

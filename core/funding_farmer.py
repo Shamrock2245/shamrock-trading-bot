@@ -14,6 +14,9 @@ import os
 import time
 import threading
 from typing import Optional
+from pathlib import Path
+import json
+from datetime import datetime, timezone
 
 from core.hyperliquid_executor import HyperliquidExecutor
 
@@ -24,6 +27,8 @@ FUNDING_FARMER_ENABLED: bool = os.getenv("FUNDING_FARMER_ENABLED", "true").lower
 FUNDING_EXTREME_THRESHOLD: float = float(os.getenv("FUNDING_EXTREME_THRESHOLD", "0.001"))  # 0.1% per hour
 FUNDING_POLL_INTERVAL: float = float(os.getenv("FUNDING_POLL_INTERVAL_SECONDS", "3600.0"))  # Check hourly
 FUNDING_POSITION_SIZE_USD: float = float(os.getenv("FUNDING_POSITION_SIZE_USD", "100.0"))
+
+_STATE_FILE = Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard")) / "funding_farms.json"
 
 class FundingFarmer:
     def __init__(self, hl_executor: HyperliquidExecutor):
@@ -110,8 +115,23 @@ class FundingFarmer:
                             logger.error(f"FundingFarmer: HL entry failed for {coin}, MUST UNWIND HEDGE!")
                             # In production, add logic to immediately unwind the spot hedge here
                             
+            self._save_state()
+                            
         except Exception as e:
             logger.error(f"FundingFarmer scan failed: {e}", exc_info=True)
+
+    def _save_state(self) -> None:
+        """Persist funding farmer state for dashboard display."""
+        try:
+            _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            state = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "enabled": self.enabled,
+                "active_farms": self.active_farms
+            }
+            _STATE_FILE.write_text(json.dumps(state, indent=2))
+        except Exception as e:
+            logger.debug(f"FundingFarmer: state save failed: {e}")
 
 def _funding_farmer_daemon(hl_executor: HyperliquidExecutor):
     """Background thread for the Funding Farmer."""

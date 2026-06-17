@@ -17,6 +17,7 @@ PAGES = [
     ("Scanner", "🔍", "/Gem_Scanner"),
     ("Gem Advisor", "🧠", "/Gem_Advisor"),
     ("Positions", "💰", "/Positions"),
+    ("HL Engine", "💸", "/Hyperliquid_Engine"),
     None,  # ── group divider ──
     # ── Intelligence ─────────────────────────────────────────────
     ("Analytics", "📊", "/Analytics"),
