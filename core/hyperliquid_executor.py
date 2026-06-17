@@ -34,6 +34,17 @@ logger = logging.getLogger(__name__)
 _HL_PERP_TICKERS: set[str] = set()
 _HL_TICKER_LOCK = threading.Lock()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Known HL order rejection reasons that are expected/non-critical.
+# These are downgraded from logger.error → logger.warning to suppress Sentry noise.
+# ─────────────────────────────────────────────────────────────────────────────
+_HL_EXPECTED_REJECTIONS = (
+    "Order price cannot be more than 95% away from the reference price",
+    "Order could not immediately match against any resting orders",
+    "Reduce only order would increase position",
+    "Post only order would have immediately matched",
+)
+
 
 @dataclass
 class HLPosition:
@@ -158,8 +169,12 @@ class HyperliquidExecutor:
                 if szi == 0:
                     continue
                 entry_px = float(p.get("entryPx", 0))
-                leverage_info = p.get("leverage", {})
-                lev = int(leverage_info.get("value", self.default_leverage))
+                leverage_info = p.get("leverage") or {}
+                # FIX (PYTHON-S): leverage_info.get("value") can return None when the key
+                # exists with a null value in the HL API response (cross-margin accounts).
+                # Use `or self.default_leverage` to guard against None before int().
+                raw_lev = leverage_info.get("value")
+                lev = int(raw_lev) if raw_lev is not None else self.default_leverage
                 unrealized_pnl = float(p.get("unrealizedPnl", 0))
 
                 self.positions[coin] = HLPosition(
@@ -359,7 +374,6 @@ class HyperliquidExecutor:
             )
             return None
 
-        # ── CAPITAL PROTECTION: max concurrent positions ───────────────
         if len(self.positions) >= self.max_positions:
             logger.warning(f"Hyperliquid: max positions ({self.max_positions}) reached — skip {sym}")
             return None
@@ -373,7 +387,13 @@ class HyperliquidExecutor:
         actual_size_usd = min(size_usd, self.max_position_usd)
 
         # ── CAPITAL PROTECTION: total exposure limit ───────────────────
-        current_exposure = sum(p.size_usd * p.leverage for p in self.positions.values())
+        # FIX (PYTHON-S): Guard against None leverage on synced positions.
+        # If a position was synced with leverage=None (null from HL API), the
+        # multiplication p.size_usd * p.leverage raises TypeError: 'int' * NoneType.
+        current_exposure = sum(
+            p.size_usd * (p.leverage or self.default_leverage)
+            for p in self.positions.values()
+        )
         lev = leverage or self.default_leverage
         new_exposure = actual_size_usd * lev
         if current_exposure + new_exposure > self.max_total_exposure:
@@ -424,7 +444,11 @@ class HyperliquidExecutor:
                 # Get current price for sizing
                 price = self.get_price(sym)
                 if not price or price <= 0:
-                    logger.error(f"Hyperliquid: no price for {sym}")
+                    # FIX (PYTHON-V): Downgrade from logger.error to logger.warning.
+                    # Tokens like KBONK/KPEPE may not have a mid-price on HL perps
+                    # (spot-only or delisted). This is an expected skip, not a code error.
+                    # logger.error() was triggering Sentry high-priority alerts unnecessarily.
+                    logger.warning(f"Hyperliquid: no price for {sym} — skipping (not listed or no liquidity)")
                     return None
 
                 # Set leverage
@@ -472,7 +496,19 @@ class HyperliquidExecutor:
                 if statuses:
                     first_status = statuses[0]
                     if "error" in first_status:
-                        logger.error(f"Hyperliquid order rejected for {sym}: {first_status['error']}")
+                        error_msg = first_status["error"]
+                        # FIX (PYTHON-19 / PYTHON-X): Downgrade known HL API rejections
+                        # from logger.error → logger.warning. These are expected outcomes
+                        # (illiquid coins, IOC no-match, price deviation) — not code bugs.
+                        # logger.error() was flooding Sentry with non-actionable alerts.
+                        if any(expected in error_msg for expected in _HL_EXPECTED_REJECTIONS):
+                            logger.warning(
+                                f"Hyperliquid order rejected for {sym} (expected): {error_msg}"
+                            )
+                        else:
+                            logger.error(
+                                f"Hyperliquid order rejected for {sym} (unexpected): {error_msg}"
+                            )
                         return None
                     if "resting" not in first_status and "filled" not in first_status:
                         logger.warning(f"Hyperliquid order status unknown for {sym}: {first_status}")
@@ -587,7 +623,9 @@ class HyperliquidExecutor:
             meta = self._info.meta()
             for asset in meta.get("universe", []):
                 if asset.get("name", "").upper() == coin:
-                    return int(asset.get("szDecimals", 4))
+                    # FIX: szDecimals key may exist with null value — guard with int() fallback
+                    raw = asset.get("szDecimals")
+                    return int(raw) if raw is not None else 4
         except Exception:
             pass
         return 4  # safe default
