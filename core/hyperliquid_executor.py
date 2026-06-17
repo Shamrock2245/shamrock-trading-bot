@@ -93,9 +93,33 @@ class HyperliquidExecutor:
         self._lock = threading.Lock()
 
         if self.enabled and self.wallet_address and self.private_key:
-            self._init_sdk()
+            self._initialized = True
 
-    def _init_sdk(self) -> None:
+    def _execute_api(self, func, *args, **kwargs):
+        """Execute SDK call with exponential backoff for rate limits."""
+        import time
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                result = func(*args, **kwargs)
+                if isinstance(result, dict) and result.get("status") == "err":
+                    err_msg = str(result).lower()
+                    if "rate limit" in err_msg or "429" in err_msg or "too many requests" in err_msg:
+                        raise Exception(f"Hyperliquid API Rate Limit: {result}")
+                return result
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "rate limit" in err_msg or "429" in err_msg or "too many requests" in err_msg:
+                    if attempt == max_retries:
+                        logger.error(f"Hyperliquid rate limit failed after {max_retries} attempts.")
+                        raise
+                    sleep_time = 2 ** attempt
+                    logger.warning(f"Hyperliquid API rate limit hit, sleeping {sleep_time}s... (Attempt {attempt}/{max_retries})")
+                    time.sleep(sleep_time)
+                else:
+                    raise
+
+    def is_available(self) -> bool:
         """Initialize Hyperliquid SDK clients."""
         try:
             from hyperliquid.info import Info
@@ -475,11 +499,12 @@ class HyperliquidExecutor:
                     f"size={coin_size} @ ${price:.4f} | score={gem_score:.0f}"
                 )
 
-                result = self._exchange.market_open(
+                result = self._execute_api(
+                    self._exchange.market_open,
                     sym,
                     side == "buy",  # is_buy
                     coin_size,
-                    slippage=0.03,  # 3% slippage tolerance (SDK computes IOC limit price)
+                    slippage=0.015,  # 1.5% slippage tolerance (SDK computes IOC limit price)
                 )
 
                 # Log full result for debugging
@@ -590,25 +615,37 @@ class HyperliquidExecutor:
             # Round prices to reasonable precision
             sl_price = float(sl_price)
             tp_price = float(tp_price)
+            
+            # Limit slippage for TP/SL set to 1% to avoid massive wicks on exits
+            # If buying to close, worst price is higher. If selling to close, worst price is lower.
+            slippage = 0.01
+            if is_buy:
+                sl_limit_px = round(sl_price * (1 + slippage), 6)
+                tp_limit_px = round(tp_price * (1 + slippage), 6)
+            else:
+                sl_limit_px = round(sl_price * (1 - slippage), 6)
+                tp_limit_px = round(tp_price * (1 - slippage), 6)
 
-            # Stop Loss — market order triggered when price hits SL
-            sl_result = self._exchange.order(
+            # Stop Loss — LIMIT order triggered when price hits SL
+            sl_result = self._execute_api(
+                self._exchange.order,
                 coin,
                 is_buy,
                 size,
-                sl_price,  # limit_px (reference price for trigger)
-                {"trigger": {"isMarket": True, "triggerPx": sl_price, "tpsl": "sl"}},
+                sl_limit_px,  # limit_px (worst acceptable execution price)
+                {"trigger": {"isMarket": False, "triggerPx": sl_price, "tpsl": "sl"}},
                 reduce_only=True,
             )
             sl_ok = sl_result and sl_result.get("status") == "ok"
 
-            # Take Profit — market order triggered when price hits TP
-            tp_result = self._exchange.order(
+            # Take Profit — LIMIT order triggered when price hits TP
+            tp_result = self._execute_api(
+                self._exchange.order,
                 coin,
                 is_buy,
                 size,
-                tp_price,  # limit_px (reference price for trigger)
-                {"trigger": {"isMarket": True, "triggerPx": tp_price, "tpsl": "tp"}},
+                tp_limit_px,  # limit_px (worst acceptable execution price)
+                {"trigger": {"isMarket": False, "triggerPx": tp_price, "tpsl": "tp"}},
                 reduce_only=True,
             )
             tp_ok = tp_result and tp_result.get("status") == "ok"
@@ -616,7 +653,8 @@ class HyperliquidExecutor:
             if sl_ok and tp_ok:
                 logger.info(
                     f"  ↳ ✅ TP/SL ON-CHAIN for {coin}: "
-                    f"SL=${sl_price:.4f} / TP=${tp_price:.4f}"
+                    f"SL=${sl_price:.4f} (limit=${sl_limit_px:.4f}) / "
+                    f"TP=${tp_price:.4f} (limit=${tp_limit_px:.4f})"
                 )
             else:
                 logger.warning(
