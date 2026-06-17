@@ -1,0 +1,102 @@
+{
+  "id": "ep-2026-06-17-hl-perps-live-6bugs",
+  "date": "2026-06-17",
+  "category": "trade_execution",
+  "title": "Hyperliquid Perps: 6-Bug Kill Chain to First Live Fills",
+  "severity": "critical",
+  "outcome": "success",
+  "context": {
+    "task": "Get HL perps executing real trades with $149.80 deposited in Unified account",
+    "starting_state": "Bot generating 15+ signals per scan but zero fills, zero positions, zero fills on-chain",
+    "ending_state": "2 verified live fills (AVAX LONG, SUI LONG), both initially profitable"
+  },
+  "bugs_fixed": [
+    {
+      "id": 1,
+      "title": "Exchange(wallet=None) — No Transaction Signing",
+      "root_cause": "Exchange() initialized without a wallet/signer. All state-changing operations silently return None.",
+      "fix": "Initialize with Account.from_key(private_key) from eth_account",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_exchange_requires_wallet"
+    },
+    {
+      "id": 2,
+      "title": "user_state() Returns $0 for Unified Accounts",
+      "root_cause": "user_state() only works for Cross margin. Unified accounts store funds in spot clearinghouse via spot_user_state().",
+      "fix": "Try spot_user_state() first, fallback to user_state()",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_unified_vs_cross_balance"
+    },
+    {
+      "id": 3,
+      "title": "slippage=None → int + NoneType Crash",
+      "root_cause": "Passing None as slippage caused SDK crash during price calculation: mid * (1 + None)",
+      "fix": "Use explicit slippage=0.03 keyword argument",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_sdk_slippage_kwarg"
+    },
+    {
+      "id": 4,
+      "title": "Wrong SDK Method Name for Transfers",
+      "root_cause": "Called transfer_between_spot_and_perp() which doesn't exist. Real method is usd_class_transfer().",
+      "fix": "Discovered via inspect.getsource(), changed to usd_class_transfer(). Then discovered transfers are disabled for Unified accounts anyway.",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_unified_no_transfer"
+    },
+    {
+      "id": 5,
+      "title": "Unified Accounts Can't Transfer (And Don't Need To)",
+      "root_cause": "HL returns 'Action disabled when unified account is active'. Unified mode auto-shares equity between Spot and Perps.",
+      "fix": "Removed transfer code entirely. Unified accounts share equity automatically.",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_unified_no_transfer"
+    },
+    {
+      "id": 6,
+      "title": "CRITICAL: Slippage Passed as Price ($0.03!)",
+      "root_cause": "SDK signature: market_open(name, is_buy, sz, px=None, slippage=0.05). Our call market_open(sym, True, size, 0.03) passed 0.03 as px (price=$0.03!), NOT as slippage. Every order was priced at $0.03 regardless of asset.",
+      "fix": "Changed to market_open(sym, True, size, slippage=0.03) using keyword argument.",
+      "file": "core/hyperliquid_executor.py",
+      "pattern_id": "hl_sdk_positional_arg_trap",
+      "severity": "CRITICAL — this was THE reason zero trades filled for hours"
+    }
+  ],
+  "tuning_lessons": [
+    {
+      "issue": "No new trades after first two fills",
+      "root_cause": "MAX_TOTAL_EXPOSURE was $150, already consumed by AVAX ($44.94) + SUI ($40.44) = $85 exposure. A new $25 × 3x = $75 would exceed $150.",
+      "fix": "Raised MAX_TOTAL_EXPOSURE from $150 to $500",
+      "pattern_id": "hl_exposure_cap_too_tight"
+    },
+    {
+      "issue": "No TP/SL orders placed on exchange",
+      "root_cause": "Bot tracks TP/SL internally in self.positions dict but never places corresponding orders on HL exchange. If bot restarts, there's zero exit protection.",
+      "status": "UNFIXED — needs on-chain TP/SL via exchange.order() with limit/stop types",
+      "pattern_id": "hl_tp_sl_not_on_chain"
+    },
+    {
+      "issue": "Profit throttling by daily goal engine",
+      "root_cause": "bank_it mode (150% of goal) capped all trades to $50 max. protect mode (100%) reduced positions 30%. These throttle profit-making.",
+      "fix": "Enabled PARABOLIC_MODE_ENABLED=true, removed profit-side caps from ShamrockGuard. Kept drawdown guard.",
+      "pattern_id": "hl_profit_caps_throttle"
+    }
+  ],
+  "debugging_techniques": [
+    "Used inspect.getsource() to read SDK source code on the VPS at runtime",
+    "Used dir(Exchange) to discover available methods when docs were unclear",
+    "Added verbose logging of market_open() result to see HL's actual error messages",
+    "Validated fills via info.user_fills() to confirm on-chain execution vs phantom fills",
+    "Parsed response.data.statuses[0] to catch 'error' keys in otherwise 'status=ok' responses"
+  ],
+  "files_modified": [
+    "core/hyperliquid_executor.py",
+    "config/settings.py",
+    "core/shamrock_guard.py"
+  ],
+  "key_metrics": {
+    "time_to_first_fill": "~4 hours of debugging",
+    "total_bugs_fixed": 6,
+    "deposits": "$149.80",
+    "first_fills": "AVAX 6.52 @ $6.8928, SUI 50.5 @ $0.80042"
+  }
+}

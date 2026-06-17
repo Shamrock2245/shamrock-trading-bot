@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "last_updated": "2026-06-08",
+  "version": "1.3.0",
+  "last_updated": "2026-06-17",
   "patterns": [
     {
       "id": "env_var_naming",
@@ -102,9 +102,10 @@
       "id": "hl_unified_vs_cross_balance",
       "pattern": "Hyperliquid Unified accounts store funds in spot clearinghouse, NOT perps margin. user_state() returns $0 for Unified mode. ALWAYS query spot_user_state() first — if USDC balance > 0, use it. Only fall back to user_state() for Cross margin accounts. New HL accounts default to Unified mode.",
       "category": "trade_execution",
-      "confidence": 0.95,
-      "applications": 1,
-      "source": "ep-2026-06-16-hl-unified-balance"
+      "confidence": 1.0,
+      "applications": 2,
+      "source": "ep-2026-06-16-hl-unified-balance",
+      "evolution": "2026-06-17: confidence raised to 1.0 after second confirmation in live trading"
     },
     {
       "id": "hl_exchange_requires_wallet",
@@ -113,6 +114,64 @@
       "confidence": 1.0,
       "applications": 1,
       "source": "ep-2026-06-16-hl-unified-balance"
+    },
+    {
+      "id": "hl_sdk_positional_arg_trap",
+      "pattern": "CRITICAL: Hyperliquid SDK market_open() signature is market_open(name, is_buy, sz, px=None, slippage=0.05). The 4th POSITIONAL arg is px (price), NOT slippage. Passing slippage as positional arg (e.g., market_open(sym, True, size, 0.03)) sets price=$0.03, causing 'Order price >95% away from reference' rejection. ALWAYS use keyword arg: market_open(sym, True, size, slippage=0.03).",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs",
+      "evolution": "2026-06-17: CRITICAL pattern — this single bug prevented ALL fills for 4+ hours"
+    },
+    {
+      "id": "hl_unified_no_transfer",
+      "pattern": "Hyperliquid Unified accounts CANNOT use usd_class_transfer() or transfer_between_spot_and_perp(). HL returns 'Action disabled when unified account is active'. Unified mode auto-shares equity — perps can use Spot USDC as margin directly. Do NOT try to transfer funds between Spot and Perps in Unified mode.",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs"
+    },
+    {
+      "id": "hl_validate_fills_not_status",
+      "pattern": "Hyperliquid market_open() can return status='ok' even when the order fails. The actual fill/rejection is in response.data.statuses[0]. Always check for 'error' key in statuses AND verify fills via info.user_fills() before reporting FILLED. IOC orders can cancel without filling.",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs"
+    },
+    {
+      "id": "hl_sdk_introspection",
+      "pattern": "When HL SDK docs are unclear, use runtime introspection on VPS: (1) dir(Exchange) to list methods, (2) inspect.getsource(Exchange.method) to read source, (3) inspect.signature() for args. The installed SDK version may differ from online docs.",
+      "category": "trade_execution",
+      "confidence": 0.95,
+      "applications": 2,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs"
+    },
+    {
+      "id": "hl_exposure_cap_blocks_silently",
+      "pattern": "HYPERLIQUID_MAX_TOTAL_EXPOSURE caps total leveraged exposure across all positions. When exceeded, new trades are silently rejected (executor returns None with no logging). Set this to 3-4x the account value to allow reasonable diversification. With $150 account and 3x leverage, $150 cap only allows 2 positions.",
+      "category": "guardrails",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs"
+    },
+    {
+      "id": "hl_tp_sl_not_on_chain",
+      "pattern": "WARNING: The HL executor tracks TP/SL internally in self.positions dict but does NOT place corresponding limit/stop orders on the exchange. If the bot restarts, there is ZERO exit protection on open positions. This needs to be fixed with exchange.order() using limit and trigger order types.",
+      "category": "position_mgmt",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs",
+      "status": "UNFIXED — high priority for next session"
+    },
+    {
+      "id": "profit_caps_throttle_growth",
+      "pattern": "Daily goal engine modes (protect at 100%, bank_it at 150%) severely throttle trading when profit targets are reached. For aggressive growth phase, enable PARABOLIC_MODE_ENABLED=true to keep trading at full speed after goal. Remove profit-side trade caps from ShamrockGuard. KEEP the drawdown guard (loss protection).",
+      "category": "guardrails",
+      "confidence": 0.9,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-perps-live-6bugs"
     }
   ]
 }
