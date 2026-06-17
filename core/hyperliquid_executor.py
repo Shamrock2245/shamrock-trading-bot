@@ -478,7 +478,7 @@ class HyperliquidExecutor:
                     sym,
                     side == "buy",  # is_buy
                     coin_size,
-                    0.03,  # 3% slippage tolerance (SDK sends IOC limit at mid ± 3%)
+                    slippage=0.03,  # 3% slippage tolerance (SDK computes IOC limit price)
                 )
 
                 # Log full result for debugging
