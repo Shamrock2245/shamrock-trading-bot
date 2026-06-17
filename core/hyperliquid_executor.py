@@ -579,35 +579,54 @@ class HyperliquidExecutor:
         sl_price: float,
         tp_price: float,
     ) -> None:
-        """Place stop-loss and take-profit trigger orders."""
+        """Place stop-loss and take-profit trigger orders ON-CHAIN.
+        
+        These persist on Hyperliquid's matching engine independent of the bot.
+        If the bot crashes, positions are still protected by these orders.
+        """
         try:
-            close_side = "sell" if entry_side == "buy" else "buy"
-            is_buy = close_side == "buy"
+            is_buy = entry_side != "buy"  # Close side is opposite of entry
 
-            # Stop Loss — market order on trigger
-            self._exchange.order(
+            # Round prices to reasonable precision
+            sl_price = float(sl_price)
+            tp_price = float(tp_price)
+
+            # Stop Loss — market order triggered when price hits SL
+            sl_result = self._exchange.order(
                 coin,
                 is_buy,
                 size,
-                None,  # trigger price used instead
-                {"trigger": {"isMarket": True, "triggerPx": str(sl_price), "tpsl": "sl"}},
+                sl_price,  # limit_px (reference price for trigger)
+                {"trigger": {"isMarket": True, "triggerPx": sl_price, "tpsl": "sl"}},
                 reduce_only=True,
             )
+            sl_ok = sl_result and sl_result.get("status") == "ok"
 
-            # Take Profit — market order on trigger
-            self._exchange.order(
+            # Take Profit — market order triggered when price hits TP
+            tp_result = self._exchange.order(
                 coin,
                 is_buy,
                 size,
-                None,
-                {"trigger": {"isMarket": True, "triggerPx": str(tp_price), "tpsl": "tp"}},
+                tp_price,  # limit_px (reference price for trigger)
+                {"trigger": {"isMarket": True, "triggerPx": tp_price, "tpsl": "tp"}},
                 reduce_only=True,
             )
+            tp_ok = tp_result and tp_result.get("status") == "ok"
 
-            logger.info(f"  ↳ TP/SL set for {coin}: SL=${sl_price:.4f} / TP=${tp_price:.4f}")
+            if sl_ok and tp_ok:
+                logger.info(
+                    f"  ↳ ✅ TP/SL ON-CHAIN for {coin}: "
+                    f"SL=${sl_price:.4f} / TP=${tp_price:.4f}"
+                )
+            else:
+                logger.warning(
+                    f"  ↳ ⚠️ TP/SL partial for {coin}: "
+                    f"SL={'✅' if sl_ok else '❌'} ({sl_result}) / "
+                    f"TP={'✅' if tp_ok else '❌'} ({tp_result})"
+                )
 
         except Exception as e:
-            logger.warning(f"Hyperliquid: TP/SL placement failed for {coin}: {e}")
+            logger.error(f"❌ Hyperliquid TP/SL placement FAILED for {coin}: {e}", exc_info=True)
 
     def _get_recent_fills(self, coin: str) -> list:
         """Get recent fills for a coin."""

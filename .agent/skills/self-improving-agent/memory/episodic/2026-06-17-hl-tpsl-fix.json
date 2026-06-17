@@ -1,0 +1,50 @@
+{
+  "id": "ep-2026-06-17-hl-tpsl-fix",
+  "date": "2026-06-17",
+  "category": "position_mgmt",
+  "title": "HL TP/SL Orders: Silent Failure → On-Chain Protection",
+  "severity": "critical",
+  "outcome": "success",
+  "context": {
+    "task": "Fix TP/SL orders not being placed on Hyperliquid exchange",
+    "symptom": "Open Orders (TP/SL): 0 — no exit protection despite _place_tpsl being called",
+    "starting_state": "AVAX and SUI positions had zero on-chain exit orders for 6+ hours",
+    "ending_state": "4 trigger orders placed and verified (2 SL + 2 TP for both positions)"
+  },
+  "root_cause": {
+    "primary": "_place_tpsl() was passing wrong arg types to exchange.order()",
+    "details": [
+      "limit_px=None — SDK expects float, None caused exception",
+      "triggerPx=str(price) — SDK expects float, str may cause type mismatch",
+      "try/except swallowed the exception with only logger.warning(), no traceback"
+    ],
+    "why_undetected": "Zero log output because the exception was caught before any logging happened. No 'TP/SL set' or 'placement failed' messages appeared in logs."
+  },
+  "fix": {
+    "code_changes": [
+      "Changed limit_px from None to float(sl_price)/float(tp_price)",
+      "Changed triggerPx from str(price) to float(price)",
+      "Upgraded exception handler from logger.warning to logger.error with exc_info=True",
+      "Added result validation (sl_ok/tp_ok) with detailed partial-failure logging"
+    ],
+    "verification": "Manually placed TP/SL for both AVAX and SUI via VPS Python shell, confirmed 4 resting orders on-chain"
+  },
+  "discovery_technique": {
+    "method": "Compared open_orders count (0) with expected (4) from screenshot",
+    "key_insight": "If _place_tpsl is called at line 534 but no orders appear, the function must be silently failing",
+    "verification_command": "info.open_orders(wallet_address) showed 0, then 4 after manual fix"
+  },
+  "related_patterns": [
+    "hl_tp_sl_not_on_chain",
+    "hl_trigger_order_arg_types",
+    "silent_exception_swallow_antipattern"
+  ],
+  "files_modified": [
+    "core/hyperliquid_executor.py"
+  ],
+  "anti_pattern_extracted": {
+    "name": "silent_exception_swallow",
+    "description": "try/except with logger.warning() in critical execution paths hides real bugs. The TP/SL bug persisted for the entire session because no error was visible.",
+    "fix_pattern": "Use logger.error(msg, exc_info=True) for trade execution paths. Consider returning success/failure boolean."
+  }
+}

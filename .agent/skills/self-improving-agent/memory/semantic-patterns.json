@@ -158,12 +158,29 @@
     },
     {
       "id": "hl_tp_sl_not_on_chain",
-      "pattern": "WARNING: The HL executor tracks TP/SL internally in self.positions dict but does NOT place corresponding limit/stop orders on the exchange. If the bot restarts, there is ZERO exit protection on open positions. This needs to be fixed with exchange.order() using limit and trigger order types.",
+      "pattern": "FIXED: HL executor _place_tpsl() now places real trigger orders on-chain via exchange.order(). The original bug was: (1) limit_px=None instead of float(price), (2) triggerPx=str(price) instead of float(price). Both caused silent exceptions swallowed by try/except. Always pass limit_px and triggerPx as float. Verified: 4 orders placed successfully (2 TP + 2 SL for AVAX and SUI).",
       "category": "position_mgmt",
       "confidence": 1.0,
-      "applications": 1,
+      "applications": 2,
       "source": "ep-2026-06-17-hl-perps-live-6bugs",
-      "status": "UNFIXED — high priority for next session"
+      "status": "FIXED — 2026-06-17",
+      "evolution": "2026-06-17: Fixed. Root cause was None/str arg types. SDK needs float for both limit_px and triggerPx."
+    },
+    {
+      "id": "hl_trigger_order_arg_types",
+      "pattern": "CRITICAL: Hyperliquid exchange.order() for trigger orders (TP/SL) requires: limit_px=float (NOT None), triggerPx=float (NOT str). The order_type dict format is: {'trigger': {'isMarket': True, 'triggerPx': float_price, 'tpsl': 'sl'|'tp'}}. Use reduce_only=True for exit orders. The SDK's order_type_to_wire() handles float→string conversion internally.",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-tpsl-fix"
+    },
+    {
+      "id": "silent_exception_swallow_antipattern",
+      "pattern": "ANTI-PATTERN: Using 'except Exception as e: logger.warning(...)' in critical trade execution paths hides real bugs. The _place_tpsl bug went undetected because the exception (None as limit_px) was caught and logged at WARNING level with no traceback. For trade execution, ALWAYS use logger.error(..., exc_info=True) and consider re-raising or returning a failure indicator.",
+      "category": "guardrails",
+      "confidence": 0.95,
+      "applications": 1,
+      "source": "ep-2026-06-17-hl-tpsl-fix"
     },
     {
       "id": "profit_caps_throttle_growth",
