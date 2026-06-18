@@ -87,6 +87,12 @@ class HyperliquidExecutor:
     Designed as a zero-gas alternative to on-chain spot swaps.
     Automatically manages TP/SL orders for every position.
     """
+    
+    # Global cache to prevent burst 429s across multiple instances
+    _global_mids_cache: dict = {}
+    _global_mids_cache_ts: float = 0.0
+    _GLOBAL_MIDS_CACHE_TTL: float = 3.0  # seconds
+    _global_mids_lock = threading.Lock()
 
     def __init__(self):
         self.enabled = settings.HYPERLIQUID_ENABLED
@@ -112,10 +118,6 @@ class HyperliquidExecutor:
         self._exchange = None
         self._initialized = False
         self._lock = threading.Lock()
-        # Mids cache: prevents burst 429s when get_price is called per-position per poll cycle
-        self._mids_cache: dict = {}
-        self._mids_cache_ts: float = 0.0
-        self._MIDS_CACHE_TTL: float = 3.0  # seconds — safe floor for HL rate limits
 
         if self.enabled and self.wallet_address and self.private_key:
             self._initialized = True
@@ -191,8 +193,10 @@ class HyperliquidExecutor:
     def _refresh_perp_tickers(self) -> None:
         """Load all available perp tickers from Hyperliquid."""
         global _HL_PERP_TICKERS
+        if _HL_PERP_TICKERS:
+            return  # Already loaded globally
         try:
-            meta = self._info.meta()
+            meta = self._execute_api(self._info.meta)
             tickers = set()
             for asset in meta.get("universe", []):
                 name = asset.get("name", "")
@@ -209,7 +213,7 @@ class HyperliquidExecutor:
     def _sync_positions(self) -> None:
         """Sync open positions from Hyperliquid account state."""
         try:
-            state = self._info.user_state(self.wallet_address)
+            state = self._execute_api(self._info.user_state, self.wallet_address)
             positions = state.get("assetPositions", [])
             for pos in positions:
                 p = pos.get("position", {})
@@ -273,7 +277,8 @@ class HyperliquidExecutor:
         try:
             # Try Unified account first (spot_user_state)
             try:
-                spot_state = self._info.spot_user_state(self.wallet_address)
+                # 1. Spot user state to check unified balances
+                spot_state = self._execute_api(self._info.spot_user_state, self.wallet_address)
                 balances = spot_state.get("balances", [])
                 usdc_balance = 0.0
                 for b in balances:
@@ -292,7 +297,7 @@ class HyperliquidExecutor:
                 pass  # Fall through to Cross margin check
 
             # Cross margin fallback
-            state = self._info.user_state(self.wallet_address)
+            state = self._execute_api(self._info.user_state, self.wallet_address)
             margin = state.get("marginSummary", {})
             return {
                 "account_value": float(margin.get("accountValue", 0)),
@@ -318,10 +323,15 @@ class HyperliquidExecutor:
         try:
             sym = _normalize_symbol(symbol)
             now = time.monotonic()
-            if now - self._mids_cache_ts > self._MIDS_CACHE_TTL:
-                self._mids_cache = self._execute_api(self._info.all_mids)
-                self._mids_cache_ts = now
-            return float(self._mids_cache.get(sym, 0)) or None
+            
+            with HyperliquidExecutor._global_mids_lock:
+                if now - HyperliquidExecutor._global_mids_cache_ts > HyperliquidExecutor._GLOBAL_MIDS_CACHE_TTL:
+                    mids = self._execute_api(self._info.all_mids)
+                    if mids:
+                        HyperliquidExecutor._global_mids_cache = mids
+                        HyperliquidExecutor._global_mids_cache_ts = now
+            
+            return float(HyperliquidExecutor._global_mids_cache.get(sym, 0)) or None
         except Exception as e:
             logger.error(f"Hyperliquid price fetch for {symbol}: {e}")
             return None
@@ -909,7 +919,7 @@ class HyperliquidExecutor:
     def _get_recent_fills(self, coin: str) -> list:
         """Get recent fills for a coin."""
         try:
-            fills = self._info.user_fills(self.wallet_address)
+            fills = self._execute_api(self._info.user_fills, self.wallet_address)
             return [f for f in fills if f.get("coin") == coin][:5]
         except Exception:
             return []
@@ -917,7 +927,7 @@ class HyperliquidExecutor:
     def _get_sz_decimals(self, coin: str) -> int:
         """Get size decimals for proper rounding."""
         try:
-            meta = self._info.meta()
+            meta = self._execute_api(self._info.meta)
             for asset in meta.get("universe", []):
                 if asset.get("name", "").upper() == coin:
                     # FIX: szDecimals key may exist with null value — guard with int() fallback
@@ -953,8 +963,7 @@ class HyperliquidExecutor:
         - Threshold: |funding| > 0.05% per 8h (annualized ~22%) = too expensive
         """
         try:
-            # Fetch current funding rates
-            meta = self._info.meta()
+            meta = self._execute_api(self._info.meta)
             for asset in meta.get("universe", []):
                 if asset.get("name", "").upper() == coin:
                     funding_rate = float(asset.get("funding", 0))
