@@ -115,6 +115,9 @@ class PerpSignal:
     bb_position: Optional[str] = None   # "lower", "upper", "middle"
     momentum_1h: Optional[float] = None  # 1h price change %
     ema_support_px: Optional[float] = None # EMA 21 value for retracement limit entries
+    fib_zone: str = "none"                 # Fibonacci zone name (golden_pocket, fib_618, etc.)
+    fib_confidence: float = 0.0            # Fibonacci alignment confidence (0-100)
+    components: Optional[dict] = field(default_factory=dict)  # Full scoring components for audit trail
     reasoning: str = ""
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -819,6 +822,9 @@ class HLPerpsScanner:
             bb_position=components.get("bb_zone"),
             momentum_1h=components.get("momentum_1h"),
             ema_support_px=components.get("ema21"),
+            fib_zone=fib_zone,
+            fib_confidence=fib_confidence,
+            components=components,
             reasoning=reasoning,
         )
 
@@ -1001,19 +1007,37 @@ class HLPerpsScanner:
         # Fetch all funding rates in one call (efficiency)
         funding_rates = self._get_all_funding_rates()
 
-        # Build scan list: watchlist + funding anomaly coins
+        # Build scan list: ALL perps from HL universe (not just watchlist)
+        # This dramatically expands opportunity surface from 41 to 230+ coins.
+        # Watchlist coins are scanned first (priority), then all remaining perps.
+        watchlist_set = set(HL_PERPS_WATCHLIST)
         scan_list = list(HL_PERPS_WATCHLIST)
-        anomaly_coins = self._add_funding_anomaly_coins(funding_rates)
-        scan_list.extend(anomaly_coins)
+        all_perps = set(funding_rates.keys())
+        remaining = [c for c in sorted(all_perps) if c not in watchlist_set]
+        scan_list.extend(remaining)
 
         signals: list[PerpSignal] = []
         scanned = 0
         near_misses: list[tuple[str, float, str]] = []  # (coin, score, direction)
 
-        for coin in scan_list:
-            # Skip if already in a position
+        watchlist_len = len(HL_PERPS_WATCHLIST)
+        active_positions = len(self.hl_executor.positions) if self.hl_executor else 0
+        max_new_signals = HL_PERPS_MAX_POSITIONS - active_positions
+
+        for idx, coin in enumerate(scan_list):
+            # Stop if we've found enough signals to fill all position slots
+            if len(signals) >= max(max_new_signals, 1):
+                break
+
+            # Skip if already in a position or pending sniper entry
             if self.hl_executor and coin in self.hl_executor.positions:
                 continue
+            if coin in self.pending_retracements:
+                continue
+
+            # Rate-limit: 0.1s delay between non-watchlist coins to stay under 1200 wt/min
+            if idx >= watchlist_len and idx % 5 == 0:
+                time.sleep(0.1)
 
             funding_rate = funding_rates.get(coin, 0.0)
             signal = self.scan_coin(coin, funding_rate)
@@ -1023,33 +1047,57 @@ class HLPerpsScanner:
                 signals.append(signal)
                 self.signals_generated += 1
 
-                # Retracement Sniper: delay entry until price pulls back to the EMA21 support line
-                # Limit duration to 60 minutes.
-                if signal.ema_support_px and signal.ema_support_px > 0:
-                    target_px = round(signal.ema_support_px, 4)
+                # ── Entry Decision: Immediate vs Sniper ────────────────────────
+                # Golden pocket (fib confidence >= 70) = EXECUTE NOW — price is
+                # already at the optimal Fibonacci level. Don't wait for a dip
+                # that may never come; the golden pocket IS the dip.
+                # Lower confidence = load the retracement sniper and wait.
+                is_golden = (
+                    signal.fib_confidence >= 70
+                    or signal.fib_zone == "golden_pocket"
+                    or "golden" in signal.fib_zone.lower()
+                )
+
+                if is_golden:
+                    logger.info(
+                        f"⚡ GOLDEN POCKET — IMMEDIATE ENTRY: {signal.direction.upper()} {signal.coin} "
+                        f"@ ${signal.entry_price:.4f} | score={signal.score:.0f} | "
+                        f"fib_zone={signal.fib_zone} | fib_conf={signal.fib_confidence:.0f}"
+                    )
+                    self._execute_signal(signal)
                 else:
-                    # Fallback to 1.5% discount if EMA isn't available
-                    discount = 0.015
-                    if signal.direction == "long":
-                        target_px = round(signal.entry_price * (1 - discount), 4)
+                    # Retracement Sniper: delay entry until price pulls back
+                    if signal.ema_support_px and signal.ema_support_px > 0:
+                        target_px = round(signal.ema_support_px, 4)
                     else:
-                        target_px = round(signal.entry_price * (1 + discount), 4)
-                    
-                # Check if we are already in the golden fib zone (within 0.5% of target)
-                current_px = signal.entry_price
-                if signal.direction == "long" and current_px <= target_px * 1.005:
-                    logger.info(f"⚡ GOLDEN FIB ZONE: Executing {signal.direction.upper()} {signal.coin} immediately at ${current_px:.4f} (target ${target_px:.4f})")
-                    self._execute_signal(signal)
-                elif signal.direction == "short" and current_px >= target_px * 0.995:
-                    logger.info(f"⚡ GOLDEN FIB ZONE: Executing {signal.direction.upper()} {signal.coin} immediately at ${current_px:.4f} (target ${target_px:.4f})")
-                    self._execute_signal(signal)
-                else:
-                    self.pending_retracements[signal.coin] = {
-                        "signal": signal,
-                        "target_px": target_px,
-                        "expires_at": time.time() + 3600
-                    }
-                    logger.info(f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} | Waiting for dip to ${target_px}...")
+                        discount = 0.015
+                        if signal.direction == "long":
+                            target_px = round(signal.entry_price * (1 - discount), 4)
+                        else:
+                            target_px = round(signal.entry_price * (1 + discount), 4)
+
+                    # If already within 1% of target, execute immediately
+                    current_px = signal.entry_price
+                    at_target = (
+                        (signal.direction == "long" and current_px <= target_px * 1.01) or
+                        (signal.direction == "short" and current_px >= target_px * 0.99)
+                    )
+                    if at_target:
+                        logger.info(
+                            f"⚡ NEAR TARGET — EXECUTING: {signal.direction.upper()} {signal.coin} "
+                            f"at ${current_px:.4f} (target ${target_px:.4f})"
+                        )
+                        self._execute_signal(signal)
+                    else:
+                        self.pending_retracements[signal.coin] = {
+                            "signal": signal,
+                            "target_px": target_px,
+                            "expires_at": time.time() + 3600
+                        }
+                        logger.info(
+                            f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} "
+                            f"| Waiting for dip to ${target_px}..."
+                        )
         # Sort by score descending for logging
         signals.sort(key=lambda s: s.score, reverse=True)
         self.last_signals = signals
@@ -1101,6 +1149,8 @@ class HLPerpsScanner:
                         "bb_position": s.bb_position,
                         "momentum_1h": s.momentum_1h,
                         "ema_support_px": s.ema_support_px,
+                        "fib_zone": s.fib_zone,
+                        "fib_confidence": s.fib_confidence,
                         "reasoning": s.reasoning,
                     }
                 }
@@ -1170,6 +1220,8 @@ class HLPerpsScanner:
                     bb_position=s_dict.get("bb_position"),
                     momentum_1h=s_dict.get("momentum_1h"),
                     ema_support_px=s_dict.get("ema_support_px"),
+                    fib_zone=s_dict.get("fib_zone", "none"),
+                    fib_confidence=s_dict.get("fib_confidence", 0.0),
                     reasoning=s_dict.get("reasoning", "")
                 )
                 
