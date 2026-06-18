@@ -1345,15 +1345,8 @@ async def run_bot_loop():
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
             _time.sleep(120)  # 2-minute scan interval (was 15 min)
 
-    _hl_perps_thread = threading.Thread(target=_hl_perps_daemon_with_trailing_ref, daemon=True, name="hl-perps-scanner")
-    _hl_perps_thread.start()
-    logger.info(
-        "✅ HL Perps Scanner daemon started — "
-        "scanning 230 perps every 15 min | RSI+MACD+EMA+ADX+Funding | "
-        "10%TP / 3.5%SL / 3x leverage | high-conviction only"
-    )
-
     # ── Dynamic Trailing Profit-Lock Monitor ───────────────────────────────────────────────────
+    # NOTE: _hl_perps_thread is started BELOW after _hl_perps_daemon_with_trailing_ref is defined
     # Monitors all open HL perp positions every 8 seconds.
     # Once a position achieves >5% ROE, the static SL is cancelled and replaced
     # with a trailing stop 1.5% behind the current mark price.
@@ -1508,10 +1501,13 @@ async def run_bot_loop():
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
             _time.sleep(120)
 
-    # Replace the original daemon with the patched version
-    # Note: mutating _target after thread start does NOT work in Python.
-    # We must start the thread with the correct target initially.
-    # We leave this here as a comment, but the thread below will be the real one.
+    # Now that _hl_perps_daemon_with_trailing_ref is fully defined, start the HL perps thread
+    _hl_perps_thread = threading.Thread(target=_hl_perps_daemon_with_trailing_ref, daemon=True, name="hl-perps-scanner")
+    _hl_perps_thread.start()
+    logger.info(
+        "✅ HL Perps Scanner daemon started — "
+        "scanning 230 perps every 2 min | 29-indicator + Fib gate | LIVE execution"
+    )
 
     _hl_trailing_thread = threading.Thread(
         target=_hl_trailing_monitor_daemon,
