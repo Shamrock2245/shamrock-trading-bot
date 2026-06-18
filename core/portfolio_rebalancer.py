@@ -140,10 +140,7 @@ def fetch_token_market_data(token_address: str, chain: str) -> dict:
             pairs = data if isinstance(data, list) else [data]
             valid_pairs = [p for p in pairs if isinstance(p, dict) and p.get("priceUsd")]
             if valid_pairs:
-                valid_pairs.sort(
-                    key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0),
-                    reverse=True,
-                )
+
                 p = valid_pairs[0]
                 return {
                     "price_usd": float(p.get("priceUsd", 0) or 0),

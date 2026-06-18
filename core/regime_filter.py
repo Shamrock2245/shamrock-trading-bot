@@ -193,10 +193,7 @@ def _fetch_dexscreener_fallback() -> dict:
             valid_pairs = [p for p in pair_list if isinstance(p, dict) and p.get("priceUsd")]
             if not valid_pairs:
                 continue
-            valid_pairs.sort(
-                key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0),
-                reverse=True,
-            )
+
             p = valid_pairs[0]
 
             price = float(p.get("priceUsd", 0))

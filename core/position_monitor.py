@@ -290,7 +290,7 @@ def get_current_price(token_address: str, chain: str, pair_address: str = "") ->
                 return None
 
             # Use most liquid pair
-            pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+
             price_str = pairs[0].get("priceUsd")
             return float(price_str) if price_str else None
 
@@ -329,7 +329,7 @@ def get_price_and_volume(token_address: str, chain: str, pair_address: str = "")
             if not pairs:
                 return result
 
-            pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+
             top = pairs[0]
             price_str = top.get("priceUsd")
             result["price"] = float(price_str) if price_str else None
@@ -398,7 +398,7 @@ def batch_get_prices_and_volumes(positions: list[dict]) -> dict[str, dict]:
 
             # Pick the most liquid pair for each token
             for addr_lower, pairs in by_token.items():
-                pairs.sort(key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+
                 top = pairs[0]
                 price_str = top.get("priceUsd")
                 vol = top.get("volume", {})
