@@ -391,18 +391,54 @@ class HLPerpsScanner:
         self.total_losses: int = 0
         self.total_pnl: float = 0.0
 
+        # ── API Rate-Limit Protection ─────────────────────────────────────────
+        # Cache meta() responses for 30s to stay well under HL's 1200 weight/min limit.
+        self._meta_cache: dict = {}
+        self._meta_cache_ts: float = 0.0
+        self._META_CACHE_TTL: float = 30.0  # seconds
+
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
 
         if self.enabled:
             self._init_api()
+
+    def _api_call(self, func, *args, **kwargs):
+        """Execute an HL Info API call with exponential backoff on 429."""
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                err = str(e).lower()
+                if any(k in err for k in ("429", "rate limit", "too many")) and attempt < max_retries:
+                    sleep_t = 2 ** attempt
+                    logger.warning(f"HLPerpsScanner API rate limit (attempt {attempt}/{max_retries}), retrying in {sleep_t}s")
+                    time.sleep(sleep_t)
+                else:
+                    raise
+
+    def _get_meta_cached(self) -> dict:
+        """Return cached meta() response, refreshing every 30 seconds."""
+        now = time.monotonic()
+        if now - self._meta_cache_ts > self._META_CACHE_TTL or not self._meta_cache:
+            try:
+                meta = self._api_call(self._info.meta)
+                if meta:
+                    self._meta_cache = meta
+                    self._meta_cache_ts = now
+            except Exception as e:
+                logger.warning(f"HLPerpsScanner: meta() refresh failed (using stale cache): {e}")
+        return self._meta_cache
 
     def _init_api(self) -> None:
         """Initialize the Hyperliquid Info API (read-only, no keys needed)."""
         try:
             from hyperliquid.info import Info
             self._info = Info("https://api.hyperliquid.xyz", skip_ws=True)
-            # Quick connectivity test
-            meta = self._info.meta()
+            # Quick connectivity test (also primes the cache)
+            meta = self._api_call(self._info.meta)
+            self._meta_cache = meta
+            self._meta_cache_ts = time.monotonic()
             n_perps = len(meta.get("universe", []))
             self._initialized = True
             logger.info(
@@ -418,20 +454,20 @@ class HLPerpsScanner:
             self.enabled = False
 
     def _get_candles(self, coin: str, interval: str = "1h", lookback_hours: int = 72) -> list[dict]:
-        """Fetch OHLCV candles for a coin."""
+        """Fetch OHLCV candles for a coin (with retry wrapper)."""
         try:
             now_ms = int(time.time() * 1000)
             start_ms = now_ms - lookback_hours * 3600 * 1000
-            candles = self._info.candles_snapshot(coin, interval, start_ms, now_ms)
+            candles = self._api_call(self._info.candles_snapshot, coin, interval, start_ms, now_ms)
             return candles or []
         except Exception as e:
             logger.debug(f"HLPerpsScanner: candle fetch failed for {coin}: {e}")
             return []
 
     def _get_funding_rate(self, coin: str) -> float:
-        """Get current funding rate for a coin (per 8h)."""
+        """Get current funding rate for a coin (per 8h) from cached meta."""
         try:
-            meta = self._info.meta()
+            meta = self._get_meta_cached()
             for asset in meta.get("universe", []):
                 if asset.get("name", "").upper() == coin.upper():
                     return float(asset.get("funding", 0))
@@ -440,9 +476,9 @@ class HLPerpsScanner:
             return 0.0
 
     def _get_all_funding_rates(self) -> dict[str, float]:
-        """Fetch all funding rates in one API call."""
+        """Fetch all funding rates from a single cached meta() call."""
         try:
-            meta = self._info.meta()
+            meta = self._get_meta_cached()
             return {
                 asset["name"].upper(): float(asset.get("funding", 0))
                 for asset in meta.get("universe", [])

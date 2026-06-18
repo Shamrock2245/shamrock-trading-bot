@@ -46,20 +46,13 @@ class FundingFarmer:
         self.active_farms: dict[str, dict] = {}  # coin -> farm state
         self._lock = threading.Lock()
 
-    def _get_hourly_funding(self, coin: str) -> float:
-        """Fetch current funding rate (converted to hourly if HL provides 8h)."""
-        if not self.hl_executor._info:
-            return 0.0
+    @staticmethod
+    def _get_hourly_funding_from_asset(asset: dict) -> float:
+        """Extract funding rate from a meta() asset dict, converted to hourly."""
         try:
-            meta = self.hl_executor._info.meta()
-            for asset in meta.get("universe", []):
-                if asset.get("name", "").upper() == coin.upper():
-                    # HL funding is typically per 8h, convert to hourly for our threshold check
-                    rate_8h = float(asset.get("funding", 0))
-                    return rate_8h / 8.0
-            return 0.0
-        except Exception as e:
-            logger.warning(f"FundingFarmer: failed to get funding for {coin}: {e}")
+            rate_8h = float(asset.get("funding", 0))
+            return rate_8h / 8.0
+        except (TypeError, ValueError):
             return 0.0
 
     def _execute_hedge(self, coin: str, side: str, size_usd: float) -> bool:
@@ -151,7 +144,11 @@ class FundingFarmer:
             return
 
         try:
-            meta = self.hl_executor._info.meta()
+            # Single API call — extract all funding rates from one meta() response
+            meta = self.hl_executor._execute_api(self.hl_executor._info.meta)
+            if not meta:
+                logger.warning("FundingFarmer: meta() returned None, skipping scan")
+                return
             for asset in meta.get("universe", []):
                 coin = asset.get("name", "").upper()
                 
@@ -159,7 +156,7 @@ class FundingFarmer:
                 if coin in self.active_farms:
                     continue
 
-                hourly_rate = self._get_hourly_funding(coin)
+                hourly_rate = self._get_hourly_funding_from_asset(asset)
                 
                 if abs(hourly_rate) >= FUNDING_EXTREME_THRESHOLD:
                     base_tokens = ["ETH", "USDC", "WETH", "cbBTC", "AERO"]
