@@ -164,7 +164,7 @@ BANNER = """
 # coinbase arb, cross-DEX arb).  Gem sniping and swing trading are disabled.
 # Toggle via STRATEGY_LOCK_ACTIVE env var (default: true = locked).
 # ─────────────────────────────────────────────────────────────────────────────
-STRATEGY_LOCK_ACTIVE = os.getenv('STRATEGY_LOCK_ACTIVE', 'true').lower() == 'true'
+STRATEGY_LOCK_ACTIVE = os.getenv('STRATEGY_LOCK_ACTIVE', 'false').lower() == 'true'
 
 
 # ─────────────────────────────────────────────────────────────────────────────

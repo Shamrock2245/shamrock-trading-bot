@@ -78,33 +78,29 @@ class FundingFarmer:
                 logger.warning(f"FundingFarmer: Spot selling (shorting) not supported natively yet. Aborting farm for {coin}.")
                 return False
             if coin.upper() in base_tokens:
-                logger.info(f"FundingFarmer: Token {coin} is available on Base, executing hedge via Coinbase Agentic Wallet...")
+                logger.info(f"FundingFarmer: Token {coin} is available on Base, executing hedge via Coinbase CEX API...")
                 try:
-                    import subprocess
-                    import json
-                    # We are short on HL, so we BUY the token on Base (USDC -> Token)
-                    # We are long on HL, so we SELL the token on Base (Token -> USDC)
+                    # We are short on HL, so we BUY the token on Coinbase
+                    # We are long on HL, so we SELL the token on Coinbase
                     if side.lower() == "sell":
-                        # Hedge = Sell (Token -> USDC)
-                        # We need to calculate token amount from size_usd
+                        # Hedge = Sell (Token -> USD)
                         price_data = coinbase_client.get_price(f"{coin.upper()}-USD")
                         if not price_data or price_data.mid <= 0:
-                            logger.error(f"FundingFarmer: Could not fetch price for {coin} to execute awal sell.")
+                            logger.error(f"FundingFarmer: Could not fetch price for {coin} to execute CEX sell.")
                             return False
                         token_amount = size_usd / price_data.mid
-                        cmd = f"npx awal@2.12.0 trade '{token_amount:.6f}' {coin.lower()} usdc --chain base --json"
+                        order = coinbase_client.market_sell(f"{coin.upper()}-USD", token_amount, is_paper=False)
                     else:
-                        # Hedge = Buy (USDC -> Token)
-                        cmd = f"npx awal@2.12.0 trade '{size_usd}' usdc {coin.lower()} --chain base --json"
+                        # Hedge = Buy (USD -> Token)
+                        order = coinbase_client.market_buy(f"{coin.upper()}-USD", size_usd, is_paper=False)
                         
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        logger.info(f"FundingFarmer: Coinbase Agentic Wallet hedge successful: {result.stdout}")
+                    if order and order.status == "FILLED":
+                        logger.info(f"FundingFarmer: Coinbase CEX hedge successful: {order.order_id}")
                         return True
                     else:
-                        logger.warning(f"FundingFarmer: Coinbase Agentic Wallet hedge failed: {result.stderr}. Falling back to CEX...")
+                        logger.warning(f"FundingFarmer: Coinbase CEX hedge failed or unconfirmed. Falling back...")
                 except Exception as e:
-                    logger.warning(f"FundingFarmer: Coinbase Agentic Wallet exception: {e}. Falling back to CEX...")
+                    logger.warning(f"FundingFarmer: Coinbase CEX exception: {e}. Falling back...")
 
             # 1. Check if it's a Solana token
             if coin.upper() in SOLANA_MINTS:
@@ -209,23 +205,21 @@ class FundingFarmer:
                             base_tokens = ["ETH", "USDC", "WETH", "cbBTC", "AERO"]
                             if coin.upper() in base_tokens:
                                 try:
-                                    import subprocess
-                                    # Rollback: if we bought Token with USDC, sell Token for USDC
+                                    # Rollback: if we bought Token, sell Token
                                     if hedge_side.lower() == "buy":
                                         price_data = coinbase_client.get_price(f"{coin.upper()}-USD")
                                         if price_data and price_data.mid > 0:
                                             token_amount = FUNDING_POSITION_SIZE_USD / price_data.mid
-                                            cmd = f"npx awal@2.12.0 trade '{token_amount:.6f}' {coin.lower()} usdc --chain base --json"
+                                            coinbase_client.market_sell(f"{coin.upper()}-USD", token_amount, is_paper=False)
                                         else:
-                                            logger.error(f"FATAL ROLLBACK ERROR: Could not fetch price to unwind {coin} via awal!")
+                                            logger.error(f"FATAL ROLLBACK ERROR: Could not fetch price to unwind {coin} via CEX!")
                                             continue
                                     else:
-                                        # Rollback: we sold Token for USDC, so buy Token back with USDC
-                                        cmd = f"npx awal@2.12.0 trade '{FUNDING_POSITION_SIZE_USD}' usdc {coin.lower()} --chain base --json"
-                                    subprocess.run(cmd, shell=True, capture_output=True)
-                                    logger.info(f"FundingFarmer: Coinbase Agentic Wallet rollback executed for {coin}.")
+                                        # Rollback: we sold Token, so buy Token back
+                                        coinbase_client.market_buy(f"{coin.upper()}-USD", FUNDING_POSITION_SIZE_USD, is_paper=False)
+                                    logger.info(f"FundingFarmer: Coinbase CEX rollback executed for {coin}.")
                                 except Exception as e:
-                                    logger.error(f"FundingFarmer: Coinbase Agentic Wallet rollback failed: {e}")
+                                    logger.error(f"FundingFarmer: Coinbase CEX rollback failed: {e}")
                             elif coin.upper() in SOLANA_MINTS:
                                 mint = SOLANA_MINTS[coin.upper()]
                                 wallet_pub = os.getenv("WALLET_ADDRESS_PRIMARY", "")
