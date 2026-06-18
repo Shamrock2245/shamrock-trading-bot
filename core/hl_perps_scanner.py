@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
-HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "60.0"))  # Initial filter (lets coins reach Fib analysis)
+HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
 HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "50.0"))  # Post-Fib execution threshold
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "100.0"))
