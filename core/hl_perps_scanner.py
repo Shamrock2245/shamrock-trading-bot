@@ -938,12 +938,21 @@ class HLPerpsScanner:
                     else:
                         target_px = round(signal.entry_price * (1 + discount), 4)
                     
-                self.pending_retracements[signal.coin] = {
-                    "signal": signal,
-                    "target_px": target_px,
-                    "expires_at": time.time() + 3600
-                }
-                logger.info(f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} | Waiting for dip to ${target_px}...")
+                # Check if we are already in the golden fib zone (within 0.5% of target)
+                current_px = signal.entry_price
+                if signal.direction == "long" and current_px <= target_px * 1.005:
+                    logger.info(f"⚡ GOLDEN FIB ZONE: Executing {signal.direction.upper()} {signal.coin} immediately at ${current_px:.4f} (target ${target_px:.4f})")
+                    self._execute_signal(signal)
+                elif signal.direction == "short" and current_px >= target_px * 0.995:
+                    logger.info(f"⚡ GOLDEN FIB ZONE: Executing {signal.direction.upper()} {signal.coin} immediately at ${current_px:.4f} (target ${target_px:.4f})")
+                    self._execute_signal(signal)
+                else:
+                    self.pending_retracements[signal.coin] = {
+                        "signal": signal,
+                        "target_px": target_px,
+                        "expires_at": time.time() + 3600
+                    }
+                    logger.info(f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} | Waiting for dip to ${target_px}...")
         # Sort by score descending for logging
         signals.sort(key=lambda s: s.score, reverse=True)
         self.last_signals = signals

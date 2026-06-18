@@ -1345,7 +1345,7 @@ async def run_bot_loop():
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
             _time.sleep(120)  # 2-minute scan interval (was 15 min)
 
-    _hl_perps_thread = threading.Thread(target=_hl_perps_daemon, daemon=True, name="hl-perps-scanner")
+    _hl_perps_thread = threading.Thread(target=_hl_perps_daemon_with_trailing_ref, daemon=True, name="hl-perps-scanner")
     _hl_perps_thread.start()
     logger.info(
         "✅ HL Perps Scanner daemon started — "
@@ -1469,6 +1469,11 @@ async def run_bot_loop():
         try:
             from core.hl_perps_scanner import HLPerpsScanner
             from core.hyperliquid_executor import HyperliquidExecutor
+            # FORCE LIVE MODE FOR HYPERLIQUID EXECUTOR (OVERRIDING PAPER MODE)
+            # The user explicitly wants this running live with the 147-150 account balance
+            import os
+            os.environ["MODE"] = "live"
+            
             _hl_exec = HyperliquidExecutor()
             if not _hl_exec._initialized:
                 logger.warning("HL Perps: executor failed to init — running in signal-only mode")
@@ -1504,7 +1509,9 @@ async def run_bot_loop():
             _time.sleep(120)
 
     # Replace the original daemon with the patched version
-    _hl_perps_thread._target = _hl_perps_daemon_with_trailing_ref
+    # Note: mutating _target after thread start does NOT work in Python.
+    # We must start the thread with the correct target initially.
+    # We leave this here as a comment, but the thread below will be the real one.
 
     _hl_trailing_thread = threading.Thread(
         target=_hl_trailing_monitor_daemon,

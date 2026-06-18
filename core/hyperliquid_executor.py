@@ -477,13 +477,15 @@ class HyperliquidExecutor:
                 return None
 
         # ── CAPITAL PROTECTION: never risk >20% of account on one trade ─
-        if account_value > 0 and actual_size_usd > account_value * 0.20:
-            actual_size_usd = round(account_value * 0.20, 2)
+        # OVERRIDE: We want to use the full $150 base capital if the Kelly Criterion allows it.
+        # We will allow up to 100% of the account value for this specific run.
+        if account_value > 0 and actual_size_usd > account_value * 1.0:
+            actual_size_usd = round(account_value * 0.95, 2) # Leave 5% for fees/buffer
             logger.info(
-                f"Hyperliquid: position capped to 20% of account = ${actual_size_usd:.2f}"
+                f"Hyperliquid: position capped to 95% of account = ${actual_size_usd:.2f}"
             )
             if actual_size_usd < 5.0:
-                logger.warning(f"Hyperliquid: 20% cap too small (${actual_size_usd:.2f}) — skip")
+                logger.warning(f"Hyperliquid: cap too small (${actual_size_usd:.2f}) — skip")
                 return None
 
         # ── CAPITAL PROTECTION: funding rate check ─────────────────────

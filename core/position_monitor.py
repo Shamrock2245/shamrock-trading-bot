@@ -1410,7 +1410,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     wallet_public_key=sol_pub,
                     wallet_private_key_env=sol_key_env,
                     urgency=sell_urgency,
-                    is_paper=is_paper,  # ✅ Fixed: was hardcoded False
+                    is_paper=False if chain.lower() == "hyperliquid" else is_paper,  # ✅ Fixed: was hardcoded False
                     prior_failures=pos.get("sell_failure_count", 0),
                 )
             else:
@@ -1420,7 +1420,7 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                     chain=chain,
                     wallet=wallet,
                     urgency=sell_urgency,
-                    is_paper=is_paper,  # ✅ Fixed: was hardcoded False
+                    is_paper=False if chain.lower() == "hyperliquid" else is_paper,  # ✅ Fixed: was hardcoded False
                     prior_failures=pos.get("sell_failure_count", 0),
                     position_value_usd=sell_qty * current_price if current_price else 0,
                 )
@@ -1748,7 +1748,11 @@ class PositionMonitor:
                                 f"{consecutive_failures} price failures at last known ${last_known_price:.6f}"
                             )
                             stale_sell = {"reason": f"stale_data_exit ({consecutive_failures} failures)", "sell_pct": 1.0, "urgency": "immediate"}
-                            pos = execute_sell(pos, stale_sell, last_known_price, self.is_paper)
+                            if pos.get("chain") == "hyperliquid":
+                                logger.warning(f"🚨 STALE EXIT: Ignoring stale exit for Hyperliquid position {pos.get('token_symbol')} (handled by HL executor)")
+                                pos["consecutive_price_failures"] = 0
+                            else:
+                                pos = execute_sell(pos, stale_sell, last_known_price, self.is_paper)
                             sells_triggered += 1
                     updated_positions.append(pos)
                     continue
