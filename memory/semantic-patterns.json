@@ -334,10 +334,12 @@
       "priority": "critical",
       "confidence": 0.95,
       "applications": 1,
-      "description": "When Manus modifies any weight in a weighted-sum scoring system (e.g., gem_scanner._score_token), always verify the total of all weights sums to exactly 1.00. Manus bumped moralis_enrichment 0.27→0.32 without reducing other weights, inflating all scores by 5%.",
-      "rule": "After any Manus commit touching _score_token weights: sum all fixed weights + default values of _w.get() calls. Must equal 1.00 ± 0.001.",
+      "description": "When Manus modifies any weight in a weighted-sum scoring system (e.g., gem_scanner._score_token), always verify the total of all weights sums to exactly 1.00. Manus bumped moralis_enrichment 0.27\u21920.32 without reducing other weights, inflating all scores by 5%.",
+      "rule": "After any Manus commit touching _score_token weights: sum all fixed weights + default values of _w.get() calls. Must equal 1.00 \u00b1 0.001.",
       "anti_pattern": "Increasing one weight without compensating decrease elsewhere",
-      "files": ["scanner/gem_scanner.py"],
+      "files": [
+        "scanner/gem_scanner.py"
+      ],
       "source_episode": "ep-2026-04-08-001",
       "evolution_marker": "2026-04-08 | CRITICAL | Weight sum was 1.05 after Manus bump"
     },
@@ -346,12 +348,14 @@
       "category": "manus_integration",
       "name": "manus_check_duplicate_discovery_blocks",
       "priority": "high",
-      "confidence": 0.90,
+      "confidence": 0.9,
       "applications": 1,
       "description": "Manus sometimes adds a new discovery source block in gem_scanner.scan() that duplicates an existing source. The duplicate may use different variable names but call the same upstream function. Always grep for duplicate function calls (e.g., get_pumpfun_graduated) across the scan loop after Manus edits.",
       "rule": "After Manus edits to gem_scanner.py: grep for all discovery source function calls and ensure each appears only once in the scan loop.",
-      "anti_pattern": "Two blocks calling get_pumpfun_graduated — one with DexScreener enrichment, one without",
-      "files": ["scanner/gem_scanner.py"],
+      "anti_pattern": "Two blocks calling get_pumpfun_graduated \u2014 one with DexScreener enrichment, one without",
+      "files": [
+        "scanner/gem_scanner.py"
+      ],
       "source_episode": "ep-2026-04-08-001",
       "evolution_marker": "2026-04-08 | HIGH | Duplicate pumpfun_graduated block found in Manus commit d7a1150"
     },
@@ -364,8 +368,10 @@
       "applications": 1,
       "description": "Manus uses bare variable names instead of quoted string keys in dict.get() calls inside f-strings: e.g., pos.get(token_symbol) instead of pos.get('token_symbol'). This causes NameError at runtime, especially dangerous inside exception handlers where it masks the original error.",
       "rule": "After Manus edits: grep -n 'pos.get([a-z_]*)' (without quotes) to catch bare variable references in dict.get() calls.",
-      "anti_pattern": "pos.get(token_symbol) — bare variable, will throw NameError",
-      "files": ["core/position_monitor.py"],
+      "anti_pattern": "pos.get(token_symbol) \u2014 bare variable, will throw NameError",
+      "files": [
+        "core/position_monitor.py"
+      ],
       "source_episode": "ep-2026-04-08-001",
       "evolution_marker": "2026-04-08 | MEDIUM | NameError in exception handler masked real error"
     },
@@ -379,7 +385,9 @@
       "description": "Docker Compose service name is 'bot', NOT 'shamrock-bot'. The container_name is 'shamrock-bot' but docker compose commands (build, up, restart) require the service name.",
       "rule": "Always use 'docker compose build bot' and 'docker compose up -d bot', never 'docker compose build shamrock-bot'.",
       "anti_pattern": "Using container_name in docker compose commands",
-      "files": ["docker-compose.yml"],
+      "files": [
+        "docker-compose.yml"
+      ],
       "source_episode": "ep-2026-04-08-001",
       "evolution_marker": "2026-04-08 | HIGH | Deploy failed with 'no such service: shamrock-bot'"
     },
@@ -407,7 +415,9 @@
       "description": "User requires that the bot actively grows the portfolio each day. A nightly check-in must explicitly verify that the total balance is greater than the previous night's closing balance. Failure to do so indicates a regression or bad trading day that requires attention.",
       "rule": "When performing nightly check-ins or self-improving evaluations, always compare current daily balance against the previous night's close. Ensure the balance is growing.",
       "anti_pattern": "Reporting nominal functionality without actually checking if capital is compounding",
-      "files": ["core/daily_floor_guardian.py"],
+      "files": [
+        "core/daily_floor_guardian.py"
+      ],
       "source_episode": "ep-2026-04-10-001",
       "evolution_marker": "2026-04-10 | CRITICAL | User requested strict daily compounding validation"
     },
@@ -421,7 +431,10 @@
       "description": "Paper mode stays ON until the bot demonstrates consistent $500/day profitability. This is the ONLY criterion for switching to live mode. Do NOT switch to live based on individual winning trades, short-term streaks, or user excitement. The $500/day target must be sustained across multiple days. The user's $149.80 in real funds (HL perps) remains untouched until paper proves itself.",
       "rule": "NEVER suggest or execute a switch to live mode unless the bot has demonstrated consistent $500/day paper profitability across 3+ consecutive days. Always acknowledge this threshold when discussing bot performance. This is a PRIME DIRECTIVE.",
       "anti_pattern": "Switching to live after a few good trades, or forgetting to mention the $500/day target in performance check-ins",
-      "files": ["main.py", "core/daily_goal_engine.py"],
+      "files": [
+        "main.py",
+        "core/daily_goal_engine.py"
+      ],
       "source_episode": "ep-2026-06-16-001",
       "evolution_marker": "2026-06-16 | CRITICAL | User frustrated by repeated failure to remember this goal across conversations"
     },
@@ -433,11 +446,16 @@
       "confidence": 1.0,
       "applications": 3,
       "description": "In paper mode, DailyFloorGuardian and AdaptiveMode accumulate phantom high-water marks from unrealized paper gains. When paper positions spike in value, the HWM/floor ratchets up permanently. When those positions close at a loss, actual capital drops but HWM stays inflated. This creates a permanent CAPITAL PRESERVATION / RECOVERY MODE trap where the bot finds candidates but blocks all entries due to 90%+ drawdown from a phantom peak. This has occurred 3+ times across multiple conversations.",
-      "rule": "In paper mode: (1) DailyFloorGuardian floor_usd must be capped at PAPER_STARTING_CAPITAL ($500), (2) AdaptiveMode HWM must be capped at PAPER_STARTING_CAPITAL, (3) is_preservation_mode must be forced to False, (4) mode must be forced to 'normal'. The ratchet-up logic in daily_floor_guardian.py lines 283-292 is the root cause — it should be skipped entirely in paper mode.",
+      "rule": "In paper mode: (1) DailyFloorGuardian floor_usd must be capped at PAPER_STARTING_CAPITAL ($500), (2) AdaptiveMode HWM must be capped at PAPER_STARTING_CAPITAL, (3) is_preservation_mode must be forced to False, (4) mode must be forced to 'normal'. The ratchet-up logic in daily_floor_guardian.py lines 283-292 is the root cause \u2014 it should be skipped entirely in paper mode.",
       "anti_pattern": "Allowing DailyFloorGuardian to ratchet the floor based on unrealized paper portfolio valuations, then blocking all trades when the paper portfolio drops below the phantom floor",
-      "files": ["core/daily_floor_guardian.py", "core/adaptive_mode.py", "output/daily_floor.json", "output/adaptive_mode_state.json"],
+      "files": [
+        "core/daily_floor_guardian.py",
+        "core/adaptive_mode.py",
+        "output/daily_floor.json",
+        "output/adaptive_mode_state.json"
+      ],
       "source_episode": "ep-2026-06-16-001",
-      "evolution_marker": "2026-06-16 | CRITICAL | Recurring 3+ times — phantom HWM blocks all paper trading"
+      "evolution_marker": "2026-06-16 | CRITICAL | Recurring 3+ times \u2014 phantom HWM blocks all paper trading"
     },
     {
       "id": "ops-003",
@@ -449,7 +467,10 @@
       "description": "At the start of every new conversation involving the trading bot, IMMEDIATELY check daily_floor.json and adaptive_mode_state.json on the server for phantom HWM/floor values that don't match actual capital. If floor_usd or high_water_mark_usd exceeds actual capital by >50%, reset them to match actual capital. Also verify the bot container is running and healthy.",
       "rule": "First action in any bot conversation: (1) SSH to server, (2) docker compose ps to verify health, (3) cat output/daily_floor.json and output/adaptive_mode_state.json, (4) reset if phantom values detected, (5) verify no CAPITAL PRESERVATION or RECOVERY MODE warnings in recent logs.",
       "anti_pattern": "Starting bot work without checking if capital preservation is blocking all trades due to stale state files",
-      "files": ["output/daily_floor.json", "output/adaptive_mode_state.json"],
+      "files": [
+        "output/daily_floor.json",
+        "output/adaptive_mode_state.json"
+      ],
       "source_episode": "ep-2026-06-16-001",
       "evolution_marker": "2026-06-16 | CRITICAL | User reported this issue recurs in every conversation"
     },
@@ -460,12 +481,36 @@
       "priority": "critical",
       "confidence": 1.0,
       "applications": 1,
-      "description": "PRIME DIRECTIVE: The bot runs ONLY these 3 low-risk strategies until reaching $10k/day consistent profitability: (1) CEX/DEX Stat Arb — delta-neutral basis trades via stat_arb.py, (2) HL Perps — Hyperliquid perpetual futures trading using full 29-indicator signal engine for entries, (3) Coinbase Arb — CEX/DEX price discrepancy arb via arb_executor.py + arb_scanner.py + coinbase_client.py. NO gem sniping, NO swing trading, NO MEV (sandwich OR liquidation). These 3 strategies are the ONLY income streams. They must run as parallel daemon threads in main.py and produce positive results daily.",
-      "rule": "Do NOT enable, suggest, or work on gem sniping, swing trading, or ANY MEV until the bot consistently hits $10k/day with these 3 strategies. All development effort goes to making these 3 strategies profitable. The $500/day milestone is the first target (paper → live transition), then scale to $10k/day.",
+      "description": "PRIME DIRECTIVE: The bot runs ONLY these 3 low-risk strategies until reaching $10k/day consistent profitability: (1) CEX/DEX Stat Arb \u2014 delta-neutral basis trades via stat_arb.py, (2) HL Perps \u2014 Hyperliquid perpetual futures trading using full 29-indicator signal engine for entries, (3) Coinbase Arb \u2014 CEX/DEX price discrepancy arb via arb_executor.py + arb_scanner.py + coinbase_client.py. NO gem sniping, NO swing trading, NO MEV (sandwich OR liquidation). These 3 strategies are the ONLY income streams. They must run as parallel daemon threads in main.py and produce positive results daily.",
+      "rule": "Do NOT enable, suggest, or work on gem sniping, swing trading, or ANY MEV until the bot consistently hits $10k/day with these 3 strategies. All development effort goes to making these 3 strategies profitable. The $500/day milestone is the first target (paper \u2192 live transition), then scale to $10k/day.",
       "anti_pattern": "Adding or re-enabling gem sniping, swing trading, or MEV without user approval. Diverting effort to new strategies before these 3 are consistently profitable.",
-      "files": ["main.py", "core/stat_arb.py", "core/hl_perps_scanner.py", "core/coinbase_client.py", "core/arb_executor.py", "scanner/arb_scanner.py", "strategies/indicators.py"],
+      "files": [
+        "main.py",
+        "core/stat_arb.py",
+        "core/hl_perps_scanner.py",
+        "core/coinbase_client.py",
+        "core/arb_executor.py",
+        "scanner/arb_scanner.py",
+        "strategies/indicators.py"
+      ],
       "source_episode": "ep-2026-06-16-002",
       "evolution_marker": "2026-06-16 | CRITICAL | User directive: ONLY these 4 strategies until $10k/day"
+    },
+    {
+      "id": "awal_trade_amount_syntax",
+      "category": "trade_execution",
+      "pattern": "When calling `npx awal trade <amount> <from_asset> <to_asset>`, the amount is ALWAYS measured in units of the `<from_asset>`. Never pass a USD volume if the `<from_asset>` is a token like ETH. Calculate `token_amount = usd_volume / token_price` first.",
+      "confidence": 0.95,
+      "source": "ep-2026-06-18-awal-rollback-bug",
+      "added": "2026-06-18"
+    },
+    {
+      "id": "npx_docker_dependency",
+      "category": "deployment",
+      "pattern": "If the python bot shells out to `npx` (e.g. for agentic wallets), `nodejs` and `npm` MUST be installed in the runtime Dockerfile.",
+      "confidence": 0.95,
+      "source": "ep-2026-06-18-awal-rollback-bug",
+      "added": "2026-06-18"
     }
   ]
 }

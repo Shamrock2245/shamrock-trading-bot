@@ -1,0 +1,21 @@
+{
+  "what_happened": {
+    "skill_used": "trade_execution",
+    "task": "Fixing awal rollback bug and docker dependency",
+    "outcome": "success"
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Identified the command structure flaw in awal"
+    ],
+    "what_went_wrong": [
+      "The CLI tool npx awal trade takes token amount as the first argument, not fiat amount. Passing fiat amount would have dumped all held tokens.",
+      "npx wasn't installed in the runtime docker image."
+    ],
+    "root_cause": "Misunderstanding of the `npx awal trade <amount> <asset1> <asset2>` syntax.",
+    "files_modified": [
+      "core/funding_farmer.py",
+      "Dockerfile"
+    ]
+  }
+}

@@ -85,10 +85,16 @@ class FundingFarmer:
                     # We are short on HL, so we BUY the token on Base (USDC -> Token)
                     # We are long on HL, so we SELL the token on Base (Token -> USDC)
                     if side.lower() == "sell":
-                        # Hedge = Sell
-                        cmd = f"npx awal@2.12.0 trade '{size_usd}' {coin.lower()} usdc --chain base --json"
+                        # Hedge = Sell (Token -> USDC)
+                        # We need to calculate token amount from size_usd
+                        price_data = coinbase_client.get_price(f"{coin.upper()}-USD")
+                        if not price_data or price_data.mid <= 0:
+                            logger.error(f"FundingFarmer: Could not fetch price for {coin} to execute awal sell.")
+                            return False
+                        token_amount = size_usd / price_data.mid
+                        cmd = f"npx awal@2.12.0 trade '{token_amount:.6f}' {coin.lower()} usdc --chain base --json"
                     else:
-                        # Hedge = Buy
+                        # Hedge = Buy (USDC -> Token)
                         cmd = f"npx awal@2.12.0 trade '{size_usd}' usdc {coin.lower()} --chain base --json"
                         
                     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -206,8 +212,15 @@ class FundingFarmer:
                                     import subprocess
                                     # Rollback: if we bought Token with USDC, sell Token for USDC
                                     if hedge_side.lower() == "buy":
-                                        cmd = f"npx awal@2.12.0 trade '{FUNDING_POSITION_SIZE_USD}' {coin.lower()} usdc --chain base --json"
+                                        price_data = coinbase_client.get_price(f"{coin.upper()}-USD")
+                                        if price_data and price_data.mid > 0:
+                                            token_amount = FUNDING_POSITION_SIZE_USD / price_data.mid
+                                            cmd = f"npx awal@2.12.0 trade '{token_amount:.6f}' {coin.lower()} usdc --chain base --json"
+                                        else:
+                                            logger.error(f"FATAL ROLLBACK ERROR: Could not fetch price to unwind {coin} via awal!")
+                                            continue
                                     else:
+                                        # Rollback: we sold Token for USDC, so buy Token back with USDC
                                         cmd = f"npx awal@2.12.0 trade '{FUNDING_POSITION_SIZE_USD}' usdc {coin.lower()} --chain base --json"
                                     subprocess.run(cmd, shell=True, capture_output=True)
                                     logger.info(f"FundingFarmer: Coinbase Agentic Wallet rollback executed for {coin}.")
