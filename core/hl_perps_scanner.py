@@ -471,6 +471,7 @@ class HLPerpsScanner:
     def scan_coin(self, coin: str, funding_rate: float) -> Optional[PerpSignal]:
         """
         Scan a single perp market and return a signal if one exists.
+        Upgraded to Hourly/Daily Multi-Timeframe (MTF) logic for institutional safety.
 
         Args:
             coin: Coin symbol (e.g., "BTC")
@@ -486,40 +487,97 @@ class HLPerpsScanner:
         if self._is_on_cooldown(coin):
             return None
 
-        # Fetch candles
-        candles = self._get_candles(coin, "1h", 72)
-        if len(candles) < 35:
+        # Fetch MTF candles: 1h for precise entry, 1d for macro trend confirmation
+        candles_1h = self._get_candles(coin, "1h", 120)  # 5 days of 1h
+        candles_1d = self._get_candles(coin, "1d", 1440) # 60 days of 1d
+
+        if len(candles_1h) < 35 or len(candles_1d) < 10:
             return None
 
-        closes = [float(c["c"]) for c in candles]
-        volumes = [float(c["v"]) for c in candles]
-        current_price = closes[-1]
+        closes_1h = [float(c["c"]) for c in candles_1h]
+        volumes_1h = [float(c["v"]) for c in candles_1h]
+        closes_1d = [float(c["c"]) for c in candles_1d]
+        
+        current_price = closes_1h[-1]
 
         if current_price <= 0:
             return None
 
-        # Score the market (8-indicator built-in engine)
-        score, direction, components = _score_signal(closes, volumes, funding_rate)
+        # ── Macro Trend Filter (1d EMA) ──────────────────────────────────────
+        # We only trade IN THE DIRECTION of the daily trend to protect capital.
+        ema9_1d = _ema(closes_1d, 9)
+        ema21_1d = _ema(closes_1d, 21)
+        macro_trend = "neutral"
+        if ema9_1d and ema21_1d:
+            if ema9_1d > ema21_1d:
+                macro_trend = "bullish"
+            elif ema9_1d < ema21_1d:
+                macro_trend = "bearish"
+
+        # Score the market on the 1h timeframe
+        score, direction, components = _score_signal(closes_1h, volumes_1h, funding_rate)
 
         if direction == "none" or score < HL_PERPS_MIN_SCORE:
             return None
 
-        # ── 29-Indicator TA Confirmation Gate ────────────────────────────────
+        # ── Institutional Capital Protection: Macro Trend Alignment ──────────
+        # Reject trades that fight the daily trend.
+        if direction == "long" and macro_trend == "bearish":
+            logger.debug(f"[HL-PERPS] {coin}: VETOED LONG — Fighting daily bearish trend")
+            return None
+        if direction == "short" and macro_trend == "bullish":
+            logger.debug(f"[HL-PERPS] {coin}: VETOED SHORT — Fighting daily bullish trend")
+            return None
+            
+        components["macro_trend"] = macro_trend
+
+        # ── Elliott Wave / ECC Pattern Recognition ───────────────────────────
+        # ECC (Elliott Crypto Cycle) relies on 5-wave impulse and 3-wave correction.
+        # We use RSI divergence and MACD histogram to identify wave 3/5 tops and wave C bottoms.
+        # If we are in a bullish macro trend, we look for wave C bottoms (oversold RSI + bullish divergence) to enter Longs.
+        ecc_wave_boost = 0.0
+        ecc_wave_detected = "none"
+
+        try:
+            import pandas as pd
+            from strategies.indicators import run_all_indicators, detect_divergence, _manual_rsi
+            
+            # Detect ECC Wave C Bottom (Bullish) or Wave 5 Top (Bearish)
+            rsi_1h = _rsi(closes_1h, 14)
+            macd_line, sig_line, hist = _macd(closes_1h)
+            
+            if direction == "long" and rsi_1h and rsi_1h < 40 and hist and hist > 0:
+                # Potential Wave C bottom turning into Wave 1
+                ecc_wave_detected = "wave_c_bottom"
+                ecc_wave_boost = 15.0
+            elif direction == "short" and rsi_1h and rsi_1h > 60 and hist and hist < 0:
+                # Potential Wave 5 top turning into Wave A
+                ecc_wave_detected = "wave_5_top"
+                ecc_wave_boost = 15.0
+                
+            components["ecc_wave"] = ecc_wave_detected
+            score += ecc_wave_boost
+
+        except Exception as e:
+            logger.debug(f"[HL-PERPS] {coin}: ECC Wave analysis failed: {e}")
+
+        # ── 29-Indicator TA Confirmation Gate (1h) ───────────────────────────
         # Blend the full 29-indicator engine from strategies/indicators.py
         # with the built-in 8-indicator HL score for higher-quality entries.
         # Final score = 60% HL score + 40% TA29 average
         # Direction must AGREE — both systems must confirm LONG or SHORT.
         try:
+            # import already done above if ECC succeeded, but just in case
             import pandas as pd
             from strategies.indicators import run_all_indicators, detect_divergence, _manual_rsi
 
             # Build DataFrame from candle data
-            highs = [float(c["h"]) for c in candles]
-            lows = [float(c["l"]) for c in candles]
-            opens = [float(c["o"]) for c in candles]
+            highs_1h = [float(c["h"]) for c in candles_1h]
+            lows_1h = [float(c["l"]) for c in candles_1h]
+            opens_1h = [float(c["o"]) for c in candles_1h]
             df = pd.DataFrame({
-                "open": opens, "high": highs, "low": lows,
-                "close": closes, "volume": volumes,
+                "open": opens_1h, "high": highs_1h, "low": lows_1h,
+                "close": closes_1h, "volume": volumes_1h,
             })
 
             ta29 = run_all_indicators(df)
@@ -545,10 +603,10 @@ class HLPerpsScanner:
 
             # Divergence bonus
             try:
-                rsi_series = [_manual_rsi(closes[:i+1]) for i in range(len(closes)-1, max(len(closes)-15, 13), -1)]
+                rsi_series = [_manual_rsi(closes_1h[:i+1]) for i in range(len(closes_1h)-1, max(len(closes_1h)-15, 13), -1)]
                 rsi_series = [r for r in rsi_series if r is not None]
-                if len(rsi_series) >= 5 and len(closes) >= 15:
-                    div = detect_divergence(closes[-15:], rsi_series[-15:] if len(rsi_series) >= 15 else rsi_series)
+                if len(rsi_series) >= 5 and len(closes_1h) >= 15:
+                    div = detect_divergence(closes_1h[-15:], rsi_series[-15:] if len(rsi_series) >= 15 else rsi_series)
                     if div == "bullish" and direction == "long":
                         score += 10.0
                         components["divergence"] = "bullish"
@@ -593,12 +651,12 @@ class HLPerpsScanner:
 
             # Build DataFrame if not already built (may exist from TA29 gate)
             if 'df' not in dir():
-                highs = [float(c["h"]) for c in candles]
-                lows = [float(c["l"]) for c in candles]
-                opens = [float(c["o"]) for c in candles]
+                highs_1h = [float(c["h"]) for c in candles_1h]
+                lows_1h = [float(c["l"]) for c in candles_1h]
+                opens_1h = [float(c["o"]) for c in candles_1h]
                 df = pd.DataFrame({
-                    "open": opens, "high": highs, "low": lows,
-                    "close": closes, "volume": volumes,
+                    "open": opens_1h, "high": highs_1h, "low": lows_1h,
+                    "close": closes_1h, "volume": volumes_1h,
                 })
 
             fib_direction = "buy" if direction == "long" else "sell"
@@ -670,6 +728,8 @@ class HLPerpsScanner:
         vol_spike = components.get("volume_spike")
         fund_sig = components.get("funding_signal", "")
         reasoning_parts = [
+            f"Macro={components.get('macro_trend', '?')}",
+            f"ECC={components.get('ecc_wave', 'none')}",
             f"RSI={rsi_val:.1f}" if rsi_val else "",
             f"EMA={components.get('ema_cross', '?')}",
             f"MACD_hist={components.get('macd_hist', 0):.4f}" if components.get("macd_hist") else "",
@@ -685,12 +745,12 @@ class HLPerpsScanner:
 
         # ── Kelly Criterion Position Sizing ──────────────────────────────────────
         # Scale size exponentially based on signal score (65 to 100)
-        # Min size (score 65) ~ $250, Max size (score 95+) ~ $2,500
+        # Since we are trading on a $150 account, scale from $25 to $145.
         # Formula: base_size * e^(k * (score - min_score))
         min_score = HL_PERPS_MIN_SCORE
         max_score = 95.0
-        min_size = 250.0
-        max_size = 2500.0
+        min_size = 25.0
+        max_size = 145.0
         
         if score <= min_score:
             kelly_size_usd = min_size
@@ -785,10 +845,11 @@ class HLPerpsScanner:
 
         # Check daily loss limit
         self._check_daily_reset()
-        if self.daily_pnl <= -HL_PERPS_DAILY_LOSS_LIMIT:
+        daily_limit = max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0)
+        if self.daily_pnl <= -daily_limit:
             logger.warning(
                 f"🛑 HLPerpsScanner CIRCUIT BREAKER: daily PnL ${self.daily_pnl:.2f} "
-                f"hit limit -${HL_PERPS_DAILY_LOSS_LIMIT:.2f} — halting perps trading"
+                f"hit limit -${daily_limit:.2f} — halting perps trading"
             )
             return False
 
@@ -1014,7 +1075,7 @@ class HLPerpsScanner:
                 "signals_generated": self.signals_generated,
                 "trades_executed": self.trades_executed,
                 "daily_pnl": round(self.daily_pnl, 2),
-                "daily_loss_limit": HL_PERPS_DAILY_LOSS_LIMIT,
+                "daily_loss_limit": max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0),
                 "enabled": self.enabled,
                 "pending_retracements": pending_serializable,
                 "last_signals": [
@@ -1094,7 +1155,7 @@ class HLPerpsScanner:
             "signals_generated": self.signals_generated,
             "trades_executed": self.trades_executed,
             "daily_pnl": round(self.daily_pnl, 2),
-            "daily_loss_limit": HL_PERPS_DAILY_LOSS_LIMIT,
+            "daily_loss_limit": max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0),
             "watchlist_size": len(HL_PERPS_WATCHLIST),
             "scan_interval_seconds": HL_PERPS_SCAN_INTERVAL,
             "min_score": HL_PERPS_MIN_SCORE,

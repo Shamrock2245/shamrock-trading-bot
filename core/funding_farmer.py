@@ -70,11 +70,36 @@ class FundingFarmer:
         """
         logger.info(f"FundingFarmer: Executing hedge {side.upper()} SPOT for {coin} size ${size_usd}")
         
-        if side.lower() == "sell":
-            logger.warning(f"FundingFarmer: Spot selling (shorting) not supported natively yet. Aborting farm for {coin}.")
-            return False
-
         try:
+            # Try to execute via Coinbase Agentic Wallet on Base first if the token is available there
+            base_tokens = ["ETH", "USDC", "WETH", "cbBTC", "AERO"]
+            
+            if side.lower() == "sell" and coin.upper() not in base_tokens:
+                logger.warning(f"FundingFarmer: Spot selling (shorting) not supported natively yet. Aborting farm for {coin}.")
+                return False
+            if coin.upper() in base_tokens:
+                logger.info(f"FundingFarmer: Token {coin} is available on Base, executing hedge via Coinbase Agentic Wallet...")
+                try:
+                    import subprocess
+                    import json
+                    # We are short on HL, so we BUY the token on Base (USDC -> Token)
+                    # We are long on HL, so we SELL the token on Base (Token -> USDC)
+                    if side.lower() == "sell":
+                        # Hedge = Sell
+                        cmd = f"npx awal@2.12.0 trade '{size_usd}' {coin.lower()} usdc --chain base --json"
+                    else:
+                        # Hedge = Buy
+                        cmd = f"npx awal@2.12.0 trade '{size_usd}' usdc {coin.lower()} --chain base --json"
+                        
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logger.info(f"FundingFarmer: Coinbase Agentic Wallet hedge successful: {result.stdout}")
+                        return True
+                    else:
+                        logger.warning(f"FundingFarmer: Coinbase Agentic Wallet hedge failed: {result.stderr}. Falling back to CEX...")
+                except Exception as e:
+                    logger.warning(f"FundingFarmer: Coinbase Agentic Wallet exception: {e}. Falling back to CEX...")
+
             # 1. Check if it's a Solana token
             if coin.upper() in SOLANA_MINTS:
                 mint = SOLANA_MINTS[coin.upper()]
@@ -135,16 +160,21 @@ class FundingFarmer:
                 hourly_rate = self._get_hourly_funding(coin)
                 
                 if abs(hourly_rate) >= FUNDING_EXTREME_THRESHOLD:
-                    # V1 Constraint: Only farm positive funding (Short HL, Buy Spot)
-                    if hourly_rate <= 0:
-                        logger.debug(f"FundingFarmer: {coin} has extreme NEGATIVE funding, but spot shorting is unsupported. Skipping.")
-                        continue
-                        
-                    logger.info(f"🌾 Extreme positive funding detected on {coin}: {hourly_rate*100:.4f}%/hr")
+                    base_tokens = ["ETH", "USDC", "WETH", "cbBTC", "AERO"]
                     
-                    # Positive funding = longs pay shorts. We SHORT on HL, BUY on Spot.
-                    hl_side = "sell"
-                    hedge_side = "buy"
+                    if hourly_rate > 0:
+                        logger.info(f"🌾 Extreme POSITIVE funding detected on {coin}: {hourly_rate*100:.4f}%/hr")
+                        # Positive funding = longs pay shorts. We SHORT on HL, BUY on Spot.
+                        hl_side = "sell"
+                        hedge_side = "buy"
+                    else:
+                        if coin.upper() not in base_tokens:
+                            logger.debug(f"FundingFarmer: {coin} has extreme NEGATIVE funding, but spot shorting is unsupported on CEX/Solana. Skipping.")
+                            continue
+                        logger.info(f"🌾 Extreme NEGATIVE funding detected on {coin}: {hourly_rate*100:.4f}%/hr")
+                        # Negative funding = shorts pay longs. We LONG on HL, SELL on Spot (Base).
+                        hl_side = "buy"
+                        hedge_side = "sell"
                     
                     with self._lock:
                         # 1. Execute Hedge first
@@ -154,7 +184,10 @@ class FundingFarmer:
                             continue
                             
                         # 2. Execute HL position (1x leverage)
-                        result = self.hl_executor.open_short(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
+                        if hl_side == "sell":
+                            result = self.hl_executor.open_short(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
+                        else:
+                            result = self.hl_executor.open_long(coin, FUNDING_POSITION_SIZE_USD, leverage=1, gem_score=100)
                             
                         if result:
                             self.active_farms[coin] = {
@@ -167,7 +200,20 @@ class FundingFarmer:
                         else:
                             logger.error(f"🚨 HEDGE ROLLBACK 🚨 HL entry failed for {coin}! Unwinding Spot {hedge_side.upper()} position.")
                             # Immediate Rollback (Sell what we just bought)
-                            if coin.upper() in SOLANA_MINTS:
+                            base_tokens = ["ETH", "USDC", "WETH", "cbBTC", "AERO"]
+                            if coin.upper() in base_tokens:
+                                try:
+                                    import subprocess
+                                    # Rollback: if we bought Token with USDC, sell Token for USDC
+                                    if hedge_side.lower() == "buy":
+                                        cmd = f"npx awal@2.12.0 trade '{FUNDING_POSITION_SIZE_USD}' {coin.lower()} usdc --chain base --json"
+                                    else:
+                                        cmd = f"npx awal@2.12.0 trade '{FUNDING_POSITION_SIZE_USD}' usdc {coin.lower()} --chain base --json"
+                                    subprocess.run(cmd, shell=True, capture_output=True)
+                                    logger.info(f"FundingFarmer: Coinbase Agentic Wallet rollback executed for {coin}.")
+                                except Exception as e:
+                                    logger.error(f"FundingFarmer: Coinbase Agentic Wallet rollback failed: {e}")
+                            elif coin.upper() in SOLANA_MINTS:
                                 mint = SOLANA_MINTS[coin.upper()]
                                 wallet_pub = os.getenv("WALLET_ADDRESS_PRIMARY", "")
                                 wallet_priv_env = "WALLET_PRIVATE_KEY_PRIMARY"
