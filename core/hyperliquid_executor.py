@@ -344,7 +344,8 @@ class HyperliquidExecutor:
         Uses a 3-second TTL cache on all_mids to prevent burst 429 errors when
         multiple positions are polled in rapid succession within the same cycle.
         The all_mids call is wrapped in _execute_api for exponential backoff on
-        transient rate-limit hits.
+        transient rate-limit hits.  If the refresh fails, returns the stale
+        cached value instead of None so trailing-stop logic doesn't break.
         """
         if not self.is_available():
             return None
@@ -354,14 +355,18 @@ class HyperliquidExecutor:
             
             with HyperliquidExecutor._global_mids_lock:
                 if now - HyperliquidExecutor._global_mids_cache_ts > HyperliquidExecutor._GLOBAL_MIDS_CACHE_TTL:
-                    mids = self._execute_api(self._info.all_mids)
-                    if mids:
-                        HyperliquidExecutor._global_mids_cache = mids
-                        HyperliquidExecutor._global_mids_cache_ts = now
+                    try:
+                        mids = self._execute_api(self._info.all_mids)
+                        if mids:
+                            HyperliquidExecutor._global_mids_cache = mids
+                            HyperliquidExecutor._global_mids_cache_ts = now
+                    except Exception as refresh_err:
+                        # Rate-limit or transient failure — use stale cache, don't crash
+                        logger.warning(f"Hyperliquid mids refresh failed (using stale cache): {refresh_err}")
             
             return float(HyperliquidExecutor._global_mids_cache.get(sym, 0)) or None
         except Exception as e:
-            logger.error(f"Hyperliquid price fetch for {symbol}: {e}")
+            logger.warning(f"Hyperliquid price fetch for {symbol}: {e}")
             return None
 
     def open_long(
