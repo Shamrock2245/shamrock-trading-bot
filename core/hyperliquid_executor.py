@@ -112,6 +112,10 @@ class HyperliquidExecutor:
         self._exchange = None
         self._initialized = False
         self._lock = threading.Lock()
+        # Mids cache: prevents burst 429s when get_price is called per-position per poll cycle
+        self._mids_cache: dict = {}
+        self._mids_cache_ts: float = 0.0
+        self._MIDS_CACHE_TTL: float = 3.0  # seconds — safe floor for HL rate limits
 
         if self.enabled and self.wallet_address and self.private_key:
             self._initialized = True
@@ -302,13 +306,22 @@ class HyperliquidExecutor:
             return {"error": str(e)}
 
     def get_price(self, symbol: str) -> Optional[float]:
-        """Get current mid price for a perp."""
+        """Get current mid price for a perp.
+
+        Uses a 3-second TTL cache on all_mids to prevent burst 429 errors when
+        multiple positions are polled in rapid succession within the same cycle.
+        The all_mids call is wrapped in _execute_api for exponential backoff on
+        transient rate-limit hits.
+        """
         if not self.is_available():
             return None
         try:
             sym = _normalize_symbol(symbol)
-            mids = self._info.all_mids()
-            return float(mids.get(sym, 0)) or None
+            now = time.monotonic()
+            if now - self._mids_cache_ts > self._MIDS_CACHE_TTL:
+                self._mids_cache = self._execute_api(self._info.all_mids)
+                self._mids_cache_ts = now
+            return float(self._mids_cache.get(sym, 0)) or None
         except Exception as e:
             logger.error(f"Hyperliquid price fetch for {symbol}: {e}")
             return None
