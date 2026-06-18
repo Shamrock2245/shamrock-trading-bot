@@ -296,9 +296,9 @@ class StatArbEngine:
         )
 
     def _get_funding_rate(self, hl_executor, symbol: str) -> float:
-        """Fetch current 8h funding rate from Hyperliquid."""
+        """Fetch current 8h funding rate from Hyperliquid (with retry wrapper)."""
         try:
-            meta = hl_executor._info.meta()
+            meta = hl_executor._execute_api(hl_executor._info.meta)
             for asset in meta.get("universe", []):
                 if asset.get("name", "").upper() == symbol.upper():
                     return float(asset.get("funding", 0))
