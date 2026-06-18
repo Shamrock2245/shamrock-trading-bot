@@ -147,48 +147,76 @@ class HyperliquidExecutor:
                     raise
 
     def _initialize_sdk(self) -> None:
-        """Initialize Hyperliquid SDK clients."""
+        """Initialize Hyperliquid SDK clients with retry for transient failures."""
+        import time as _time
+
         try:
             from hyperliquid.info import Info
             from hyperliquid.exchange import Exchange
             from hyperliquid.utils import constants
-
-            api_url = constants.TESTNET_API_URL if self.use_testnet else constants.MAINNET_API_URL
-
-            self._info = Info(api_url, skip_ws=True)
-
-            # Initialize Exchange with private key for signing
-            from eth_account import Account
-            _wallet = Account.from_key(self.private_key)
-            self._exchange = Exchange(
-                wallet=_wallet,
-                base_url=api_url,
-                account_address=self.wallet_address,
-                vault_address=None,
-            )
-
-            # Load available perp tickers
-            self._refresh_perp_tickers()
-
-            # Sync existing positions
-            self._sync_positions()
-
-            self._initialized = True
-            mode = "TESTNET" if self.use_testnet else "MAINNET"
-            logger.info(
-                f"🟢 Hyperliquid executor initialized ({mode}) | "
-                f"wallet={self.wallet_address[:10]}... | "
-                f"leverage={self.default_leverage}x | "
-                f"max_pos=${self.max_position_usd} | "
-                f"perps_available={len(_HL_PERP_TICKERS)}"
-            )
-
         except ImportError:
             logger.error("❌ hyperliquid-python-sdk not installed — pip install hyperliquid-python-sdk")
             self.enabled = False
-        except Exception as e:
-            logger.error(f"❌ Hyperliquid init failed: {e}")
-            self.enabled = False
+            return
+
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                api_url = constants.TESTNET_API_URL if self.use_testnet else constants.MAINNET_API_URL
+
+                self._info = Info(api_url, skip_ws=True)
+
+                # Initialize Exchange with private key for signing
+                from eth_account import Account
+                _wallet = Account.from_key(self.private_key)
+                self._exchange = Exchange(
+                    wallet=_wallet,
+                    base_url=api_url,
+                    account_address=self.wallet_address,
+                    vault_address=None,
+                )
+
+                # Load available perp tickers
+                self._refresh_perp_tickers()
+
+                # Sync existing positions
+                self._sync_positions()
+
+                self._initialized = True
+                mode = "TESTNET" if self.use_testnet else "MAINNET"
+                logger.info(
+                    f"🟢 Hyperliquid executor initialized ({mode}) | "
+                    f"wallet={self.wallet_address[:10]}... | "
+                    f"leverage={self.default_leverage}x | "
+                    f"max_pos=${self.max_position_usd} | "
+                    f"perps_available={len(_HL_PERP_TICKERS)}"
+                )
+                return  # Success — exit retry loop
+
+            except Exception as e:
+                err_str = str(e).lower()
+                is_transient = any(k in err_str for k in ("429", "rate limit", "too many", "timeout", "connection", "503", "502"))
+
+                if is_transient and attempt < max_retries:
+                    backoff = 2 ** attempt  # 2s, 4s, 8s, 16s, 32s
+                    logger.warning(
+                        f"⚠️ Hyperliquid init transient error (attempt {attempt}/{max_retries}), "
+                        f"retrying in {backoff}s: {e}"
+                    )
+                    _time.sleep(backoff)
+                elif is_transient:
+                    # All retries exhausted but error is transient — do NOT disable permanently.
+                    # is_available() will call _initialize_sdk() again next cycle.
+                    logger.error(
+                        f"❌ Hyperliquid init failed after {max_retries} attempts (transient): {e}. "
+                        f"Will retry on next is_available() call."
+                    )
+                    return
+                else:
+                    # Non-transient error (bad key, wrong wallet, SDK bug) — disable permanently
+                    logger.error(f"❌ Hyperliquid init failed (permanent): {e}")
+                    self.enabled = False
+                    return
 
     def _refresh_perp_tickers(self) -> None:
         """Load all available perp tickers from Hyperliquid."""
