@@ -1024,6 +1024,10 @@ class HLPerpsScanner:
         active_positions = len(self.hl_executor.positions) if self.hl_executor else 0
         max_new_signals = HL_PERPS_MAX_POSITIONS - active_positions
 
+        # Cap total scan to 100 coins to balance opportunity vs rate limits
+        # (41 watchlist + 59 discovery = 100 coins × 2 API calls = 200 calls/cycle)
+        scan_list = scan_list[:100]
+
         for idx, coin in enumerate(scan_list):
             # Stop if we've found enough signals to fill all position slots
             if len(signals) >= max(max_new_signals, 1):
@@ -1035,9 +1039,11 @@ class HLPerpsScanner:
             if coin in self.pending_retracements:
                 continue
 
-            # Rate-limit: 0.1s delay between non-watchlist coins to stay under 1200 wt/min
-            if idx >= watchlist_len and idx % 5 == 0:
-                time.sleep(0.1)
+            # Rate-limit: 0.25s delay every 3 non-watchlist coins
+            # 100 coins × 2 API calls = 200 calls. At ~0.25s per 3 coins,
+            # scan takes ~16s for discovery coins + ~10s for watchlist = ~26s total.
+            if idx >= watchlist_len and idx % 3 == 0:
+                time.sleep(0.25)
 
             funding_rate = funding_rates.get(coin, 0.0)
             signal = self.scan_coin(coin, funding_rate)
