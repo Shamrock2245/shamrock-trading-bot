@@ -142,7 +142,7 @@ MEV_LIQUIDATION_ENABLED=true
 
 ```bash
 # SSH into VPS
-ssh root@5.161.126.32
+ssh -i .shamrock_deploy_key root@46.62.231.43
 
 # Pull latest code
 cd /root/shamrock-trading-bot

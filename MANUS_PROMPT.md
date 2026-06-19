@@ -3,7 +3,7 @@
 ## Context
 Read `CURRENT_STATUS.md` first — it has the full pipeline status.
 
-The Shamrock Trading Bot is LIVE on Hetzner VPS (`5.161.126.32`), cycling in PAPER mode with all systems green. The entire discovery → scoring → execution pipeline is operational. **What's missing is the wealth retention layer** — the bot trades altcoins/memecoins but has no mechanism to rotate gains into BTC for long-term wealth preservation. Additionally, Moralis has shipped several NEW APIs we aren't using that would give us a massive edge.
+The Shamrock Trading Bot is LIVE on Hetzner VPS (`46.62.231.43`), cycling in LIVE mode with all systems green. The entire discovery → scoring → execution pipeline is operational. **What's missing is the wealth retention layer** — the bot trades altcoins/memecoins but has no mechanism to rotate gains into BTC for long-term wealth preservation. Additionally, Moralis has shipped several NEW APIs we aren't using that would give us a massive edge.
 
 **Goal: Make this bot famously profitable by adding wealth retention + 5 new Moralis-powered intelligence layers.**
 
@@ -201,11 +201,12 @@ Moralis has added new features to their Token API. Check and integrate any we're
 - All endpoints use header: `X-API-Key: {MORALIS_API_KEY}` (already in `.env`)
 
 ## Hetzner Access
-- SSH: `ssh -i ~/.ssh/id_ed25519 root@5.161.126.32`
+- SSH: `ssh -i .shamrock_deploy_key root@46.62.231.43`
+- Location: Helsinki, Finland (hel1-dc2)
 - Bot directory: `/root/shamrock-trading-bot`
 - Rebuild: `docker compose down && docker compose build --no-cache && docker compose up -d`
 - Logs: `docker compose logs --tail=100 bot`
-- Mode: **PAPER** (safe — no real trades until verified)
+- Mode: **LIVE** (all 4 containers healthy, trading active)
 
 ## Build Order
 1. **P0 first** — BTC Wealth Engine is the highest-value feature. Get `moralis_bitcoin.py` + `btc_wealth_engine.py` working with unit tests.

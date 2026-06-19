@@ -41,7 +41,7 @@ ROLLBACK_REPORT_FILE = OUTPUT_DIR / "rollback_report.json"
 REVIEW_REPORT_FILE   = OUTPUT_DIR / "review_report.json"
 
 SSH_KEY  = PROJECT_ROOT / ".shamrock_deploy_key"
-SERVER   = "root@5.161.126.32"
+SERVER   = "root@46.62.231.43"
 REPO_DIR = "/root/shamrock-trading-bot"
 SSH_OPTS = ["-i", str(SSH_KEY), "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15"]
 
@@ -279,7 +279,7 @@ def run_rollback(target_sha: str | None = None, dry_run: bool = False) -> int:
         return 0
     else:
         print(f"\n{BOLD}{RED}  ❌ ROLLBACK VERIFICATION FAILED — Manual intervention required.{RESET}")
-        print(f"  {YELLOW}  SSH in: ssh -i .shamrock_deploy_key root@5.161.126.32{RESET}")
+        print(f"  {YELLOW}  SSH in: ssh -i .shamrock_deploy_key root@46.62.231.43{RESET}")
         return 1
 
 

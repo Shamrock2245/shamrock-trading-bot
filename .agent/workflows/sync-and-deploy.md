@@ -6,7 +6,7 @@ description: How to sync Manus changes and redeploy the trading bot to Hetzner
 
 ## Prerequisites
 - Working directory: `/Users/brendan/Desktop/shamrock-trading-bot`
-- Hetzner VPS IP: `5.161.126.32`
+- Hetzner VPS IP: `46.62.231.43`
 - SSH user: `root`
 - Docker Compose services: `bot`, `dashboard`, `health`, `db`
 
@@ -18,29 +18,29 @@ Follow the `/commit-and-push` workflow to get changes on GitHub.
 ### 2. SSH into Hetzner and pull latest code
 // turbo
 ```bash
-ssh root@5.161.126.32 "cd /root/shamrock-trading-bot && git pull origin main"
+ssh root@46.62.231.43 "cd /root/shamrock-trading-bot && git pull origin main"
 ```
 
 ### 3. Rebuild and restart the bot container
 ```bash
-ssh root@5.161.126.32 "cd /root/shamrock-trading-bot && docker compose down bot && docker compose build bot && docker compose up -d bot"
+ssh root@46.62.231.43 "cd /root/shamrock-trading-bot && docker compose down bot && docker compose build bot && docker compose up -d bot"
 ```
 
 ### 4. Verify the bot is running
 // turbo
 ```bash
-ssh root@5.161.126.32 "docker compose -f /root/shamrock-trading-bot/docker-compose.yml ps --format '{{.Name}} {{.Status}}'"
+ssh root@46.62.231.43 "docker compose -f /root/shamrock-trading-bot/docker-compose.yml ps --format '{{.Name}} {{.Status}}'"
 ```
 
 ### 5. Check recent logs
 // turbo
 ```bash
-ssh root@5.161.126.32 "docker logs shamrock-bot --tail 30"
+ssh root@46.62.231.43 "docker logs shamrock-bot --tail 30"
 ```
 
 ## Rebuild ALL services (if needed)
 ```bash
-ssh root@5.161.126.32 "cd /root/shamrock-trading-bot && docker compose down && docker compose build && docker compose up -d"
+ssh root@46.62.231.43 "cd /root/shamrock-trading-bot && docker compose down && docker compose build && docker compose up -d"
 ```
 
 ## Important Notes

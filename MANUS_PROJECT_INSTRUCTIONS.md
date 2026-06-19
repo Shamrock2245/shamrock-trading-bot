@@ -1,6 +1,6 @@
 # 🤖 Shamrock Trading Bot — Manus Project Instructions
 
-> **Status**: 🟢 LIVE — Running on Hetzner VPS (`root@5.161.126.32`) via Docker Compose.
+> **Status**: 🟢 LIVE — Running on Hetzner VPS (`root@46.62.231.43`) (Helsinki, Finland) via Docker Compose.
 > **Current Build**: `df195f8` | **Chains**: 6 active | **Sources**: 9 discovery pipelines
 > **Goal**: AI-powered multi-chain gem discovery, execution, and portfolio management — 24/7 autonomous.
 
@@ -297,7 +297,7 @@ After a strong win, slippage tolerance is raised to capture fast-moving plays:
 
 ---
 
-## 📊 Dashboard (LIVE at http://5.161.126.32:3000)
+## 📊 Dashboard (LIVE at http://46.62.231.43:3000)
 
 Built with Reflex. 6 pages:
 
@@ -366,7 +366,8 @@ MAX_PORTFOLIO_EXPOSURE_PCT=75.0
 ## 📦 Deployment
 
 ```bash
-# Running on Hetzner VPS (root@5.161.126.32)
+# Running on Hetzner VPS (root@46.62.231.43) — Helsinki, Finland (hel1-dc2)
+# SSH: ssh -i .shamrock_deploy_key root@46.62.231.43
 # Four Docker containers:
 #   shamrock-bot        — main trading engine
 #   shamrock-dashboard  — Reflex UI on :3000

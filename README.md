@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/status-🟢%20LIVE%2024%2F7-00C853?style=flat-square" alt="Status" />
   <img src="https://img.shields.io/badge/chains-ETH%20%7C%20Base%20%7C%20ARB%20%7C%20POLY%20%7C%20BSC%20%7C%20SOL%20%7C%20AVAX-blue?style=flat-square" alt="Chains" />
-  <img src="https://img.shields.io/badge/infra-Hetzner%20CPX21-red?style=flat-square" alt="Infra" />
+  <img src="https://img.shields.io/badge/infra-Hetzner%20CX33%20Helsinki-red?style=flat-square" alt="Infra" />
   <img src="https://img.shields.io/github/stars/Shamrock2245/shamrock-trading-bot?style=flat-square" alt="Stars" />
 </p>
 
@@ -95,7 +95,7 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
 - [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) / [MEV Blocker](https://mevblocker.io/) for MEV protection
 
 ### 📊 Portfolio Dashboard (9 Pages)
-Reflex-powered UI at `http://5.161.126.32:3000`:
+Reflex-powered UI at `http://46.62.231.43:3000`:
 
 | Page | Purpose |
 |------|---------|
@@ -389,18 +389,21 @@ Built studying the best in the ecosystem:
 
 ## 🏗️ Infrastructure — Always On, Always Trading
 
-The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS. It is always scanning, always scoring, and always executing.
+The bot runs **24/7/365** on a dedicated **Hetzner Cloud** VPS in the EU. It is always scanning, always scoring, and always executing.
 
 | Property | Value |
 |----------|-------|
-| **Server** | CPX21 — 3 vCPU / 4 GB RAM / 80 GB SSD |
-| **Server ID** | #124347708 |
-| **IP** | `5.161.126.32` |
-| **Location** | Ashburn, VA (us-east, datacenter `ash-dc1`) |
-| **OS** | Ubuntu 22.04 LTS |
+| **Server** | CX33 — 4 vCPU / 8 GB RAM / 80 GB NVMe SSD |
+| **Server ID** | #142997655 |
+| **IP** | `46.62.231.43` |
+| **Location** | Helsinki, Finland (EU, datacenter `hel1-dc2`) |
+| **OS** | Ubuntu 24.04 LTS |
 | **Runtime** | Docker + docker-compose |
 | **Auto-restart** | `restart: unless-stopped` |
-| **Cost** | $9.99/mo |
+| **Cost** | €8.99/mo (~$10/mo) |
+| **Backups** | Automated daily (€1.80/mo) |
+| **Firewall** | Hetzner Cloud Firewall (SSH + dashboards + ICMP) |
+| **Security** | fail2ban + unattended-upgrades |
 | **Status** | 🟢 **ON** |
 
 ### Docker Services

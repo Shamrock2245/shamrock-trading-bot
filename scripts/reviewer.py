@@ -39,7 +39,7 @@ REVIEW_REPORT_FILE = OUTPUT_DIR / "review_report.json"
 PREFLIGHT_REPORT_FILE = OUTPUT_DIR / "preflight_report.json"
 
 SSH_KEY  = PROJECT_ROOT / ".shamrock_deploy_key"
-SERVER   = "root@5.161.126.32"
+SERVER   = "root@46.62.231.43"
 REPO_DIR = "/root/shamrock-trading-bot"
 SSH_OPTS = ["-i", str(SSH_KEY), "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15"]
 

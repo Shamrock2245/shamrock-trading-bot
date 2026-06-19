@@ -17,7 +17,7 @@ Each step writes a structured report to `output/` for the next step to consume.
 ## SSH Helper
 ```bash
 KEY=/Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key
-SERVER=root@5.161.126.32
+SERVER=root@46.62.231.43
 REPO=/root/shamrock-trading-bot
 ```
 
@@ -58,22 +58,22 @@ cd /Users/brendan/Desktop/shamrock-trading-bot && git push origin main
 
 5. Pull latest on the server:
 ```bash
-ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && git pull origin main'
+ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && git pull origin main'
 ```
 
 6. Stop running containers:
 ```bash
-ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose down'
+ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && docker compose down'
 ```
 
 7. Rebuild Docker images (no cache):
 ```bash
-ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose build --no-cache'
+ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && docker compose build --no-cache'
 ```
 
 8. Start containers in detached mode:
 ```bash
-ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose up -d'
+ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && docker compose up -d'
 ```
 
 ---
@@ -126,11 +126,11 @@ cd /Users/brendan/Desktop/shamrock-trading-bot && python scripts/rollback.py
 
 - To quick-restart (state files / env changes only — NOT code changes):
   ```bash
-  ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose restart bot'
+  ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && docker compose restart bot'
   ```
 - To check live bot logs at any time:
   ```bash
-  ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@5.161.126.32 'cd /root/shamrock-trading-bot && docker compose logs --tail=80 bot'
+  ssh -i /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -o StrictHostKeyChecking=no root@46.62.231.43 'cd /root/shamrock-trading-bot && docker compose logs --tail=80 bot'
   ```
 - To roll back to a specific commit:
   ```bash
@@ -143,5 +143,5 @@ cd /Users/brendan/Desktop/shamrock-trading-bot && python scripts/rollback.py
 - If `.shamrock_deploy_key` is ever lost, regenerate with:
   ```bash
   ssh-keygen -q -t ed25519 -N "" -f /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key -C "shamrock-deploy"
-  cat /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key.pub | ssh root@5.161.126.32 'cat >> ~/.ssh/authorized_keys'
+  cat /Users/brendan/Desktop/shamrock-trading-bot/.shamrock_deploy_key.pub | ssh root@46.62.231.43 'cat >> ~/.ssh/authorized_keys'
   ```

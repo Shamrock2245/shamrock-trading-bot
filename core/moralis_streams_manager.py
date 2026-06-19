@@ -224,7 +224,7 @@ class MoralisStreamsManager:
             self._sync_current_alpha_wallets()
             return
 
-        # Use webhook_url as-is — it already contains the full path (e.g. http://5.161.126.32:8787/moralis/streams)
+        # Use webhook_url as-is — it already contains the full path (e.g. http://46.62.231.43:8787/moralis/streams)
         webhook = self.webhook_url.rstrip("/")
         body = {
             "webhookUrl": webhook,

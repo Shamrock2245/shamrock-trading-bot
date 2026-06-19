@@ -1,7 +1,7 @@
 # Deployment Guide — Hetzner VPS
 
 This guide covers deploying the Shamrock Trading Bot to the provisioned Hetzner VPS
-(`shamrock-trading` project, Ashburn VA datacenter).
+(`shamrock-trading` project, Helsinki, Finland datacenter (EU)).
 
 ---
 
@@ -11,10 +11,11 @@ This guide covers deploying the Shamrock Trading Bot to the provisioned Hetzner 
 |----------|-------|
 | Provider | Hetzner Cloud |
 | Project | shamrock-trading |
-| Location | Ashburn, VA (ash) |
-| Server type | CPX21 (3 vCPU / 4 GB RAM / 80 GB SSD) |
-| OS | Ubuntu 22.04 LTS |
-| IP | `5.161.126.32` |
+| Server name | shamrock-eu (ID: 142997655) |
+| Location | Helsinki, Finland (hel1-dc2) |
+| Server type | CX33 (4 vCPU / 8 GB RAM / 80 GB NVMe SSD) |
+| OS | Ubuntu 24.04 LTS |
+| IP | `46.62.231.43` |
 
 ---
 
@@ -23,7 +24,7 @@ This guide covers deploying the Shamrock Trading Bot to the provisioned Hetzner 
 ### 1.1 Connect via SSH
 
 ```bash
-ssh -i ~/.ssh/ssh-key-2026-03-13.key root@<SERVER_IP>
+ssh -i .shamrock_deploy_key root@46.62.231.43
 ```
 
 ### 1.2 Update system and install Docker
@@ -75,11 +76,29 @@ systemctl restart sshd
 
 ### 1.5 Configure firewall
 
+A **Hetzner Cloud Firewall** (ID: `11161658`) is applied at the infrastructure level via the
+Hetzner API, allowing only the following inbound traffic:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 22 | TCP | SSH |
+| 8000 | TCP | Bot API / Streamlit |
+| 3000 | TCP | Grafana / monitoring |
+| ICMP | — | Ping / health checks |
+
+Additionally, `ufw` is configured on the host as a secondary layer:
+
 ```bash
 ufw allow OpenSSH
+ufw allow 8000/tcp
+ufw allow 3000/tcp
 ufw enable
 ufw status
 ```
+
+> **Note:** `fail2ban` and `unattended-upgrades` are installed for brute-force
+> protection and automatic security patching. Automated daily backups are enabled
+> (18–22 UTC window).
 
 ---
 
@@ -374,4 +393,4 @@ truncate -s 0 logs/bot.log
 
 ---
 
-*Server provisioned March 2026 | Hetzner Cloud — Ashburn, VA*
+*Server provisioned June 2026 | Hetzner Cloud — Helsinki, Finland (hel1-dc2)*
