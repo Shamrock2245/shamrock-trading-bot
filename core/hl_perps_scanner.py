@@ -42,6 +42,8 @@ import math
 import os
 import time
 import threading
+import json
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -343,6 +345,34 @@ def _score_signal(
         elif mom_1h < -1.5:
             short_score += 5.0
 
+    # ── Momentum Acceleration (2nd derivative — OpenAlice) ────────────────────
+    # Detects when momentum is DECELERATING — a warning that the trend is
+    # exhausting.  Formula: accel = mom_recent - mom_prior.  If momentum is
+    # decelerating in the signal direction, apply a penalty.  If accelerating,
+    # apply a small bonus.  Uses 4-candle lookback to compare mom_now vs
+    # mom_4_candles_ago.  Safely degrades if not enough data.
+    if len(closes) >= 6:
+        mom_now = (closes[-1] - closes[-2]) / closes[-2] * 100
+        mom_prior = (closes[-5] - closes[-6]) / closes[-6] * 100 if closes[-6] != 0 else 0
+        accel = mom_now - mom_prior  # positive = accelerating, negative = decelerating
+        components["momentum_accel"] = round(accel, 3)
+
+        # Deceleration penalty: momentum was moving in signal direction but is now fading
+        if accel < -0.5 and mom_now > 0:  # Was bullish, now decelerating
+            long_score -= min(5.0, abs(accel) * 1.5)  # Penalize long entries
+            components["accel_signal"] = f"long_decel-{min(5.0, abs(accel) * 1.5):.1f}"
+        elif accel > 0.5 and mom_now < 0:  # Was bearish, now decelerating (from short perspective)
+            short_score -= min(5.0, abs(accel) * 1.5)  # Penalize short entries
+            components["accel_signal"] = f"short_decel-{min(5.0, abs(accel) * 1.5):.1f}"
+
+        # Acceleration bonus: momentum is building
+        if accel > 0.5 and mom_now > 0:  # Bullish and accelerating
+            long_score += min(3.0, accel * 0.8)
+            components["accel_signal"] = f"long_accel+{min(3.0, accel * 0.8):.1f}"
+        elif accel < -0.5 and mom_now < 0:  # Bearish and accelerating
+            short_score += min(3.0, abs(accel) * 0.8)
+            components["accel_signal"] = f"short_accel+{min(3.0, abs(accel) * 0.8):.1f}"
+
     # ── Determine direction and final score ──────────────────────────────────
     if long_score > short_score and long_score >= HL_PERPS_MIN_SCORE:
         # Normalize to 0–100
@@ -405,6 +435,16 @@ class HLPerpsScanner:
         self._asset_ctxs_cache_ts: float = 0.0
         self._ASSET_CTXS_TTL: float = 60.0  # seconds
 
+        # ── Correlation Guard: 1h close price history per coin ───────────────
+        # Stores last 30 close prices per coin for Pearson correlation.
+        # Only used pre-execution to block correlated positions.
+        self._price_history: dict[str, deque] = {}  # coin → deque(maxlen=30)
+        self._CORR_THRESHOLD: float = float(os.getenv("HL_PERPS_CORR_THRESHOLD", "0.85"))
+
+        # ── Dollar-Volume Share Change tracking ─────────────────────────────
+        # Stores prior-cycle dollar volume share per coin to detect change.
+        self._prior_dvol_share: dict[str, float] = {}
+
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
 
         if self.enabled:
@@ -424,6 +464,35 @@ class HLPerpsScanner:
                     time.sleep(sleep_t)
                 else:
                     raise
+
+    @staticmethod
+    def _pearson_correlation(a: list[float], b: list[float]) -> Optional[float]:
+        """Compute Pearson correlation between two price series.
+
+        Returns None if series are too short or have zero variance.
+        Pure Python — no numpy dependency.
+        """
+        n = min(len(a), len(b))
+        if n < 10:
+            return None
+        a, b = a[-n:], b[-n:]
+        mean_a = sum(a) / n
+        mean_b = sum(b) / n
+        cov = sum((a[i] - mean_a) * (b[i] - mean_b) for i in range(n)) / n
+        std_a = math.sqrt(sum((x - mean_a) ** 2 for x in a) / n)
+        std_b = math.sqrt(sum((x - mean_b) ** 2 for x in b) / n)
+        if std_a == 0 or std_b == 0:
+            return None
+        return cov / (std_a * std_b)
+
+    def _record_price_history(self, coin: str, close_price: float) -> None:
+        """Append the latest 1h close to the price history ring buffer.
+
+        Used by the Correlation Guard to compute inter-asset correlations.
+        """
+        if coin not in self._price_history:
+            self._price_history[coin] = deque(maxlen=30)
+        self._price_history[coin].append(close_price)
 
     def _get_meta_cached(self) -> dict:
         """Return cached meta() response, refreshing every 30 seconds."""
@@ -605,6 +674,9 @@ class HLPerpsScanner:
         
         current_price = closes_1h[-1]
 
+        # Record close for Correlation Guard (OpenAlice)
+        self._record_price_history(coin, current_price)
+
         if current_price <= 0:
             return None
 
@@ -668,6 +740,36 @@ class HLPerpsScanner:
                         components["oi_confirmation"] = "neutral"
         except Exception as _oi_err:
             logger.debug(f"[HL-PERPS] {coin}: OI confirmation failed: {_oi_err}")
+
+        # ── Dollar-Volume Share Change (OpenAlice institutional signal) ──────
+        # Detects coins gaining an outsized share of total market volume.
+        # A coin going from 0.5% to 2% of total volume = institutional
+        # accumulation, even if price hasn't moved yet.  Uses the same
+        # asset_ctxs cache — zero extra API calls.
+        try:
+            ctxs = self._get_asset_ctxs_cached()
+            ctx = ctxs.get(coin)
+            if ctx:
+                coin_dvol = float(ctx.get("dayNtlVlm") or 0)
+                total_dvol = sum(float(c.get("dayNtlVlm") or 0) for c in ctxs.values())
+                if total_dvol > 0 and coin_dvol > 0:
+                    current_share = coin_dvol / total_dvol
+                    prior_share = self._prior_dvol_share.get(coin, current_share)
+                    share_change = current_share - prior_share
+                    self._prior_dvol_share[coin] = current_share
+                    components["dvol_share"] = round(current_share * 100, 3)  # % of total
+                    components["dvol_share_change"] = round(share_change * 100, 4)  # pp change
+
+                    # Significant share gain = institutional accumulation signal
+                    if share_change > 0.002:  # Gained >0.2 percentage points
+                        dvol_boost = min(5.0, share_change * 1000)  # Up to +5 pts
+                        score += dvol_boost
+                        components["dvol_signal"] = f"accumulation+{dvol_boost:.1f}"
+                    elif share_change < -0.003:  # Lost >0.3 pp = distribution
+                        score -= 2.0
+                        components["dvol_signal"] = "distribution-2"
+        except Exception as _dvol_err:
+            logger.debug(f"[HL-PERPS] {coin}: DVolShare calculation failed: {_dvol_err}")
 
         # ── Elliott Wave / ECC Pattern Recognition ───────────────────────────
         # ECC (Elliott Crypto Cycle) relies on 5-wave impulse and 3-wave correction.
@@ -973,6 +1075,34 @@ class HLPerpsScanner:
                 f"rejected (score={score:.0f}, fib={fib_zone})"
             )
             return None
+
+        # ── Correlation Guard (OpenAlice Guard Pipeline) ──────────────────────
+        # Prevent concentrated risk: reject a new position if it's >85%
+        # correlated with any existing open position.  Uses Pearson correlation
+        # on the last 30 close prices.  Only blocks — never overrides other guards.
+        if self.hl_executor and hasattr(self.hl_executor, 'positions') and self.hl_executor.positions:
+            try:
+                coin_hist = self._price_history.get(coin)
+                if coin_hist and len(coin_hist) >= 15:
+                    for pos_coin in self.hl_executor.positions:
+                        if pos_coin == coin:
+                            continue
+                        pos_hist = self._price_history.get(pos_coin)
+                        if pos_hist and len(pos_hist) >= 15:
+                            # Pearson correlation on overlapping history
+                            n = min(len(coin_hist), len(pos_hist))
+                            a = list(coin_hist)[-n:]
+                            b = list(pos_hist)[-n:]
+                            corr = self._pearson_correlation(a, b)
+                            if corr is not None and corr > self._CORR_THRESHOLD:
+                                logger.info(
+                                    f"[HL-PERPS] {coin} {direction.upper()} REJECTED by "
+                                    f"Correlation Guard: corr({coin},{pos_coin})={corr:.2f} "
+                                    f"> {self._CORR_THRESHOLD} — too concentrated"
+                                )
+                                return None
+            except Exception as _corr_err:
+                logger.debug(f"[HL-PERPS] {coin}: Correlation guard error: {_corr_err}")
 
         logger.info(
             f"📡 HL PERPS SIGNAL | {direction.upper()} {coin} @ ${current_price:.4f} | "
