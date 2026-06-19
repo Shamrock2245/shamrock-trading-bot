@@ -496,24 +496,85 @@ def submit_jito_bundle(
     return JitoResult(success=False, error=f"All Jito endpoints failed: {last_error}")
 
 
+def _build_jito_tip_tx_b64(
+    wallet_public_key: str,
+    private_key_b58: str,
+    tip_lamports: int,
+) -> Optional[str]:
+    """
+    Build a signed SOL transfer transaction to a random Jito tip account.
+    Jito Block Engine requires a real on-chain tip transfer INSIDE the bundle
+    — the tip_lamports parameter in the JSON-RPC call is informational only.
+    Returns base64-encoded signed VersionedTransaction, or None on failure.
+    """
+    try:
+        import random
+        import base58
+        from solders.keypair import Keypair  # type: ignore
+        from solders.transaction import VersionedTransaction  # type: ignore
+        from solders.message import MessageV0  # type: ignore
+        from solders.system_program import transfer, TransferParams  # type: ignore
+        from solders.pubkey import Pubkey  # type: ignore
+        from solders.hash import Hash  # type: ignore
+
+        tip_account = Pubkey.from_string(random.choice(JITO_TIP_ACCOUNTS))
+        payer = Pubkey.from_string(wallet_public_key)
+        keypair = Keypair.from_bytes(base58.b58decode(private_key_b58))
+
+        # Fetch a recent blockhash
+        rpc_url = getattr(settings, "SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+        resp = requests.post(
+            rpc_url,
+            json={"jsonrpc": "2.0", "id": 1, "method": "getLatestBlockhash",
+                  "params": [{"commitment": "confirmed"}]},
+            timeout=10,
+        )
+        blockhash_str = resp.json()["result"]["value"]["blockhash"]
+        recent_blockhash = Hash.from_string(blockhash_str)
+
+        transfer_ix = transfer(TransferParams(
+            from_pubkey=payer,
+            to_pubkey=tip_account,
+            lamports=tip_lamports,
+        ))
+        msg = MessageV0.try_compile(
+            payer=payer,
+            instructions=[transfer_ix],
+            address_lookup_table_accounts=[],
+            recent_blockhash=recent_blockhash,
+        )
+        signed_tip_tx = VersionedTransaction(msg, [keypair])
+        return base64.b64encode(bytes(signed_tip_tx)).decode()
+    except Exception as e:
+        logger.warning(f"Jito tip tx build failed: {e} — submitting bundle without tip tx")
+        return None
+
+
 def execute_solana_via_jito(
     serialized_tx_b64: str,
     wallet_public_key: str,
-    tip_lamports: int = 10_000,
+    tip_lamports: int = 200_000,
+    private_key_b58: Optional[str] = None,
 ) -> JitoResult:
     """
     Submit a pre-signed Solana transaction via Jito bundle for MEV protection.
-    Wraps a single Jupiter swap transaction in a Jito bundle.
+    Wraps the Jupiter swap transaction + a tip transfer tx in a 2-tx Jito bundle.
+
+    IMPORTANT: Jito Block Engine requires a real SOL transfer to a tip account
+    INSIDE the bundle. This function builds that tip tx automatically when
+    private_key_b58 is provided. Without it, the bundle is submitted without
+    a tip tx (may be rejected with 400 by the block engine).
 
     Tip guidance:
-      - Standard gem trade:      10,000 lamports (~$0.001)
-      - High-conviction / busy:  50,000 lamports (~$0.005)
-      - God Signal / snipe:     100,000 lamports (~$0.015)
+      - Standard gem trade:      200,000 lamports (~$0.03)
+      - High-conviction / busy:  750,000 lamports (~$0.11)
+      - God Signal / snipe:    2,000,000 lamports (~$0.30)
 
     Args:
         serialized_tx_b64: Base64-encoded signed VersionedTransaction from Jupiter
-        wallet_public_key: Wallet public key (for logging)
-        tip_lamports:      Jito tip in lamports
+        wallet_public_key: Wallet public key (for logging and tip tx)
+        tip_lamports:      Jito tip in lamports (transferred on-chain)
+        private_key_b58:   Base58 private key to sign the tip transfer tx
     """
     if (settings.get_current_mode() == "paper"):
         logger.info(f"[PAPER] Jito execute: wallet={wallet_public_key[:8]}... tip={tip_lamports}")
@@ -523,11 +584,23 @@ def execute_solana_via_jito(
             tip_lamports=tip_lamports,
         )
 
+    # Build the tip transfer transaction (required by Jito Block Engine)
+    bundle_txs = [serialized_tx_b64]
+    if private_key_b58:
+        tip_tx_b64 = _build_jito_tip_tx_b64(wallet_public_key, private_key_b58, tip_lamports)
+        if tip_tx_b64:
+            bundle_txs.append(tip_tx_b64)  # Tip tx appended as 2nd tx in bundle
+            logger.debug(f"Jito tip tx built: {tip_lamports:,} lamports → {wallet_public_key[:8]}...")
+        else:
+            logger.warning("Jito tip tx build failed — submitting single-tx bundle (may be rejected)")
+    else:
+        logger.warning("No private_key_b58 provided to execute_solana_via_jito — no tip tx (may get 400)")
+
     logger.info(
-        f"Submitting Jito bundle: wallet={wallet_public_key[:8]}... "
+        f"Submitting Jito bundle ({len(bundle_txs)} txs): wallet={wallet_public_key[:8]}... "
         f"tip={tip_lamports:,} lamports"
     )
-    return submit_jito_bundle([serialized_tx_b64], tip_lamports=tip_lamports)
+    return submit_jito_bundle(bundle_txs, tip_lamports=tip_lamports)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

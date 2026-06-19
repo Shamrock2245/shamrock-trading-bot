@@ -108,6 +108,12 @@ class HyperliquidExecutor:
     _GLOBAL_MIDS_CACHE_TTL: float = 3.0  # seconds
     _global_mids_lock = threading.Lock()
 
+    # Balance cache — 30s TTL prevents 3x get_balance() calls per scan cycle
+    _global_balance_cache: dict = {}
+    _global_balance_cache_ts: float = 0.0
+    _GLOBAL_BALANCE_CACHE_TTL: float = 30.0  # seconds
+    _global_balance_lock = threading.Lock()
+
     def __init__(self):
         self.enabled = settings.HYPERLIQUID_ENABLED
         self.wallet_address = settings.HYPERLIQUID_WALLET_ADDRESS
@@ -307,15 +313,32 @@ class HyperliquidExecutor:
         with _HL_TICKER_LOCK:
             return sym in _HL_PERP_TICKERS
 
-    def get_balance(self) -> dict:
+    def get_balance(self, force_refresh: bool = False) -> dict:
         """Get account balance and margin info.
-        
+
+        Uses a 30-second TTL class-level cache to prevent burst 429 errors when
+        get_balance() is called multiple times per scan cycle (position sizing,
+        daily loss limit, and profit sweeper all call it independently).
+        Pass force_refresh=True to bypass the cache (e.g., after a trade).
+
         Handles both Unified and Cross margin accounts.
         Unified accounts store funds in spot clearinghouse (spot_user_state),
         while Cross accounts use the regular user_state endpoint.
         """
+        import time as _time
         if not self.is_available():
             return {"error": "not initialized"}
+
+        # Return cached balance if within TTL and not forced
+        with HyperliquidExecutor._global_balance_lock:
+            now = _time.monotonic()
+            if (
+                not force_refresh
+                and HyperliquidExecutor._global_balance_cache
+                and (now - HyperliquidExecutor._global_balance_cache_ts) < HyperliquidExecutor._GLOBAL_BALANCE_CACHE_TTL
+            ):
+                return dict(HyperliquidExecutor._global_balance_cache)
+
         try:
             # Try Unified account first (spot_user_state)
             try:
@@ -328,28 +351,41 @@ class HyperliquidExecutor:
                         usdc_balance += float(b.get("total", 0)) - float(b.get("hold", 0))
                 if usdc_balance > 0:
                     logger.debug(f"Hyperliquid: Unified account balance=${usdc_balance:.2f}")
-                    return {
+                    _result = {
                         "account_value": usdc_balance,
                         "total_margin_used": float(sum(float(b.get("hold", 0)) for b in balances)),
                         "withdrawable": usdc_balance,
                         "positions": 0,
                         "mode": "unified",
                     }
+                    with HyperliquidExecutor._global_balance_lock:
+                        HyperliquidExecutor._global_balance_cache = _result
+                        HyperliquidExecutor._global_balance_cache_ts = _time.monotonic()
+                    return _result
             except Exception:
                 pass  # Fall through to Cross margin check
 
             # Cross margin fallback
             state = self._execute_api(self._info.user_state, self.wallet_address)
             margin = state.get("marginSummary", {})
-            return {
+            _result = {
                 "account_value": float(margin.get("accountValue", 0)),
                 "total_margin_used": float(margin.get("totalMarginUsed", 0)),
                 "withdrawable": float(margin.get("withdrawable", 0)),
                 "positions": len(state.get("assetPositions", [])),
                 "mode": "cross",
             }
+            with HyperliquidExecutor._global_balance_lock:
+                HyperliquidExecutor._global_balance_cache = _result
+                HyperliquidExecutor._global_balance_cache_ts = _time.monotonic()
+            return _result
         except Exception as e:
-            logger.error(f"Hyperliquid balance check failed: {e}")
+            logger.warning(f"Hyperliquid balance check failed: {e}")
+            # Return stale cache if available rather than an error dict
+            with HyperliquidExecutor._global_balance_lock:
+                if HyperliquidExecutor._global_balance_cache:
+                    logger.debug("Returning stale balance cache after API failure")
+                    return dict(HyperliquidExecutor._global_balance_cache)
             return {"error": str(e)}
 
     def get_price(self, symbol: str) -> Optional[float]:

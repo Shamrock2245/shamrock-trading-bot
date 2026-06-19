@@ -286,6 +286,7 @@ def execute_sell_solana(
                     serialized_tx_b64=signed_tx_b64,
                     wallet_public_key=wallet_public_key,
                     tip_lamports=jito_tip,
+                    private_key_b58=private_key,  # Required for on-chain tip tx
                 )
                 if jito_result.success:
                     logger.info(

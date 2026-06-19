@@ -450,7 +450,7 @@ class StatArbEngine:
             token_mint=opp.token_address,
             sol_amount=sol_amount,
             wallet_public_key=wallet.address,
-            wallet_private_key_env="WALLET_SOLANA_PRIVATE_KEY_PRIMARY",
+            wallet_private_key_env="SOLANA_PRIVATE_KEY_PRIMARY",
             slippage_bps=100,   # 1% slippage — tighter than gem trades
             is_paper=is_paper,
             gem_score=100.0,    # Bypass score gate — this is an arb, not a directional trade
@@ -525,7 +525,7 @@ class StatArbEngine:
                         token_mint=opp.token_address,
                         token_amount_units=approx_tokens,
                         wallet_public_key=wallet.address,
-                        wallet_private_key_env="WALLET_SOLANA_PRIVATE_KEY_PRIMARY",
+                        wallet_private_key_env="SOLANA_PRIVATE_KEY_PRIMARY",
                         urgency="immediate",
                         is_paper=is_paper,
                     )
@@ -668,7 +668,7 @@ class StatArbEngine:
                     token_mint=opp.token_address,
                     token_amount_units=approx_tokens,
                     wallet_public_key=wallet.address,
-                    wallet_private_key_env="WALLET_SOLANA_PRIVATE_KEY_PRIMARY",
+                    wallet_private_key_env="SOLANA_PRIVATE_KEY_PRIMARY",
                     urgency="normal",
                     is_paper=is_paper,
                 )
