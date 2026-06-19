@@ -189,6 +189,31 @@
       "confidence": 0.9,
       "applications": 1,
       "source": "ep-2026-06-17-hl-perps-live-6bugs"
+    },
+    {
+      "id": "hl_api_wallet_delegation",
+      "pattern": "CRITICAL: On Hyperliquid, HYPERLIQUID_PRIVATE_KEY and HYPERLIQUID_WALLET_ADDRESS are INTENTIONALLY different addresses. The private key controls an API wallet (derived address) that is authorized to trade on behalf of wallet_address (which holds the funds). This is standard HL API wallet delegation. NEVER change wallet_address to match the private key — that points to an unfunded $0 wallet and breaks all trading.",
+      "category": "trade_execution",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-19-001",
+      "evolution": "2026-06-19: CRITICAL — agent changed prod wallet address, broke trading for 6+ hours"
+    },
+    {
+      "id": "docker_restart_no_env_reload",
+      "pattern": "CRITICAL: 'docker compose restart <service>' does NOT reload .env file changes. The container keeps its old environment variables. To reload .env, must use 'docker compose down <service> && docker compose up -d --build <service>' or at minimum 'docker compose up -d <service>'. ALWAYS verify env vars inside container with 'docker exec <container> sh -c \"echo $VAR\"' after any .env change.",
+      "category": "deployment",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-19-001"
+    },
+    {
+      "id": "never_change_prod_wallet_without_user",
+      "pattern": "CRITICAL: NEVER change wallet addresses or private keys in production .env without explicit user confirmation. If orders fail, investigate the error (rate limits, HL downtime, API wallet expiry, SDK bugs) before assuming the config is wrong — especially if the config was working recently. Ask the user first.",
+      "category": "deployment",
+      "confidence": 1.0,
+      "applications": 1,
+      "source": "ep-2026-06-19-001"
     }
   ]
 }

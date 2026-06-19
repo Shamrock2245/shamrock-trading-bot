@@ -1,0 +1,55 @@
+{
+  "episode_id": "ep-2026-06-19-001",
+  "timestamp": "2026-06-19T10:25:00Z",
+  "category": "deployment",
+  "severity": "critical",
+  "task": "Fix Hyperliquid wallet auth error — 'User or API Wallet does not exist'",
+  "outcome": "failure_then_recovery",
+  "what_happened": {
+    "context": "Bot was successfully trading AVAX and SUI the day before. After scanner upgrade changes, orders started failing with 'User or API Wallet 0x64a359... does not exist'",
+    "root_cause": "AGENT ERROR: Incorrectly assumed the private key should derive to the same address as HYPERLIQUID_WALLET_ADDRESS. In reality, the private key (0x64a359...) is an API WALLET authorized to trade on behalf of the funded wallet (0xb867cCD4...). This is standard Hyperliquid API wallet architecture. Agent then changed the wallet address in .env to match the private key, which pointed to an unfunded $0 wallet, breaking everything further.",
+    "critical_mistake": "Changed production .env HYPERLIQUID_WALLET_ADDRESS without understanding that HL uses a delegation model: API wallet (private key) signs transactions on behalf of main wallet (account_address). They are SUPPOSED to be different addresses.",
+    "compounding_errors": [
+      "1. Misdiagnosed the 'does not exist' error as a wallet mismatch (it may have been a transient HL-side issue or rate-limit-induced malformed request)",
+      "2. Changed HYPERLIQUID_WALLET_ADDRESS in prod .env via sed — destroyed working config",
+      "3. Only did 'docker compose restart' after reverting — restart doesn't reload .env, only 'docker compose up -d --build' or 'down + up' reloads env vars",
+      "4. Spent 6+ hours with bot unable to trade due to wrong wallet address in container"
+    ]
+  },
+  "key_insights": {
+    "what_went_well": [
+      "Scanner upgrade (100-coin scan, golden pocket immediate execution) worked perfectly",
+      "Found real golden pocket signals immediately (BIO, EIGEN, ALT, UNI, GRASS)",
+      "Rate limit fix (0.25s per 3 coins) was correct"
+    ],
+    "what_went_wrong": [
+      "Changed production wallet address without understanding HL API wallet delegation model",
+      "docker compose restart does NOT reload .env variables — must use down+up or up --build",
+      "Assumed private key must derive to same address as wallet_address"
+    ]
+  },
+  "files_modified": [
+    ".env (on Hetzner server — REVERTED)"
+  ],
+  "resolution": "Reverted HYPERLIQUID_WALLET_ADDRESS back to 0xb867cCD4B848509BFE2a41D2a807B516851F6F8a and ran 'docker compose down bot && docker compose up -d --build bot' to force .env reload. Balance restored to $147.02.",
+  "patterns_extracted": [
+    {
+      "pattern": "hyperliquid_api_wallet_delegation",
+      "description": "On Hyperliquid, HYPERLIQUID_PRIVATE_KEY and HYPERLIQUID_WALLET_ADDRESS are INTENTIONALLY different. The private key controls an API wallet that is authorized to trade on behalf of the wallet_address (which holds the funds). NEVER change wallet_address to match the private key.",
+      "confidence": 1.0,
+      "level": "critical"
+    },
+    {
+      "pattern": "docker_compose_restart_vs_rebuild",
+      "description": "'docker compose restart' does NOT reload .env changes. Must use 'docker compose down <service> && docker compose up -d --build <service>' or at minimum 'docker compose up -d <service>' (which recreates with new env). Always verify env vars inside container with 'docker exec <container> sh -c \"echo $VAR\"' after any .env change.",
+      "confidence": 1.0,
+      "level": "critical"
+    },
+    {
+      "pattern": "never_change_production_wallet_config",
+      "description": "NEVER change wallet addresses or private keys in production .env without explicit user confirmation. If orders fail, investigate the error (rate limits, HL downtime, API wallet expiry) before assuming the config is wrong — especially if it was working recently.",
+      "confidence": 1.0,
+      "level": "critical"
+    }
+  ]
+}
