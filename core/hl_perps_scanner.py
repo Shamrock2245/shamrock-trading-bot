@@ -399,6 +399,11 @@ class HLPerpsScanner:
         self._meta_cache: dict = {}
         self._meta_cache_ts: float = 0.0
         self._META_CACHE_TTL: float = 30.0  # seconds
+        # Cache meta_and_asset_ctxs() for momentum pre-filter (60s TTL)
+        # Provides dayNtlVlm, openInterest, markPx, prevDayPx per coin in one call.
+        self._asset_ctxs_cache: dict[str, dict] = {}
+        self._asset_ctxs_cache_ts: float = 0.0
+        self._ASSET_CTXS_TTL: float = 60.0  # seconds
 
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -491,6 +496,67 @@ class HLPerpsScanner:
             logger.debug(f"HLPerpsScanner: funding rate fetch failed: {e}")
             return {}
 
+    def _get_asset_ctxs_cached(self) -> dict[str, dict]:
+        """
+        Return a coin->ctx dict from meta_and_asset_ctxs(), refreshed every 60s.
+        Each ctx contains: funding, openInterest, prevDayPx, dayNtlVlm,
+        markPx, midPx, dayBaseVlm.
+        Used for momentum pre-filter: rank all 230 coins by 24h price change
+        before running the expensive per-coin candle + indicator pipeline.
+        Single API call replaces N individual price lookups.
+        """
+        now = time.monotonic()
+        if now - self._asset_ctxs_cache_ts > self._ASSET_CTXS_TTL or not self._asset_ctxs_cache:
+            try:
+                result = self._api_call(self._info.meta_and_asset_ctxs)
+                if result and len(result) >= 2:
+                    meta, ctxs = result[0], result[1]
+                    new_cache: dict[str, dict] = {}
+                    for asset, ctx in zip(meta.get("universe", []), ctxs):
+                        name = asset.get("name", "").upper()
+                        if name and ctx:
+                            new_cache[name] = ctx
+                    self._asset_ctxs_cache = new_cache
+                    self._asset_ctxs_cache_ts = now
+            except Exception as e:
+                logger.debug(f"HLPerpsScanner: asset_ctxs refresh failed (using stale): {e}")
+        return self._asset_ctxs_cache
+
+    def _rank_coins_by_momentum(self, coins: list[str]) -> list[str]:
+        """
+        Re-order coins by absolute 24h price change blended with log-volume.
+        Inspired by OpenAlice cross-sectional momentum ranking: scan the most
+        active, trending coins first each cycle so the best setups are found
+        even when the 100-coin cap truncates the tail.
+        Coins with zero volume (delisted/illiquid) are pushed to the end.
+        Falls back to original order if ctxs unavailable.
+        """
+        ctxs = self._get_asset_ctxs_cached()
+        if not ctxs:
+            return coins
+        scored: list[tuple[str, float]] = []
+        for coin in coins:
+            ctx = ctxs.get(coin)
+            if not ctx:
+                scored.append((coin, 0.0))
+                continue
+            try:
+                mark = float(ctx.get("markPx") or 0)
+                prev = float(ctx.get("prevDayPx") or 0)
+                ntl_vlm = float(ctx.get("dayNtlVlm") or 0)
+                if prev > 0 and ntl_vlm > 10_000:  # min $10k volume to qualify
+                    chg_pct = abs((mark - prev) / prev * 100)
+                    # 70% price momentum + 30% log-volume rank
+                    vol_score = math.log10(max(ntl_vlm, 1))
+                    momentum = 0.7 * chg_pct + 0.3 * vol_score
+                else:
+                    momentum = 0.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                momentum = 0.0
+            scored.append((coin, momentum))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [c for c, _ in scored]
+
     def _is_on_cooldown(self, coin: str) -> bool:
         """Check if a coin is in loss cooldown."""
         if coin not in self.loss_cooldowns:
@@ -567,8 +633,41 @@ class HLPerpsScanner:
         if direction == "short" and macro_trend == "bullish":
             logger.debug(f"[HL-PERPS] {coin}: VETOED SHORT — Fighting daily bullish trend")
             return None
-            
         components["macro_trend"] = macro_trend
+
+        # ── Open Interest Confirmation (from cached asset_ctxs) ────────────────
+        # Rising OI + price rise = real trend (new money entering).
+        # Rising OI + price fall = real downtrend.
+        # Falling OI + price move = short-covering / profit-taking (weaker signal).
+        # Uses the already-fetched asset_ctxs cache — zero extra API calls.
+        try:
+            ctxs = self._get_asset_ctxs_cached()
+            ctx = ctxs.get(coin)
+            if ctx:
+                oi = float(ctx.get("openInterest") or 0)
+                prev_px = float(ctx.get("prevDayPx") or 0)
+                mark_px = float(ctx.get("markPx") or current_price)
+                ntl_vlm = float(ctx.get("dayNtlVlm") or 0)
+                # OI confirmation: high OI + price moving in signal direction
+                if oi > 0 and prev_px > 0:
+                    px_chg = (mark_px - prev_px) / prev_px  # 24h price change
+                    # Normalize OI by 24h volume to get OI/Volume ratio
+                    oi_vol_ratio = oi * mark_px / max(ntl_vlm, 1) if ntl_vlm > 0 else 0
+                    if direction == "long" and px_chg > 0.01:  # Price up >1% with OI
+                        oi_boost = min(8.0, px_chg * 100 * 0.5)  # Up to +8 pts
+                        score += oi_boost
+                        components["oi_confirmation"] = f"bullish+{oi_boost:.1f}"
+                    elif direction == "short" and px_chg < -0.01:  # Price down >1% with OI
+                        oi_boost = min(8.0, abs(px_chg) * 100 * 0.5)
+                        score += oi_boost
+                        components["oi_confirmation"] = f"bearish+{oi_boost:.1f}"
+                    elif oi_vol_ratio < 0.1:  # Very low OI vs volume = thin market
+                        score -= 5.0  # Penalise illiquid setups
+                        components["oi_confirmation"] = "thin_market-5"
+                    else:
+                        components["oi_confirmation"] = "neutral"
+        except Exception as _oi_err:
+            logger.debug(f"[HL-PERPS] {coin}: OI confirmation failed: {_oi_err}")
 
         # ── Elliott Wave / ECC Pattern Recognition ───────────────────────────
         # ECC (Elliott Crypto Cycle) relies on 5-wave impulse and 3-wave correction.
@@ -1030,10 +1129,15 @@ class HLPerpsScanner:
         # Build scan list: ALL perps from HL universe (not just watchlist)
         # This dramatically expands opportunity surface from 41 to 230+ coins.
         # Watchlist coins are scanned first (priority), then all remaining perps.
+        # Discovery coins are ranked by cross-sectional momentum (OpenAlice pattern):
+        # absolute 24h price change × log-volume ensures the most active movers
+        # are scanned first, maximising signal quality within the 100-coin cap.
         watchlist_set = set(HL_PERPS_WATCHLIST)
         scan_list = list(HL_PERPS_WATCHLIST)
         all_perps = set(funding_rates.keys())
         remaining = [c for c in sorted(all_perps) if c not in watchlist_set]
+        # Rank discovery coins by momentum before appending
+        remaining = self._rank_coins_by_momentum(remaining)
         scan_list.extend(remaining)
 
         signals: list[PerpSignal] = []
@@ -1045,7 +1149,7 @@ class HLPerpsScanner:
         max_new_signals = HL_PERPS_MAX_POSITIONS - active_positions
 
         # Cap total scan to 100 coins to balance opportunity vs rate limits
-        # (41 watchlist + 59 discovery = 100 coins × 2 API calls = 200 calls/cycle)
+        # (41 watchlist + 59 momentum-ranked discovery = 100 coins × 2 API calls)
         scan_list = scan_list[:100]
 
         for idx, coin in enumerate(scan_list):
