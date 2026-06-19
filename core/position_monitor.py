@@ -1466,14 +1466,32 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
                 f"attempts={sell_result.attempts} | slippage={sell_result.slippage_bps_used}bps"
             )
         except Exception as e:
-            logger.error(f"Live sell failed for {pos.get('token_symbol')}: {e}")
-            trade_record["error"] = str(e)
+            err_str = str(e)
+            trade_record["error"] = err_str
+
+            # ── MISSING PRIVATE KEY: config error — retrying is futile ──────
+            # Auto-close the position and log clearly so user fixes .env.
+            # This prevents the fail_count escalation to FATAL/CRITICAL.
+            if "Private key not found in env var" in err_str:
+                logger.error(
+                    f"🔑 SELL BLOCKED (missing key): {pos.get('token_symbol')} on {pos.get('chain')} — "
+                    f"{err_str}. Fix .env and redeploy. Auto-closing to stop retry spam."
+                )
+                trade_record["auto_closed_missing_key"] = True
+                append_trade(trade_record)
+                pos = dict(pos)
+                pos["remaining_quantity"] = 0
+                pos["status"] = "closed"
+                pos["closed_at"] = time.time()
+                pos["close_reason"] = "missing_private_key_config"
+                return pos
+
+            logger.warning(f"Live sell failed for {pos.get('token_symbol')}: {e}")
 
             # ── AUTO-CLOSE PHANTOM: on-chain balance confirmed 0 ────────
             # If the sell engine reports zero balance, the token was already
             # sold externally (or is a honeypot). Retrying is futile —
             # close the phantom position so it stops spamming CRITICAL alerts.
-            err_str = str(e)
             if "On-chain balance is 0" in err_str or "resolved_units=0" in err_str:
                 logger.warning(
                     f"🧹 AUTO-CLOSING PHANTOM: {pos.get('token_symbol')} on {pos.get('chain')} — "
