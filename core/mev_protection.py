@@ -43,7 +43,20 @@ logger = logging.getLogger(__name__)
 FLASHBOTS_RELAY_URL = "https://relay.flashbots.net"
 FLASHBOTS_PROTECT_RPC = "https://rpc.flashbots.net/fast"
 
-JITO_BLOCK_ENGINE_URL = "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
+# Primary Jito block engine URL (configurable via env)
+JITO_BLOCK_ENGINE_URL = os.getenv(
+    "JITO_BLOCK_ENGINE_URL",
+    "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
+)
+# Regional Jito endpoints — EU server (Helsinki) should use Amsterdam first
+# for lowest latency. All endpoints accept the same bundle format.
+JITO_BLOCK_ENGINE_URLS = [
+    os.getenv("JITO_BLOCK_ENGINE_URL", "https://mainnet.block-engine.jito.wtf/api/v1/bundles"),
+    "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://frankfurt.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://tokyo.mainnet.block-engine.jito.wtf/api/v1/bundles",
+]
 JITO_TIP_ACCOUNTS = [
     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
     "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
@@ -451,24 +464,36 @@ def submit_jito_bundle(
         except Exception as e:
             logger.debug(f"Jito auth signing failed (proceeding without auth): {e}")
 
-    try:
-        resp = get_session().post(JITO_BLOCK_ENGINE_URL, json=payload, headers=headers, timeout=30)
-        resp.raise_for_status()
-        result = resp.json()
-        if "error" in result:
-            err = result["error"]
-            err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-            logger.error(f"Jito bundle error: {err_msg}")
-            return JitoResult(success=False, error=err_msg)
-        bundle_id = result.get("result", "")
-        logger.info(f"Jito bundle submitted: {bundle_id} | tip={tip_lamports:,} lamports")
-        return JitoResult(success=True, bundle_id=bundle_id, tip_lamports=tip_lamports)
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"Jito HTTP error: {e.response.status_code} — {e.response.text[:200]}")
-        return JitoResult(success=False, error=str(e))
-    except Exception as e:
-        logger.error(f"Jito bundle submission error: {e}")
-        return JitoResult(success=False, error=str(e))
+    # Try all regional Jito endpoints in order — EU server uses Amsterdam/Frankfurt first
+    last_error = "No endpoints tried"
+    for jito_url in JITO_BLOCK_ENGINE_URLS:
+        try:
+            resp = get_session().post(jito_url, json=payload, headers=headers, timeout=15)
+            resp.raise_for_status()
+            result = resp.json()
+            if "error" in result:
+                err = result["error"]
+                err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                # BlockEngineNotAvailable / bundle already processed are non-fatal
+                if any(x in err_msg for x in ["already processed", "bundle dropped", "AlreadyProcessed"]):
+                    logger.warning(f"Jito ({jito_url.split('/')[2]}): {err_msg} — may have landed")
+                    return JitoResult(success=True, bundle_id="jito_may_have_landed", tip_lamports=tip_lamports)
+                logger.warning(f"Jito ({jito_url.split('/')[2]}) error: {err_msg} — trying next endpoint")
+                last_error = err_msg
+                continue
+            bundle_id = result.get("result", "")
+            logger.info(f"✅ Jito bundle submitted via {jito_url.split('/')[2]}: {bundle_id} | tip={tip_lamports:,} lamports")
+            return JitoResult(success=True, bundle_id=bundle_id, tip_lamports=tip_lamports)
+        except requests.exceptions.HTTPError as e:
+            logger.warning(f"Jito HTTP {e.response.status_code} on {jito_url.split('/')[2]} — trying next")
+            last_error = str(e)
+            continue
+        except Exception as e:
+            logger.warning(f"Jito error on {jito_url.split('/')[2]}: {e} — trying next")
+            last_error = str(e)
+            continue
+    logger.error(f"All Jito endpoints failed. Last error: {last_error}")
+    return JitoResult(success=False, error=f"All Jito endpoints failed: {last_error}")
 
 
 def execute_solana_via_jito(

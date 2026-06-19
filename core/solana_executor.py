@@ -573,17 +573,38 @@ def execute_solana_buy(
             )
 
     # ── Standard RPC fallback ─────────────────────────────────────────────────
-    signature = sign_and_send_transaction(
-        serialized_tx_b64=swap_tx,
-        private_key_b58=private_key,
-    )
-
-    if signature:
-        logger.info(f"✅ Solana buy executed (standard RPC): https://solscan.io/tx/{signature}")
-    else:
-        logger.error(f"❌ Solana buy failed for {token_mint}")
-
-    return signature
+    # Standard RPC fallback (3 retries with slippage escalation)
+    _current_swap_tx = swap_tx
+    for rpc_attempt in range(3):
+        if rpc_attempt > 0:
+            wider_slippage = min(slippage_bps * (rpc_attempt + 1), 5000)
+            logger.warning(
+                f"Buy RPC attempt {rpc_attempt + 1}/3: re-quoting with {wider_slippage}bps slippage"
+            )
+            retry_quote = get_jupiter_quote(
+                input_mint=WSOL_MINT,
+                output_mint=token_mint,
+                amount_lamports=lamports,
+                slippage_bps=wider_slippage,
+            )
+            if retry_quote:
+                _current_swap_tx = get_jupiter_swap_transaction(
+                    quote=retry_quote,
+                    user_public_key=wallet_public_key,
+                ) or _current_swap_tx
+            time.sleep(2.0 * rpc_attempt)
+        signature = sign_and_send_transaction(
+            serialized_tx_b64=_current_swap_tx,
+            private_key_b58=private_key,
+        )
+        if signature:
+            logger.info(
+                f"✅ Solana buy executed (RPC attempt {rpc_attempt + 1}): "
+                f"https://solscan.io/tx/{signature}"
+            )
+            return signature
+    logger.error(f"❌ Solana buy failed for {token_mint} after 3 RPC attempts")
+    return None
 
 
 def execute_solana_sell(

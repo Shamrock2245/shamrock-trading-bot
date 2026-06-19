@@ -61,15 +61,17 @@ def _get_eth_price_usd() -> float:
     return 3000.0  # FALLBACK: clearly labelled, only used when live fetch fails
 
 # Slippage escalation ladder (basis points)
-SLIPPAGE_LADDER = [200, 500, 1500, 3000]
+# Extended to 6 attempts: 200 → 500 → 1500 → 3000 → 5000 → 5000 (USDC fallback)
+SLIPPAGE_LADDER = [200, 500, 1500, 3000, 5000, 5000]
 
 # Max sell attempts before giving up
-MAX_SELL_ATTEMPTS = 4
+MAX_SELL_ATTEMPTS = 6
 
 # Jito tip for sells (higher than buys — exits are time-critical)
-JITO_TIP_SELL_NORMAL = 100_000      # ~$0.014 — standard sell
-JITO_TIP_SELL_URGENT = 500_000      # ~$0.070 — trailing stop / TP hit
-JITO_TIP_SELL_NUCLEAR = 1_500_000   # ~$0.21  — hard stop / rug detection
+# Increased: Jito block engine rejects bundles with tips below ~100k during congestion
+JITO_TIP_SELL_NORMAL = 200_000      # ~$0.028 — standard sell (was 100k, too low)
+JITO_TIP_SELL_URGENT = 750_000      # ~$0.105 — trailing stop / TP hit (was 500k)
+JITO_TIP_SELL_NUCLEAR = 2_000_000   # ~$0.28  — hard stop / rug detection (was 1.5M)
 
 
 @dataclass
@@ -153,6 +155,19 @@ def execute_sell_solana(
             execution_path="paper",
         )
 
+    # ── Pre-validate private key BEFORE the retry loop ─────────────────────
+    # Failing here immediately avoids wasting all 6 attempts on a config error.
+    private_key = os.getenv(wallet_private_key_env)
+    if not private_key:
+        logger.error(
+            f"Private key not found in env var: {wallet_private_key_env} — "
+            f"cannot execute sell for {token_mint[:8]}..."
+        )
+        return SellResult(
+            success=False,
+            error=f"Private key not found in env var: {wallet_private_key_env}",
+        )
+
     # Jito tip based on urgency
     tip_map = {
         "normal":    JITO_TIP_SELL_NORMAL,
@@ -162,12 +177,20 @@ def execute_sell_solana(
     jito_tip = tip_map.get(urgency, JITO_TIP_SELL_NORMAL)
 
     # Sell to SOL (native) — feeds directly back into next buy
+    # On attempts 5+ (index 4+), fall back to USDC output if SOL route keeps failing
     output_mint = WSOL_MINT
 
     # Skip lower tiers if we've failed before (escalate slippage across monitor cycles)
     start_tier = min(prior_failures, len(SLIPPAGE_LADDER) - 1)
     for attempt in range(start_tier, MAX_SELL_ATTEMPTS):
         slippage_bps = SLIPPAGE_LADDER[min(attempt, len(SLIPPAGE_LADDER) - 1)]
+        # On attempt 5+ switch output to USDC as a last resort
+        # (some low-liquidity tokens have better USDC routes than SOL routes)
+        if attempt >= 4:
+            output_mint = USDC_MINT
+            logger.warning(
+                f"Attempt {attempt + 1}: switching output to USDC as last-resort route"
+            )
 
         logger.info(
             f"Solana sell attempt {attempt + 1}/{MAX_SELL_ATTEMPTS} | "
@@ -222,15 +245,7 @@ def execute_sell_solana(
                 execution_path="paper",
             )
 
-        # Get private key
-        private_key = os.getenv(wallet_private_key_env)
-        if not private_key:
-            return SellResult(
-                success=False,
-                error=f"Private key not found in env var: {wallet_private_key_env}",
-            )
-
-        # Get swap transaction
+        # Get swap transaction  # private_key pre-validated above the loop
         swap_tx = get_jupiter_swap_transaction(
             quote=quote,
             user_public_key=wallet_public_key,
