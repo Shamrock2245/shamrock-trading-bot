@@ -604,9 +604,15 @@ class SandwichBot:
             return
 
         logger.info("SandwichBot: Starting Base mempool monitor...")
+        _backoff = 5
+        _MAX_BACKOFF = 60
         while True:
             try:
-                async with websockets.connect(BASE_WS_RPC_URL, ping_interval=20) as ws:
+                async with websockets.connect(
+                    BASE_WS_RPC_URL,
+                    ping_interval=20,
+                    close_timeout=10,
+                ) as ws:
                     sub_msg = {
                         "jsonrpc": "2.0",
                         "id": 1,
@@ -615,6 +621,7 @@ class SandwichBot:
                     }
                     await ws.send(json.dumps(sub_msg))
                     logger.info("SandwichBot: Subscribed to Base pending transactions")
+                    _backoff = 5  # reset on successful connect
 
                     async for raw_msg in ws:
                         try:
@@ -630,9 +637,16 @@ class SandwichBot:
                         except Exception as e:
                             logger.debug(f"SandwichBot: Tx parse error: {e}")
 
+            except (websockets.exceptions.ConnectionClosed,
+                    websockets.exceptions.ConnectionClosedError,
+                    websockets.exceptions.ConnectionClosedOK) as e:
+                logger.warning(f"SandwichBot: Base WS closed ({e}). Reconnecting in {_backoff}s...")
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
             except Exception as e:
-                logger.error(f"SandwichBot: Base WS error: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.error(f"SandwichBot: Base WS error: {e}. Reconnecting in {_backoff}s...")
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
 
     def _parse_pending_tx(self, tx: Dict[str, Any], chain: str) -> Optional[PendingSwap]:
         """
@@ -1323,17 +1337,28 @@ class LiquidationHunter:
         Subscribes to:
           • allMids — oracle price updates (triggers at-risk account polling)
           • userEvents — our own wallet fills and liquidation confirmations
+
+        Hardened reconnection:
+          - Exponential backoff: 5s → 10s → 20s → 40s (cap 60s) on repeated failures
+          - ConnectionClosed / ConnectionClosedError handled separately (downgraded to
+            warning) because "no close frame received or sent" is a normal TCP drop,
+            NOT a code bug — it should NOT fire Sentry high-priority alerts.
+          - Successful connection resets backoff counter.
         """
         if not HYPERLIQUID_ENABLED or not self.enabled:
             return
 
         logger.info("LiquidationHunter: Starting Hyperliquid WebSocket monitor...")
+        _backoff = 5
+        _MAX_BACKOFF = 60
         while True:
             try:
                 async with websockets.connect(
                     HYPERLIQUID_WS_URL,
                     ping_interval=20,
                     ping_timeout=30,
+                    close_timeout=10,
+                    max_size=2**23,  # 8 MB — prevents oversized-frame crashes
                 ) as ws:
                     await ws.send(json.dumps({
                         "method": "subscribe",
@@ -1350,6 +1375,7 @@ class LiquidationHunter:
                         }))
 
                     logger.info("LiquidationHunter: Hyperliquid WS subscriptions active")
+                    _backoff = 5  # reset on successful connect
 
                     async for raw_msg in ws:
                         try:
@@ -1374,9 +1400,21 @@ class LiquidationHunter:
                         except Exception as e:
                             logger.debug(f"LiquidationHunter: HL WS parse error: {e}")
 
+            except (websockets.exceptions.ConnectionClosed,
+                    websockets.exceptions.ConnectionClosedError,
+                    websockets.exceptions.ConnectionClosedOK) as e:
+                # Normal TCP drop / server-side close — NOT a code bug, downgrade to warning
+                # to suppress Sentry high-priority alerts for "no close frame received or sent"
+                logger.warning(
+                    f"LiquidationHunter: HL WS connection closed ({e}). "
+                    f"Reconnecting in {_backoff}s..."
+                )
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
             except Exception as e:
-                logger.error(f"LiquidationHunter: HL WS error: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.error(f"LiquidationHunter: HL WS error: {e}. Reconnecting in {_backoff}s...")
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
 
     async def _check_hl_at_risk_accounts(self, mids_data: Dict[str, Any]) -> None:
         """
@@ -1622,11 +1660,21 @@ class LiquidationHunter:
         liquidation_topic: str,
         chain: str,
     ) -> None:
-        """Subscribes to Aave LiquidationCall events via eth_subscribe logs."""
+        """Subscribes to Aave LiquidationCall events via eth_subscribe logs.
+
+        Hardened with exponential backoff and ConnectionClosed separation
+        (same pattern as monitor_hyperliquid_ws).
+        """
         logger.info(f"LiquidationHunter: Starting Aave V3 event monitor on {chain}...")
+        _backoff = 5
+        _MAX_BACKOFF = 60
         while True:
             try:
-                async with websockets.connect(ws_url, ping_interval=20) as ws:
+                async with websockets.connect(
+                    ws_url,
+                    ping_interval=20,
+                    close_timeout=10,
+                ) as ws:
                     await ws.send(json.dumps({
                         "jsonrpc": "2.0",
                         "id": 1,
@@ -1640,6 +1688,7 @@ class LiquidationHunter:
                         ],
                     }))
                     logger.info(f"LiquidationHunter: Subscribed to Aave {chain} LiquidationCall events")
+                    _backoff = 5  # reset on successful connect
 
                     async for raw_msg in ws:
                         try:
@@ -1650,9 +1699,19 @@ class LiquidationHunter:
                         except Exception as e:
                             logger.debug(f"LiquidationHunter: Aave event parse error: {e}")
 
+            except (websockets.exceptions.ConnectionClosed,
+                    websockets.exceptions.ConnectionClosedError,
+                    websockets.exceptions.ConnectionClosedOK) as e:
+                logger.warning(
+                    f"LiquidationHunter: Aave WS {chain} connection closed ({e}). "
+                    f"Reconnecting in {_backoff}s..."
+                )
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
             except Exception as e:
-                logger.error(f"LiquidationHunter: Aave WS error on {chain}: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.error(f"LiquidationHunter: Aave WS error on {chain}: {e}. Reconnecting in {_backoff}s...")
+                await asyncio.sleep(_backoff)
+                _backoff = min(_backoff * 2, _MAX_BACKOFF)
 
     async def _poll_aave_borrowers_loop(self, chain: str) -> None:
         """
@@ -1969,45 +2028,59 @@ class MEVExtractorEngine:
         self._start_time: float = time.time()
 
     async def run(self) -> None:
-        """Starts all MEV monitoring tasks concurrently with auto-restart."""
+        """Starts all MEV monitoring tasks concurrently with supervised auto-restart.
+
+        Each strategy coroutine has its own infinite reconnect loop, but if one
+        somehow exits (e.g., unhandled exception escapes the inner loop), the
+        supervisor here detects it and relaunches it after a 10-second delay.
+        This prevents any single crash from silently killing a revenue stream.
+        """
         logger.info(
             "MEVExtractorEngine: Starting all strategies | "
             f"Sandwich: {'ON' if SANDWICH_ENABLED else 'OFF'} | "
             f"Liquidation: {'ON' if LIQUIDATION_ENABLED else 'OFF'}"
         )
 
-        tasks: List[asyncio.Task] = []
-
+        # Map of task name → coroutine factory
+        _task_registry: dict = {}
         if SANDWICH_ENABLED:
-            tasks.append(asyncio.create_task(
-                self.sandwich_bot.monitor_base_mempool(),
-                name="sandwich_base_mempool",
-            ))
-
+            _task_registry["sandwich_base_mempool"] = self.sandwich_bot.monitor_base_mempool
         if LIQUIDATION_ENABLED:
             if HYPERLIQUID_ENABLED:
-                tasks.append(asyncio.create_task(
-                    self.liquidation_hunter.monitor_hyperliquid_ws(),
-                    name="liquidation_hyperliquid_ws",
-                ))
-            tasks.append(asyncio.create_task(
-                self.liquidation_hunter.monitor_aave_ws(chain="base"),
-                name="liquidation_aave_base",
-            ))
-            tasks.append(asyncio.create_task(
-                self.liquidation_hunter.monitor_aave_ws(chain="ethereum"),
-                name="liquidation_aave_eth",
-            ))
+                _task_registry["liquidation_hyperliquid_ws"] = self.liquidation_hunter.monitor_hyperliquid_ws
+            _task_registry["liquidation_aave_base"] = lambda: self.liquidation_hunter.monitor_aave_ws(chain="base")
+            _task_registry["liquidation_aave_eth"] = lambda: self.liquidation_hunter.monitor_aave_ws(chain="ethereum")
 
-        if not tasks:
+        if not _task_registry:
             logger.warning("MEVExtractorEngine: No strategies enabled — engine idle")
             return
 
-        # Gather with exception logging — individual task crashes don't kill the engine
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"MEVExtractorEngine: Task {i} crashed: {result}")
+        # Launch all tasks
+        active_tasks: dict[str, asyncio.Task] = {
+            name: asyncio.create_task(factory(), name=name)
+            for name, factory in _task_registry.items()
+        }
+
+        # Supervisor loop: detect dead tasks and restart them
+        while True:
+            await asyncio.sleep(15)
+            for name, task in list(active_tasks.items()):
+                if task.done():
+                    exc = task.exception() if not task.cancelled() else None
+                    if exc:
+                        logger.error(
+                            f"MEVExtractorEngine: Task '{name}' crashed ({exc}). "
+                            f"Restarting in 10s..."
+                        )
+                    else:
+                        logger.warning(
+                            f"MEVExtractorEngine: Task '{name}' exited cleanly. "
+                            f"Restarting in 10s..."
+                        )
+                    await asyncio.sleep(10)
+                    factory = _task_registry[name]
+                    active_tasks[name] = asyncio.create_task(factory(), name=name)
+                    logger.info(f"MEVExtractorEngine: Task '{name}' restarted.")
 
     def get_status(self) -> Dict[str, Any]:
         """Returns a status dict for dashboard integration."""

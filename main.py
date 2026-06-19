@@ -1215,13 +1215,17 @@ async def run_bot_loop():
         """Background thread: continuously scans for CEX/DEX spread opportunities."""
         import time as _time
         _time.sleep(45)  # Wait 45s for bot to fully initialize
-        try:
-            from core.stat_arb import get_stat_arb_engine
-            _stat_arb_inst = get_stat_arb_engine()
-            logger.info("✅ StatArb Scanner daemon initialized")
-        except Exception as _stat_arb_init_err:
-            logger.warning(f"StatArb scanner init failed: {_stat_arb_init_err}")
-            return
+        _sa_init_backoff = 30
+        while True:
+            try:
+                from core.stat_arb import get_stat_arb_engine
+                _stat_arb_inst = get_stat_arb_engine()
+                logger.info("✅ StatArb Scanner daemon initialized")
+                break
+            except Exception as _stat_arb_init_err:
+                logger.error(f"StatArb scanner init failed: {_stat_arb_init_err}. Retrying in {_sa_init_backoff}s...")
+                _time.sleep(_sa_init_backoff)
+                _sa_init_backoff = min(_sa_init_backoff * 2, 300)
 
         while True:
             try:
@@ -1241,15 +1245,19 @@ async def run_bot_loop():
         """Background thread: continuously scans for arbitrage opportunities."""
         import time as _time
         _time.sleep(30)  # Wait 30s for bot to fully initialize
-        try:
-            from scanner.arb_scanner import ArbScanner
-            from core.arb_executor import get_arb_executor
-            _arb_scanner_inst = ArbScanner()
-            _arb_exec_inst = get_arb_executor()
-            logger.info("✅ Arbitrage Scanner daemon initialized")
-        except Exception as _arb_init_err:
-            logger.warning(f"Arb scanner init failed: {_arb_init_err}")
-            return
+        _arb_init_backoff = 30
+        while True:
+            try:
+                from scanner.arb_scanner import ArbScanner
+                from core.arb_executor import get_arb_executor
+                _arb_scanner_inst = ArbScanner()
+                _arb_exec_inst = get_arb_executor()
+                logger.info("✅ Arbitrage Scanner daemon initialized")
+                break
+            except Exception as _arb_init_err:
+                logger.error(f"Arb scanner init failed: {_arb_init_err}. Retrying in {_arb_init_backoff}s...")
+                _time.sleep(_arb_init_backoff)
+                _arb_init_backoff = min(_arb_init_backoff * 2, 300)
         while True:
             try:
                 # Get dynamic scan interval from daily goal engine
@@ -1285,14 +1293,26 @@ async def run_bot_loop():
 
     # ── MEV Extractor: JIT Liquidity Sniper + Backrun Engine ──────────────────────────────────────────────────────────────────────────────
     def _mev_daemon():
-        """Background thread: runs the MEV Extractor Engine."""
-        try:
-            import asyncio
-            from core.mev_extractor import get_mev_extractor
-            _mev_extractor = get_mev_extractor()
-            asyncio.run(_mev_extractor.run())
-        except Exception as _mev_err:
-            logger.warning(f"MEV Extractor failed to run: {_mev_err}")
+        """Background thread: runs the MEV Extractor Engine.
+
+        Outer restart loop ensures the engine never permanently dies if
+        asyncio.run() itself crashes (e.g., event loop policy conflict).
+        The inner supervisor in MEVExtractorEngine.run() handles per-task restarts.
+        """
+        import asyncio as _asyncio
+        import time as _mev_time
+        _mev_backoff = 10
+        while True:
+            try:
+                from core.mev_extractor import get_mev_extractor
+                _mev_extractor = get_mev_extractor()
+                _asyncio.run(_mev_extractor.run())
+                # run() should never return (infinite supervisor loop)
+                logger.warning("MEV Extractor engine exited unexpectedly. Restarting...")
+            except Exception as _mev_err:
+                logger.error(f"MEV Extractor crashed: {_mev_err}. Restarting in {_mev_backoff}s...")
+            _mev_time.sleep(_mev_backoff)
+            _mev_backoff = min(_mev_backoff * 2, 120)
 
     _mev_thread = threading.Thread(target=_mev_daemon, daemon=True, name="mev-extractor")
     _mev_thread.start()
@@ -1306,28 +1326,35 @@ async def run_bot_loop():
 
     # ── HL Perps Scanner: 15-minute scan daemon ─────────────────────────────────────────────────────────────────────────────────────────
     def _hl_perps_daemon():
-        """Background thread: scans all 230 HL perps every 2 minutes for high-conviction entries."""
+        """Background thread: scans all 230 HL perps every 2 minutes for high-conviction entries.
+
+        Init failures retry with backoff instead of permanently exiting.
+        """
         import time as _time
         _time.sleep(30)  # Wait 30s for bot to fully initialize
-        try:
-            from core.hl_perps_scanner import HLPerpsScanner
-            from core.hyperliquid_executor import HyperliquidExecutor
-            # Initialize the executor for LIVE trading on Hyperliquid
-            _hl_exec = HyperliquidExecutor()
-            if not _hl_exec._initialized:
-                logger.warning("HL Perps: executor failed to init — running in signal-only mode")
-                _hl_exec = None
-            else:
-                logger.info(
-                    f"✅ HL Perps LIVE executor ready | "
-                    f"wallet={_hl_exec.wallet_address[:10]}... | "
-                    f"leverage={_hl_exec.default_leverage}x"
-                )
-            _hl_scanner = HLPerpsScanner(hl_executor=_hl_exec)
-            logger.info("✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | 29-indicator + HL scoring | LIVE execution")
-        except Exception as _hl_init_err:
-            logger.error(f"HL Perps Scanner init failed: {_hl_init_err}")
-            return
+        _init_backoff = 30
+        while True:
+            try:
+                from core.hl_perps_scanner import HLPerpsScanner
+                from core.hyperliquid_executor import HyperliquidExecutor
+                # Initialize the executor for LIVE trading on Hyperliquid
+                _hl_exec = HyperliquidExecutor()
+                if not _hl_exec._initialized:
+                    logger.warning("HL Perps: executor failed to init — running in signal-only mode")
+                    _hl_exec = None
+                else:
+                    logger.info(
+                        f"✅ HL Perps LIVE executor ready | "
+                        f"wallet={_hl_exec.wallet_address[:10]}... | "
+                        f"leverage={_hl_exec.default_leverage}x"
+                    )
+                _hl_scanner = HLPerpsScanner(hl_executor=_hl_exec)
+                logger.info("✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | 29-indicator + HL scoring | LIVE execution")
+                break  # Init succeeded, exit retry loop
+            except Exception as _hl_init_err:
+                logger.error(f"HL Perps Scanner init failed: {_hl_init_err}. Retrying in {_init_backoff}s...")
+                _time.sleep(_init_backoff)
+                _init_backoff = min(_init_backoff * 2, 300)
         while True:
             try:
                 signals = _hl_scanner.run_cycle()
@@ -1366,18 +1393,19 @@ async def run_bot_loop():
         _time.sleep(45)  # Wait for HL perps daemon to initialize the executor
 
         # Grab the executor reference once it is available
+        # Wait indefinitely (in 8s increments) — never permanently exit
         _exec = None
-        for _ in range(30):  # up to 4 minutes of waiting
+        _wait_count = 0
+        while _exec is None:
             if _trailing_exec_ref:
                 _exec = _trailing_exec_ref[0]
                 break
             _time.sleep(8)
-
-        if _exec is None:
-            logger.warning(
-                "⚠️ Trailing monitor: could not obtain HL executor reference — daemon exiting"
-            )
-            return
+            _wait_count += 1
+            if _wait_count % 15 == 0:  # log every 2 minutes
+                logger.warning(
+                    f"⚠️ Trailing monitor: still waiting for HL executor reference ({_wait_count * 8}s elapsed)..."
+                )
 
         logger.info(
             f"🔒 Trailing Profit-Lock monitor ACTIVE | "

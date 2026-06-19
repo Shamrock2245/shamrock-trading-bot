@@ -783,14 +783,28 @@ class HLPerpsScanner:
         reasoning = " | ".join(p for p in reasoning_parts if p)
 
         # ── Kelly Criterion Position Sizing ──────────────────────────────────────
-        # Scale size exponentially based on signal score (65 to 100)
-        # Since we are trading on a $150 account, scale from $25 to $145.
+        # ── Dynamic Kelly Criterion Position Sizing ─────────────────────────
+        # Scale size exponentially based on signal score (65 to 100).
+        # Uses LIVE account equity if executor is available, otherwise falls back
+        # to HL_PERPS_BASE_CAPITAL env var (default $150).
+        # Sizing: min=16.7% of equity (1 of 6 slots), max=96.7% of equity.
         # Formula: base_size * e^(k * (score - min_score))
+        _live_equity = HL_PERPS_BASE_CAPITAL
+        if self.hl_executor and self.hl_executor.is_available():
+            try:
+                _bal = self.hl_executor.get_balance()
+                _acct_val = _bal.get("accountValue", 0.0) or _bal.get("equity", 0.0)
+                if _acct_val and _acct_val > 10.0:  # sanity: ignore near-zero balances
+                    _live_equity = float(_acct_val)
+            except Exception:
+                pass  # Fall back to HL_PERPS_BASE_CAPITAL
         min_score = HL_PERPS_MIN_SCORE
         max_score = 95.0
-        min_size = 25.0
-        max_size = 145.0
-        
+        # Allocate 1/6 of equity at min score, up to 5/6 at max score
+        # This ensures no single trade risks more than ~97% of account
+        min_size = max(10.0, round(_live_equity / 6.0, 2))
+        max_size = max(min_size, round(_live_equity * 0.967, 2))
+
         if score <= min_score:
             kelly_size_usd = min_size
         elif score >= max_score:
@@ -799,10 +813,8 @@ class HLPerpsScanner:
             # Exponential scaling factor
             k = math.log(max_size / min_size) / (max_score - min_score)
             kelly_size_usd = min_size * math.exp(k * (score - min_score))
-            
-        # Ensure we don't exceed the global max position cap if it's set lower,
-        # but for the Kelly upgrade, we allow the calculated size up to max_size.
-        # We cap it strictly at max_size to prevent runaway sizes.
+
+        # Hard cap: never risk more than max_size in a single position
         kelly_size_usd = min(kelly_size_usd, max_size)
 
         signal = PerpSignal(
@@ -885,13 +897,21 @@ class HLPerpsScanner:
             logger.warning("HLPerpsScanner: HL executor not available")
             return False
 
-        # Check daily loss limit
+        # Check daily loss limit — dynamic: 33% of live equity or env var floor
         self._check_daily_reset()
-        daily_limit = max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0)
+        _eq_for_limit = HL_PERPS_BASE_CAPITAL
+        try:
+            _bl = self.hl_executor.get_balance()
+            _av = _bl.get("accountValue", 0.0) or _bl.get("equity", 0.0)
+            if _av and _av > 10.0:
+                _eq_for_limit = float(_av)
+        except Exception:
+            pass
+        daily_limit = max(HL_PERPS_DAILY_LOSS_LIMIT, round(_eq_for_limit * 0.33, 2))
         if self.daily_pnl <= -daily_limit:
             logger.warning(
                 f"🛑 HLPerpsScanner CIRCUIT BREAKER: daily PnL ${self.daily_pnl:.2f} "
-                f"hit limit -${daily_limit:.2f} — halting perps trading"
+                f"hit limit -${daily_limit:.2f} (33% of ${_eq_for_limit:.2f} equity) — halting perps trading"
             )
             return False
 
