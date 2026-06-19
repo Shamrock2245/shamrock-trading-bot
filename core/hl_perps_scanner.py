@@ -950,7 +950,7 @@ class HLPerpsScanner:
                 return False
 
         except Exception as e:
-            logger.error(f"HLPerpsScanner: execution error for {signal.coin}: {e}")
+            logger.warning(f"HLPerpsScanner: execution error for {signal.coin}: {e}")
             return False
 
     def _add_funding_anomaly_coins(self, funding_rates: dict[str, float]) -> list[str]:
@@ -990,7 +990,7 @@ class HLPerpsScanner:
                         )
                         self.hl_executor.withdraw_profit_usd(HL_PERPS_PROFIT_SWEEP_USD, paycheck_wallet)
                 except Exception as e:
-                    logger.error(f"Failed to check/sweep HL profits: {e}")
+                    logger.warning(f"Failed to check/sweep HL profits: {e}")
 
         self._check_daily_reset()
         self.scan_count += 1

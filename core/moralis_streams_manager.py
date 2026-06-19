@@ -337,24 +337,26 @@ class MoralisStreamsManager:
             return
 
         webhook = self.webhook_url.rstrip("/")  # already full path
-        addresses = []
+        # Use programIds (correct Moralis Solana Streams field) not 'address'
+        program_ids = []
         if settings.PUMP_FUN_PROGRAM_ID:
-            addresses.append(settings.PUMP_FUN_PROGRAM_ID)
+            program_ids.append(settings.PUMP_FUN_PROGRAM_ID)
         if settings.RAYDIUM_AMM_PROGRAM_ID:
-            addresses.append(settings.RAYDIUM_AMM_PROGRAM_ID)
-
+            program_ids.append(settings.RAYDIUM_AMM_PROGRAM_ID)
+        # Fallback: if no program IDs configured, use allAddresses firehose
+        use_all = not bool(program_ids)
         body = {
             "webhookUrl": webhook,
             "description": "Shamrock Trading Bot — Solana Zero-Latency Token Discovery",
             "tag": TAG_SOLANA_DISCOVERY,
             "network": ["mainnet"],
-            "address": addresses
+            "programIds": program_ids if program_ids else [],
+            "allAddresses": use_all,
         }
-
         stream_id = self._create_stream(body, network="solana")
         if stream_id:
             self._managed_streams[TAG_SOLANA_DISCOVERY] = stream_id
-            logger.info(f"MoralisStreamsManager: ✅ Solana discovery stream created: {stream_id}")
+            logger.info(f"MoralisStreamsManager: ✅ Solana discovery stream created: {stream_id} | programs={program_ids}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Health Monitoring
@@ -441,8 +443,16 @@ class MoralisStreamsManager:
     # Moralis API Calls
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _create_stream(self, body: dict, network: str = "evm", max_retries: int = 3) -> Optional[str]:
-        """Create a new stream with retry on transient errors. Returns stream ID or None."""
+    def _create_stream(self, body: dict, network: str = "evm", max_retries: int = 4) -> Optional[str]:
+        """Create a new stream with retry on transient errors. Returns stream ID or None.
+
+        Retry policy:
+          - 502/503 (Moralis gateway/infra transient): retry all attempts, exp backoff 2s→4s→8s
+          - 422/400 (bad request body): do NOT retry — log as warning (not error) to avoid
+            Sentry false alarms; these are config issues, not outages.
+          - Other 4xx: log as warning, return None immediately.
+          - Network errors: retry with backoff.
+        """
         for attempt in range(1, max_retries + 1):
             try:
                 # CRITICAL: Moralis uses PUT for create, NOT POST
@@ -458,17 +468,33 @@ class MoralisStreamsManager:
                     self.metrics["streams_created"] += 1
                     logger.info(f"MoralisStreamsManager: Created stream {body.get('tag')} → {stream_id}")
                     return stream_id
-                elif resp.status_code in (502, 503) and attempt < max_retries:
-                    # Transient Moralis outage — retry with exponential backoff
+                elif resp.status_code in (502, 503):
+                    # Transient Moralis outage — always retry with exponential backoff
                     wait = 2 ** attempt
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"MoralisStreamsManager: Transient {resp.status_code} creating stream "
+                            f"{body.get('tag')} — retry {attempt}/{max_retries} in {wait}s"
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        # All retries exhausted — warn only, health loop will recreate
+                        logger.warning(
+                            f"MoralisStreamsManager: Stream {body.get('tag')} creation failed after "
+                            f"{max_retries} retries (persistent {resp.status_code}) — will retry on next health check"
+                        )
+                        return None
+                elif resp.status_code in (400, 422):
+                    # Bad request body — config error, not a Sentry-worthy outage
                     logger.warning(
-                        f"MoralisStreamsManager: Transient {resp.status_code} creating stream "
-                        f"{body.get('tag')} — retry {attempt}/{max_retries} in {wait}s"
+                        f"MoralisStreamsManager: Bad request creating stream {body.get('tag')}: "
+                        f"{resp.status_code} {resp.text[:300]} — check stream body fields"
                     )
-                    time.sleep(wait)
-                    continue
+                    self.metrics["errors"] += 1
+                    return None
                 else:
-                    logger.error(
+                    logger.warning(
                         f"MoralisStreamsManager: Failed to create stream {body.get('tag')}: "
                         f"{resp.status_code} {resp.text[:200]}"
                     )
@@ -480,7 +506,7 @@ class MoralisStreamsManager:
                     logger.warning(f"MoralisStreamsManager: Error creating stream (attempt {attempt}): {e} — retrying in {wait}s")
                     time.sleep(wait)
                 else:
-                    logger.error(f"MoralisStreamsManager: Error creating stream after {max_retries} attempts: {e}")
+                    logger.warning(f"MoralisStreamsManager: Error creating stream after {max_retries} attempts: {e}")
                     self.metrics["errors"] += 1
                     return None
         return None
@@ -606,27 +632,44 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: ✅ Bitcoin whale watch stream created: {stream_id}")
 
     def _ensure_solana_alpha_wallet_stream(self) -> None:
-        """Create or verify the Solana alpha wallet SPL transfer monitoring stream."""
+        """Create or verify the Solana alpha wallet SPL transfer monitoring stream.
+
+        Moralis Solana Streams API (PUT /streams/solana) requires:
+          webhookUrl, tag, network (list), description
+        Optional filters: mintAddresses, programIds, allAddresses
+        NOTE: 'address' is NOT a valid body field for stream creation — addresses
+        are added post-creation via POST /streams/solana/{id}/address.
+        Sending invalid fields causes a 502 from the Moralis gateway.
+        """
         if TAG_SOLANA_ALPHA_WALLETS in self._managed_streams:
             logger.info(f"MoralisStreamsManager: Solana alpha wallet stream already exists: {self._managed_streams[TAG_SOLANA_ALPHA_WALLETS]}")
             self._sync_solana_alpha_wallets()
             return
 
-        webhook = self.webhook_url.rstrip("/")  # already full path
-        addresses = list(settings.SOLANA_SMART_MONEY_WALLETS) if settings.SOLANA_SMART_MONEY_WALLETS else []
+        webhook = self.webhook_url.rstrip("/")
+
+        # SPL Token Program — all SPL transfers pass through this program.
+        # Filtering by programId gives us all token activity; we then filter
+        # by watched addresses in the webhook handler.
+        SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
         body = {
             "webhookUrl": webhook,
             "description": "Shamrock Trading Bot — Solana Alpha Wallet SPL Transfer Monitor",
             "tag": TAG_SOLANA_ALPHA_WALLETS,
             "network": ["mainnet"],
-            "address": addresses,
+            "programIds": [SPL_TOKEN_PROGRAM],
+            "allAddresses": False,
         }
 
         stream_id = self._create_stream(body, network="solana")
         if stream_id:
             self._managed_streams[TAG_SOLANA_ALPHA_WALLETS] = stream_id
-            logger.info(f"MoralisStreamsManager: ✅ Solana alpha wallet stream created: {stream_id}")
+            # Now add the alpha wallet addresses via the correct address endpoint
+            addresses = list(settings.SOLANA_SMART_MONEY_WALLETS) if settings.SOLANA_SMART_MONEY_WALLETS else []
+            if addresses:
+                self._replace_addresses(stream_id, addresses, network="solana")
+            logger.info(f"MoralisStreamsManager: ✅ Solana alpha wallet stream created: {stream_id} | {len(addresses)} wallets registered")
 
     def _sync_solana_alpha_wallets(self) -> None:
         """Push current SOLANA_SMART_MONEY_WALLETS to the Solana alpha stream."""

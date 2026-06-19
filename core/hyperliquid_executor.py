@@ -51,10 +51,24 @@ _HL_TICKER_LOCK = threading.Lock()
 # These are downgraded from logger.error → logger.warning to suppress Sentry noise.
 # ─────────────────────────────────────────────────────────────────────────────
 _HL_EXPECTED_REJECTIONS = (
+    # Price deviation / liquidity rejections
     "Order price cannot be more than 95% away from the reference price",
     "Order could not immediately match against any resting orders",
+    "Order could not be placed",
+    "Insufficient liquidity",
+    "Market order could not be filled",
+    # Position / margin rejections
     "Reduce only order would increase position",
     "Post only order would have immediately matched",
+    "Insufficient margin",
+    "Would exceed max leverage",
+    "Position size too small",
+    "Notional too small",
+    "Max position size exceeded",
+    # Rate / duplicate rejections
+    "Duplicate order",
+    "Too many open orders",
+    "Order size is too small",
 )
 
 
