@@ -1522,11 +1522,12 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             logger.info(f'Sell retry backoff: {backoff_secs}s for {pos.get("token_symbol")}')
 
             # ── DUST AUTO-CLOSE: Stop retrying unsellable micro-positions ──
-            # If position value is below $0.50 after 10+ failures, or if we've
-            # hit 50+ failures regardless of value, force-close as dust.
+            # If position value is below $1.00 after 5+ failures, or if we've
+            # hit 20+ failures regardless of value, force-close as dust.
+            # Old thresholds (50/10) let dead tokens spam 30+ cycles.
             _remaining = float(pos.get("remaining_quantity", 0))
             _est_value = _remaining * current_price if current_price else 0
-            _is_dust = (fail_count >= 10 and _est_value < 0.50) or fail_count >= 50
+            _is_dust = (fail_count >= 5 and _est_value < 1.00) or fail_count >= 20
             if _is_dust:
                 logger.warning(
                     f"🗑️ DUST AUTO-CLOSE: {pos.get('token_symbol')} on {pos.get('chain')} — "

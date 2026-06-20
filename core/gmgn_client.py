@@ -79,7 +79,7 @@ class GMGNClient:
         message = "{sub_path}:{sorted_query_string}:{body}:{timestamp}"
         """
         timestamp = str(int(time.time()))
-        client_id = str(uuid.uuid4())
+        client_id = self.client_id  # Use registered GMGN_CLIENT_ID, not random UUID
 
         # Merge auth params into query
         all_params = dict(query_params)

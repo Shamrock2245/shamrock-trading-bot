@@ -50,13 +50,15 @@ JITO_BLOCK_ENGINE_URL = os.getenv(
 )
 # Regional Jito endpoints — EU server (Helsinki) should use Amsterdam first
 # for lowest latency. All endpoints accept the same bundle format.
-JITO_BLOCK_ENGINE_URLS = [
-    os.getenv("JITO_BLOCK_ENGINE_URL", "https://mainnet.block-engine.jito.wtf/api/v1/bundles"),
+# dict.fromkeys() deduplicates while preserving order (env var override goes first).
+JITO_BLOCK_ENGINE_URLS = list(dict.fromkeys([
+    os.getenv("JITO_BLOCK_ENGINE_URL", "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles"),
     "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/bundles",
     "https://frankfurt.mainnet.block-engine.jito.wtf/api/v1/bundles",
+    "https://mainnet.block-engine.jito.wtf/api/v1/bundles",
     "https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles",
     "https://tokyo.mainnet.block-engine.jito.wtf/api/v1/bundles",
-]
+]))
 JITO_TIP_ACCOUNTS = [
     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
     "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
