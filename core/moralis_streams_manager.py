@@ -247,14 +247,16 @@ class MoralisStreamsManager:
             "triggers": [{
                 "type": "erc20transfer",
                 "contractAddress": "$contract",
-                "functionAbi": [{
+                "functionAbi": {
                     "constant": True,
-                    "inputs": [{"name": "account", "type": "address"}],
+                    "inputs": [{"name": "_owner", "type": "address"}],
                     "name": "balanceOf",
                     "outputs": [{"name": "balance", "type": "uint256"}],
+                    "payable": False,
+                    "stateMutability": "view",
                     "type": "function",
-                }],
-                "inputs": [["$to"]],
+                },
+                "inputs": ["$to"],
                 "outputName": "receiverBalance",
                 "callFrom": "0x0000000000000000000000000000000000000000",
             }],
