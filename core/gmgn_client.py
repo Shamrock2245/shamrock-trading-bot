@@ -78,7 +78,7 @@ class GMGNClient:
 
         message = "{sub_path}:{sorted_query_string}:{body}:{timestamp}"
         """
-        timestamp = str(int(time.time() * 1000))  # milliseconds for nonce uniqueness
+        timestamp = str(int(time.time()))  # Unix seconds (GMGN validates epoch)
         # Use registered client_id + unique suffix to satisfy both
         # GMGN's client registration check AND replay-prevention nonce.
         client_id = f"{self.client_id}_{uuid.uuid4().hex[:8]}"
