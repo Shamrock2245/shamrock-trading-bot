@@ -594,30 +594,80 @@ class MoralisStreamsManager:
             return False
 
     def _discover_existing_streams(self) -> None:
-        """Find streams we previously created (by tag prefix)."""
-        streams = self._get_all_streams("evm") + self._get_all_streams("solana")
+        """Find streams we previously created (by tag prefix) and deduplicate.
+
+        Scans all three networks (evm, solana, bitcoin) and for each tag keeps
+        only the newest *active* stream, deleting any errored/terminated duplicates.
+        This prevents zombie stream accumulation across restarts.
+        """
+        KNOWN_TAGS = {
+            TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY,
+            TAG_SOLANA_DISCOVERY, TAG_SOLANA_ALPHA_WALLETS, TAG_BTC_WHALE_WATCH,
+        }
+        # Collect ALL streams across all networks
+        streams = (
+            self._get_all_streams("evm")
+            + self._get_all_streams("solana")
+            + self._get_all_streams("bitcoin")
+        )
+
+        # Group by tag so we can deduplicate
+        by_tag: dict[str, list[dict]] = {}
         for s in streams:
             tag = s.get("tag", "")
-            sid = s.get("id", "")
-            if tag in (TAG_ALPHA_WALLETS, TAG_WHALE_DETECTOR, TAG_LIQUIDITY, TAG_SOLANA_DISCOVERY, TAG_SOLANA_ALPHA_WALLETS) and sid:
-                self._managed_streams[tag] = sid
-                logger.info(f"MoralisStreamsManager: Discovered existing stream {tag} → {sid} (status={s.get('status')})")
+            if tag in KNOWN_TAGS and s.get("id"):
+                by_tag.setdefault(tag, []).append(s)
+
+        for tag, group in by_tag.items():
+            # Prefer active streams; if none, take the newest
+            active = [s for s in group if s.get("status") == "active"]
+            keeper = active[0] if active else group[0]
+            net = self._get_network_for_tag(tag)
+
+            # Delete all duplicates/zombies
+            for s in group:
+                if s["id"] != keeper["id"]:
+                    self._delete_stream(s["id"], network=net)
+                    logger.info(
+                        f"MoralisStreamsManager: 🗑️ Deleted duplicate/zombie stream "
+                        f"{tag} → {s['id'][:12]}... (status={s.get('status')})"
+                    )
+
+            self._managed_streams[tag] = keeper["id"]
+            logger.info(
+                f"MoralisStreamsManager: Discovered existing stream "
+                f"{tag} → {keeper['id']} (status={keeper.get('status')})"
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Solana Alpha Wallet Stream (copy-trading on Solana)
     # ─────────────────────────────────────────────────────────────────────────
 
     def _ensure_btc_stream(self) -> None:
-        """Create or verify the Bitcoin whale watch stream."""
-        if TAG_BTC_WHALE_WATCH in self._managed_streams:
-            logger.info(f"MoralisStreamsManager: BTC stream already exists: {self._managed_streams[TAG_BTC_WHALE_WATCH]}")
-            return
+        """Create or verify the Bitcoin whale watch stream.
 
-        webhook = self.webhook_url.rstrip("/")  # already full path
-        # We watch the top 100 Bitcoin whale addresses
-        # Let's pull some prominent whale addresses or watch all transfers > 50 BTC
-        # Moralis Bitcoin Streams supports 'allAddresses' or a list of addresses.
-        # We will use allAddresses: True and a custom filter for large values
+        Guard: If a BTC stream was already discovered or created, skip.
+        The _discover_existing_streams method handles dedup on startup.
+        """
+        if TAG_BTC_WHALE_WATCH in self._managed_streams:
+            sid = self._managed_streams[TAG_BTC_WHALE_WATCH]
+            # Verify it's still alive; if errored/terminated, delete and recreate
+            info = self._get_stream(sid, network="bitcoin")
+            if info and info.get("status") == "active":
+                logger.info(f"MoralisStreamsManager: BTC stream already active: {sid}")
+                return
+            elif info:
+                logger.warning(
+                    f"MoralisStreamsManager: BTC stream {sid[:12]}... is {info.get('status')} — "
+                    f"deleting and recreating"
+                )
+                self._delete_stream(sid, network="bitcoin")
+                del self._managed_streams[TAG_BTC_WHALE_WATCH]
+            else:
+                # Stream not found — remove from cache
+                del self._managed_streams[TAG_BTC_WHALE_WATCH]
+
+        webhook = self.webhook_url.rstrip("/")
         body = {
             "webhookUrl": webhook,
             "description": "Shamrock Trading Bot — Bitcoin Whale Watch (all transfers > 10 BTC)",
@@ -627,7 +677,6 @@ class MoralisStreamsManager:
             "includeInputs": True,
         }
 
-        # Create stream under 'bitcoin' network (EVM streams use 'evm', Solana 'solana', Bitcoin 'bitcoin')
         stream_id = self._create_stream(body, network="bitcoin")
         if stream_id:
             self._managed_streams[TAG_BTC_WHALE_WATCH] = stream_id
