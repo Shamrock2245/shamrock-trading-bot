@@ -78,8 +78,10 @@ class GMGNClient:
 
         message = "{sub_path}:{sorted_query_string}:{body}:{timestamp}"
         """
-        timestamp = str(int(time.time()))
-        client_id = self.client_id  # Use registered GMGN_CLIENT_ID, not random UUID
+        timestamp = str(int(time.time() * 1000))  # milliseconds for nonce uniqueness
+        # Use registered client_id + unique suffix to satisfy both
+        # GMGN's client registration check AND replay-prevention nonce.
+        client_id = f"{self.client_id}_{uuid.uuid4().hex[:8]}"
 
         # Merge auth params into query
         all_params = dict(query_params)
