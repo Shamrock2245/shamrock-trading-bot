@@ -138,6 +138,7 @@ class HyperliquidExecutor:
         self._exchange = None
         self._initialized = False
         self._lock = threading.Lock()
+        self._rate_limit_until: float = 0.0  # Timestamp until which we refuse signed requests (cumulative rate limit cooldown)
 
         if self.enabled and self.wallet_address and self.private_key:
             self._initialized = True
@@ -145,18 +146,40 @@ class HyperliquidExecutor:
     def _execute_api(self, func, *args, **kwargs):
         """Execute SDK call with exponential backoff for rate limits."""
         import time
+
+        # Proactive cooldown: refuse signed requests while cumulative rate limit is active
+        if time.time() < self._rate_limit_until:
+            remaining = int(self._rate_limit_until - time.time())
+            logger.debug(f"Hyperliquid: rate limit cooldown active ({remaining}s remaining) — skipping API call")
+            return {"status": "err", "response": f"Rate limit cooldown active ({remaining}s remaining)"}
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
                 result = func(*args, **kwargs)
                 if isinstance(result, dict) and result.get("status") == "err":
-                    err_msg = str(result).lower()
-                    if "rate limit" in err_msg or "429" in err_msg or "too many requests" in err_msg:
+                    err_msg = str(result.get("response", "")).lower()
+                    if "too many" in err_msg or "rate limit" in err_msg or "429" in err_msg:
+                        # Cumulative rate limit — long cooldown (10 minutes)
+                        if "cumulative" in err_msg:
+                            self._rate_limit_until = time.time() + 600  # 10-minute cooldown
+                            logger.warning(
+                                f"⚠️ Hyperliquid CUMULATIVE rate limit hit — cooldown until "
+                                f"{time.strftime('%H:%M:%S', time.localtime(self._rate_limit_until))}. "
+                                f"All signed requests paused for 10 minutes."
+                            )
+                            return result  # Don't retry — just stop
                         raise Exception(f"Hyperliquid API Rate Limit: {result}")
                 return result
             except Exception as e:
                 err_msg = str(e).lower()
-                if "rate limit" in err_msg or "429" in err_msg or "too many requests" in err_msg:
+                if "too many" in err_msg or "rate limit" in err_msg or "429" in err_msg:
+                    if "cumulative" in err_msg:
+                        self._rate_limit_until = time.time() + 600
+                        logger.warning(
+                            f"⚠️ Hyperliquid CUMULATIVE rate limit hit — 10-minute cooldown active"
+                        )
+                        return {"status": "err", "response": str(e)}
                     if attempt == max_retries:
                         logger.error(f"Hyperliquid rate limit failed after {max_retries} attempts.")
                         raise
