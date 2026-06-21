@@ -987,9 +987,19 @@ class HyperliquidExecutor:
                     )
                     return True
                 else:
-                    logger.error(
-                        f"❌ Hyperliquid: failed to place new trailing SL for {coin}: {sl_result}"
-                    )
+                    # Placement failed — restore old SL state so position isn't orphaned
+                    # The old SL order may still be live on-chain if cancel also failed
+                    pos.stop_loss_price = old_sl
+                    pos.sl_order_id = old_oid
+                    err_msg = str(sl_result.get("response", "")) if isinstance(sl_result, dict) else str(sl_result)
+                    if "Too many" in err_msg or "rate" in err_msg.lower():
+                        logger.warning(
+                            f"⚠️ Hyperliquid: rate limited placing trailing SL for {coin} — will retry next cycle"
+                        )
+                    else:
+                        logger.error(
+                            f"❌ Hyperliquid: failed to place new trailing SL for {coin}: {sl_result}"
+                        )
                     return False
 
             except Exception as e:

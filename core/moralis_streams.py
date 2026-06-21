@@ -228,7 +228,8 @@ class MoralisStreamsServer:
                 # skip the confirmed duplicate to avoid double-trading.
                 confirmed = payload.get("confirmed", True)
                 chain_id = str(payload.get("chainId") or "")
-                block_num = str(payload.get("block", {}).get("number") or payload.get("blockNumber") or "")
+                block_raw = payload.get("block", {})
+                block_num = str((block_raw.get("number") if isinstance(block_raw, dict) else None) or payload.get("blockNumber") or "")
 
                 logger.info(
                     f"MoralisStreams: 📨 Webhook received — chain={_chain_id_to_name(chain_id)} "
@@ -432,7 +433,8 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
     events = payload.get("erc20Transfers", []) or []
     txs = payload.get("txs", [])
     chain_id = str(payload.get("chainId") or "")
-    block_ts = payload.get("block", {}).get("timestamp") or payload.get("blockTimestamp") or ""
+    block_raw = payload.get("block", {})
+    block_ts = (block_raw.get("timestamp") if isinstance(block_raw, dict) else None) or payload.get("blockTimestamp") or ""
     chain_name = _chain_id_to_name(chain_id)
 
     if not events:
@@ -527,7 +529,11 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
 
         # Extract trigger-enriched receiver balance (if available via Streams Triggers)
         # This eliminates a separate balanceOf API call — data arrives directly in the webhook
-        trigger_balance = ev.get("triggers", {}).get("receiverBalance", {}).get("value")
+        triggers_raw = ev.get("triggers")
+        trigger_balance = (
+            triggers_raw.get("receiverBalance", {}).get("value")
+            if isinstance(triggers_raw, dict) else None
+        )
         if trigger_balance is not None:
             try:
                 swap["receiver_token_balance"] = int(trigger_balance) / (10 ** int(ev.get("tokenDecimals", 18)))

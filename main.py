@@ -1382,7 +1382,8 @@ async def run_bot_loop():
     # ─────────────────────────────────────────────────────────────────────────────
     _TRAILING_ROE_TRIGGER_PCT: float = float(os.getenv("HL_TRAILING_ROE_TRIGGER_PCT", "5.0"))
     _TRAILING_DISTANCE_PCT: float = float(os.getenv("HL_TRAILING_DISTANCE_PCT", "1.5"))
-    _TRAILING_POLL_SECONDS: float = float(os.getenv("HL_TRAILING_POLL_SECONDS", "8.0"))
+    _TRAILING_POLL_SECONDS: float = float(os.getenv("HL_TRAILING_POLL_SECONDS", "30.0"))
+    _TRAILING_MIN_MOVE_PCT: float = 0.15  # Minimum % improvement before placing a new SL order
 
     # Shared reference to the executor — populated by _hl_perps_daemon once it starts
     _trailing_exec_ref: list = []  # mutable container so inner function can write to it
@@ -1414,11 +1415,14 @@ async def run_bot_loop():
             f"poll={_TRAILING_POLL_SECONDS}s"
         )
 
+        _backoff_seconds = 0  # exponential backoff on rate-limit errors
+
         while True:
             try:
                 # Snapshot positions to avoid holding lock during price fetches
                 positions_snapshot = list(_exec.positions.values())
 
+                _rate_limited = False
                 for pos in positions_snapshot:
                     try:
                         mark_price = _exec.get_price(pos.coin)
@@ -1459,26 +1463,56 @@ async def run_bot_loop():
                         if pos.trailing_stop_active:
                             trail_mult = _TRAILING_DISTANCE_PCT / 100
                             if pos.side == "long":
-                                # Trail is 1.5% below the highest mark price seen
                                 candidate_sl = pos.highest_price * (1 - trail_mult)
-                                # Only ratchet UP — never move SL backwards
-                                if candidate_sl > (pos.stop_loss_price or 0):
-                                    _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+                                current_sl = pos.stop_loss_price or 0
+                                # Only update if candidate is meaningfully higher (>0.15%)
+                                if current_sl > 0:
+                                    improvement_pct = (candidate_sl - current_sl) / current_sl * 100
+                                else:
+                                    improvement_pct = 100  # first SL placement
+                                if candidate_sl > current_sl and improvement_pct >= _TRAILING_MIN_MOVE_PCT:
+                                    result = _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+                                    if not result:
+                                        _rate_limited = True
+                                else:
+                                    logger.debug(
+                                        f"🔒 TRAILING HOLD | {pos.coin} | "
+                                        f"candidate=${candidate_sl:.4f} vs current=${current_sl:.4f} "
+                                        f"(+{improvement_pct:.3f}% < {_TRAILING_MIN_MOVE_PCT}% min)"
+                                    )
                             else:  # short
-                                # Trail is 1.5% above the lowest mark price seen
                                 candidate_sl = pos.lowest_price * (1 + trail_mult)
-                                # Only ratchet DOWN — never move SL backwards
                                 current_sl = pos.stop_loss_price or float("inf")
-                                if candidate_sl < current_sl:
-                                    _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+                                if current_sl < float("inf"):
+                                    improvement_pct = (current_sl - candidate_sl) / current_sl * 100
+                                else:
+                                    improvement_pct = 100
+                                if candidate_sl < current_sl and improvement_pct >= _TRAILING_MIN_MOVE_PCT:
+                                    result = _exec.update_trailing_stop(pos.coin, round(candidate_sl, 6))
+                                    if not result:
+                                        _rate_limited = True
+                                else:
+                                    logger.debug(
+                                        f"🔒 TRAILING HOLD | {pos.coin} | short "
+                                        f"candidate=${candidate_sl:.4f} vs current=${current_sl:.4f}"
+                                    )
 
                     except Exception as _pos_err:
                         logger.debug(f"Trailing monitor: error processing {pos.coin}: {_pos_err}")
 
+                # ── Adaptive backoff on rate limits ──────────────────────────────
+                if _rate_limited:
+                    _backoff_seconds = min((_backoff_seconds or 15) * 2, 120)
+                    logger.warning(
+                        f"⚠️ Trailing monitor: HL rate limited — backing off {_backoff_seconds}s"
+                    )
+                else:
+                    _backoff_seconds = 0  # reset on success
+
             except Exception as _loop_err:
                 logger.warning(f"Trailing monitor loop error: {_loop_err}")
 
-            _time.sleep(_TRAILING_POLL_SECONDS)
+            _time.sleep(_TRAILING_POLL_SECONDS + _backoff_seconds)
 
     # Patch the HL perps daemon to register the executor reference once ready
     _orig_hl_perps_daemon = _hl_perps_daemon
