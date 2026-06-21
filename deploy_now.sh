@@ -57,6 +57,6 @@ echo "────────────────────────�
 ssh -i "$KEY" -o StrictHostKeyChecking=no "$SERVER" "cd $REPO && docker compose logs --tail=30 bot"
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  ✅ DEPLOY COMPLETE — Bot is running in PAPER mode"
+echo "  ✅ DEPLOY COMPLETE — Bot is running in LIVE mode"
 echo "  📈 P&L Dashboard: check page 9 in Streamlit"
 echo "═══════════════════════════════════════════════════════════"

@@ -117,3 +117,8 @@ Jupiter (SOL) / 1inch (EVM) / Trader Joe (AVAX) → Sign → Broadcast
 | `shamrock-health` | 🟢 Healthy | 5-min health checks |
 | `shamrock-db` | 🟢 Running | Shared data volume (Alpine + SQLite) |
 | `shamrock-paper` | ⚪ Profile-gated | Paper trading mode (opt-in via `--profile paper`) |
+
+---
+
+## 🚀 Future Roadmap & Objectives
+*   **Aggressive Scaling Phase:** Once the current logic proves exponential confidence and builds a strong capital base, the immediate next step is to **increase leverage** and **tighten stop losses further**. This will shift the bot into an aggressive "capital stacking" mode to exponentially gain USDC while relying on the proven win rate.
