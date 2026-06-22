@@ -1559,6 +1559,10 @@ class LiquidationHunter:
 
         except ImportError:
             # Fallback: direct signed REST call
+            vault_addr = getattr(settings, "HYPERLIQUID_MEV_SUBACCOUNT", "") or None
+            if vault_addr:
+                logger.error("LiquidationHunter: Sub-accounts require the official hyperliquid-python-sdk.")
+                return MEVResult(False, "liquidation", "hyperliquid", 0.0, error="SDK required for sub-accounts")
             return self._execute_hl_liquidation_direct(private_key, coin, is_buy, sz)
         except Exception as e:
             logger.error(f"LiquidationHunter: HL liquidation error: {e}")

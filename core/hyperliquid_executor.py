@@ -464,8 +464,8 @@ class HyperliquidExecutor:
                 logger.error(f"Hyperliquid TWAP CLOSE failed for {sym}: {result}")
                 return None
                 
-            # Remove position from tracking immediately since TWAP is fully delegated to the exchange
-            del self.positions[sym]
+            # Mark position as closing so it isn't orphaned or re-synced prematurely
+            pos.status = "closing"
             self._save_trailing_state()
             
             return {"coin": sym, "status": "twap_close_started"}
