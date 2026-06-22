@@ -90,6 +90,12 @@ HYPERLIQUID_MAX_POSITIONS = int(os.getenv("HYPERLIQUID_MAX_POSITIONS", "6"))
 HYPERLIQUID_DAILY_LOSS_LIMIT = float(os.getenv("HYPERLIQUID_DAILY_LOSS_LIMIT", "500.0"))  # Max $500/day loss
 HYPERLIQUID_MIN_GEM_SCORE = float(os.getenv("HYPERLIQUID_MIN_GEM_SCORE", "55"))  # Lowered to allow more signals through TA29 gate
 
+# ── Risk Isolation (Phase 3) ──────────────────────────────────────────────────
+# Once your master account reaches $100k volume, you can create sub-accounts in the UI.
+# Paste their addresses here to automatically isolate MEV/StatArb risk from directional trades.
+HYPERLIQUID_STATARB_SUBACCOUNT = os.getenv("HYPERLIQUID_STATARB_SUBACCOUNT", "")
+HYPERLIQUID_MEV_SUBACCOUNT = os.getenv("HYPERLIQUID_MEV_SUBACCOUNT", "")
+
 # ─────────────────────────────────────────────────────────────────────────────
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")

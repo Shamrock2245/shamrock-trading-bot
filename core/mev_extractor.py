@@ -1533,7 +1533,13 @@ class LiquidationHunter:
             from hyperliquid.utils import constants  # type: ignore
 
             account = Account.from_key(private_key)
-            exchange = Exchange(account, constants.MAINNET_API_URL)
+            vault_addr = getattr(settings, "HYPERLIQUID_MEV_SUBACCOUNT", "") or None
+            exchange = Exchange(
+                wallet=account,
+                base_url=constants.MAINNET_API_URL,
+                account_address=HYPERLIQUID_WALLET_ADDRESS,
+                vault_address=vault_addr
+            )
 
             order_result = exchange.market_open(
                 coin=coin,

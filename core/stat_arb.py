@@ -496,15 +496,27 @@ class StatArbEngine:
             logger.warning("StatArb: HL not available for short — %s", opp.symbol)
             return None
 
-        result = hl.open_short(
-            symbol=opp.symbol,
-            size_usd=self.trade_size_usd,
-            leverage=1,     # 1x = delta neutral
-            gem_score=100,  # Bypass gem score gate
-        )
-        if result:
-            return result.get("order_id", "HL_ORDER")
-        return None
+        if self.trade_size_usd >= 1000.0:
+            result = hl.open_twap(
+                symbol=opp.symbol,
+                side="sell",
+                size_usd=self.trade_size_usd,
+                minutes=10,
+                leverage=1
+            )
+            if result:
+                return result.get("status", "TWAP_STARTED")
+            return None
+        else:
+            result = hl.open_short(
+                symbol=opp.symbol,
+                size_usd=self.trade_size_usd,
+                leverage=1,     # 1x = delta neutral
+                gem_score=100,  # Bypass gem score gate
+            )
+            if result:
+                return result.get("order_id", "HL_ORDER")
+            return None
 
     def _emergency_spot_sell(self, opp: StatArbOpportunity, is_paper: bool) -> None:
         """
@@ -645,14 +657,21 @@ class StatArbEngine:
             logger.warning("StatArb: HL not available for close — %s", opp.symbol)
             return False
 
-        result = hl.close_position(opp.symbol)
-        if result:
-            logger.info(
-                "StatArb: HL short closed | %s | pnl=$%+.4f",
-                opp.symbol, result.get("pnl", 0),
-            )
-            return True
-        return False
+        if pos.size_usd >= 1000.0:
+            result = hl.close_twap(symbol=opp.symbol, minutes=10)
+            if result:
+                logger.info("StatArb: HL short TWAP close started | %s", opp.symbol)
+                return True
+            return False
+        else:
+            result = hl.close_position(opp.symbol)
+            if result:
+                logger.info(
+                    "StatArb: HL short closed | %s | pnl=$%+.4f",
+                    opp.symbol, result.get("pnl", 0),
+                )
+                return True
+            return False
 
     def _execute_dex_sell(self, opp: StatArbOpportunity, pos: StatArbPosition, is_paper: bool) -> bool:
         """Sell the spot position on DEX."""

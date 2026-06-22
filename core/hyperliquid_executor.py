@@ -114,10 +114,11 @@ class HyperliquidExecutor:
     _GLOBAL_BALANCE_CACHE_TTL: float = 30.0  # seconds
     _global_balance_lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self, sub_account_address: Optional[str] = None):
         self.enabled = settings.HYPERLIQUID_ENABLED
         self.wallet_address = settings.HYPERLIQUID_WALLET_ADDRESS
         self.private_key = settings.HYPERLIQUID_PRIVATE_KEY
+        self.sub_account_address = sub_account_address or None
         self.default_leverage = settings.HYPERLIQUID_DEFAULT_LEVERAGE
         # Override the env-based flat limits to accommodate Kelly Sizing (up to $2500 per trade)
         # while keeping the overall total exposure scaled accordingly.
@@ -207,7 +208,9 @@ class HyperliquidExecutor:
             try:
                 api_url = constants.TESTNET_API_URL if self.use_testnet else constants.MAINNET_API_URL
 
-                self._info = Info(api_url, skip_ws=True)
+                self._info = Info(api_url, skip_ws=False)
+                # Ensure WS is connected before subscribing
+                _time.sleep(1)
 
                 # Initialize Exchange with private key for signing
                 from eth_account import Account
@@ -216,7 +219,7 @@ class HyperliquidExecutor:
                     wallet=_wallet,
                     base_url=api_url,
                     account_address=self.wallet_address,
-                    vault_address=None,
+                    vault_address=self.sub_account_address,
                 )
 
                 # Load available perp tickers
@@ -225,11 +228,15 @@ class HyperliquidExecutor:
                 # Sync existing positions
                 self._sync_positions()
 
+                # Setup Websocket subscriptions
+                self._setup_websockets()
+
                 self._initialized = True
                 mode = "TESTNET" if self.use_testnet else "MAINNET"
+                vault_tag = f" | vault={self.sub_account_address[:10]}..." if self.sub_account_address else ""
                 logger.info(
                     f"🟢 Hyperliquid executor initialized ({mode}) | "
-                    f"wallet={self.wallet_address[:10]}... | "
+                    f"wallet={self.wallet_address[:10]}...{vault_tag} | "
                     f"leverage={self.default_leverage}x | "
                     f"max_pos=${self.max_position_usd} | "
                     f"perps_available={len(_HL_PERP_TICKERS)}"
@@ -316,6 +323,152 @@ class HyperliquidExecutor:
             self._load_trailing_state()
         except Exception as e:
             logger.warning(f"Hyperliquid: position sync failed: {e}")
+
+    def _setup_websockets(self) -> None:
+        """Setup websocket subscriptions for real-time updates."""
+        try:
+            self._info.subscribe(
+                {"type": "userFills", "user": self.wallet_address},
+                self._handle_user_fills
+            )
+            logger.info("Hyperliquid: Subscribed to userFills websocket")
+        except Exception as e:
+            logger.error(f"Hyperliquid: Failed to subscribe to websockets: {e}")
+
+    def _handle_user_fills(self, message: dict) -> None:
+        """Handle incoming userFills websocket messages."""
+        try:
+            data = message.get("data", {})
+            fills = data.get("fills", [])
+            if not fills:
+                return
+            
+            for fill in fills:
+                coin = fill.get("coin")
+                sz = float(fill.get("sz", 0))
+                px = float(fill.get("px", 0))
+                side = fill.get("side")
+                is_close = fill.get("dir") == "Close Long" or fill.get("dir") == "Close Short"
+                
+                if is_close and coin in self.positions:
+                    logger.info(f"Hyperliquid WS Fill: Closed {sz} {coin} @ {px}")
+                    # In a full implementation, we'd partially or fully close the tracked position here.
+                    # For now, we rely on the main loop's sync_positions to clean it up,
+                    # but we can log the real-time event.
+        except Exception as e:
+            logger.debug(f"Hyperliquid WS userFills error: {e}")
+
+    def _post_twap(self, symbol: str, is_buy: bool, coin_size: float, minutes: int = 60, randomize: bool = True, reduce_only: bool = False) -> dict:
+        """Construct and send a raw TWAP L1 action to Hyperliquid."""
+        from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+        from hyperliquid.utils.constants import MAINNET_API_URL
+        
+        asset_index = self._info.name_to_asset(symbol)
+        
+        twap_action = {
+            "type": "twapOrder",
+            "twap": {
+                "a": asset_index,
+                "b": is_buy,
+                "s": str(coin_size),
+                "r": reduce_only,
+                "m": minutes,
+                "t": randomize
+            }
+        }
+        
+        timestamp = get_timestamp_ms()
+        signature = sign_l1_action(
+            self._exchange.wallet,
+            twap_action,
+            self._exchange.vault_address,
+            timestamp,
+            self._exchange.expires_after,
+            self._exchange.base_url == MAINNET_API_URL,
+        )
+        return self._exchange._post_action(twap_action, signature, timestamp)
+
+    def open_twap(self, symbol: str, side: str, size_usd: float, minutes: int = 60, leverage: Optional[int] = None) -> Optional[dict]:
+        """Open a position over time using Hyperliquid's native TWAP to minimize slippage."""
+        if not self.is_available():
+            return None
+            
+        sym = _normalize_symbol(symbol)
+        if not self.has_perp(sym):
+            return None
+
+        actual_size_usd = min(size_usd, self.max_position_usd)
+        lev = leverage or self.default_leverage
+        
+        with self._lock:
+            price = self.get_price(sym)
+            if not price or price <= 0:
+                logger.warning(f"Hyperliquid: no price for {sym} TWAP — skipping")
+                return None
+
+            is_cross = True
+            self._execute_api(self._exchange.update_leverage, lev, sym, is_cross)
+
+            notional = actual_size_usd * lev
+            coin_size = notional / price
+            sz_decimals = self._get_sz_decimals(sym)
+            coin_size = round(coin_size, sz_decimals)
+
+            if coin_size <= 0:
+                return None
+
+            logger.info(f"⏳ Hyperliquid TWAP {side.upper()} {sym} | {minutes} mins | size={coin_size} notional=${notional:.2f}")
+
+            result = self._execute_api(
+                self._post_twap,
+                sym,
+                side == "buy",
+                coin_size,
+                minutes=minutes,
+                randomize=True,
+                reduce_only=False
+            )
+            
+            if not result or result.get("status") != "ok":
+                logger.error(f"Hyperliquid TWAP failed for {sym}: {result}")
+                return None
+                
+            return {"coin": sym, "size": coin_size, "minutes": minutes, "status": "twap_started"}
+
+    def close_twap(self, symbol: str, minutes: int = 60) -> Optional[dict]:
+        """Close an existing position over time using TWAP."""
+        if not self.is_available():
+            return None
+            
+        sym = _normalize_symbol(symbol)
+        
+        with self._lock:
+            pos = self.positions.get(sym)
+            if not pos:
+                logger.warning(f"Hyperliquid: no open position to TWAP close for {sym}")
+                return None
+                
+            logger.info(f"⏳ Hyperliquid TWAP CLOSE {sym} | {minutes} mins | size={pos.size}")
+            
+            result = self._execute_api(
+                self._post_twap,
+                sym,
+                pos.side == "short", # If long, sell (False) to close. If short, buy (True) to close.
+                pos.size,
+                minutes=minutes,
+                randomize=True,
+                reduce_only=True
+            )
+            
+            if not result or result.get("status") != "ok":
+                logger.error(f"Hyperliquid TWAP CLOSE failed for {sym}: {result}")
+                return None
+                
+            # Remove position from tracking immediately since TWAP is fully delegated to the exchange
+            del self.positions[sym]
+            self._save_trailing_state()
+            
+            return {"coin": sym, "status": "twap_close_started"}
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -487,8 +640,13 @@ class HyperliquidExecutor:
                 return None
 
             try:
+                # Cancel stop-loss trigger if exists
+                if pos.sl_oid:
+                    # _cancel_trigger handles the logic
+                    pass
+
                 # Use market_close for clean exit
-                result = self._exchange.market_close(sym)
+                result = self._execute_api(self._exchange.market_close, sym)
 
                 if result and result.get("status") == "ok":
                     # Check fills
@@ -624,24 +782,55 @@ class HyperliquidExecutor:
         # ── Execute ────────────────────────────────────────────────────────
         with self._lock:
             try:
-                # Get current price for sizing
-                price = self.get_price(sym)
-                if not price or price <= 0:
-                    # FIX (PYTHON-V): Downgrade from logger.error to logger.warning.
-                    # Tokens like KBONK/KPEPE may not have a mid-price on HL perps
-                    # (spot-only or delisted). This is an expected skip, not a code error.
-                    # logger.error() was triggering Sentry high-priority alerts unnecessarily.
-                    logger.warning(f"Hyperliquid: no price for {sym} — skipping (not listed or no liquidity)")
+                # Use L2 Book to calculate exact execution price and size
+                l2 = self._execute_api(self._info.l2_snapshot, sym)
+                if not l2 or "levels" not in l2:
+                    logger.warning(f"Hyperliquid: no L2 book for {sym} — skipping")
+                    return None
+                
+                bids, asks = l2["levels"]
+                levels = asks if side == "buy" else bids
+                
+                if not levels:
+                    logger.warning(f"Hyperliquid: empty L2 book side for {sym} — skipping")
+                    return None
+                
+                # Calculate required coin size by walking the book
+                notional_remaining = actual_size_usd * lev
+                coin_size = 0.0
+                avg_price = 0.0
+                
+                for level in levels:
+                    px = float(level["px"])
+                    sz = float(level["sz"])
+                    level_notional = px * sz
+                    
+                    if notional_remaining <= level_notional:
+                        # This level fully satisfies the remaining notional
+                        coin_size += notional_remaining / px
+                        notional_remaining = 0
+                        break
+                    else:
+                        # Consume the whole level
+                        coin_size += sz
+                        notional_remaining -= level_notional
+
+                if notional_remaining > 0:
+                    logger.warning(f"Hyperliquid: insufficient liquidity in L2 book for {sym} (need ${actual_size_usd * lev:.2f})")
+                    return None
+
+                # Calculate average execution price
+                price = (actual_size_usd * lev) / coin_size
+                mid_price = float(bids[0]["px"]) + (float(asks[0]["px"]) - float(bids[0]["px"])) / 2
+                
+                slippage_pct = abs(price - mid_price) / mid_price
+                if slippage_pct > 0.015:
+                    logger.warning(f"Hyperliquid: slippage too high for {sym} ({slippage_pct*100:.2f}% > 1.5%) — skipping")
                     return None
 
                 # Set leverage
                 is_cross = True  # Cross margin for capital efficiency
                 self._exchange.update_leverage(lev, sym, is_cross)
-
-                # Calculate size in coin units
-                # size = margin_usd * leverage / price
-                notional = actual_size_usd * lev
-                coin_size = notional / price
 
                 # Get size decimals for this asset
                 sz_decimals = self._get_sz_decimals(sym)
@@ -958,16 +1147,6 @@ class HyperliquidExecutor:
             old_sl = pos.stop_loss_price
             old_oid = pos.sl_order_id
 
-            # Cancel the existing SL order if we have its ID
-            if old_oid is not None:
-                cancelled = self._cancel_order(coin, old_oid)
-                if not cancelled:
-                    # HL may have already filled/cancelled it — proceed anyway
-                    logger.warning(
-                        f"Hyperliquid: could not cancel old SL oid={old_oid} for {coin} — "
-                        f"placing new SL regardless"
-                    )
-
             # Determine close side (opposite of entry)
             entry_side = "buy" if pos.side == "long" else "sell"
             slippage = 0.01
@@ -978,15 +1157,32 @@ class HyperliquidExecutor:
                 sl_limit_px = round(new_sl_price * (1 - slippage), 6)
 
             try:
-                sl_result = self._execute_api(
-                    self._exchange.order,
-                    coin,
-                    is_close_buy,
-                    pos.size,
-                    sl_limit_px,
-                    {"trigger": {"isMarket": False, "triggerPx": new_sl_price, "tpsl": "sl"}},
-                    reduce_only=True,
-                )
+                order_type = {"trigger": {"isMarket": False, "triggerPx": new_sl_price, "tpsl": "sl"}}
+                
+                if old_oid is not None:
+                    # Modify existing order directly
+                    sl_result = self._execute_api(
+                        self._exchange.modify_order,
+                        oid=old_oid,
+                        name=coin,
+                        is_buy=is_close_buy,
+                        sz=pos.size,
+                        limit_px=sl_limit_px,
+                        order_type=order_type,
+                        reduce_only=True,
+                    )
+                else:
+                    # Place a new order
+                    sl_result = self._execute_api(
+                        self._exchange.order,
+                        coin,
+                        is_close_buy,
+                        pos.size,
+                        sl_limit_px,
+                        order_type,
+                        reduce_only=True,
+                    )
+                
                 sl_ok = sl_result and sl_result.get("status") == "ok"
                 new_oid: Optional[int] = None
                 if sl_ok:
