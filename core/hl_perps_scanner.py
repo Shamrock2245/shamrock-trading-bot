@@ -1205,21 +1205,23 @@ class HLPerpsScanner:
         if not self.enabled or not self._initialized:
             return []
 
-        # ── Autonomous Profit Sweep ──
-        if self.hl_executor and self.hl_executor.is_available():
-            paycheck_wallet = os.getenv("WALLET_ADDRESS_C", "").strip()
-            if paycheck_wallet:
-                try:
-                    balance_info = self.hl_executor.get_balance()
-                    withdrawable = balance_info.get("withdrawable", 0.0)
-                    if withdrawable >= (HL_PERPS_BASE_CAPITAL + HL_PERPS_PROFIT_SWEEP_USD):
-                        logger.info(
-                            f"💰 [HL-PERPS] Profit Sweeper triggered! "
-                            f"Withdrawable (${withdrawable:.2f}) >= Base (${HL_PERPS_BASE_CAPITAL:.2f}) + Sweep (${HL_PERPS_PROFIT_SWEEP_USD:.2f})"
-                        )
-                        self.hl_executor.withdraw_profit_usd(HL_PERPS_PROFIT_SWEEP_USD, paycheck_wallet)
-                except Exception as e:
-                    logger.warning(f"Failed to check/sweep HL profits: {e}")
+        # ── Autonomous Profit Sweep (DISABLED) ──
+        # Temporarily disabled to allow for geometric compounding and to prevent 
+        # the bot from automatically sweeping manual user deposits out of the L2 wallet.
+        # if self.hl_executor and self.hl_executor.is_available():
+        #     paycheck_wallet = os.getenv("WALLET_ADDRESS_C", "").strip()
+        #     if paycheck_wallet:
+        #         try:
+        #             balance_info = self.hl_executor.get_balance()
+        #             withdrawable = balance_info.get("withdrawable", 0.0)
+        #             if withdrawable >= (HL_PERPS_BASE_CAPITAL + HL_PERPS_PROFIT_SWEEP_USD):
+        #                 logger.info(
+        #                     f"💰 [HL-PERPS] Profit Sweeper triggered! "
+        #                     f"Withdrawable (${withdrawable:.2f}) >= Base (${HL_PERPS_BASE_CAPITAL:.2f}) + Sweep (${HL_PERPS_PROFIT_SWEEP_USD:.2f})"
+        #                 )
+        #                 self.hl_executor.withdraw_profit_usd(HL_PERPS_PROFIT_SWEEP_USD, paycheck_wallet)
+        #         except Exception as e:
+        #             logger.warning(f"Failed to check/sweep HL profits: {e}")
 
         self._check_daily_reset()
         self.scan_count += 1
