@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI-only requirements — excludes heavy ML packages that exceed GitHub Actions
+# runner time limits. Production uses requirements.txt (full install via Docker).
+# Heavy packages excluded: xgboost, stable-baselines3, gymnasium, optuna,
+#   optuna-dashboard, timesfm, reflex, grpcio, py-spy
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Blockchain / Web3 (EVM) ───────────────────────────────────────────────────
+web3>=6.0.0
+eth-account>=0.10.0
+hyperliquid-python-sdk>=0.22.0
+coinbase-advanced-py>=1.0.0
+
+# ── Blockchain / Web3 (Solana) ────────────────────────────────────────────────
+solders>=0.20.0
+solana>=0.32.0
+base58>=2.1.1
+
+# ── HTTP / Async ─────────────────────────────────────────────────────────────
+requests>=2.31.0
+aiohttp>=3.9.0
+websockets>=11.0.3
+
+# ── Data / Analysis ──────────────────────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.24.0
+networkx>=3.1
+
+# ── Machine Learning (lightweight only) ──────────────────────────────────────
+scikit-learn>=1.3.0
+scipy>=1.11.0
+openai>=1.0.0
+
+# ── Configuration ────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Scheduling ───────────────────────────────────────────────────────────────
+APScheduler>=3.10.0
+
+# ── Database ─────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+
+# ── Notifications ────────────────────────────────────────────────────────────
+slack-sdk>=3.21.0
+python-telegram-bot>=20.0
+
+# ── Observability ─────────────────────────────────────────────────────────────
+sentry-sdk>=2.0.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+colorama>=0.4.6
+tabulate>=0.9.0
+tenacity>=8.2.0
+pydantic>=2.0.0
+
+# ── Cosmos Ecosystem ─────────────────────────────────────────────────────────
+bech32>=1.2.0
+protobuf>=4.25.0
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+pytest-timeout>=0.0.0
+
+# ── GMGN.ai Ed25519 Auth ─────────────────────────────────────────────────────
+cryptography>=42.0.0
