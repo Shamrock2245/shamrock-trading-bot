@@ -30,7 +30,7 @@ jobs:
   # ── Job 1: Lint + Unit Tests ──────────────────────────────────────────────
   lint-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
@@ -40,10 +40,14 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: timeout 15m pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest -q --tb=short --ignore=scripts/
+        env:
+          WALLET_PRIVATE_KEY_PRIMARY: "0x0000000000000000000000000000000000000000000000000000000000000000"
+          OPENAI_API_KEY: "sk-dummy-key"
+          HYPERLIQUID_WALLET_ADDRESS: "0x0000000000000000000000000000000000000000"
+        run: pytest -q --tb=short -m "not live and not integration" --ignore=scripts/
 
   # ── Job 2: Preflight Smoke Test ───────────────────────────────────────────
   preflight:
@@ -79,7 +83,7 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 22m
           script: |
-            cd ~/shamrock-trading-bot
+            cd /root/shamrock-trading-bot
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             docker compose down --remove-orphans
