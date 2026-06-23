@@ -61,6 +61,10 @@ class GemCandidate:
     safety_passed: bool = False
     is_safe: bool = False
 
+    # Timeframe Awareness
+    target_timeframe: str = "15m"         # Primary execution timeframe
+    confirmation_timeframe: str = "1h"    # Higher-level macro confirmation
+
     # Score components
     age_score: float = 0.0
     volume_score: float = 0.0
@@ -310,6 +314,10 @@ class Position:
     peak_price_usd: float = 0.0
     current_price_usd: float = 0.0
     is_open: bool = True
+
+    # Timeframe Targeting
+    target_timeframe: str = "15m"
+    confirmation_timeframe: str = "1h"
 
     # Fibonacci-derived levels
     fib_support: float = 0.0       # Nearest Fib support for stop-loss reference

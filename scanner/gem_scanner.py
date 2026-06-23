@@ -643,6 +643,8 @@ class GemScanner:
                             volume_1h=getattr(candidate.token, 'volume_1h', 0) or 0,
                             buy_pressure=getattr(candidate, 'moralis_buy_pressure', 0) or 0,
                             source="watchlist_promotion",
+                            target_timeframe=getattr(candidate, 'target_timeframe', ''),
+                            confirmation_timeframe=getattr(candidate, 'confirmation_timeframe', ''),
                         )
                     except Exception:
                         pass
@@ -2449,6 +2451,24 @@ class GemScanner:
                 f"< {SOLANA_MIN_SCORE} Solana minimum. Only high-conviction Solana trades allowed."
             )
             return None
+
+        # ── Timeframe Target Selection ──────────────────────────────────────────────────
+        from strategies.mtf_confirmer import analyze_mtf, MTF_CONFIRM_ENABLED
+        if MTF_CONFIRM_ENABLED:
+            mtf_res = analyze_mtf(token.pair_address, token.chain)
+            if mtf_res.tf_1h_trend == "bullish":
+                candidate.target_timeframe = "1h"
+                candidate.confirmation_timeframe = "4h"
+            elif mtf_res.tf_15m_trend == "bullish":
+                candidate.target_timeframe = "15m"
+                candidate.confirmation_timeframe = "1h"
+            else:
+                candidate.target_timeframe = "5m"
+                candidate.confirmation_timeframe = "15m"
+        else:
+            # Default fallback if MTF is disabled
+            candidate.target_timeframe = "15m"
+            candidate.confirmation_timeframe = "1h"
 
         return candidate
 

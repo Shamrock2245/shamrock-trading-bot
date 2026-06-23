@@ -641,7 +641,7 @@ class HyperliquidExecutor:
 
             try:
                 # Cancel stop-loss trigger if exists
-                if pos.sl_oid:
+                if pos.sl_order_id:
                     # _cancel_trigger handles the logic
                     pass
 

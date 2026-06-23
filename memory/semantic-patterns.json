@@ -511,6 +511,54 @@
       "confidence": 0.95,
       "source": "ep-2026-06-18-awal-rollback-bug",
       "added": "2026-06-18"
+    },
+    {
+      "id": "io-001",
+      "category": "data_pipeline",
+      "name": "network_io_isolation_timeouts",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "Un-timeouted network calls to external APIs (like Moralis) will silently block connection pools when the API drops packets, permanently freezing the bot's main loop and abandoning active trades on exchanges.",
+      "rule": "Every requests.Session or requests.get call MUST have an explicit timeout= parameter (e.g. 15.0). Any get_session() wrappers must override the request() method to forcefully inject a default timeout. Exceptions must be caught to prevent crashes.",
+      "anti_pattern": "Using raw requests.get(url) or get_session().get(url) without catching exceptions or setting timeouts.",
+      "files": [
+        "data/http_session.py"
+      ],
+      "source_episode": "ep-2026-06-22-moralis-freeze",
+      "evolution_marker": "2026-06-22 | CRITICAL | Bot abandoned HL trades because main loop froze on Moralis timeout"
+    },
+    {
+      "id": "exec-002",
+      "category": "trade_execution",
+      "name": "typos_in_close_position_cause_orphans",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "Typo in a getattr/field name (e.g. pos.sl_oid instead of pos.sl_order_id) inside a try block within close_position() causes the catch-all except Exception to silently abort the close attempt, leaving the trade orphaned.",
+      "rule": "Always verify dataclass property names (like sl_order_id vs sl_oid) when writing exception-heavy logic like close_position(). An AttributeError inside a generic try-except will silently fail the trade exit.",
+      "anti_pattern": "Accessing pos.sl_oid on a dataclass that expects pos.sl_order_id",
+      "files": [
+        "core/hyperliquid_executor.py"
+      ],
+      "source_episode": "ep-2026-06-22-moralis-freeze",
+      "evolution_marker": "2026-06-22 | CRITICAL | sl_oid typo caused 6 positions to bleed"
+    },
+    {
+      "id": "exec-003",
+      "category": "trade_execution",
+      "name": "hyperliquid_api_wallet_unauthorized",
+      "priority": "critical",
+      "confidence": 1.0,
+      "applications": 1,
+      "description": "Hyperliquid requires secondary API Wallets to be explicitly authorized on the blockchain (via the UI) by the main wallet before they can execute trades. An unauthorized API wallet causes the SDK to throw 'User or API Wallet <address> does not exist.'",
+      "rule": "When encountering the 'User or API Wallet does not exist' error, do NOT debug Python SDK parameters like account_address or vault_address. The private key in .env corresponds to an API Wallet that has not been approved. Fix by providing the main wallet's private key, or manually approving the API wallet address in the Hyperliquid UI (Settings -> API).",
+      "anti_pattern": "Assuming SDK initialization parameters are wrong when Hyperliquid rejects signed requests with a wallet existence error.",
+      "files": [
+        "core/hyperliquid_executor.py"
+      ],
+      "source_episode": "ep-2026-06-22-hyperliquid-wallet-auth",
+      "evolution_marker": "2026-06-22 | CRITICAL | Bot opened trades on main wallet but couldn't close them because the API wallet key in .env was unapproved"
     }
   ]
 }

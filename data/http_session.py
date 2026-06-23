@@ -20,11 +20,24 @@ from urllib3.util.retry import Retry
 _session: requests.Session | None = None
 
 
+class TimeoutSession(requests.Session):
+    def request(self, *args, **kwargs):
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 15.0  # Global default timeout to prevent hangs
+        try:
+            return super().request(*args, **kwargs)
+        except requests.exceptions.RequestException as e:
+            # Catch timeouts and other request exceptions and raise them clearly, 
+            # or we could return a dummy response. But since callers expect a response, 
+            # we should let them handle the RequestException, or we can log it.
+            # We must ensure that the caller handles it.
+            raise
+
 def get_session() -> requests.Session:
     """Return a shared requests.Session with connection pooling and retry policy."""
     global _session
     if _session is None:
-        _session = requests.Session()
+        _session = TimeoutSession()
         retries = Retry(
             total=3,
             backoff_factor=0.5,

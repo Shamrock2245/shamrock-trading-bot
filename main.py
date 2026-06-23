@@ -3322,6 +3322,8 @@ async def run_bot_loop():
 
                             entry_value_usd=allocation.position_size_usd,
                             strategy_profile=_reg_profile,
+                            target_timeframe=getattr(candidate, "target_timeframe", ""),
+                            confirmation_timeframe=getattr(candidate, "confirmation_timeframe", ""),
                         )
 
                         notify_trade(
@@ -3338,6 +3340,8 @@ async def run_bot_loop():
                                 tx_hash or "N/A",
                                 "YES ⚡" if is_express else "no",
                             ),
+                            target_timeframe=getattr(candidate, "target_timeframe", ""),
+                            confirmation_timeframe=getattr(candidate, "confirmation_timeframe", ""),
                         )
                         # ── Adaptive mode: record gem trade open (not yet profitable)
                         # We record it as a trade event; profitability is determined at close.

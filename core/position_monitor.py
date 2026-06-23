@@ -1600,6 +1600,8 @@ def execute_sell(pos: dict, sell_action: dict, current_price: float, is_paper: b
             amount_usd=sell_qty * current_price,
             pnl_pct=pnl_pct,
             tx_hash=trade_record.get("tx_hash", ""),
+            target_timeframe=pos.get("target_timeframe", ""),
+            confirmation_timeframe=pos.get("confirmation_timeframe", ""),
         )
     except Exception:
         pass
@@ -2112,6 +2114,8 @@ def register_position(
     token_decimals: int = 0,  # 0 = auto-detect: 6 for Solana, 18 for EVM
     strategy_profile: str = "",  # e.g. "nuclear", "conservative"
     signal_scores: dict = None,  # ML attribution features
+    target_timeframe: str = "",
+    confirmation_timeframe: str = "",
 ) -> dict:
     """
     Register a new open position after a buy is executed.
@@ -2192,6 +2196,8 @@ def register_position(
         "token_decimals": token_decimals if token_decimals > 0 else (6 if chain == "solana" else 18),
         "strategy_profile": strategy_profile,
         "signal_scores": signal_scores or {},
+        "target_timeframe": target_timeframe,
+        "confirmation_timeframe": confirmation_timeframe,
     }
 
     positions.append(position)
@@ -2220,6 +2226,8 @@ def register_position(
         "tx_hash": tx_hash,
         "gem_score": gem_score,
         "strategy_profile": strategy_profile,
+        "target_timeframe": target_timeframe,
+        "confirmation_timeframe": confirmation_timeframe,
     })
 
     return position

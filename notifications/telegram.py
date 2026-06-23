@@ -40,7 +40,7 @@ def send_telegram_message(text: str, chat_id: Optional[str] = None) -> bool:
 
 def notify_trade(action: str, token_symbol: str, chain: str,
                  price: float, amount_usd: float, pnl_pct: Optional[float] = None,
-                 tx_hash: str = "") -> bool:
+                 tx_hash: str = "", target_timeframe: str = "", confirmation_timeframe: str = "") -> bool:
     """Format and send a trade notification."""
     emoji = "🟢" if action.upper() == "BUY" else "🔴"
     if action.upper() == "SELL" and pnl_pct is not None and pnl_pct > 0:
@@ -53,6 +53,13 @@ def notify_trade(action: str, token_symbol: str, chain: str,
     if pnl_pct is not None:
         msg += f"PnL: {pnl_pct:+.2f}%\n"
         
+    if target_timeframe:
+        msg += f"Target TF: {target_timeframe}"
+        if confirmation_timeframe:
+            msg += f" (Confirmed by {confirmation_timeframe})\n"
+        else:
+            msg += "\n"
+
     if tx_hash:
         msg += f"\n<a href='https://dexscreener.com/{chain}/{token_symbol}'>Chart</a>"
         
@@ -82,6 +89,8 @@ def notify_threshold_breach(
     volume_1h: float = 0,
     buy_pressure: float = 0,
     source: str = "",
+    target_timeframe: str = "",
+    confirmation_timeframe: str = "",
 ) -> bool:
     """
     Alert when a watchlisted token's score crosses above the entry threshold.
@@ -98,6 +107,13 @@ def notify_threshold_breach(
         f"Volume 1h: ${volume_1h:,.0f}\n"
         f"Buy Pressure: {smart_money} ({buy_pressure:.2f})\n"
     )
+    if target_timeframe:
+        msg += f"Target TF: {target_timeframe}"
+        if confirmation_timeframe:
+            msg += f" (Confirmed by {confirmation_timeframe})\n"
+        else:
+            msg += "\n"
+
     if source:
         msg += f"Source: {source}\n"
     msg += "\n→ Bot will auto-enter next cycle"

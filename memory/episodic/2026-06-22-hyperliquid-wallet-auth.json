@@ -1,0 +1,29 @@
+{
+  "episode_id": "ep-2026-06-22-hyperliquid-wallet-auth",
+  "timestamp": "2026-06-22T22:30:00",
+  "topic": "hyperliquid_api_wallet_authorization",
+  "What happened": {
+    "skill_used": "troubleshooting",
+    "task": "Debug why the bot failed to close 6 Hyperliquid positions automatically.",
+    "outcome": "success"
+  },
+  "Key Insights": {
+    "what_went_well": [
+      "Identified the exact wallet addresses involved.",
+      "Isolated the API rejection from the Python code."
+    ],
+    "what_went_wrong": [
+      "Initially spent time looking for bugs in the Exchange() constructor parameters."
+    ],
+    "root_cause": "The HYPERLIQUID_PRIVATE_KEY in .env belonged to an API Wallet (0x64a3...) that was NOT authorized for the main wallet (0xb867...) in the Hyperliquid settings. As a result, all signed market_close requests were rejected.",
+    "files_modified": [
+      "core/hyperliquid_executor.py (read)",
+      ".env (updated)",
+      ".agents/AGENTS.md (updated rule)"
+    ]
+  },
+  "User Feedback": {
+    "rating": 10,
+    "comments": "The user provided the main wallet's private key successfully, bypassing the need for manual API authorization in the UI."
+  }
+}

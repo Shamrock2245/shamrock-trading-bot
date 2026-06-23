@@ -109,7 +109,8 @@ def send_slack_message(text: str, channel: Optional[str] = None) -> bool:
 
 def notify_trade(action: str, token_symbol: str, chain: str,
                  amount_eth: float, score: float,
-                 mode: str = "paper", extra: str = "") -> bool:
+                 mode: str = "paper", extra: str = "",
+                 target_timeframe: str = "", confirmation_timeframe: str = "") -> bool:
     """
     Send a formatted trade notification.
 
@@ -129,6 +130,11 @@ def notify_trade(action: str, token_symbol: str, chain: str,
         "{}  *{} {}* on {} | {}\n"
         "Amount: `{:.4f} ETH` | Gem Score: `{:.0f}/100`"
     ).format(emoji, action, token_symbol, chain.title(), mode_badge, amount_eth, score)
+
+    if target_timeframe:
+        msg += f"\nTarget TF: {target_timeframe}"
+        if confirmation_timeframe:
+            msg += f" (Confirmed by {confirmation_timeframe})"
 
     if extra:
         msg += "\n{}".format(extra)
