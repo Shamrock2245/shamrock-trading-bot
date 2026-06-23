@@ -983,37 +983,58 @@ class HLPerpsScanner:
         ]
         reasoning = " | ".join(p for p in reasoning_parts if p)
 
-        # ── Kelly Criterion Position Sizing ──────────────────────────────────────
-        # ── Dynamic Kelly Criterion Position Sizing ─────────────────────────
-        # Scale size exponentially based on signal score (65 to 100).
-        # Uses LIVE account equity if executor is available, otherwise falls back
-        # to HL_PERPS_BASE_CAPITAL env var (default $150).
-        # Sizing: min=16.7% of equity (1 of 6 slots), max=96.7% of equity.
-        # Formula: base_size * e^(k * (score - min_score))
+        # ── EV-Aware Kelly Criterion Position Sizing ────────────────────────────
+        # RED TEAM PATCH: Kelly sizing now incorporates R/R and estimated win-rate.
+        # Formula: f* = (W * R - (1-W)) / R  where R = reward/risk ratio
+        # Win-rate estimated from score: score 50 -> 50% WR, score 95 -> 75% WR (linear)
+        # If estimated WR < break-even WR, position is capped to 1/max_positions of equity.
         _live_equity = HL_PERPS_BASE_CAPITAL
         if self.hl_executor and self.hl_executor.is_available():
             try:
                 _bal = self.hl_executor.get_balance()
                 _acct_val = _bal.get("accountValue", 0.0) or _bal.get("equity", 0.0)
-                if _acct_val and _acct_val > 10.0:  # sanity: ignore near-zero balances
+                if _acct_val and _acct_val > 10.0:
                     _live_equity = float(_acct_val)
             except Exception:
                 pass  # Fall back to HL_PERPS_BASE_CAPITAL
-        min_score = HL_PERPS_MIN_SCORE
-        max_score = 95.0
-        # Allocate 1/6 of equity at min score, up to 5/6 at max score
-        # This ensures no single trade risks more than ~97% of account
-        min_size = max(10.0, round(_live_equity / 6.0, 2))
-        max_size = max(min_size, round(_live_equity * 0.967, 2))
 
-        if score <= min_score:
+        # Compute R/R for this specific signal (using Fib-computed TP/SL)
+        _risk = abs(current_price - stop_loss) if stop_loss and current_price else None
+        _reward = abs(take_profit - current_price) if take_profit and current_price else None
+        _rr = (_reward / _risk) if (_risk and _risk > 0 and _reward) else 1.0
+
+        # Estimate win-rate from score (linear: 50->50%, 95->75%)
+        _score_norm = max(0.0, min(1.0, (score - 50.0) / 45.0))
+        _est_win_rate = 0.50 + _score_norm * 0.25  # 50% to 75%
+
+        # Break-even win-rate for this R/R
+        _breakeven_wr = 1.0 / (_rr + 1.0) if _rr > 0 else 1.0
+
+        # True fractional Kelly: f* = (W*R - (1-W)) / R
+        _kelly_fraction = (_est_win_rate * _rr - (1.0 - _est_win_rate)) / _rr if _rr > 0 else 0.0
+
+        # Slot-based minimum (1 slot = 1/max_positions of equity)
+        _max_positions_kelly = HL_PERPS_MAX_POSITIONS if HL_PERPS_MAX_POSITIONS > 0 else 6
+        min_size = max(10.0, round(_live_equity / _max_positions_kelly, 2))
+        max_size = max(min_size, round(_live_equity * 0.40, 2))  # Hard cap: 40% per position
+
+        if _kelly_fraction <= 0:
+            # Negative or zero EV -- use minimum slot size only
             kelly_size_usd = min_size
-        elif score >= max_score:
-            kelly_size_usd = max_size
+            logger.info(
+                f"[HL-PERPS] {coin} EV-KELLY: est_WR={_est_win_rate*100:.1f}% < "
+                f"breakeven={_breakeven_wr*100:.1f}% at R/R={_rr:.2f}x -- "
+                f"capped to min_size="
+            )
         else:
-            # Exponential scaling factor
-            k = math.log(max_size / min_size) / (max_score - min_score)
-            kelly_size_usd = min_size * math.exp(k * (score - min_score))
+            # Positive EV -- scale by Kelly fraction, bounded by [min_size, max_size]
+            kelly_size_usd = _live_equity * _kelly_fraction
+            kelly_size_usd = max(min_size, min(kelly_size_usd, max_size))
+            logger.debug(
+                f"[HL-PERPS] {coin} EV-KELLY: est_WR={_est_win_rate*100:.1f}% "
+                f"R/R={_rr:.2f}x f*={_kelly_fraction*100:.1f}% "
+                f"-> size="
+            )
 
         # Hard cap: never risk more than max_size in a single position
         kelly_size_usd = min(kelly_size_usd, max_size)

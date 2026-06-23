@@ -641,7 +641,7 @@ class HyperliquidExecutor:
 
             try:
                 # Cancel stop-loss trigger if exists
-                if pos.sl_order_id:
+                if pos.sl_oid:
                     # _cancel_trigger handles the logic
                     pass
 
@@ -841,6 +841,7 @@ class HyperliquidExecutor:
                     return None
 
                 # Place market order
+                notional = actual_size_usd * lev
                 logger.info(
                     f"🚀 Hyperliquid {side.upper()} {sym} | "
                     f"margin=${actual_size_usd:.2f} × {lev}x = ${notional:.2f} notional | "
@@ -905,6 +906,24 @@ class HyperliquidExecutor:
 
                 # Place TP/SL orders and capture on-chain order IDs
                 sl_oid, tp_oid = self._place_tpsl(sym, side, fill_size, sl_price, tp_price)
+
+                # ── RED TEAM PATCH: No-SL = No-Trade rule ─────────────────────
+                # If the SL order failed to place, we have an unprotected leveraged
+                # position. Immediately close it at market to preserve capital.
+                if sl_oid is None:
+                    logger.error(
+                        f"🛑 RED TEAM GUARD: SL placement FAILED for {sym} — "                        f"closing position immediately to prevent unprotected exposure"
+                    )
+                    try:
+                        close_side = not (side == "buy")  # opposite side to close
+                        self._execute_api(
+                            self._exchange.market_close,
+                            sym,
+                        )
+                        logger.warning(f"🛑 Emergency close executed for {sym} — no capital at risk")
+                    except Exception as close_err:
+                        logger.error(f"🛑 Emergency close FAILED for {sym}: {close_err} — MANUAL INTERVENTION REQUIRED")
+                    return None
 
                 # Track position — include trailing state fields
                 pos = HLPosition(
@@ -986,14 +1005,17 @@ class HyperliquidExecutor:
                 sl_limit_px = round(sl_price * (1 - slippage), 6)
                 tp_limit_px = round(tp_price * (1 - slippage), 6)
 
-            # Stop Loss — LIMIT order triggered when price hits SL
+            # Stop Loss — MARKET trigger order (isMarket: True)
+            # RED TEAM FIX: Using market trigger ensures SL fills even when price
+            # gaps through the limit in a flash crash. TP remains limit-type.
+            # limit_px is still required by HL SDK but is ignored for market triggers.
             sl_result = self._execute_api(
                 self._exchange.order,
                 coin,
                 is_buy,
                 size,
-                sl_limit_px,  # limit_px (worst acceptable execution price)
-                {"trigger": {"isMarket": False, "triggerPx": sl_price, "tpsl": "sl"}},
+                sl_limit_px,  # limit_px (required by SDK, ignored for market trigger)
+                {"trigger": {"isMarket": True, "triggerPx": sl_price, "tpsl": "sl"}},
                 reduce_only=True,
             )
             sl_ok = sl_result and sl_result.get("status") == "ok"
@@ -1157,7 +1179,8 @@ class HyperliquidExecutor:
                 sl_limit_px = round(new_sl_price * (1 - slippage), 6)
 
             try:
-                order_type = {"trigger": {"isMarket": False, "triggerPx": new_sl_price, "tpsl": "sl"}}
+                # RED TEAM FIX: Market trigger ensures trailing SL fills in flash crashes
+                order_type = {"trigger": {"isMarket": True, "triggerPx": new_sl_price, "tpsl": "sl"}}
                 
                 if old_oid is not None:
                     # Modify existing order directly
