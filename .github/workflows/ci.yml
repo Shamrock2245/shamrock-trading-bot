@@ -1,21 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Shamrock Trading Bot — CI/CD Pipeline
 #
-# FIX (2026-06-23): lint-and-test was timing out at 10-20 min because pip was
-# installing heavy ML packages (xgboost, stable-baselines3, gymnasium, optuna,
-# timesfm, reflex) that are not needed for unit tests. Solution: CI uses
-# requirements-ci.txt (lightweight subset). Production Docker uses the full
-# requirements.txt. uv is used for fast parallel installs (~2-3 min total).
-#
-# Jobs:
-#   1. lint-and-test  → pytest on CI deps (fast, <5 min)
-#   2. preflight      → import smoke test
-#   3. deploy         → SSH into Hetzner, git pull, docker rebuild (main only)
-#
-# Required GitHub Secrets:
-#   HETZNER_HOST      → 46.62.231.43
-#   HETZNER_USER      → root
-#   HETZNER_SSH_KEY   → Private SSH key for deployment
+# FIX: lint-and-test was timing out. Now uses requirements-ci.txt (no heavy ML)
+# and uv for fast installs. preflight reuses the cache from lint-and-test.
 # ─────────────────────────────────────────────────────────────────────────────
 name: CI/CD
 
@@ -24,14 +11,12 @@ on:
   push:
     branches: ["main", "master", "work"]
 
-# Cancel in-progress runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Dummy secrets so imports don't crash on missing env vars
   MODE: paper
   HYPERLIQUID_USE_TESTNET: "true"
   WALLET_PRIVATE_KEY_PRIMARY: "0000000000000000000000000000000000000000000000000000000000000001"
@@ -48,36 +33,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install uv (fast package installer)
+      - name: Install uv
         run: pip install uv --quiet
 
-      - name: Cache uv virtualenv
+      - name: Cache pip packages
         uses: actions/cache@v4
         with:
-          path: .venv
-          key: venv-${{ runner.os }}-py311-${{ hashFiles('requirements-ci.txt') }}
-          restore-keys: |
-            venv-${{ runner.os }}-py311-
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-py311-${{ hashFiles('requirements-ci.txt') }}
+          restore-keys: uv-${{ runner.os }}-py311-
 
-      - name: Install CI dependencies (lightweight subset, no heavy ML)
-        run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install -r requirements-ci.txt
+      - name: Install CI dependencies
+        run: uv pip install --system -r requirements-ci.txt
         timeout-minutes: 8
 
       - name: Run tests
-        run: |
-          source .venv/bin/activate
-          pytest -q --tb=short --timeout=60 \
-            -m "not live and not integration" \
-            --ignore=scripts/
+        run: pytest -q --tb=short --timeout=60 -m "not live and not integration" --ignore=scripts/
 
   # ── Job 2: Preflight Smoke Test ───────────────────────────────────────────
   preflight:
@@ -85,34 +62,28 @@ jobs:
     needs: lint-and-test
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install uv (fast package installer)
+      - name: Install uv
         run: pip install uv --quiet
 
-      - name: Restore uv cache
+      - name: Restore pip cache
         uses: actions/cache@v4
         with:
-          path: .venv
-          key: venv-${{ runner.os }}-py311-${{ hashFiles('requirements-ci.txt') }}
-          restore-keys: |
-            venv-${{ runner.os }}-py311-
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-py311-${{ hashFiles('requirements-ci.txt') }}
+          restore-keys: uv-${{ runner.os }}-py311-
 
       - name: Install CI dependencies
-        run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install -r requirements-ci.txt
+        run: uv pip install --system -r requirements-ci.txt
         timeout-minutes: 8
 
       - name: Preflight — import check
-        run: |
-          source .venv/bin/activate
-          python -c "from main import main; print('✅ Import OK')"
+        run: python -c "from main import main; print('✅ Import OK')"
 
   # ── Job 3: Deploy to Hetzner (main branch only) ──────────────────────────
   deploy:
@@ -122,7 +93,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2  # v1.2.5
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
