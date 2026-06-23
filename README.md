@@ -85,14 +85,13 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
 - **Macro Regime Filter** — reads BTC, ETH, SOL, BNB 24h trends + Fear & Greed Index → classifies BULL/BEAR/NEUTRAL → dynamically adjusts score thresholds
 - **Helius Enrichment** — Solana DAS API on-chain metadata: holder concentration, mint authority status, mutable metadata, top-10 wallet analysis
 
-### ⚡ Trade Execution
-- **Tri-wallet architecture** — Conservative (Primary) + Nuclear (Wallet B) + Paycheck (Wallet C, profit vault)
-- [1inch](https://portal.1inch.dev/) + [Jupiter](https://jup.ag/) + [Trader Joe](https://traderjoexyz.com/) DEX aggregation
-- **Hyperliquid perps** — zero-gas leveraged perpetual futures as fallback when on-chain routing fails
-- EIP-1559 gas optimization + MEV gas bribe on God Signals (≥85)
-- **Dual TP ladders** — Conservative (1.5x/2.5x/5x) + Nuclear (5x/12x/30x + ride)
-- Trailing + hard stop-loss enforcement
-- [Flashbots Protect](https://docs.flashbots.net/flashbots-protect/overview) / [MEV Blocker](https://mevblocker.io/) for MEV protection
+### ⚡ Trade Execution (Hyperliquid Primary)
+- **Hyperliquid Perps (Primary Engine)** — Zero-gas, leveraged perpetual futures execution with deep liquidity and exact market-triggered stops.
+- **EV-Aware Kelly Sizing** — Mathematical position sizing that starves negative-EV trades and scales into high-probability setups (up to 40% wallet cap).
+- **Market-Triggered Stop Losses** — Guaranteed exit execution during flash crashes; prevents limit-order slippage wipeouts.
+- **Strict "No-SL = No-Trade" Guard** — If the exchange rate-limits or fails to place a Stop Loss, the bot instantly market-closes the position to prevent unprotected exposure.
+- **DEX Fallbacks** — [1inch](https://portal.1inch.dev/) + [Jupiter](https://jup.ag/) + [Trader Joe](https://traderjoexyz.com/) routing for on-chain gems.
+- **Dual TP ladders** — Conservative (1.5x/2.5x/5x) + Nuclear (5x/12x/30x + ride) with dynamic ratcheting trailing stops.
 
 ### 📊 Portfolio Dashboard (9 Pages)
 Reflex-powered UI at `http://46.62.231.43:3000`:
@@ -285,9 +284,11 @@ Alpha Wallet Monitor (30s polling) + Moralis Streams (push webhook)
 |------|---------|-------------|
 | Max position size (Conservative) | 10% of wallet | ✅ `MAX_POSITION_SIZE_PERCENT` |
 | Max position size (Nuclear) | 25% of wallet | ✅ via `StrategyProfile` |
+| **EV-Aware Kelly Sizing** | Active (Scales dynamically based on R/R and Est. WR) | 🔒 Hardcoded |
 | Max concurrent positions | 5 (Conservative) / 3 (Nuclear) | ✅ `MAX_CONCURRENT_POSITIONS` |
 | Trailing stop-loss | 20% (Conservative) / 28% (Nuclear) | ✅ `STOP_LOSS_PERCENT` |
-| Hard stop-loss | 20% (Conservative) / 8% (Nuclear) | ✅ `HARD_STOP_LOSS_PERCENT` |
+| **Stop Loss Order Type** | **Market Trigger** (Protects vs slippage) | 🔒 Hardcoded |
+| **Emergency SL Guard** | **No-SL = No-Trade** (Insta-close if SL fails) | 🔒 Hardcoded |
 | Take-profit exits (Conservative) | 40% @ 1.5x, 35% @ 2.5x, 25% @ 5x | ✅ `StrategyProfile` |
 | Take-profit exits (Nuclear) | 20% @ 5x, 25% @ 12x, 20% @ 30x, ride 35% | ✅ `StrategyProfile` |
 | Circuit breaker | Halt at -15% daily | ✅ `CIRCUIT_BREAKER_PERCENT` |
