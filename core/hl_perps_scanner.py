@@ -1053,8 +1053,8 @@ class HLPerpsScanner:
 
         # ── R/R Ratio Guard (OpenAlice Guard Pipeline) ────────────────────────
         # Reject signals where TP/SL math doesn't make sense.
-        # Minimum R/R = 1.5x to ensure favorable risk/reward on every trade.
-        MIN_RR_RATIO = 1.5
+        # Minimum R/R = 0.75x to allow frequent scalp trading.
+        MIN_RR_RATIO = 0.75
         rr = signal.r_r_ratio
 
         # Sanity: TP must be on the correct side of entry
