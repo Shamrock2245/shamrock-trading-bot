@@ -2453,9 +2453,9 @@ class GemScanner:
             return None
 
         # ── Timeframe Target Selection ──────────────────────────────────────────────────
-        from strategies.mtf_confirmer import analyze_mtf, MTF_CONFIRM_ENABLED
+        from strategies.mtf_confirmer import get_mtf_alignment, MTF_CONFIRM_ENABLED
         if MTF_CONFIRM_ENABLED:
-            mtf_res = analyze_mtf(token.pair_address, token.chain)
+            mtf_res = get_mtf_alignment(token.pair_address, token.chain)
             if mtf_res.tf_1h_trend == "bullish":
                 candidate.target_timeframe = "1h"
                 candidate.confirmation_timeframe = "4h"
