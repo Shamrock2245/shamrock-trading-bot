@@ -154,6 +154,15 @@ def save_positions(positions: list[dict]) -> None:
     """Persist open positions to disk (atomic write + periodic backup + fsync). Thread-safe."""
     with _positions_lock:
         _save_positions_unlocked(positions)
+    
+    # Sync open positions to Moralis Streams for real-time contract security monitoring
+    try:
+        if getattr(settings, "MORALIS_STREAMS_ENABLED", False):
+            from core.moralis_streams_manager import streams_manager
+            if streams_manager:
+                streams_manager.sync_active_positions(positions)
+    except Exception as e:
+        logger.debug(f"Failed to sync active positions to Moralis Streams: {e}")
 
 
 def _append_to_file(filepath: Path, record: dict, max_records: int = 10_000) -> None:

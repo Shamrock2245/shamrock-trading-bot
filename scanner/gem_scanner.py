@@ -83,6 +83,7 @@ from data.providers.moralis_intelligence import (
     get_pumpfun_new_tokens,
     get_pumpfun_bonding_tokens,
     get_chain_heat,
+    get_holder_stats,
 )
 from scanner.watchlist import GemWatchlist, WATCHLIST_MIN_SCORE
 
@@ -1073,6 +1074,24 @@ class GemScanner:
                 f"${token.liquidity_usd:,.0f} < $15k minimum. Skipping."
             )
             return None
+
+        # ── HARD GATE #3: Holder Forensics (Honeypot / Centralization Check) ──
+        # Pull Moralis Holder Stats. If Top 10 holders own > 50% (excl. DEX), 
+        # or it has a 'critical' concentration risk, we abort.
+        try:
+            holder_stats = get_holder_stats(token.address, token.chain)
+            top10 = holder_stats.get("top10_pct", 0.0)
+            risk = holder_stats.get("concentration_risk", "unknown")
+            
+            # Allow some leeway for very new tokens, but >75% is an instant reject
+            if top10 > 75.0 or risk == "critical":
+                logger.info(
+                    f"⛔ HOLDER FORENSICS GATE: {token.symbol} is too centralized! "
+                    f"Top 10 hold {top10}% (Risk: {risk}). Rejecting."
+                )
+                return None
+        except Exception as e:
+            logger.debug(f"Holder forensics check skipped for {token.symbol}: {e}")
 
         # ── PRE-SCORE OPTIMIZATION (DexScreener/Local Data) ───────────────────
         # Calculate local/free scores first to fast-reject garbage tokens

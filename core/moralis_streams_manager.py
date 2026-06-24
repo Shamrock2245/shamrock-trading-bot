@@ -28,10 +28,9 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.moralis-streams.com"
 
 # EVM chain IDs for Moralis Streams (hex format — required by Moralis)
-# Ethereum (0x1) REMOVED — alpha-wallet ERC-20 transfers on ETH mainnet fire hundreds of events/hour
-# and each event costs 1+ CU. With 100M CU/month budget, ETH streams alone can exhaust the plan.
-# Focus: Base (0x2105) + Arbitrum (0xa4b1) only. Re-add 0x1 when capital warrants it.
-CHAIN_IDS = ["0x2105", "0xa4b1"]  # Base, Arbitrum
+# Ethereum (0x1) RE-ENABLED — Budget upgraded to 500M CU/month.
+# Tracking ETH mainnet for highest quality smart money.
+CHAIN_IDS = ["0x1", "0x2105", "0xa4b1"]  # Ethereum, Base, Arbitrum
 
 # Stream tags — used to identify our streams and route webhook events
 TAG_ALPHA_WALLETS = "shamrock-alpha-wallets"
@@ -40,6 +39,7 @@ TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
 TAG_BTC_WHALE_WATCH = "shamrock-btc-whale-watch"
+TAG_ACTIVE_POSITIONS = "shamrock-active-positions"
 
 # Uniswap V2 Router / Factory event signatures
 PAIR_CREATED_TOPIC = "PairCreated(address,address,address,uint256)"
@@ -61,8 +61,12 @@ PAIR_CREATED_ABI = [
 ]
 
 # Known DEX factory addresses (for liquidity event monitoring)
-# Ethereum (0x1) factories removed — not scanning ETH mainnet (CU budget conservation)
+# Ethereum (0x1) factories re-enabled.
 DEX_FACTORIES = {
+    "0x1": [
+        "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",  # Uniswap V2
+        "0x1F98431c8aD98523631AE4a59f267346ea31F984",  # Uniswap V3
+    ],
     "0x2105": [
         "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6",  # Uniswap V3 (Base)
         "0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E",  # Aerodrome
@@ -194,6 +198,22 @@ class MoralisStreamsManager:
         self.metrics["addresses_synced"] += len(wallets)
         logger.info(f"MoralisStreamsManager: Synced {len(wallets)} alpha wallets to stream {stream_id}")
 
+    def sync_active_positions(self, positions_list: list[dict]) -> None:
+        """
+        Dynamically monitor open positions to catch developer rugs or massive whale dumps.
+        """
+        self._ensure_active_positions_stream()
+        stream_id = self._managed_streams.get(TAG_ACTIVE_POSITIONS)
+        if not stream_id:
+            return
+
+        addresses = [p.get("token_address") for p in positions_list if p.get("token_address")]
+        if not addresses:
+            return
+            
+        self._replace_addresses(stream_id, addresses)
+        logger.info(f"MoralisStreamsManager: Synced {len(addresses)} active positions to stream {stream_id}")
+
     def get_status(self) -> dict[str, Any]:
         """Return current status for dashboard display."""
         streams_info = {}
@@ -275,8 +295,8 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: Whale stream already exists: {self._managed_streams[TAG_WHALE_DETECTOR]}")
             return
 
-        # Only monitor Base and Arbitrum — that's where our gems live
-        whale_chains = ["0x2105", "0xa4b1"]
+        # Monitor Ethereum, Base and Arbitrum
+        whale_chains = ["0x1", "0x2105", "0xa4b1"]
         webhook = self.webhook_url.rstrip("/")  # already full path
 
         body = {
@@ -302,8 +322,8 @@ class MoralisStreamsManager:
             logger.info(f"MoralisStreamsManager: Liquidity stream already exists: {self._managed_streams[TAG_LIQUIDITY]}")
             return
 
-        # Monitor Base and Arbitrum factories only — Ethereum excluded (CU budget conservation)
-        liquidity_chains = ["0x2105", "0xa4b1"]
+        # Monitor Ethereum, Base and Arbitrum factories
+        liquidity_chains = ["0x1", "0x2105", "0xa4b1"]
         webhook = self.webhook_url.rstrip("/")  # already full path
 
         body = {
@@ -328,6 +348,50 @@ class MoralisStreamsManager:
         if wallets:
             self.sync_alpha_wallets(wallets)
 
+    def _ensure_active_positions_stream(self) -> None:
+        """Create or verify the active positions security stream."""
+        if TAG_ACTIVE_POSITIONS in self._managed_streams:
+            return
+
+        webhook = self.webhook_url.rstrip("/")
+        
+        # We listen for OwnershipTransferred and Mint events to detect rugs
+        ABI = [
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "previousOwner", "type": "address"},
+                    {"indexed": True, "name": "newOwner", "type": "address"}
+                ],
+                "name": "OwnershipTransferred",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "to", "type": "address"},
+                    {"indexed": False, "name": "amount", "type": "uint256"}
+                ],
+                "name": "Mint",
+                "type": "event"
+            }
+        ]
+
+        body = {
+            "webhookUrl": webhook,
+            "description": "Shamrock Trading Bot — Active Positions Security Monitor",
+            "tag": TAG_ACTIVE_POSITIONS,
+            "topic0": ["OwnershipTransferred(address,address)", "Mint(address,uint256)"],
+            "allAddresses": False,
+            "includeContractLogs": True,
+            "chainIds": CHAIN_IDS,
+            "abi": ABI,
+        }
+
+        stream_id = self._create_stream(body)
+        if stream_id:
+            self._managed_streams[TAG_ACTIVE_POSITIONS] = stream_id
+            logger.info(f"MoralisStreamsManager: ✅ Active positions security stream created: {stream_id}")
 
     def _ensure_solana_discovery_stream(self) -> None:
         if TAG_SOLANA_DISCOVERY in self._managed_streams:
@@ -436,6 +500,8 @@ class MoralisStreamsManager:
             self._ensure_solana_alpha_wallet_stream()
         elif tag == TAG_BTC_WHALE_WATCH:
             self._ensure_btc_stream()
+        elif tag == TAG_ACTIVE_POSITIONS:
+            self._ensure_active_positions_stream()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Moralis API Calls

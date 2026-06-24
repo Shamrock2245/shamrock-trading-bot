@@ -32,6 +32,7 @@ TAG_LIQUIDITY = "shamrock-liquidity-events"
 TAG_SOLANA_DISCOVERY = "shamrock-solana-discovery"
 TAG_SOLANA_ALPHA_WALLETS = "shamrock-solana-alpha"
 TAG_BTC_WHALE_WATCH = "shamrock-btc-whale-watch"
+TAG_ACTIVE_POSITIONS = "shamrock-active-positions"
 
 
 class MoralisStreamsServer:
@@ -54,6 +55,7 @@ class MoralisStreamsServer:
         on_liquidity_event: Optional[Callable[[dict], None]] = None,
         on_solana_discovery_event: Optional[Callable[[str], None]] = None,
         on_solana_alpha_event: Optional[Callable[[str, dict], None]] = None,
+        on_contract_security_event: Optional[Callable[[dict], None]] = None,
     ):
         self.host = host
         self.port = port
@@ -69,6 +71,7 @@ class MoralisStreamsServer:
         self.on_liquidity_event = on_liquidity_event
         self.on_solana_discovery_event = on_solana_discovery_event
         self.on_solana_alpha_event = on_solana_alpha_event
+        self.on_contract_security_event = on_contract_security_event
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -298,6 +301,8 @@ class MoralisStreamsServer:
                             processed = _handle_solana_alpha_wallet_event(parent, payload)
                         elif tag == TAG_BTC_WHALE_WATCH:
                             processed = _handle_btc_whale_event(parent, payload)
+                        elif tag == TAG_ACTIVE_POSITIONS:
+                            processed = _handle_contract_security_event(parent, payload)
                         else:
                             logger.debug(f"MoralisStreams: Unknown tag '{tag}' — falling back to alpha handler")
                             processed = _handle_alpha_wallet_event(parent, payload)
@@ -903,3 +908,32 @@ def _chain_id_to_name(chain_id: str) -> str:
         "0xa": "optimism",
         "10": "optimism",
     }.get(cid, "unknown")
+
+def _handle_contract_security_event(server: MoralisStreamsServer, payload: dict) -> int:
+    """
+    Process real-time Contract Security events (OwnershipTransferred, Mint).
+    """
+    if not server.on_contract_security_event:
+        return 0
+
+    logs = payload.get("logs", [])
+    if not logs:
+        return 0
+
+    processed = 0
+    for log in logs:
+        # Check topic0 for OwnershipTransferred or Mint
+        topic0 = log.get("topic0", "")
+        if topic0 in ["0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0", # OwnershipTransferred
+                      "0x4c209b5fc8ad50758f13e2e1088ba56a560dff690a1c6fef26394f4c03821c4f"]: # Mint
+            try:
+                server.on_contract_security_event(log)
+                processed += 1
+            except Exception as e:
+                logger.error(f"MoralisStreams: Error processing contract security event: {e}")
+                server.metrics["errors"] += 1
+
+    if processed:
+        logger.info(f"MoralisStreams: 🚨 Processed {processed} contract security events!")
+
+    return processed

@@ -19,6 +19,7 @@ from data.providers.moralis_discovery import (
     get_top_profitable_wallets,
     get_wallet_profitability_summary
 )
+from data.providers.moralis_defi import get_wallet_defi_positions
 from core.moralis_streams_manager import streams_manager
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,14 @@ class AlphaDiscoveryLoop:
                     total_trades = int(summary.get("total_trades", 0) or 0)
                     
                     if total_pnl > self.min_realized_profit_usd and total_trades > self.min_total_trades:
-                        logger.info(f"AlphaDiscoveryLoop: 💎 Found Alpha Wallet {wallet_addr} (PnL: ${total_pnl:,.2f}, Trades: {total_trades})")
+                        # Deep Wallet Intelligence: Filter out MEV Bots
+                        # MEV bots typically have massive volume but zero resting DeFi positions
+                        defi_positions = get_wallet_defi_positions(wallet_addr, chain="eth")
+                        if not defi_positions:
+                            logger.info(f"AlphaDiscoveryLoop: 🤖 Filtered MEV Bot {wallet_addr} (Zero resting DeFi positions)")
+                            continue
+                            
+                        logger.info(f"AlphaDiscoveryLoop: 💎 Found Alpha Wallet {wallet_addr} (PnL: ${total_pnl:,.2f}, Trades: {total_trades}, DeFi Pos: {len(defi_positions)})")
                         new_wallets.add(wallet_addr)
                         self._discovered_wallets.add(wallet_addr)
             
