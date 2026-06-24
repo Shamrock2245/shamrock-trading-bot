@@ -242,6 +242,7 @@ class MoralisStreamsManager:
                     "includeNativeTxs": True,
                 }
             ],
+            "getNativeBalances": [{"selectors": ["$from", "$to"]}],
             # Triggers: enrich webhook with receiver's post-transfer token balance
             # This eliminates a separate API call per event — data arrives in the webhook
             "triggers": [{
@@ -287,6 +288,7 @@ class MoralisStreamsManager:
             "includeContractLogs": True,
             "chainIds": whale_chains,
             "abi": ERC20_TRANSFER_ABI,
+            "getNativeBalances": [{"selectors": ["$from", "$to"]}],
         }
 
         stream_id = self._create_stream(body)
@@ -309,7 +311,7 @@ class MoralisStreamsManager:
             "description": "Shamrock Trading Bot — DEX Liquidity Pool Creation Monitor",
             "tag": TAG_LIQUIDITY,
             "topic0": [PAIR_CREATED_TOPIC],
-            "allAddresses": False,
+            "allAddresses": True,
             "includeContractLogs": True,
             "chainIds": liquidity_chains,
             "abi": PAIR_CREATED_ABI,
@@ -318,13 +320,7 @@ class MoralisStreamsManager:
         stream_id = self._create_stream(body)
         if stream_id:
             self._managed_streams[TAG_LIQUIDITY] = stream_id
-            # Add DEX factory addresses
-            all_factories = []
-            for chain_factories in DEX_FACTORIES.values():
-                all_factories.extend(chain_factories)
-            if all_factories:
-                self._replace_addresses(stream_id, list(set(all_factories)))
-            logger.info(f"MoralisStreamsManager: ✅ Liquidity stream created: {stream_id}")
+            logger.info(f"MoralisStreamsManager: ✅ Network-wide liquidity stream created: {stream_id}")
 
     def _sync_current_alpha_wallets(self) -> None:
         """Push current SMART_MONEY_WALLETS to the alpha stream."""

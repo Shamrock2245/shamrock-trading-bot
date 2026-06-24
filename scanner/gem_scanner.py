@@ -1878,6 +1878,14 @@ class GemScanner:
                         )
                         return None  # Hard reject — don't even score
 
+                    # ── NEW: Security Score Check ────────────────────────────
+                    if candidate.moralis_security_score > 0 and candidate.moralis_security_score < 75:
+                        logger.info(
+                            f"⛔ SECURITY REJECT: {token.symbol} Moralis Security Score is {candidate.moralis_security_score}/100 "
+                            f"(<75 required). Skipping."
+                        )
+                        return None
+
                     # ── NEW: Pair stats (buyer/seller velocity) ──────────────
                     candidate.moralis_pair_buyers_5m = enrichment.get("moralis_pair_buyers_5m", 0)
                     candidate.moralis_pair_sellers_5m = enrichment.get("moralis_pair_sellers_5m", 0)

@@ -539,6 +539,15 @@ def _handle_alpha_wallet_event(server: MoralisStreamsServer, payload: dict) -> i
                 swap["receiver_token_balance"] = int(trigger_balance) / (10 ** int(ev.get("tokenDecimals", 18)))
             except (ValueError, TypeError):
                 pass
+                
+        # Extract native balances if provided by getNativeBalances
+        native_balances = payload.get("nativeBalances", [])
+        for nb in native_balances:
+            if nb.get("address", "").lower() == wallet:
+                try:
+                    swap["receiver_native_balance"] = int(nb.get("balance", "0")) / 1e18
+                except (ValueError, TypeError):
+                    pass
 
         try:
             server.on_swap_event(wallet, swap)

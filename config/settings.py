@@ -258,7 +258,7 @@ MORALIS_STREAMS_HEALTH_INTERVAL = int(os.getenv("MORALIS_STREAMS_HEALTH_INTERVAL
 
 # Whale detection stream — requires Moralis Business plan (allAddresses=true)
 MORALIS_STREAMS_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "true").lower() == "true"
-MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD", "50000"))  # $50K+ transfers
+MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD", "15000"))  # $15K+ transfers
 
 # Liquidity event stream — monitors DEX factory contracts for new pools
 MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "true").lower() == "true"
@@ -298,7 +298,7 @@ MORALIS_BTC_WHALE_MIN_BTC = float(os.getenv("MORALIS_BTC_WHALE_MIN_BTC", "10.0")
 # ─────────────────────────────────────────────────────────────────────────────
 MORALIS_DEFI_ENABLED = os.getenv("MORALIS_DEFI_ENABLED", "true").lower() == "true"
 # DeFi positions are expensive (5000 CU) — only check for tokens with base_score >= this
-MORALIS_DEFI_MIN_BASE_SCORE = float(os.getenv("MORALIS_DEFI_MIN_BASE_SCORE", "55.0"))
+MORALIS_DEFI_MIN_BASE_SCORE = float(os.getenv("MORALIS_DEFI_MIN_BASE_SCORE", "40.0"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis Market Metrics API
@@ -311,7 +311,7 @@ MORALIS_MARKET_METRICS_ENABLED = os.getenv("MORALIS_MARKET_METRICS_ENABLED", "tr
 # Monthly CU budget for Moralis API calls.
 # Set this to your plan's monthly CU limit:
 #   Starter:    25,000 | Growth: 100,000 | Business: 500,000
-MORALIS_MONTHLY_CU_BUDGET = int(os.getenv("MORALIS_MONTHLY_CU_BUDGET", "100000"))
+MORALIS_MONTHLY_CU_BUDGET = int(os.getenv("MORALIS_MONTHLY_CU_BUDGET", "500000000"))
 # Safety buffer — stop expensive calls at this % of budget remaining (0.15 = 15%)
 MORALIS_SAFETY_BUFFER_PCT = float(os.getenv("MORALIS_SAFETY_BUFFER_PCT", "0.15"))
 
@@ -440,7 +440,7 @@ ACTIVE_CHAINS: list[str] = [c.strip().lower() for c in _active_chains_env.split(
 # ─────────────────────────────────────────────────────────────────────────────
 # Scanner Settings
 # ─────────────────────────────────────────────────────────────────────────────
-SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "60"))
+SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "15"))
 # Parallelise per-chain scoring in scan_for_gems() using ThreadPoolExecutor.
 # SCANNER_PARALLEL_CHAINS=True  → each chain's scoring runs in its own thread
 # SCANNER_MAX_WORKERS           → max threads in the scoring pool (default 4)
@@ -503,7 +503,7 @@ ROTATION_SCORE_THRESHOLD = float(os.getenv("ROTATION_SCORE_THRESHOLD", "15.0")) 
 # ─────────────────────────────────────────────────────────────────────────────
 # Position Monitoring
 # ─────────────────────────────────────────────────────────────────────────────
-POSITION_CHECK_INTERVAL_SECONDS = int(os.getenv("POSITION_CHECK_INTERVAL_SECONDS", "30"))
+POSITION_CHECK_INTERVAL_SECONDS = int(os.getenv("POSITION_CHECK_INTERVAL_SECONDS", "15"))
 POSITIONS_FILE = os.getenv("POSITIONS_FILE", "output/positions.json")
 TRADES_FILE = os.getenv("TRADES_FILE", "output/trades.json")
 

@@ -1848,6 +1848,46 @@ class LiquidationHunter:
         default_debt = USDC_BASE if chain == "base" else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # USDC ETH
         default_collateral = WETH_BASE if chain == "base" else "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH ETH
 
+        # Attempt Moralis DeFi API first (Business plan budget allows it)
+        try:
+            from data.providers.moralis_defi import get_wallet_defi_positions
+            from config import settings
+            
+            if getattr(settings, "MORALIS_DEFI_ENABLED", True):
+                moralis_chain = "base" if chain == "base" else "ethereum"
+                positions = get_wallet_defi_positions(user_address, chain=moralis_chain)
+                if positions:
+                    aave_positions = [p for p in positions if "aave" in p.get("protocol_id", "").lower() or "aave" in p.get("protocol_name", "").lower()]
+                    if aave_positions:
+                        # Extract debt and collateral tokens from Moralis payload
+                        best_debt = None
+                        best_collat = None
+                        max_debt_usd = -1
+                        max_collat_usd = -1
+                        
+                        for p in aave_positions:
+                            for pos in p.get("positions", []):
+                                balance_usd = float(pos.get("balance_usd", 0) or 0)
+                                token = pos.get("token_address", "")
+                                if not token:
+                                    continue
+                                    
+                                p_type = pos.get("position_type", "").lower()
+                                if "borrow" in p_type or "debt" in p_type:
+                                    if balance_usd > max_debt_usd:
+                                        max_debt_usd = balance_usd
+                                        best_debt = token
+                                elif "supply" in p_type or "lend" in p_type or "collateral" in p_type:
+                                    if balance_usd > max_collat_usd:
+                                        max_collat_usd = balance_usd
+                                        best_collat = token
+                                        
+                        if best_debt and best_collat:
+                            logger.debug(f"LiquidationHunter: Used Moralis DeFi API to find Aave assets for {user_address}")
+                            return best_debt, best_collat
+        except Exception as e:
+            logger.debug(f"LiquidationHunter: Moralis DeFi API lookup failed for {user_address}, falling back: {e}")
+
         try:
             # Query Aave subgraph for user positions
             subgraph_url = (
