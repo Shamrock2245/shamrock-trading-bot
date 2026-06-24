@@ -328,6 +328,8 @@ BTC_WEALTH_SWEEP_PCT = float(os.getenv("BTC_WEALTH_SWEEP_PCT", "0.30"))  # 30% o
 BTC_WEALTH_PRICE_SOURCE = os.getenv("BTC_WEALTH_PRICE_SOURCE", "moralis")
 # BTC cold wallet address for sweep destination (Wallet C)
 BTC_WEALTH_COLD_WALLET = os.getenv("BTC_WEALTH_COLD_WALLET", "0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860")
+# Native Bitcoin cold wallet address or xpub (for Business Tier Moralis integration)
+BTC_NATIVE_COLD_WALLET = os.getenv("BTC_NATIVE_COLD_WALLET", "")
 # Whale multiplier thresholds (from BTC stream)
 # If whales are accumulating, reduce BTC sweep (hold more for trading)
 # If whales are distributing, increase BTC sweep (take profits into BTC)

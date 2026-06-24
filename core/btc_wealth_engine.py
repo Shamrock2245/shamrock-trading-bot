@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config import settings
-from data.providers.moralis_bitcoin import get_bitcoin_price, get_bitcoin_sparkline
+from data.providers.moralis_bitcoin import get_bitcoin_price, get_bitcoin_sparkline, get_native_bitcoin_balance
 from notifications.slack import send_slack_message
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ LEDGER_FILE = Path("output/btc_wealth_ledger.json")
 class BTCWealthState:
     total_usd_rotated: float = 0.0
     total_btc_accumulated: float = 0.0
+    total_native_btc_accumulated: float = 0.0  # Native BTC monitored via Moralis
     average_cost_basis: float = 0.0
     last_rotation_timestamp: str = ""
     whale_multiplier: float = 1.0  # Boosted if BTC whales are accumulating
@@ -63,6 +64,7 @@ class BTCWealthEngine:
                 return BTCWealthState(
                     total_usd_rotated=data.get("total_usd_rotated", 0.0),
                     total_btc_accumulated=data.get("total_btc_accumulated", 0.0),
+                    total_native_btc_accumulated=data.get("total_native_btc_accumulated", 0.0),
                     average_cost_basis=data.get("average_cost_basis", 0.0),
                     last_rotation_timestamp=data.get("last_rotation_timestamp", ""),
                     whale_multiplier=data.get("whale_multiplier", 1.0),
@@ -205,8 +207,6 @@ class BTCWealthEngine:
             try:
                 if chain == "solana":
                     # Swap SOL → Wrapped BTC on Solana via Jupiter (execute_solana_buy)
-                    # execute_solana_swap does not exist; execute_solana_buy routes via Jupiter V6
-                    from core.solana_executor import execute_solana_buy
                     SOLANA_WBTC_MINT = "3NZ9JbZq46vyNs9F127J1L6FFZSp9Li1W2FX7z4y1pPv"
                     sol_wallet = getattr(settings, "SOLANA_WALLET_ADDRESS", "")
                     sol_key_env = "SOLANA_PRIVATE_KEY"
@@ -329,9 +329,27 @@ class BTCWealthEngine:
                 f"• Average Cost Basis: `${self.state.average_cost_basis:,.2f}`"
             )
             send_slack_message(msg, channel="#btc-accumulation")
+            
+            # Async check native cold storage if configured
+            if getattr(settings, "BTC_NATIVE_COLD_WALLET", ""):
+                threading.Thread(target=self.sync_native_balance, daemon=True).start()
+                
             return True
             
         return False
+
+    def sync_native_balance(self):
+        """Sync native BTC balance using Moralis Universal API."""
+        addr = getattr(settings, "BTC_NATIVE_COLD_WALLET", "")
+        if not addr:
+            return
+            
+        bal = get_native_bitcoin_balance(addr)
+        if bal is not None:
+            with self._lock:
+                self.state.total_native_btc_accumulated = bal
+                self._save_state()
+            logger.info(f"BTC Wealth Engine: Synced native cold storage balance: {bal:.5f} BTC")
 
 
 # Singleton Instance

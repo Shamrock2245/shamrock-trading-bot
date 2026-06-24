@@ -148,6 +148,41 @@ def get_bitcoin_price() -> Optional[dict]:
     
     return None
 
+def get_native_bitcoin_balance(address: str) -> Optional[float]:
+    """
+    Fetch native Bitcoin balance using Moralis Universal API.
+    Supports raw BTC addresses and xpubs.
+    
+    CU Cost: 10
+    """
+    if not _available():
+        return None
+        
+    cache_key = f"btc_balance_{address}"
+    if _is_cached(cache_key, SLOW_CACHE_TTL):
+        return _get_cache(cache_key)
+        
+    _rate_check(10)
+    try:
+        resp = get_session().get(
+            f"{BASE_URL}/{address}/balance",
+            params={"chain": "bitcoin"},
+            headers=_headers(),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # Balance is returned as string in Satoshis or raw
+        balance_str = data.get("balance", "0")
+        balance_btc = float(balance_str) / 1e8  # Convert Satoshis to BTC
+        
+        _set_cache(cache_key, balance_btc)
+        return balance_btc
+    except Exception as e:
+        logger.error(f"Error fetching native Bitcoin balance for {address}: {e}")
+        return None
+
 
 def get_bitcoin_sparkline() -> list[float]:
     """

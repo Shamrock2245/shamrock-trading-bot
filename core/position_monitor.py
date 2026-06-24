@@ -38,6 +38,7 @@ from data.http_session import get_session
 
 from config import settings
 from data.providers.moralis_money import get_token_analytics_fresh
+from data.providers.moralis_analytics import get_time_series_token_analytics
 from config.wallets import (
     CONSERVATIVE_PROFILE, NUCLEAR_PROFILE, SWING_SCALP_PROFILE,
     MTF_1H_SCALP_PROFILE, MTF_4H_SWING_PROFILE,
@@ -598,6 +599,19 @@ def _should_emergency_exit(pos: dict) -> Optional[dict]:
         )
         return {
             "reason": f"analytics_emergency_exit (netBuyers={net_buyers_1h}, pressure={buy_pressure:.2f})",
+            "sell_pct": 1.0,
+            "urgency": "immediate",
+        }
+        
+    # Predictive De-Risking via Time-Series Analytics
+    if pos.get("moralis_predictive_distribution"):
+        logger.warning(
+            f"🚨 Predictive De-risking Exit: {pos.get('token_symbol')} — "
+            f"Whales/Smart Money are distributing (negative net volume trend detected in time-series). "
+            f"Front-running the retail dump."
+        )
+        return {
+            "reason": "predictive_derisking_exit (whale distribution trend)",
             "sell_pct": 1.0,
             "urgency": "immediate",
         }
@@ -1822,6 +1836,22 @@ class PositionMonitor:
                         # Backward compat: keep existing buy_pressure_ratio field
                         pos["buy_pressure_ratio"] = pos["moralis_buy_pressure_1h"]
                         pos["moralis_buy_pressure"] = pos["moralis_buy_pressure_1h"]
+                        
+                    # Fetch predictive time series analytics (every 5th loop or if missing)
+                    if "time_series_last_fetch" not in pos or time.time() - pos["time_series_last_fetch"] > 300:
+                        ts_data = get_time_series_token_analytics(
+                            pos.get("token_address", ""),
+                            pos.get("chain", ""),
+                            limit=10
+                        )
+                        if ts_data:
+                            # Evaluate trend: if last 3 periods show negative net volume while overall was positive
+                            net_vols = [float(x.get("net_volume", 0)) for x in ts_data]
+                            if len(net_vols) >= 3 and all(v < 0 for v in net_vols[:3]):
+                                pos["moralis_predictive_distribution"] = True
+                            else:
+                                pos["moralis_predictive_distribution"] = False
+                            pos["time_series_last_fetch"] = time.time()
                 except Exception as e:
                     logger.debug(f"Failed to refresh Moralis analytics for {pos.get('token_symbol')}: {e}")
 

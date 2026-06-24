@@ -1130,6 +1130,12 @@ async def run_bot_loop():
     except Exception as _btc_err:
         logger.warning(f"BTC Wealth Engine failed to initialize: {_btc_err}")
 
+    # ── Alpha Discovery Loop: start automated wallet hunting ──────────────────────────────────
+    try:
+        from core.moralis_alpha_discovery import alpha_discovery
+        alpha_discovery.start()
+    except Exception as _alpha_err:
+        logger.warning(f"Alpha Discovery Loop init failed: {_alpha_err}")
     # ── Sniper Discovery Daemon (proactive microcap whale wallet discovery) ───────────────
     _sniper_discovery_daemon = None
     try:
