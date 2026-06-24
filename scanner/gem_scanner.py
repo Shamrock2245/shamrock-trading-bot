@@ -215,6 +215,14 @@ _EXCLUDED_SUBSTRINGS = ("USD", "EUR", "AUD", "CAD", "GBP", "STABLE", "FIAT", "YE
 
 logger = logging.getLogger(__name__)
 
+# ─── Moralis Intelligence Enrichment Cooldown ─────────────────────────────────
+# Prevents re-enriching the same token within 30 minutes to stay within 500M CU/month.
+# Each enrichment costs ~3,650 CU (top_traders=1000, snipers=1000, profit_wallets=1000, etc.)
+import time as _time_module
+_INTEL_ENRICHMENT_COOLDOWN: dict = {}  # token_chain -> last_enriched_ts
+_INTEL_ENRICHMENT_TTL = 1800  # 30 minutes — matches moralis_intelligence.py FAST_CACHE_TTL
+# ──────────────────────────────────────────────────────────────────────────────
+
 # Chains to scan (EVM + Solana)
 # Ethereum removed — CU budget conservation. Re-add when capital/budget allows.
 # This list is the universe; actual scanning is gated by settings.ACTIVE_CHAINS.
@@ -1608,7 +1616,14 @@ class GemScanner:
                 return binance_enrich(token.address, chain=token.chain)
 
             def _get_intelligence():
-                """Full Moralis intelligence suite — top traders, snipers, holders, swap flow."""
+                """Full Moralis intelligence suite — top traders, snipers, holders, swap flow.
+                Gated by 30-min per-token cooldown to stay within 500M CU/month budget.
+                """
+                _ck = token.address.lower() + "_" + token.chain
+                _now = _time_module.time()
+                if _now - _INTEL_ENRICHMENT_COOLDOWN.get(_ck, 0) < _INTEL_ENRICHMENT_TTL:
+                    return {}  # Cooldown active — skip API call, reuse cached score
+                _INTEL_ENRICHMENT_COOLDOWN[_ck] = _now
                 return enrich_token_intelligence(
                     token_address=token.address,
                     chain=token.chain,
