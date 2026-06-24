@@ -641,7 +641,7 @@ class HyperliquidExecutor:
 
             try:
                 # Cancel stop-loss trigger if exists
-                if pos.sl_oid:
+                if pos.sl_order_id:
                     # _cancel_trigger handles the logic
                     pass
 
@@ -1020,15 +1020,17 @@ class HyperliquidExecutor:
             )
             sl_ok = sl_result and sl_result.get("status") == "ok"
             if sl_ok:
-                # Extract order ID from response: response.data.statuses[0].resting.oid
                 try:
-                    sl_order_id = (
-                        sl_result["response"]["data"]["statuses"][0]
-                        .get("resting", {})
-                        .get("oid")
-                    )
-                except Exception:
-                    pass
+                    statuses = sl_result.get("response", {}).get("data", {}).get("statuses", [])
+                    if statuses and isinstance(statuses[0], dict):
+                        status_obj = statuses[0]
+                        if "error" in status_obj:
+                            logger.error(f"Hyperliquid SL placement rejected by exchange: {status_obj['error']}")
+                            sl_ok = False
+                        else:
+                            sl_order_id = status_obj.get("resting", {}).get("oid")
+                except Exception as e:
+                    logger.error(f"Error parsing Hyperliquid SL response: {e}")
 
             # Take Profit — LIMIT order triggered when price hits TP
             tp_result = self._execute_api(
@@ -1043,13 +1045,16 @@ class HyperliquidExecutor:
             tp_ok = tp_result and tp_result.get("status") == "ok"
             if tp_ok:
                 try:
-                    tp_order_id = (
-                        tp_result["response"]["data"]["statuses"][0]
-                        .get("resting", {})
-                        .get("oid")
-                    )
-                except Exception:
-                    pass
+                    statuses = tp_result.get("response", {}).get("data", {}).get("statuses", [])
+                    if statuses and isinstance(statuses[0], dict):
+                        status_obj = statuses[0]
+                        if "error" in status_obj:
+                            logger.error(f"Hyperliquid TP placement rejected by exchange: {status_obj['error']}")
+                            tp_ok = False
+                        else:
+                            tp_order_id = status_obj.get("resting", {}).get("oid")
+                except Exception as e:
+                    logger.error(f"Error parsing Hyperliquid TP response: {e}")
 
             if sl_ok and tp_ok:
                 logger.info(
