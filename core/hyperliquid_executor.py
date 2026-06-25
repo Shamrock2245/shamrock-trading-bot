@@ -658,12 +658,37 @@ class HyperliquidExecutor:
                     self.daily_pnl += pnl
                     del self.positions[sym]
                     self._save_trailing_state()  # Ensure deleted position is removed from trailing state
-
                     logger.info(
                         f"✅ Hyperliquid CLOSE {sym} | "
                         f"entry=${pos.entry_price:.4f} → exit=${close_price} | "
                         f"PnL=${pnl:+.2f} | daily_pnl=${self.daily_pnl:+.2f}"
                     )
+                    
+                    # --- COOLDOWN INJECTION ---
+                    try:
+                        # Find the scanner instance if it exists globally
+                        import sys
+                        scanner = None
+                        if "core.hl_perps_scanner" in sys.modules:
+                            hl_module = sys.modules["core.hl_perps_scanner"]
+                            if hasattr(hl_module, "_global_scanner") and hl_module._global_scanner:
+                                scanner = hl_module._global_scanner
+                        
+                        if scanner:
+                            # 1. Loss Cooldown
+                            if pnl < 0:
+                                scanner.loss_cooldowns[sym] = time.time()
+                                logger.info(f"⏱️ Loss cooldown activated for {sym}")
+                            
+                            # 2. Universal Re-entry Throttle (prevent AAVE micro-churn)
+                            if not hasattr(scanner, "reentry_cooldowns"):
+                                scanner.reentry_cooldowns = {}
+                            scanner.reentry_cooldowns[sym] = time.time()
+                            logger.debug(f"⏱️ Re-entry throttle activated for {sym}")
+                    except Exception as e:
+                        logger.error(f"Failed to inject cooldowns for {sym}: {e}")
+                    # --------------------------
+
                     return {"coin": sym, "close_price": close_price, "pnl": pnl}
                 else:
                     logger.error(f"Hyperliquid close failed for {sym}: {result}")

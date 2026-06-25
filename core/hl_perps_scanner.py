@@ -78,6 +78,9 @@ HL_PERPS_PROFIT_SWEEP_USD: float = float(os.getenv("HL_PERPS_PROFIT_SWEEP_USD", 
 _STATE_DIR = Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard"))
 _STATE_FILE = _STATE_DIR / "hl_perps_state.json"
 
+# Global registry for cross-module cooldown access
+_global_scanner = None
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Scan universe — top 40 liquid perps + dynamic funding anomaly additions
 # ─────────────────────────────────────────────────────────────────────────────
@@ -400,6 +403,9 @@ class HLPerpsScanner:
     """
 
     def __init__(self, hl_executor=None):
+        global _global_scanner
+        _global_scanner = self
+        
         self.enabled = HL_PERPS_ENABLED
         self.hl_executor = hl_executor  # HyperliquidExecutor instance
         self._info = None
@@ -413,6 +419,7 @@ class HLPerpsScanner:
         self.daily_pnl: float = 0.0
         self.daily_pnl_reset_date: str = ""
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
+        self.reentry_cooldowns: dict[str, float] = {} # coin → timestamp of last close
         self.last_signals: list[PerpSignal] = []
         self.pending_retracements: dict[str, dict] = {}  # coin -> {"signal": PerpSignal, "target_px": float, "expires_at": float}
         
@@ -627,11 +634,21 @@ class HLPerpsScanner:
         return [c for c, _ in scored]
 
     def _is_on_cooldown(self, coin: str) -> bool:
-        """Check if a coin is in loss cooldown."""
-        if coin not in self.loss_cooldowns:
-            return False
-        elapsed = time.time() - self.loss_cooldowns[coin]
-        return elapsed < HL_PERPS_LOSS_COOLDOWN_MIN * 60
+        """Check if a coin is in loss cooldown or re-entry throttle."""
+        # 1. Universal Re-entry Throttle (prevent AAVE micro-churn)
+        # Minimum 5 minutes between ANY trades on the same coin
+        if coin in getattr(self, "reentry_cooldowns", {}):
+            elapsed_reentry = time.time() - self.reentry_cooldowns[coin]
+            if elapsed_reentry < 300:  # 5 minutes
+                return True
+                
+        # 2. Loss Cooldown (longer penalty after a loss)
+        if coin in self.loss_cooldowns:
+            elapsed_loss = time.time() - self.loss_cooldowns[coin]
+            if elapsed_loss < HL_PERPS_LOSS_COOLDOWN_MIN * 60:
+                return True
+                
+        return False
 
     def _check_daily_reset(self) -> None:
         """Reset daily PnL at midnight UTC."""
@@ -983,6 +1000,34 @@ class HLPerpsScanner:
         ]
         reasoning = " | ".join(p for p in reasoning_parts if p)
 
+        # ── Dynamic Volatility Sizing (ATR) ─────────────────────────────────────
+        # RED TEAM PATCH: High-beta coins (GRASS, EIGEN) bleed too much if given full size.
+        # We now scale position size DOWN and SL/TP bounds UP based on ATR percentage.
+        vol_multiplier = 1.0
+        try:
+            from strategies.volatility_sizer import analyze_volatility
+            # analyze_volatility takes ohlcv list
+            vol_result = analyze_volatility(ohlcv=candles_1h)
+            vol_multiplier = vol_result.multiplier
+            
+            # If volatility is ultra-high, widen the stop loss so we don't get chopped out
+            if vol_result.volatility_zone in ["high", "ultra_high"]:
+                if tp_source == "fixed":
+                    # Widen the fixed SL/TP for high-beta tokens
+                    widen_factor = 1.5 if vol_result.volatility_zone == "ultra_high" else 1.25
+                    sl_pct = (HL_PERPS_STOP_LOSS_PCT / 100) * widen_factor
+                    tp_pct = (HL_PERPS_TAKE_PROFIT_PCT / 100) * widen_factor
+                    
+                    if direction == "long":
+                        stop_loss = current_price * (1 - sl_pct)
+                        take_profit = current_price * (1 + tp_pct)
+                    else:
+                        stop_loss = current_price * (1 + sl_pct)
+                        take_profit = current_price * (1 - tp_pct)
+                    tp_source = f"fixed_widened_{widen_factor}x"
+        except Exception as e:
+            logger.debug(f"[HL-PERPS] {coin} Volatility sizing failed: {e}")
+
         # ── EV-Aware Kelly Criterion Position Sizing ────────────────────────────
         # RED TEAM PATCH: Kelly sizing now incorporates R/R and estimated win-rate.
         # Formula: f* = (W * R - (1-W)) / R  where R = reward/risk ratio
@@ -1036,6 +1081,9 @@ class HLPerpsScanner:
                 f"-> size="
             )
 
+        # Apply Volatility Multiplier (scales down size for high-beta coins like GRASS)
+        kelly_size_usd = kelly_size_usd * vol_multiplier
+        
         # Hard cap: never risk more than max_size in a single position
         kelly_size_usd = min(kelly_size_usd, max_size)
 
