@@ -461,17 +461,22 @@ class MoralisStreamsManager:
             if status == "active":
                 continue
             elif status == "error":
-                # Per Moralis docs: streams auto-terminate after 24h in error state.
-                # Proactively delete and recreate instead of waiting.
+                # Moralis pauses streams if the webhook delivery fails for a while.
+                # Reactivate it first to salvage queued blocks!
                 logger.warning(
                     f"MoralisStreamsManager: Stream {tag} ({stream_id}) is in ERROR state — "
                     f"message: {info.get('statusMessage', 'unknown')}. "
-                    f"Deleting and recreating proactively (auto-terminates after 24h)."
+                    f"Attempting to reactivate..."
                 )
-                self._delete_stream(stream_id, network=net)
-                del self._managed_streams[tag]
-                self._recreate_stream(tag)
-                self.metrics["streams_recreated"] += 1
+                success = self._update_stream_status(stream_id, "active", network=net)
+                if success:
+                    logger.info(f"MoralisStreamsManager: Successfully reactivated stream {tag} ({stream_id})")
+                else:
+                    logger.error(f"MoralisStreamsManager: Failed to reactivate stream {tag} ({stream_id}). Recreating...")
+                    self._delete_stream(stream_id, network=net)
+                    del self._managed_streams[tag]
+                    self._recreate_stream(tag)
+                    self.metrics["streams_recreated"] += 1
             elif status == "paused":
                 logger.info(f"MoralisStreamsManager: Stream {tag} ({stream_id}) is paused — resuming")
                 self._update_stream_status(stream_id, "active", network=net)
