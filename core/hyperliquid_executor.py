@@ -293,12 +293,15 @@ class HyperliquidExecutor:
         try:
             state = self._execute_api(self._info.user_state, self.wallet_address)
             positions = state.get("assetPositions", [])
+            
+            active_coins = set()
             for pos in positions:
                 p = pos.get("position", {})
                 coin = p.get("coin", "")
                 szi = float(p.get("szi", 0))
                 if szi == 0:
                     continue
+                active_coins.add(coin)
                 entry_px = float(p.get("entryPx", 0))
                 leverage_info = p.get("leverage") or {}
                 # FIX (PYTHON-S): leverage_info.get("value") can return None when the key
@@ -317,6 +320,40 @@ class HyperliquidExecutor:
                     leverage=lev,
                     pnl=unrealized_pnl,
                 )
+            
+            # Identify missing coins (closed passively via TP/SL or liquidation)
+            missing_coins = [c for c in self.positions if c not in active_coins]
+            if missing_coins:
+                import sys
+                import time
+                scanner = None
+                if "core.hl_perps_scanner" in sys.modules:
+                    hl_module = sys.modules["core.hl_perps_scanner"]
+                    if hasattr(hl_module, "_global_scanner") and hl_module._global_scanner:
+                        scanner = hl_module._global_scanner
+                
+                for missing_coin in missing_coins:
+                    last_pos = self.positions[missing_coin]
+                    logger.info(f"Hyperliquid: detected passive closure for {missing_coin}. Cleaning up ghost position.")
+                    
+                    if scanner:
+                        try:
+                            # 1. Loss Cooldown Heuristic (if last known PnL was negative)
+                            if last_pos.pnl < 0:
+                                scanner.loss_cooldowns[missing_coin] = time.time()
+                                logger.info(f"⏱️ Loss cooldown injected for passive close on {missing_coin}")
+                            
+                            # 2. Universal Re-entry Throttle
+                            if not hasattr(scanner, "reentry_cooldowns"):
+                                scanner.reentry_cooldowns = {}
+                            scanner.reentry_cooldowns[missing_coin] = time.time()
+                            logger.debug(f"⏱️ Re-entry throttle injected for passive close on {missing_coin}")
+                        except Exception as e:
+                            logger.error(f"Failed to inject passive cooldowns for {missing_coin}: {e}")
+                    
+                    # Remove the ghost position
+                    del self.positions[missing_coin]
+
             if self.positions:
                 logger.info(f"Hyperliquid: synced {len(self.positions)} open positions")
             # Restore trailing stop state from disk (survives restarts)
