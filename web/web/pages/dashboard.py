@@ -171,7 +171,7 @@ def index() -> rx.Component:
                         align_items="center",
                     ),
                     rx.progress(
-                        value=AppState.daily_progress_pct,
+                        value=AppState.daily_progress_pct.to(int),
                         color_scheme="green",
                         width="100%",
                         height="12px"
