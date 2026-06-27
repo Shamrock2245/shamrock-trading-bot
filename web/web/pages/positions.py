@@ -6,70 +6,70 @@ from web.pages.layout import dashboard_layout
 
 def position_card(pos: dict) -> rx.Component:
     """A card displaying a single active position."""
-    return rx.box(
-        rx.hstack(
-            rx.vstack(
-                rx.hstack(
-                    rx.text(pos["token_symbol"], weight="bold", size="4"),
-                    rx.badge(
-                        pos["chain"].upper(),
-                        color_scheme="blue",
-                        variant="soft",
-                        size="1",
+    return rx.card(
+        rx.vstack(
+            rx.hstack(
+                rx.vstack(
+                    rx.hstack(
+                        rx.text(pos["token_symbol"], weight="bold", size="4"),
+                        rx.badge(
+                            pos["chain"].upper(),
+                            color_scheme="blue",
+                            variant="soft",
+                            size="1",
+                        ),
+                        spacing="2",
+                        align_items="center",
                     ),
-                    spacing="2",
-                    align_items="center",
+                    rx.text(
+                        "Entry: $",
+                        pos["entry_price"],
+                        color="gray",
+                        size="2",
+                    ),
+                    spacing="1",
                 ),
+                rx.spacer(),
+                rx.vstack(
+                    rx.text("Unrealized P&L", size="2", color="gray", text_align="right"),
+                    rx.text(
+                        pos["unrealized_pnl_pct"] + "%",
+                        weight="bold",
+                        size="4",
+                        color=rx.cond(
+                            pos["is_profit"] == "true",
+                            "var(--green-9)",
+                            "var(--red-9)",
+                        ),
+                        text_align="right",
+                    ),
+                    spacing="1",
+                ),
+                width="100%",
+                align_items="flex-start",
+            ),
+            rx.divider(margin_y="0.75em", opacity="0.2"),
+            rx.hstack(
                 rx.text(
-                    "Entry: $",
-                    pos["entry_price"],
+                    "Score: ",
+                    pos["gem_score"],
+                    size="2",
                     color="gray",
+                ),
+                rx.spacer(),
+                rx.button(
+                    "Manual Sell",
+                    on_click=AppState.manual_sell(pos["token_address"], 0.0),
+                    color_scheme="red",
+                    variant="soft",
                     size="2",
                 ),
-                spacing="1",
-            ),
-            rx.spacer(),
-            rx.vstack(
-                rx.text("Unrealized P&L", size="2", color="gray", text_align="right"),
-                rx.text(
-                    pos["unrealized_pnl_pct"] + "%",
-                    weight="bold",
-                    size="4",
-                    color=rx.cond(
-                        pos["is_profit"] == "true",
-                        "var(--green-9)",
-                        "var(--red-9)",
-                    ),
-                    text_align="right",
-                ),
-                spacing="1",
+                width="100%",
             ),
             width="100%",
-            align_items="flex-start",
         ),
-        rx.divider(margin_y="0.75em", opacity="0.2"),
-        rx.hstack(
-            rx.text(
-                "Score: ",
-                pos["gem_score"],
-                size="2",
-                color="gray",
-            ),
-            rx.spacer(),
-            rx.button(
-                "Manual Sell",
-                on_click=AppState.manual_sell(pos["token_address"], 0.0),
-                color_scheme="red",
-                variant="soft",
-                size="2",
-            ),
-        ),
-        padding="1.5em",
-        background="rgba(255,255,255,0.03)",
-        border="1px solid rgba(255,255,255,0.05)",
-        border_radius="16px",
+        size="3",
         width="100%",
-        box_shadow="0 4px 12px rgba(0,0,0,0.1)",
     )
 
 

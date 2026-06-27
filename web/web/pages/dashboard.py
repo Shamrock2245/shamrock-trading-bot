@@ -5,66 +5,37 @@ from web.pages.layout import dashboard_layout
 
 
 def stat_card(title: str, value: rx.Component, icon: str, color: str) -> rx.Component:
-    return rx.hstack(
-        rx.box(
-            rx.icon(icon, size=24, color=f"var(--{color}-9)"),
-            padding="12px",
-            background=f"var(--{color}-3)",
-            border_radius="12px",
+    return rx.card(
+        rx.hstack(
+            rx.box(
+                rx.icon(icon, size=24, color=f"var(--{color}-9)"),
+                padding="12px",
+                background=f"var(--{color}-3)",
+                border_radius="12px",
+            ),
+            rx.vstack(
+                rx.text(title, size="2", color="gray"),
+                value,
+                spacing="1",
+            ),
+            align_items="center",
+            spacing="4",
         ),
-        rx.vstack(
-            rx.text(title, size="2", color="gray"),
-            value,
-            spacing="1",
-        ),
-        padding="1.5em",
-        background="rgba(255,255,255,0.03)",
-        border="1px solid rgba(255,255,255,0.05)",
-        border_radius="16px",
+        size="2",
         width="100%",
-        box_shadow="0 4px 12px rgba(0,0,0,0.1)",
-        align_items="center",
-        spacing="4",
     )
 
 
 def progress_bar(pct: rx.Var) -> rx.Component:
     """Daily goal progress bar."""
-    return rx.box(
-        rx.box(
-            width=AppState.daily_progress_display,
-            height="8px",
-            background="linear-gradient(90deg, var(--green-9), var(--green-11))",
-            border_radius="4px",
-            transition="width 0.5s ease",
-        ),
-        width="100%",
-        height="8px",
-        background="rgba(255,255,255,0.1)",
-        border_radius="4px",
-        overflow="hidden",
-    )
+    return rx.progress(value=pct, color_scheme="green")
 
 
 def ledger_row(item: dict) -> rx.Component:
-    return rx.hstack(
-        rx.text(item["date"], weight="bold", size="3"),
-        rx.spacer(),
-        rx.badge(
-            item["trades"] + " Trades",
-            color_scheme="gray",
-            variant="soft",
-        ),
-        rx.text(
-            item["profit"],
-            weight="bold",
-            color=item["profit_color"],
-            size="4",
-        ),
-        width="100%",
-        align_items="center",
-        padding="1em",
-        border_bottom="1px solid rgba(255,255,255,0.05)",
+    return rx.table.row(
+        rx.table.cell(rx.text(item["date"], weight="bold")),
+        rx.table.cell(rx.badge(item["trades"] + " Trades", color_scheme="gray", variant="soft")),
+        rx.table.cell(rx.text(item["profit"], weight="bold", color=item["profit_color"])),
     )
 
 
@@ -184,87 +155,78 @@ def index() -> rx.Component:
             rx.box(margin_top="1em"),
 
             # ── Daily Goal Progress ───────────────────────────────────────────
-            rx.vstack(
-                rx.hstack(
-                    rx.heading("Daily Goal Progress", size="5"),
-                    rx.spacer(),
-                    rx.text(
-                        AppState.daily_progress_display,
-                        " of ",
-                        AppState.daily_target_display,
-                        size="3",
-                        color="gray",
+            rx.card(
+                rx.vstack(
+                    rx.hstack(
+                        rx.heading("Daily Goal Progress", size="5"),
+                        rx.spacer(),
+                        rx.text(
+                            AppState.daily_progress_display,
+                            " of ",
+                            AppState.daily_target_display,
+                            size="3",
+                            color="gray",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.progress(
+                        value=AppState.daily_progress_pct,
+                        color_scheme="green",
+                        width="100%",
+                        height="12px"
                     ),
                     width="100%",
-                    align_items="center",
+                    spacing="3",
                 ),
-                rx.box(
-                    rx.box(
-                        height="12px",
-                        background="linear-gradient(90deg, var(--green-9), var(--green-11))",
-                        border_radius="6px",
-                        transition="width 0.5s ease",
-                        style={"width": AppState.daily_progress_display},
-                    ),
-                    width="100%",
-                    height="12px",
-                    background="rgba(255,255,255,0.1)",
-                    border_radius="6px",
-                    overflow="hidden",
-                ),
+                size="3",
                 width="100%",
-                padding="1.5em",
-                background="rgba(255,255,255,0.03)",
-                border="1px solid rgba(255,255,255,0.05)",
-                border_radius="16px",
-                spacing="3",
             ),
 
             rx.box(margin_top="1em"),
 
             # ── Guardian Floor Status ─────────────────────────────────────────
-            rx.heading("Guardian Floor Status", size="5", margin_bottom="0.5em"),
-            rx.box(
-                rx.hstack(
-                    rx.icon("shield-check", color="var(--green-9)"),
-                    rx.text("Guardian Floor Active", weight="bold"),
-                    rx.spacer(),
-                    rx.badge("PROTECTED", color_scheme="green", variant="soft"),
-                    width="100%",
+            rx.card(
+                rx.vstack(
+                    rx.heading("Guardian Floor Status", size="5", margin_bottom="0.5em"),
+                    rx.hstack(
+                        rx.icon("shield-check", color="var(--green-9)"),
+                        rx.text("Guardian Floor Active", weight="bold"),
+                        rx.spacer(),
+                        rx.badge("PROTECTED", color_scheme="green", variant="soft"),
+                        width="100%",
+                    ),
+                    width="100%"
                 ),
-                padding="1.5em",
-                background="rgba(16, 185, 129, 0.1)",
-                border="1px solid rgba(16, 185, 129, 0.2)",
-                border_radius="12px",
+                size="3",
                 width="100%",
+                background="rgba(16, 185, 129, 0.1)",
             ),
 
             rx.box(margin_top="1em"),
 
             # ── Daily Profit Ledger ───────────────────────────────────────────
-            rx.vstack(
-                rx.hstack(
-                    rx.icon("calendar", color="var(--blue-9)"),
-                    rx.heading("Daily Profit Ledger", size="5"),
-                    width="100%",
-                    align_items="center",
-                    spacing="2",
-                ),
+            rx.card(
                 rx.vstack(
-                    rx.foreach(AppState.daily_history_display, ledger_row),
+                    rx.hstack(
+                        rx.icon("calendar", color="var(--blue-9)"),
+                        rx.heading("Daily Profit Ledger", size="5"),
+                        width="100%",
+                        align_items="center",
+                        spacing="2",
+                    ),
+                    rx.table.root(
+                        rx.table.body(
+                            rx.foreach(AppState.daily_history_display, ledger_row),
+                        ),
+                        width="100%",
+                        variant="surface",
+                    ),
                     width="100%",
-                    spacing="0",
-                    background="rgba(255,255,255,0.02)",
-                    border_radius="8px",
-                    border="1px solid rgba(255,255,255,0.05)",
-                    overflow="hidden",
+                    spacing="3",
                 ),
+                size="3",
                 width="100%",
-                padding="1.5em",
-                background="rgba(255,255,255,0.03)",
-                border="1px solid rgba(255,255,255,0.05)",
-                border_radius="16px",
-                spacing="3",
             ),
 
             rx.box(margin_top="1em"),
@@ -272,7 +234,7 @@ def index() -> rx.Component:
             # ── Mode Banner ───────────────────────────────────────────────────
             rx.cond(
                 AppState.is_live,
-                rx.box(
+                rx.card(
                     rx.hstack(
                         rx.icon("alert-triangle", color="var(--red-9)"),
                         rx.text("⚠️ LIVE TRADING ACTIVE — Real funds at risk", weight="bold", color="var(--red-11)"),
@@ -286,13 +248,11 @@ def index() -> rx.Component:
                         ),
                         width="100%",
                     ),
-                    padding="1.5em",
-                    background="rgba(239, 68, 68, 0.1)",
-                    border="1px solid rgba(239, 68, 68, 0.3)",
-                    border_radius="12px",
+                    size="3",
                     width="100%",
+                    background="rgba(239, 68, 68, 0.1)",
                 ),
-                rx.box(
+                rx.card(
                     rx.hstack(
                         rx.icon("flask-conical", color="var(--green-9)"),
                         rx.text("Paper Trading Mode — No real funds at risk", weight="bold", color="var(--green-11)"),
@@ -300,11 +260,9 @@ def index() -> rx.Component:
                         rx.badge("PAPER", color_scheme="green", variant="soft"),
                         width="100%",
                     ),
-                    padding="1.5em",
-                    background="rgba(16, 185, 129, 0.05)",
-                    border="1px solid rgba(16, 185, 129, 0.15)",
-                    border_radius="12px",
+                    size="3",
                     width="100%",
+                    background="rgba(16, 185, 129, 0.05)",
                 ),
             ),
 
