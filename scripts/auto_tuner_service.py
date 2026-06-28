@@ -29,8 +29,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("AutoTunerService")
 
-XGBOOST_INTERVAL_SECONDS = 6 * 3600  # 6 hours
-OPTUNA_INTERVAL_SECONDS = 12 * 3600  # 12 hours
+XGBOOST_INTERVAL_SECONDS = 3600  # 1 hour
+OPTUNA_INTERVAL_SECONDS = 3600  # 1 hour
 
 def main():
     logger.info("🤖 Auto-Tuning Service Started.")
