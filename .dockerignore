@@ -61,4 +61,5 @@ scripts/
 !scripts/benchmark_loop.py
 !scripts/reviewer.py
 !scripts/monitor_check.py
+!scripts/auto_tuner_service.py
 tests/
