@@ -2512,6 +2512,21 @@ class GemScanner:
             candidate.target_timeframe = "15m"
             candidate.confirmation_timeframe = "1h"
 
+        # Capture signal scores for ML attribution before returning
+        candidate.signal_scores = {
+            "age_score": getattr(candidate, "age_score", 0.0),
+            "volume_score": getattr(candidate, "volume_score", 0.0),
+            "liquidity_score": getattr(candidate, "liquidity_score", 0.0),
+            "holder_score": getattr(candidate, "holder_score", 0.0),
+            "social_score": getattr(candidate, "social_score", 0.0),
+            "boost_score": getattr(candidate, "boost_score", 0.0),
+            "grok_score": getattr(candidate, "grok_sentiment_score", 50.0),
+            "moralis_score": getattr(candidate, "moralis_score", 0.0),
+            "safety_score": getattr(candidate, "contract_score", 0.0),
+            "momentum_score": getattr(candidate, "tvl_score", 0.0),
+            "fib_score": getattr(candidate, "smart_money_score", 0.0),
+        }
+
         return candidate
 
     def score_token(self, token_data: dict) -> float:
