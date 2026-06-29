@@ -17,28 +17,27 @@ These settings MUST change as the portfolio grows. See `STRATEGIES.md` for growt
 |----------|-------|-------|
 | `ACTIVE_CHAINS` | `solana,base,bsc,avalanche` | **Solana-first.** Avalanche added, Ethereum deferred |
 
-### Risk Management (Aggressive for Growth)
+### Risk Management (Aggressive for Growth / Hyperliquid Tuned)
 | Variable | Value | Why |
 |----------|-------|-----|
 | `MAX_POSITION_SIZE_PERCENT` | `5.0` | $250 per trade at $5K — big enough to profit after fees |
-| `MAX_CONCURRENT_POSITIONS` | `5` | Concentrated bets, focused monitoring |
-| `STOP_LOSS_PERCENT` | `8.0` | Tighter than default — cut losers fast with small portfolio |
+| `MAX_CONCURRENT_POSITIONS` | `15` | Scaled up for higher frequency ML execution |
+| `STOP_LOSS_PERCENT` | `3.5` | Hyper-tight to prevent death by a thousand cuts |
 | `HARD_STOP_LOSS_PERCENT` | `20.0` | Tighter hard stop to protect scarce capital |
-| `TAKE_PROFIT_1X` | `2.0` | Bank initial investment at 2x |
-| `TAKE_PROFIT_2X` | `5.0` | Take big profits at 5x |
+| `TAKE_PROFIT_1X` | `12.0` | Let winners run harder to compensate for tight SL |
+| `TAKE_PROFIT_2X` | `25.0` | Take bigger profits on tail events |
 | `CIRCUIT_BREAKER_PERCENT` | `15.0` | $750 max portfolio loss before full stop |
-| `DAILY_LOSS_LIMIT_ETH` | `0.3` | ~$600 at current prices — TIGHT |
-| `MAX_GAS_GWEI` | `30` | Keep gas low — skip expensive windows |
-| `MIN_ETH_BALANCE_ALERT` | `0.03` | Alert early on gas depletion |
+| `DAILY_LOSS_LIMIT_USD` | `500` | Hard $500 daily runway cap |
+| `MAX_TRADES_PER_DAY` | `250` | Uncapped enough to allow high-frequency overnight ML optimization |
 
 ### Scanner Settings
 | Variable | Value | Why |
 |----------|-------|-----|
 | `SCAN_INTERVAL_SECONDS` | `60` | Scan every 60s — balanced speed vs. API load |
-| `MIN_GEM_SCORE` | `55.0` | Global minimum (nuclear profile overrides to 82.0) |
+| `MIN_GEM_SCORE` | `72.0` | High global minimum required for safety |
 | `MIN_LIQUIDITY_USD` | `20000` | Minimum pool depth for safe exit |
 | `MAX_TOKEN_AGE_HOURS` | `48` | Fresher tokens have more upside |
-| `MAX_TRADES_PER_CYCLE` | `3` | Max 3 per cycle to avoid overconcentration |
+| `MAX_TRADES_PER_CYCLE` | `12` | Max 12 per cycle to avoid overconcentration |
 | `EXPRESS_LANE_SCORE` | `82.0` | Express lane entry for conservative profile |
 | `VOLUME_SPIKE_THRESHOLD` | `4.0` | More sensitive to volume spikes |
 

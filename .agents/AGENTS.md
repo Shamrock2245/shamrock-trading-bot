@@ -72,3 +72,7 @@ When you need to compile, run, reload, or debug a Reflex application, follow the
 ## Moralis CU Budget Protection
 - **Rule**: Never attempt to build manual API delays or sleep loops to protect the Moralis CU budget. The bot has a globally enforced `MoralisCUBudgetManager` (`core/moralis_cu_budget.py`).
 - **Enforcement**: The `@track_cu` decorator automatically intercepts expensive API calls when the bot approaches its monthly budget (e.g., dropping into `CONSERVATIVE` or `EMERGENCY` modes). It is safe to run aggressively fast scan intervals (e.g., 15 seconds) because this manager acts as an absolute failsafe to prevent budget overages.
+
+## Machine Learning Auto-Tuner Guardrails
+- **Rule**: The XGBoost auto-tuner (`ml/optuna_optimizer.py` and `ml/weight_optimizer.py`) requires a minimum of 30 finalized trades in `output/trades.json` containing complete `signal_scores` arrays. If trades are not being logged with `signal_scores`, the ML pipeline will silently skip optimization and fallback to static weights.
+- **Enforcement**: When modifying the `scanner` pipeline (e.g., `gem_scanner.py`), ALWAYS ensure that the `signal_scores` dict is injected into the `GemCandidate` object before returning it to the `PositionMonitor`. Furthermore, ensure `MAX_TRADES_PER_DAY` in `.env` is high enough (e.g., 250) to quickly aggregate the required 30 trades during live execution, especially when operating on lower timeframes.
