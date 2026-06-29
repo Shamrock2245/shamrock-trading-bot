@@ -8,6 +8,7 @@ correctly block dangerous tokens.
 import pytest
 import sys
 import os
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -46,9 +47,16 @@ class TestSafetyLogic:
 class TestContractBlacklist:
     """Test known-bad contract detection."""
 
-    def test_known_honeypot_blocked(self):
+    @patch("core.safety._call_honeypot_is")
+    @patch("core.safety._call_goplus")
+    def test_known_honeypot_blocked(self, mock_goplus, mock_honeypot):
         """If we have a known honeypot address, it should be blocked."""
         from core.safety import check_token_safety
+        
+        # Mock responses to avoid network timeouts and tenacity retries in CI
+        mock_goplus.return_value = {"is_honeypot": "1"}
+        mock_honeypot.return_value = {"honeypotResult": {"isHoneypot": True}}
+        
         # Use a nonsensical address — the point is the pipeline runs end-to-end
         result = check_token_safety("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "ethereum")
         # This address should at least produce a valid SafetyResult
