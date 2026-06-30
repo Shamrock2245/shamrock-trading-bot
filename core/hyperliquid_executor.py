@@ -958,13 +958,13 @@ class HyperliquidExecutor:
                 fill_price = float(fills[0].get("px", price)) if fills else price
                 fill_size = float(fills[0].get("sz", coin_size)) if fills else coin_size
 
-                # Calculate TP/SL prices
+                # Calculate TP/SL prices (rounded to 5 significant figures)
                 if side == "buy":
-                    sl_price = round(fill_price * (1 - self.stop_loss_pct / 100), 2)
-                    tp_price = round(fill_price * (1 + self.take_profit_pct / 100), 2)
+                    sl_price = float(f"{fill_price * (1 - self.stop_loss_pct / 100):.5g}")
+                    tp_price = float(f"{fill_price * (1 + self.take_profit_pct / 100):.5g}")
                 else:
-                    sl_price = round(fill_price * (1 + self.stop_loss_pct / 100), 2)
-                    tp_price = round(fill_price * (1 - self.take_profit_pct / 100), 2)
+                    sl_price = float(f"{fill_price * (1 + self.stop_loss_pct / 100):.5g}")
+                    tp_price = float(f"{fill_price * (1 - self.take_profit_pct / 100):.5g}")
 
                 # Place TP/SL orders and capture on-chain order IDs
                 sl_oid, tp_oid = self._place_tpsl(sym, side, fill_size, sl_price, tp_price)
@@ -1053,19 +1053,20 @@ class HyperliquidExecutor:
         try:
             is_buy = entry_side != "buy"  # Close side is opposite of entry
 
-            # Round prices to reasonable precision
-            sl_price = float(sl_price)
-            tp_price = float(tp_price)
+            # Round prices to 5 significant figures
+            sl_price = float(f"{sl_price:.5g}")
+            tp_price = float(f"{tp_price:.5g}")
 
-            # Limit slippage for TP/SL set to 1% to avoid massive wicks on exits
-            # If buying to close, worst price is higher. If selling to close, worst price is lower.
-            slippage = 0.01
+            # Limit slippage for TP/SL. TP stays tight (1%), but SL MUST be extremely wide (50%) 
+            # to guarantee a fill during flash crashes (prevents market orders from converting to resting limit orders).
+            sl_slippage = 0.50
+            tp_slippage = 0.01
             if is_buy:
-                sl_limit_px = round(sl_price * (1 + slippage), 6)
-                tp_limit_px = round(tp_price * (1 + slippage), 6)
+                sl_limit_px = float(f"{sl_price * (1 + sl_slippage):.5g}")
+                tp_limit_px = float(f"{tp_price * (1 + tp_slippage):.5g}")
             else:
-                sl_limit_px = round(sl_price * (1 - slippage), 6)
-                tp_limit_px = round(tp_price * (1 - slippage), 6)
+                sl_limit_px = float(f"{sl_price * (1 - sl_slippage):.5g}")
+                tp_limit_px = float(f"{tp_price * (1 - tp_slippage):.5g}")
 
             # Stop Loss — MARKET trigger order (isMarket: True)
             # RED TEAM FIX: Using market trigger ensures SL fills even when price
@@ -1238,12 +1239,16 @@ class HyperliquidExecutor:
 
             # Determine close side (opposite of entry)
             entry_side = "buy" if pos.side == "long" else "sell"
-            slippage = 0.01
+            # SL slippage MUST be extremely wide (50%) to guarantee a fill during flash crashes
+            sl_slippage = 0.50
             is_close_buy = pos.side == "short"  # Closing a short = buy
+            
+            new_sl_price = float(f"{new_sl_price:.5g}")
+            
             if is_close_buy:
-                sl_limit_px = round(new_sl_price * (1 + slippage), 6)
+                sl_limit_px = float(f"{new_sl_price * (1 + sl_slippage):.5g}")
             else:
-                sl_limit_px = round(new_sl_price * (1 - slippage), 6)
+                sl_limit_px = float(f"{new_sl_price * (1 - sl_slippage):.5g}")
 
             try:
                 # RED TEAM FIX: Market trigger ensures trailing SL fills in flash crashes

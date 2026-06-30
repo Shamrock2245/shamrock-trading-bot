@@ -161,7 +161,7 @@ def swap_usdc_to_eth(
         "amount": str(amount_wei),
         "from": wallet_address,
         "slippage": "1",
-        "disableEstimate": "false",
+        "disableEstimate": "true",
     }
     
     try:
@@ -213,7 +213,7 @@ def swap_eth_to_usdc(
         "amount": str(amount_wei),
         "from": wallet_address,
         "slippage": "1",  # 1% slippage for stablecoin conversion
-        "disableEstimate": "false",
+        "disableEstimate": "true",
     }
 
     try:

@@ -249,22 +249,33 @@ def _score_signal(
     long_score = 0.0
     short_score = 0.0
 
+    # ── EMA 50 Trend Filter (Block counter-trend trades) ─────────────────────
+    ema50 = _ema(closes, 50)
+    current_price = closes[-1]
+    trend = "neutral"
+    if ema50 is not None:
+        if current_price > ema50:
+            trend = "bullish"
+        elif current_price < ema50:
+            trend = "bearish"
+
     # ── RSI (weight: 25%) ────────────────────────────────────────────────────
+    # Shifting from Mean Reversion to Trend Continuation
     rsi = _rsi(closes)
     components["rsi"] = rsi
     if rsi is not None:
-        if rsi < 25:
-            long_score += 25.0          # Deeply oversold — strong long
-        elif rsi < 30:
-            long_score += 20.0          # Oversold — long
-        elif rsi < 40:
-            long_score += 10.0          # Approaching oversold — mild long
-        elif rsi > 75:
-            short_score += 25.0         # Deeply overbought — strong short
+        if rsi < 30:
+            # Deeply oversold = market is dumping. Catching knives is deadly.
+            long_score -= 50.0
+            short_score += 15.0
         elif rsi > 70:
-            short_score += 20.0         # Overbought — short
-        elif rsi > 60:
-            short_score += 10.0         # Approaching overbought — mild short
+            # Deeply overbought = market is rocketing. Shorting is deadly.
+            short_score -= 50.0
+            long_score += 15.0
+        elif 40 <= rsi <= 60:
+            # Mid-range: perfect for trend continuation pullbacks
+            long_score += 25.0
+            short_score += 25.0
 
     # ── EMA Cross 9/21 (weight: 20%) ─────────────────────────────────────────
     ema9 = _ema(closes, 9)
@@ -377,6 +388,12 @@ def _score_signal(
             components["accel_signal"] = f"short_accel+{min(3.0, abs(accel) * 0.8):.1f}"
 
     # ── Determine direction and final score ──────────────────────────────────
+    # Apply Trend Filter Constraints
+    if trend == "bearish":
+        long_score = 0.0  # Do not long below EMA 50
+    elif trend == "bullish":
+        short_score = 0.0 # Do not short above EMA 50
+
     if long_score > short_score and long_score >= HL_PERPS_MIN_SCORE:
         # Normalize to 0–100
         final_score = min(100.0, long_score)

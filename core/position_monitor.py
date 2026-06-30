@@ -162,7 +162,7 @@ def save_positions(positions: list[dict]) -> None:
             if streams_manager:
                 streams_manager.sync_active_positions(positions)
     except Exception as e:
-        logger.debug(f"Failed to sync active positions to Moralis Streams: {e}")
+        logger.warning(f"Failed to sync active positions to Moralis Streams: {e}")
 
 
 def _append_to_file(filepath: Path, record: dict, max_records: int = 10_000) -> None:

@@ -593,7 +593,7 @@ class MempoolAlphaSniper:
                 pair_address="",
                 tx_hash=tx_hash or "",
                 gem_score=candidate.gem_score,
-                signal_scores={},
+                signal_scores=getattr(candidate, "signal_scores", {}),
                 is_paper=self.is_paper,
                 entry_value_usd=size_usd,
                 strategy_profile="mempool_alpha_sniper",
