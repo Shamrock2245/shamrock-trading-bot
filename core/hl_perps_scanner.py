@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
-HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "50.0"))  # Post-Fib execution threshold
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "65.0"))  # Post-Fib execution threshold (raised from 50→65 per quant report)
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "100.0"))
 HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "6"))
@@ -1139,8 +1139,8 @@ class HLPerpsScanner:
 
         # ── R/R Ratio Guard (OpenAlice Guard Pipeline) ────────────────────────
         # Reject signals where TP/SL math doesn't make sense.
-        # Minimum R/R = 0.75x to allow frequent scalp trading.
-        MIN_RR_RATIO = 0.75
+        # Minimum R/R = 1.25x to ensure positive expectancy even at ~45% win rate.
+        MIN_RR_RATIO = 1.25
         rr = signal.r_r_ratio
 
         # Sanity: TP must be on the correct side of entry
