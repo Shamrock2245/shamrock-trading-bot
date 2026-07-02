@@ -804,3 +804,18 @@ class MoralisStreamsManager:
         self._replace_addresses(stream_id, wallets, network="solana")
         self.metrics["addresses_synced"] += len(wallets)
         logger.info(f"MoralisStreamsManager: Synced {len(wallets)} Solana alpha wallets")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level singleton — lazy init only when Moralis Streams is enabled.
+# position_monitor.py does: from core.moralis_streams_manager import streams_manager
+# ─────────────────────────────────────────────────────────────────────────────
+streams_manager: Optional[MoralisStreamsManager] = None
+
+if getattr(settings, "MORALIS_STREAMS_ENABLED", False):
+    try:
+        streams_manager = MoralisStreamsManager()
+        logger.info("MoralisStreamsManager: ✅ Singleton initialized")
+    except Exception as e:
+        logger.warning(f"MoralisStreamsManager: Failed to initialize singleton: {e}")
+        streams_manager = None
