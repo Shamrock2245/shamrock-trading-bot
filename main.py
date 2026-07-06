@@ -1467,7 +1467,20 @@ async def run_bot_loop():
 
                         # ── Ratchet the trailing stop if active ──────────────────────
                         if pos.trailing_stop_active:
-                            trail_mult = _TRAILING_DISTANCE_PCT / 100
+                            # Dynamic Profit Locking: calculate peak ROE
+                            if pos.side == "long":
+                                peak_move_pct = (pos.highest_price - pos.entry_price) / pos.entry_price * 100
+                            else:
+                                peak_move_pct = (pos.entry_price - pos.lowest_price) / pos.entry_price * 100
+                            peak_roe_pct = peak_move_pct * pos.leverage
+
+                            if peak_roe_pct >= 50.0:
+                                trail_mult = (_TRAILING_DISTANCE_PCT * 0.4) / 100  # Extremely tight once up >50%
+                            elif peak_roe_pct >= 20.0:
+                                trail_mult = (_TRAILING_DISTANCE_PCT * 0.7) / 100  # Tighter once up >20%
+                            else:
+                                trail_mult = _TRAILING_DISTANCE_PCT / 100
+
                             if pos.side == "long":
                                 candidate_sl = pos.highest_price * (1 - trail_mult)
                                 current_sl = pos.stop_loss_price or 0

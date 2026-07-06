@@ -264,13 +264,13 @@ def _score_signal(
     rsi = _rsi(closes)
     components["rsi"] = rsi
     if rsi is not None:
-        if rsi < 30:
+        if rsi < 35:
             # Deeply oversold = market is dumping. Catching knives is deadly.
-            long_score -= 50.0
+            long_score = 0.0  # VETO long
             short_score += 15.0
-        elif rsi > 70:
+        elif rsi > 65:
             # Deeply overbought = market is rocketing. Shorting is deadly.
-            short_score -= 50.0
+            short_score = 0.0 # VETO short
             long_score += 15.0
         elif 40 <= rsi <= 60:
             # Mid-range: perfect for trend continuation pullbacks
