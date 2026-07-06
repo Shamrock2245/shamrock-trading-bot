@@ -263,15 +263,25 @@ def _score_signal(
     # Shifting from Mean Reversion to Trend Continuation
     rsi = _rsi(closes)
     components["rsi"] = rsi
+    # Sticky veto flags — once set, no downstream indicator can override them.
+    # This is the critical fix: without these flags, EMA/MACD/volume/BB can
+    # add points back after the veto, allowing a deeply oversold coin to still
+    # reach the 65-point entry threshold and trigger a knife-catching long.
+    _rsi_long_vetoed = False
+    _rsi_short_vetoed = False
     if rsi is not None:
         if rsi < 35:
             # Deeply oversold = market is dumping. Catching knives is deadly.
             long_score = 0.0  # VETO long
             short_score += 15.0
+            _rsi_long_vetoed = True
+            components["rsi_veto"] = "long_vetoed"
         elif rsi > 65:
             # Deeply overbought = market is rocketing. Shorting is deadly.
-            short_score = 0.0 # VETO short
+            short_score = 0.0  # VETO short
             long_score += 15.0
+            _rsi_short_vetoed = True
+            components["rsi_veto"] = "short_vetoed"
         elif 40 <= rsi <= 60:
             # Mid-range: perfect for trend continuation pullbacks
             long_score += 25.0
@@ -388,6 +398,14 @@ def _score_signal(
             components["accel_signal"] = f"short_accel+{min(3.0, abs(accel) * 0.8):.1f}"
 
     # ── Determine direction and final score ──────────────────────────────────
+    # Enforce RSI sticky vetoes BEFORE trend filter — downstream indicators
+    # (EMA cross, MACD, volume, BB) may have added points back after the veto.
+    # This clamp ensures the veto is absolute regardless of other signals.
+    if _rsi_long_vetoed:
+        long_score = 0.0
+    if _rsi_short_vetoed:
+        short_score = 0.0
+
     # Apply Trend Filter Constraints
     if trend == "bearish":
         long_score = 0.0  # Do not long below EMA 50
@@ -1054,7 +1072,7 @@ class HLPerpsScanner:
         if self.hl_executor and self.hl_executor.is_available():
             try:
                 _bal = self.hl_executor.get_balance()
-                _acct_val = _bal.get("accountValue", 0.0) or _bal.get("equity", 0.0)
+                _acct_val = _bal.get("account_value", 0.0) or _bal.get("equity", 0.0)
                 if _acct_val and _acct_val > 10.0:
                     _live_equity = float(_acct_val)
             except Exception:
@@ -1217,7 +1235,7 @@ class HLPerpsScanner:
         _eq_for_limit = HL_PERPS_BASE_CAPITAL
         try:
             _bl = self.hl_executor.get_balance()
-            _av = _bl.get("accountValue", 0.0) or _bl.get("equity", 0.0)
+            _av = _bl.get("account_value", 0.0) or _bl.get("equity", 0.0)
             if _av and _av > 10.0:
                 _eq_for_limit = float(_av)
         except Exception:

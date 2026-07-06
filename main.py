@@ -1380,14 +1380,17 @@ async def run_bot_loop():
 
     # ── Dynamic Trailing Profit-Lock Monitor ───────────────────────────────────────────────────
     # NOTE: _hl_perps_thread is started BELOW after _hl_perps_daemon_with_trailing_ref is defined
-    # Monitors all open HL perp positions every 8 seconds.
-    # Once a position achieves >5% ROE, the static SL is cancelled and replaced
-    # with a trailing stop 1.5% behind the current mark price.
+    # Monitors all open HL perp positions every 30 seconds (HL_TRAILING_POLL_SECONDS).
+    # Once a position achieves >10% ROE (HL_TRAILING_ROE_TRIGGER_PCT), the static SL is
+    # cancelled and replaced with a step-function trailing stop:
+    #   - Peak ROE >= 50%  → trail distance = HL_TRAILING_DISTANCE_PCT * 0.4  (extremely tight)
+    #   - Peak ROE >= 20%  → trail distance = HL_TRAILING_DISTANCE_PCT * 0.7  (tighter)
+    #   - Otherwise        → trail distance = HL_TRAILING_DISTANCE_PCT         (default 1.0%)
     # The trailing stop ratchets up (longs) / down (shorts) as price moves in our favour.
     # State is persisted to data/dashboard/hl_trailing_state.json on every update.
     # ─────────────────────────────────────────────────────────────────────────────
-    _TRAILING_ROE_TRIGGER_PCT: float = float(os.getenv("HL_TRAILING_ROE_TRIGGER_PCT", "5.0"))
-    _TRAILING_DISTANCE_PCT: float = float(os.getenv("HL_TRAILING_DISTANCE_PCT", "1.5"))
+    _TRAILING_ROE_TRIGGER_PCT: float = float(os.getenv("HL_TRAILING_ROE_TRIGGER_PCT", "10.0"))
+    _TRAILING_DISTANCE_PCT: float = float(os.getenv("HL_TRAILING_DISTANCE_PCT", "1.0"))
     _TRAILING_POLL_SECONDS: float = float(os.getenv("HL_TRAILING_POLL_SECONDS", "30.0"))
     _TRAILING_MIN_MOVE_PCT: float = 0.15  # Minimum % improvement before placing a new SL order
 

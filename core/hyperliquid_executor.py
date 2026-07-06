@@ -1044,6 +1044,12 @@ class HyperliquidExecutor:
         These persist on Hyperliquid's matching engine independent of the bot.
         If the bot crashes, positions are still protected by these orders.
 
+        SL placement uses exponential backoff (3 attempts: 1s, 2s, 4s) before
+        returning sl_order_id=None, which triggers the RED TEAM GUARD emergency
+        close in _open_position. This prevents the 49-rapid-close bug where HL
+        rejects ultra-wide (50%) market SL triggers on illiquid altcoins and the
+        bot immediately market-closes the freshly opened position.
+
         Returns:
             (sl_order_id, tp_order_id) — integer order IDs from HL, or None on failure.
             Stored in HLPosition so the trailing monitor can cancel/replace the SL.
@@ -1057,7 +1063,7 @@ class HyperliquidExecutor:
             sl_price = float(f"{sl_price:.5g}")
             tp_price = float(f"{tp_price:.5g}")
 
-            # Limit slippage for TP/SL. TP stays tight (1%), but SL MUST be extremely wide (50%) 
+            # Limit slippage for TP/SL. TP stays tight (1%), but SL MUST be extremely wide (50%)
             # to guarantee a fill during flash crashes (prevents market orders from converting to resting limit orders).
             sl_slippage = 0.50
             tp_slippage = 0.01
@@ -1068,32 +1074,80 @@ class HyperliquidExecutor:
                 sl_limit_px = float(f"{sl_price * (1 - sl_slippage):.5g}")
                 tp_limit_px = float(f"{tp_price * (1 - tp_slippage):.5g}")
 
-            # Stop Loss — MARKET trigger order (isMarket: True)
-            # RED TEAM FIX: Using market trigger ensures SL fills even when price
-            # gaps through the limit in a flash crash. TP remains limit-type.
-            # limit_px is still required by HL SDK but is ignored for market triggers.
-            sl_result = self._execute_api(
-                self._exchange.order,
-                coin,
-                is_buy,
-                size,
-                sl_limit_px,  # limit_px (required by SDK, ignored for market trigger)
-                {"trigger": {"isMarket": True, "triggerPx": sl_price, "tpsl": "sl"}},
-                reduce_only=True,
-            )
-            sl_ok = sl_result and sl_result.get("status") == "ok"
-            if sl_ok:
-                try:
-                    statuses = sl_result.get("response", {}).get("data", {}).get("statuses", [])
-                    if statuses and isinstance(statuses[0], dict):
-                        status_obj = statuses[0]
-                        if "error" in status_obj:
-                            logger.error(f"Hyperliquid SL placement rejected by exchange: {status_obj['error']}")
-                            sl_ok = False
-                        else:
-                            sl_order_id = status_obj.get("resting", {}).get("oid")
-                except Exception as e:
-                    logger.error(f"Error parsing Hyperliquid SL response: {e}")
+            # ── SL Placement with Exponential Backoff ────────────────────────────
+            # ROOT CAUSE FIX for the 49-rapid-close bug:
+            # HL rejects wide-limit market SL triggers on illiquid altcoins with
+            # "Order price cannot be more than 95% away from the reference price".
+            # Without retry, sl_order_id stays None → RED TEAM GUARD fires instantly.
+            # We now attempt 3 times (1s, 2s, 4s backoff) before giving up.
+            # On the 2nd/3rd attempt we fall back to a tighter 10% slippage limit
+            # which HL accepts on illiquid coins while still guaranteeing a fill
+            # in all but the most extreme gap scenarios.
+            _SL_MAX_ATTEMPTS = 3
+            sl_ok = False
+            for _sl_attempt in range(1, _SL_MAX_ATTEMPTS + 1):
+                # Widen slippage on first attempt (50%), fall back to 10% on retries
+                # to avoid the 95%-away rejection on illiquid coins.
+                _attempt_slippage = sl_slippage if _sl_attempt == 1 else 0.10
+                if is_buy:
+                    _attempt_limit_px = float(f"{sl_price * (1 + _attempt_slippage):.5g}")
+                else:
+                    _attempt_limit_px = float(f"{sl_price * (1 - _attempt_slippage):.5g}")
+
+                sl_result = self._execute_api(
+                    self._exchange.order,
+                    coin,
+                    is_buy,
+                    size,
+                    _attempt_limit_px,  # limit_px (required by SDK, ignored for market trigger)
+                    {"trigger": {"isMarket": True, "triggerPx": sl_price, "tpsl": "sl"}},
+                    reduce_only=True,
+                )
+                sl_ok = sl_result and sl_result.get("status") == "ok"
+                if sl_ok:
+                    try:
+                        statuses = sl_result.get("response", {}).get("data", {}).get("statuses", [])
+                        if statuses and isinstance(statuses[0], dict):
+                            status_obj = statuses[0]
+                            if "error" in status_obj:
+                                err_txt = status_obj["error"]
+                                # Check if this is the 95%-away rejection (illiquid coin)
+                                if "95%" in err_txt or "reference price" in err_txt.lower():
+                                    logger.warning(
+                                        f"Hyperliquid SL attempt {_sl_attempt}/{_SL_MAX_ATTEMPTS} "
+                                        f"rejected (price deviation) for {coin}: {err_txt} "
+                                        f"— retrying with tighter limit_px"
+                                    )
+                                    sl_ok = False
+                                else:
+                                    logger.error(f"Hyperliquid SL placement rejected by exchange: {err_txt}")
+                                    sl_ok = False
+                            else:
+                                sl_order_id = status_obj.get("resting", {}).get("oid")
+                    except Exception as e:
+                        logger.error(f"Error parsing Hyperliquid SL response: {e}")
+                        sl_ok = False
+
+                if sl_ok:
+                    if _sl_attempt > 1:
+                        logger.info(
+                            f"Hyperliquid SL placed for {coin} on attempt "
+                            f"{_sl_attempt}/{_SL_MAX_ATTEMPTS} (slippage={_attempt_slippage*100:.0f}%)"
+                        )
+                    break  # Success — exit retry loop
+
+                if _sl_attempt < _SL_MAX_ATTEMPTS:
+                    _backoff = 2 ** (_sl_attempt - 1)  # 1s, 2s
+                    logger.warning(
+                        f"Hyperliquid SL attempt {_sl_attempt}/{_SL_MAX_ATTEMPTS} failed for {coin} "
+                        f"— retrying in {_backoff}s"
+                    )
+                    time.sleep(_backoff)
+                else:
+                    logger.error(
+                        f"Hyperliquid SL placement FAILED for {coin} after "
+                        f"{_SL_MAX_ATTEMPTS} attempts — RED TEAM GUARD will close position"
+                    )
 
             # Take Profit — LIMIT order triggered when price hits TP
             tp_result = self._execute_api(
