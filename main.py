@@ -1082,14 +1082,33 @@ async def run_bot_loop():
             streams_server.start()
 
             # Start the Streams Manager (auto-creates streams on Moralis, health checks)
+            # IMPORTANT: run start() in a background thread — Moralis API calls during
+            # _ensure_*_stream / address sync can hang for minutes and block the main
+            # trading loop (deploy 2026-07-09: bot stuck after Solana alpha stream sync).
             try:
                 from core.moralis_streams_manager import MoralisStreamsManager
+                import threading as _streams_threading
                 streams_manager = MoralisStreamsManager()
-                streams_manager.start()
+
+                def _streams_manager_start():
+                    try:
+                        streams_manager.start()
+                        logger.info(
+                            "✅ Moralis Streams manager ready — "
+                            f"webhook server on :{settings.MORALIS_STREAMS_PORT}, "
+                            f"manager syncing alpha wallets"
+                        )
+                    except Exception as _mgr_bg_err:
+                        logger.warning(f"Moralis Streams Manager background start failed: {_mgr_bg_err}")
+
+                _streams_threading.Thread(
+                    target=_streams_manager_start,
+                    daemon=True,
+                    name="moralis-streams-start",
+                ).start()
                 logger.info(
-                    "✅ Moralis Streams fully activated — "
-                    f"webhook server on :{settings.MORALIS_STREAMS_PORT}, "
-                    f"manager syncing alpha wallets"
+                    "✅ Moralis Streams webhook server up — "
+                    f"manager starting in background on :{settings.MORALIS_STREAMS_PORT}"
                 )
             except Exception as mgr_err:
                 logger.warning(f"Moralis Streams Manager failed to start: {mgr_err}")
@@ -1140,7 +1159,8 @@ async def run_bot_loop():
     _sniper_discovery_daemon = None
     try:
         from core.sniper_discovery import start_discovery as _start_sniper_discovery
-        _sniper_discovery_daemon = _start_sniper_discovery(run_immediately=True)
+        # run_immediately=False — avoid blocking main loop on long Moralis harvest at boot
+        _sniper_discovery_daemon = _start_sniper_discovery(run_immediately=False)
         logger.info(
             "✅ Sniper Discovery daemon started — "
             "proactively harvesting high-PnL microcap wallets from gems "
@@ -1153,7 +1173,8 @@ async def run_bot_loop():
     _alpha_wallet_discovery_daemon = None
     try:
         from core.alpha_wallet_discovery import start_alpha_discovery as _start_alpha_discovery
-        _alpha_wallet_discovery_daemon = _start_alpha_discovery(run_immediately=True)
+        # run_immediately=False — first harvest runs on interval, not at boot (keeps loop live)
+        _alpha_wallet_discovery_daemon = _start_alpha_discovery(run_immediately=False)
         logger.info(
             "\u2705 Alpha Wallet Discovery daemon started \u2014 "
             "72-hour PnL hunter across 8 sources: Moralis top-traders, whale accumulation, "
