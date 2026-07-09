@@ -69,6 +69,21 @@ HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6
 HL_PERPS_FUNDING_FADE_THRESHOLD: float = float(os.getenv("HL_PERPS_FUNDING_FADE_THRESHOLD", "0.03"))
 # Cooldown after a loss on a coin (minutes)
 HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "30"))
+# P0 2026-07-09 — audit fixes from live trade_history CSV
+# Re-entry throttle (was hardcoded 5 min — too short for AAVE micro-churn)
+HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "30"))
+# After emergency close (SL place fail), block the coin much longer
+HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "240"))
+# Hard notional cap (margin × leverage)
+HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
+# Minimum R/R at signal generation (executor re-checks post-fill)
+HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
+# Disable shorts until short WR recovers (CSV: 12.5% WR on shorts)
+HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
+# Coins that repeatedly lost / micro-churned in live history — need higher score
+_TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO")
+HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
+HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))
 
 # Profit withdrawal automation
 HL_PERPS_BASE_CAPITAL: float = float(os.getenv("HL_PERPS_BASE_CAPITAL", "150.0"))
@@ -455,6 +470,7 @@ class HLPerpsScanner:
         self.daily_pnl_reset_date: str = ""
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.reentry_cooldowns: dict[str, float] = {} # coin → timestamp of last close
+        self.emergency_cooldowns: dict[str, float] = {}  # coin → timestamp of emergency SL-fail close
         self.last_signals: list[PerpSignal] = []
         self.pending_retracements: dict[str, dict] = {}  # coin -> {"signal": PerpSignal, "target_px": float, "expires_at": float}
         
@@ -669,20 +685,26 @@ class HLPerpsScanner:
         return [c for c, _ in scored]
 
     def _is_on_cooldown(self, coin: str) -> bool:
-        """Check if a coin is in loss cooldown or re-entry throttle."""
-        # 1. Universal Re-entry Throttle (prevent AAVE micro-churn)
-        # Minimum 5 minutes between ANY trades on the same coin
-        if coin in getattr(self, "reentry_cooldowns", {}):
-            elapsed_reentry = time.time() - self.reentry_cooldowns[coin]
-            if elapsed_reentry < 300:  # 5 minutes
+        """Check if a coin is in loss / re-entry / emergency cooldown."""
+        now = time.time()
+        # 1. Emergency cooldown (SL place-fail micro-loop — was 3–5s AAVE spam)
+        if coin in getattr(self, "emergency_cooldowns", {}):
+            elapsed = now - self.emergency_cooldowns[coin]
+            if elapsed < HL_PERPS_EMERGENCY_COOLDOWN_MIN * 60:
                 return True
-                
-        # 2. Loss Cooldown (longer penalty after a loss)
+
+        # 2. Universal re-entry throttle (default 30 min — was 5 min)
+        if coin in getattr(self, "reentry_cooldowns", {}):
+            elapsed_reentry = now - self.reentry_cooldowns[coin]
+            if elapsed_reentry < HL_PERPS_REENTRY_COOLDOWN_MIN * 60:
+                return True
+
+        # 3. Loss cooldown
         if coin in self.loss_cooldowns:
-            elapsed_loss = time.time() - self.loss_cooldowns[coin]
+            elapsed_loss = now - self.loss_cooldowns[coin]
             if elapsed_loss < HL_PERPS_LOSS_COOLDOWN_MIN * 60:
                 return True
-                
+
         return False
 
     def _check_daily_reset(self) -> None:
@@ -747,6 +769,10 @@ class HLPerpsScanner:
         score, direction, components = _score_signal(closes_1h, volumes_1h, funding_rate)
 
         if direction == "none" or score < HL_PERPS_MIN_SCORE:
+            return None
+
+        # Shorts disabled until short WR recovers (live CSV: 12.5%)
+        if HL_PERPS_LONG_ONLY and direction == "short":
             return None
 
         # ── Institutional Capital Protection: Macro Trend Alignment ──────────
@@ -1157,8 +1183,8 @@ class HLPerpsScanner:
 
         # ── R/R Ratio Guard (OpenAlice Guard Pipeline) ────────────────────────
         # Reject signals where TP/SL math doesn't make sense.
-        # Minimum R/R = 1.25x to ensure positive expectancy even at ~45% win rate.
-        MIN_RR_RATIO = 1.25
+        # Raised to 1.5x (2026-07-09) — live book had ~28% WR; need higher R/R for +EV.
+        MIN_RR_RATIO = HL_PERPS_MIN_RR
         rr = signal.r_r_ratio
 
         # Sanity: TP must be on the correct side of entry
@@ -1254,28 +1280,57 @@ class HLPerpsScanner:
             logger.debug(f"HLPerpsScanner: max positions ({HL_PERPS_MAX_POSITIONS}) reached")
             return False
 
+        # Long-only mode (CSV: shorts 12.5% WR)
+        if HL_PERPS_LONG_ONLY and signal.direction == "short":
+            logger.info(
+                f"[HL-PERPS] {signal.coin} SHORT blocked — HL_PERPS_LONG_ONLY=true"
+            )
+            return False
+
+        # Toxic-coin higher bar (repeat losers / micro-churn names from live history)
+        coin_u = signal.coin.upper()
+        exec_floor = HL_PERPS_EXEC_SCORE
+        if coin_u in HL_PERPS_TOXIC_COINS:
+            exec_floor = HL_PERPS_EXEC_SCORE + HL_PERPS_TOXIC_SCORE_BONUS
+            if signal.score < exec_floor:
+                logger.info(
+                    f"[HL-PERPS] {signal.coin} toxic-list: score={signal.score:.0f} "
+                    f"< required {exec_floor:.0f} — skip"
+                )
+                return False
+
+        # Cap margin so notional (margin × lev) stays under hard cap
+        lev = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
+        size_usd = min(signal.position_size_usd, HL_PERPS_MAX_POSITION_USD)
+        max_margin_for_notional = HL_PERPS_MAX_NOTIONAL_USD / lev
+        if size_usd > max_margin_for_notional:
+            logger.info(
+                f"[HL-PERPS] {signal.coin} size ${size_usd:.2f} → "
+                f"${max_margin_for_notional:.2f} (notional cap ${HL_PERPS_MAX_NOTIONAL_USD:.0f})"
+            )
+            size_usd = round(max_margin_for_notional, 2)
+
         try:
+            open_kwargs = dict(
+                symbol=signal.coin,
+                size_usd=size_usd,
+                leverage=signal.leverage,
+                gem_score=signal.score,
+                stop_loss_price=signal.stop_loss_price,
+                take_profit_price=signal.take_profit_price,
+            )
             if signal.direction == "long":
-                result = self.hl_executor.open_long(
-                    symbol=signal.coin,
-                    size_usd=signal.position_size_usd,
-                    leverage=signal.leverage,
-                    gem_score=signal.score,
-                )
+                result = self.hl_executor.open_long(**open_kwargs)
             else:
-                result = self.hl_executor.open_short(
-                    symbol=signal.coin,
-                    size_usd=signal.position_size_usd,
-                    leverage=signal.leverage,
-                    gem_score=signal.score,
-                )
+                result = self.hl_executor.open_short(**open_kwargs)
 
             if result:
                 self.trades_executed += 1
                 logger.info(
                     f"✅ HLPerpsScanner: {signal.direction.upper()} {signal.coin} executed | "
-                    f"size=${signal.position_size_usd} × {signal.leverage}x | "
-                    f"score={signal.score}"
+                    f"size=${size_usd} × {signal.leverage}x | "
+                    f"score={signal.score} | "
+                    f"SL=${signal.stop_loss_price} TP=${signal.take_profit_price}"
                 )
                 return True
             else:

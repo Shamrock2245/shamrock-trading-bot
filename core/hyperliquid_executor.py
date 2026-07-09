@@ -120,16 +120,23 @@ class HyperliquidExecutor:
         self.private_key = settings.HYPERLIQUID_PRIVATE_KEY
         self.sub_account_address = sub_account_address or None
         self.default_leverage = settings.HYPERLIQUID_DEFAULT_LEVERAGE
-        # Override the env-based flat limits to accommodate Kelly Sizing (up to $2500 per trade)
-        # while keeping the overall total exposure scaled accordingly.
-        self.max_position_usd = max(settings.HYPERLIQUID_MAX_POSITION_USD, 2500.0)
-        self.max_total_exposure = max(settings.HYPERLIQUID_MAX_TOTAL_EXPOSURE, 15000.0)
+        # P0 2026-07-09: respect env caps (do NOT force $2500 floor — CSV showed $2.8k GRASS losses).
+        self.max_position_usd = float(settings.HYPERLIQUID_MAX_POSITION_USD)
+        self.max_total_exposure = float(settings.HYPERLIQUID_MAX_TOTAL_EXPOSURE)
         self.max_positions = settings.HYPERLIQUID_MAX_POSITIONS
         self.stop_loss_pct = settings.HYPERLIQUID_STOP_LOSS_PCT
         self.take_profit_pct = settings.HYPERLIQUID_TAKE_PROFIT_PCT
         self.daily_loss_limit = settings.HYPERLIQUID_DAILY_LOSS_LIMIT
         self.min_gem_score = getattr(settings, "HYPERLIQUID_MIN_GEM_SCORE", 80)
         self.use_testnet = settings.HYPERLIQUID_USE_TESTNET
+        # Hard notional cap (margin × leverage). Prevents Kelly spikes like GRASS $2808.
+        self.max_notional_usd = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
+        # Max fraction of account equity used as margin on a single trade.
+        self.max_margin_equity_pct = float(os.getenv("HL_PERPS_MAX_MARGIN_EQUITY_PCT", "0.15"))
+        # Minimum reward/risk after fill when structure SL/TP is provided.
+        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
+        # Emergency-close cooldown injected into scanner (minutes).
+        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "240"))
 
         # State
         self.positions: dict[str, HLPosition] = {}
@@ -143,6 +150,178 @@ class HyperliquidExecutor:
 
         if self.enabled and self.wallet_address and self.private_key:
             self._initialized = True
+
+    # ── Trade journal (output/trades.json) ─────────────────────────────────
+    def _log_hl_trade(
+        self,
+        *,
+        action: str,
+        coin: str,
+        side: str,
+        price: float,
+        quantity: float,
+        value_usd: float,
+        entry_price: Optional[float] = None,
+        pnl_usd: Optional[float] = None,
+        pnl_pct: Optional[float] = None,
+        reason: str = "",
+        gem_score: float = 0.0,
+        leverage: int = 0,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+        entry_time: Optional[str] = None,
+    ) -> None:
+        """Append a Hyperliquid fill to output/trades.json for analytics."""
+        try:
+            trades_path = Path(os.getenv("TRADES_FILE", "output/trades.json"))
+            trades_path.parent.mkdir(parents=True, exist_ok=True)
+            trades: list = []
+            if trades_path.exists():
+                try:
+                    raw = json.loads(trades_path.read_text(encoding="utf-8") or "[]")
+                    if isinstance(raw, list):
+                        trades = raw
+                except Exception:
+                    trades = []
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "token_address": f"hl:{coin}",
+                "token_symbol": coin,
+                "chain": "hyperliquid",
+                "wallet": "hyperliquid",
+                "action": action,
+                "reason": reason,
+                "quantity": quantity,
+                "price_usd": price,
+                "value_usd": value_usd,
+                "entry_price": entry_price if entry_price is not None else price,
+                "pnl_usd": pnl_usd,
+                "pnl_pct": pnl_pct,
+                "is_paper": False,
+                "tx_hash": None,
+                "signal_scores": {},
+                "gem_score": gem_score,
+                "entry_time": entry_time,
+                "strategy_profile": "hl_perps",
+                "side": side,
+                "leverage": leverage,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+            }
+            trades.append(record)
+            # Keep journal bounded
+            if len(trades) > 5000:
+                trades = trades[-5000:]
+            trades_path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Hyperliquid: failed to journal trade for {coin}: {e}")
+
+    def _inject_scanner_cooldown(
+        self,
+        coin: str,
+        *,
+        loss: bool = False,
+        emergency: bool = False,
+    ) -> None:
+        """Push re-entry / loss / emergency cooldowns into the global HL scanner."""
+        try:
+            import sys
+            scanner = None
+            if "core.hl_perps_scanner" in sys.modules:
+                hl_module = sys.modules["core.hl_perps_scanner"]
+                scanner = getattr(hl_module, "_global_scanner", None)
+            if not scanner:
+                return
+            now = time.time()
+            if not hasattr(scanner, "reentry_cooldowns"):
+                scanner.reentry_cooldowns = {}
+            scanner.reentry_cooldowns[coin] = now
+            if loss and hasattr(scanner, "loss_cooldowns"):
+                scanner.loss_cooldowns[coin] = now
+            if emergency:
+                if not hasattr(scanner, "emergency_cooldowns"):
+                    scanner.emergency_cooldowns = {}
+                scanner.emergency_cooldowns[coin] = now
+                logger.info(
+                    f"⏱️ Emergency cooldown activated for {coin} "
+                    f"({self.emergency_cooldown_min}m)"
+                )
+            else:
+                logger.debug(f"⏱️ Re-entry throttle activated for {coin}")
+        except Exception as e:
+            logger.error(f"Failed to inject cooldowns for {coin}: {e}")
+
+    @staticmethod
+    def _resolve_tpsl_prices(
+        side: str,
+        fill_price: float,
+        stop_loss_pct: float,
+        take_profit_pct: float,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
+    ) -> tuple[float, float, str]:
+        """Prefer structure/Fib levels from the scanner; fall back to fixed %."""
+        source = "fixed"
+        if side == "buy":
+            fixed_sl = fill_price * (1 - stop_loss_pct / 100)
+            fixed_tp = fill_price * (1 + take_profit_pct / 100)
+            # Structure SL must be below entry for longs
+            if stop_loss_price and stop_loss_price < fill_price:
+                sl_price = float(stop_loss_price)
+                source = "structure"
+            else:
+                sl_price = fixed_sl
+            if take_profit_price and take_profit_price > fill_price:
+                tp_price = float(take_profit_price)
+                if source == "structure":
+                    source = "structure"
+                else:
+                    source = "structure_tp_only" if stop_loss_price else "fixed"
+            else:
+                tp_price = fixed_tp
+                if source == "structure":
+                    source = "structure_sl_only"
+        else:
+            fixed_sl = fill_price * (1 + stop_loss_pct / 100)
+            fixed_tp = fill_price * (1 - take_profit_pct / 100)
+            if stop_loss_price and stop_loss_price > fill_price:
+                sl_price = float(stop_loss_price)
+                source = "structure"
+            else:
+                sl_price = fixed_sl
+            if take_profit_price and take_profit_price < fill_price:
+                tp_price = float(take_profit_price)
+            else:
+                tp_price = fixed_tp
+                if source == "structure":
+                    source = "structure_sl_only"
+
+        # Cap risk distance: never allow structure SL wider than 2× fixed SL band
+        max_sl_dist = (stop_loss_pct / 100) * 2.0
+        if side == "buy":
+            if (fill_price - sl_price) / fill_price > max_sl_dist:
+                sl_price = fill_price * (1 - max_sl_dist)
+                source = f"{source}_sl_capped"
+        else:
+            if (sl_price - fill_price) / fill_price > max_sl_dist:
+                sl_price = fill_price * (1 + max_sl_dist)
+                source = f"{source}_sl_capped"
+
+        sl_price = float(f"{sl_price:.5g}")
+        tp_price = float(f"{tp_price:.5g}")
+        return sl_price, tp_price, source
+
+    @staticmethod
+    def _rr_ratio(side: str, entry: float, sl: float, tp: float) -> float:
+        if side == "buy":
+            risk = entry - sl
+            reward = tp - entry
+        else:
+            risk = sl - entry
+            reward = entry - tp
+        if risk <= 0:
+            return 0.0
+        return reward / risk
 
     def _execute_api(self, func, *args, **kwargs):
         """Execute SDK call with exponential backoff for rate limits."""
@@ -638,6 +817,8 @@ class HyperliquidExecutor:
         size_usd: float,
         leverage: Optional[int] = None,
         gem_score: float = 0,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
     ) -> Optional[dict]:
         """
         Open a leveraged long position on Hyperliquid.
@@ -647,11 +828,17 @@ class HyperliquidExecutor:
             size_usd: Position size in USD (before leverage)
             leverage: Override default leverage
             gem_score: Signal strength (for logging)
+            stop_loss_price: Optional structure/Fib SL from scanner (preferred over fixed %)
+            take_profit_price: Optional structure/Fib TP from scanner
             
         Returns:
             Fill info dict or None on failure
         """
-        return self._open_position(symbol, "buy", size_usd, leverage, gem_score)
+        return self._open_position(
+            symbol, "buy", size_usd, leverage, gem_score,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+        )
 
     def open_short(
         self,
@@ -659,9 +846,15 @@ class HyperliquidExecutor:
         size_usd: float,
         leverage: Optional[int] = None,
         gem_score: float = 0,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
     ) -> Optional[dict]:
         """Open a leveraged short position."""
-        return self._open_position(symbol, "sell", size_usd, leverage, gem_score)
+        return self._open_position(
+            symbol, "sell", size_usd, leverage, gem_score,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+        )
 
     def close_position(self, symbol: str) -> Optional[dict]:
         """Close an open position."""
@@ -693,6 +886,18 @@ class HyperliquidExecutor:
 
                     pnl = self._calc_pnl(pos, float(close_price))
                     self.daily_pnl += pnl
+                    entry_px = pos.entry_price
+                    pnl_pct = None
+                    if entry_px and float(close_price):
+                        if pos.side == "long":
+                            pnl_pct = (float(close_price) - entry_px) / entry_px * 100
+                        else:
+                            pnl_pct = (entry_px - float(close_price)) / entry_px * 100
+                    entry_time = (
+                        pos.opened_at.isoformat()
+                        if getattr(pos, "opened_at", None)
+                        else None
+                    )
                     del self.positions[sym]
                     self._save_trailing_state()  # Ensure deleted position is removed from trailing state
                     logger.info(
@@ -700,31 +905,24 @@ class HyperliquidExecutor:
                         f"entry=${pos.entry_price:.4f} → exit=${close_price} | "
                         f"PnL=${pnl:+.2f} | daily_pnl=${self.daily_pnl:+.2f}"
                     )
-                    
-                    # --- COOLDOWN INJECTION ---
-                    try:
-                        # Find the scanner instance if it exists globally
-                        import sys
-                        scanner = None
-                        if "core.hl_perps_scanner" in sys.modules:
-                            hl_module = sys.modules["core.hl_perps_scanner"]
-                            if hasattr(hl_module, "_global_scanner") and hl_module._global_scanner:
-                                scanner = hl_module._global_scanner
-                        
-                        if scanner:
-                            # 1. Loss Cooldown
-                            if pnl < 0:
-                                scanner.loss_cooldowns[sym] = time.time()
-                                logger.info(f"⏱️ Loss cooldown activated for {sym}")
-                            
-                            # 2. Universal Re-entry Throttle (prevent AAVE micro-churn)
-                            if not hasattr(scanner, "reentry_cooldowns"):
-                                scanner.reentry_cooldowns = {}
-                            scanner.reentry_cooldowns[sym] = time.time()
-                            logger.debug(f"⏱️ Re-entry throttle activated for {sym}")
-                    except Exception as e:
-                        logger.error(f"Failed to inject cooldowns for {sym}: {e}")
-                    # --------------------------
+
+                    self._log_hl_trade(
+                        action="SELL",
+                        coin=sym,
+                        side=pos.side,
+                        price=float(close_price) if close_price else 0.0,
+                        quantity=pos.size,
+                        value_usd=float(close_price or 0) * pos.size,
+                        entry_price=entry_px,
+                        pnl_usd=pnl,
+                        pnl_pct=pnl_pct,
+                        reason="manual_or_monitor_close",
+                        leverage=pos.leverage,
+                        stop_loss=pos.stop_loss_price,
+                        take_profit=pos.take_profit_price,
+                        entry_time=entry_time,
+                    )
+                    self._inject_scanner_cooldown(sym, loss=(pnl < 0))
 
                     return {"coin": sym, "close_price": close_price, "pnl": pnl}
                 else:
@@ -746,6 +944,8 @@ class HyperliquidExecutor:
         size_usd: float,
         leverage: Optional[int],
         gem_score: float,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
     ) -> Optional[dict]:
         """Core position opening logic with all safety checks."""
         if not self.is_available():
@@ -786,6 +986,15 @@ class HyperliquidExecutor:
 
         # ── CAPITAL PROTECTION: cap position size ──────────────────────
         actual_size_usd = min(size_usd, self.max_position_usd)
+        lev = leverage or self.default_leverage
+
+        # Hard notional cap: margin × leverage must stay under max_notional_usd
+        if lev > 0 and actual_size_usd * lev > self.max_notional_usd:
+            actual_size_usd = round(self.max_notional_usd / lev, 2)
+            logger.info(
+                f"Hyperliquid: notional cap — margin reduced to ${actual_size_usd:.2f} "
+                f"(max notional ${self.max_notional_usd:.0f} @ {lev}x)"
+            )
 
         # ── CAPITAL PROTECTION: total exposure limit ───────────────────
         # FIX (PYTHON-S): Guard against None leverage on synced positions.
@@ -795,7 +1004,6 @@ class HyperliquidExecutor:
             p.size_usd * (p.leverage or self.default_leverage)
             for p in self.positions.values()
         )
-        lev = leverage or self.default_leverage
         new_exposure = actual_size_usd * lev
         if current_exposure + new_exposure > self.max_total_exposure:
             logger.warning(
@@ -825,17 +1033,22 @@ class HyperliquidExecutor:
                 )
                 return None
 
-        # ── CAPITAL PROTECTION: never risk >20% of account on one trade ─
-        # OVERRIDE: We want to use the full $150 base capital if the Kelly Criterion allows it.
-        # We will allow up to 100% of the account value for this specific run.
-        if account_value > 0 and actual_size_usd > account_value * 1.0:
-            actual_size_usd = round(account_value * 0.95, 2) # Leave 5% for fees/buffer
-            logger.info(
-                f"Hyperliquid: position capped to 95% of account = ${actual_size_usd:.2f}"
-            )
+        # ── CAPITAL PROTECTION: max margin as % of equity (default 15%) ─
+        # Restored after CSV audit — 100% Kelly overrides produced oversized losers.
+        if account_value > 0:
+            max_margin = round(account_value * self.max_margin_equity_pct, 2)
+            if actual_size_usd > max_margin:
+                actual_size_usd = max_margin
+                logger.info(
+                    f"Hyperliquid: margin capped to {self.max_margin_equity_pct*100:.0f}% equity "
+                    f"= ${actual_size_usd:.2f}"
+                )
             if actual_size_usd < 5.0:
                 logger.warning(f"Hyperliquid: cap too small (${actual_size_usd:.2f}) — skip")
                 return None
+            # Re-apply notional cap after equity clamp
+            if lev > 0 and actual_size_usd * lev > self.max_notional_usd:
+                actual_size_usd = round(self.max_notional_usd / lev, 2)
 
         # ── CAPITAL PROTECTION: funding rate check ─────────────────────
         if not self._check_funding_rate_safe(sym, side):
@@ -958,13 +1171,47 @@ class HyperliquidExecutor:
                 fill_price = float(fills[0].get("px", price)) if fills else price
                 fill_size = float(fills[0].get("sz", coin_size)) if fills else coin_size
 
-                # Calculate TP/SL prices (rounded to 5 significant figures)
-                if side == "buy":
-                    sl_price = float(f"{fill_price * (1 - self.stop_loss_pct / 100):.5g}")
-                    tp_price = float(f"{fill_price * (1 + self.take_profit_pct / 100):.5g}")
-                else:
-                    sl_price = float(f"{fill_price * (1 + self.stop_loss_pct / 100):.5g}")
-                    tp_price = float(f"{fill_price * (1 - self.take_profit_pct / 100):.5g}")
+                # Prefer structure/Fib SL+TP from scanner; fall back to fixed %
+                sl_price, tp_price, tpsl_source = self._resolve_tpsl_prices(
+                    side=side,
+                    fill_price=fill_price,
+                    stop_loss_pct=self.stop_loss_pct,
+                    take_profit_pct=self.take_profit_pct,
+                    stop_loss_price=stop_loss_price,
+                    take_profit_price=take_profit_price,
+                )
+
+                # Post-fill R/R guard — reject if structure levels no longer make sense
+                rr = self._rr_ratio(side, fill_price, sl_price, tp_price)
+                if rr < self.min_rr_ratio:
+                    logger.warning(
+                        f"Hyperliquid: {sym} post-fill R/R={rr:.2f}x < {self.min_rr_ratio}x "
+                        f"(source={tpsl_source}) — emergency close, no trade"
+                    )
+                    try:
+                        self._execute_api(self._exchange.market_close, sym)
+                        self._inject_scanner_cooldown(sym, loss=True, emergency=True)
+                        self._log_hl_trade(
+                            action="SELL",
+                            coin=sym,
+                            side="long" if side == "buy" else "short",
+                            price=fill_price,
+                            quantity=fill_size,
+                            value_usd=fill_price * fill_size,
+                            entry_price=fill_price,
+                            pnl_usd=0.0,
+                            pnl_pct=0.0,
+                            reason=f"post_fill_rr_reject_{rr:.2f}",
+                            gem_score=gem_score,
+                            leverage=lev,
+                            stop_loss=sl_price,
+                            take_profit=tp_price,
+                        )
+                    except Exception as close_err:
+                        logger.error(
+                            f"🛑 Post-fill R/R reject close FAILED for {sym}: {close_err}"
+                        )
+                    return None
 
                 # Place TP/SL orders and capture on-chain order IDs
                 sl_oid, tp_oid = self._place_tpsl(sym, side, fill_size, sl_price, tp_price)
@@ -974,15 +1221,31 @@ class HyperliquidExecutor:
                 # position. Immediately close it at market to preserve capital.
                 if sl_oid is None:
                     logger.error(
-                        f"🛑 RED TEAM GUARD: SL placement FAILED for {sym} — "                        f"closing position immediately to prevent unprotected exposure"
+                        f"🛑 RED TEAM GUARD: SL placement FAILED for {sym} — "
+                        f"closing position immediately to prevent unprotected exposure"
                     )
                     try:
-                        close_side = not (side == "buy")  # opposite side to close
                         self._execute_api(
                             self._exchange.market_close,
                             sym,
                         )
                         logger.warning(f"🛑 Emergency close executed for {sym} — no capital at risk")
+                        # Long cooldown stops the 3–5s AAVE/HMSTR re-entry loop
+                        self._inject_scanner_cooldown(sym, loss=True, emergency=True)
+                        self._log_hl_trade(
+                            action="SELL",
+                            coin=sym,
+                            side="long" if side == "buy" else "short",
+                            price=fill_price,
+                            quantity=fill_size,
+                            value_usd=fill_price * fill_size,
+                            entry_price=fill_price,
+                            pnl_usd=0.0,
+                            pnl_pct=0.0,
+                            reason="emergency_close_sl_place_failed",
+                            gem_score=gem_score,
+                            leverage=lev,
+                        )
                     except Exception as close_err:
                         logger.error(f"🛑 Emergency close FAILED for {sym}: {close_err} — MANUAL INTERVENTION REQUIRED")
                     return None
@@ -1007,12 +1270,29 @@ class HyperliquidExecutor:
                 self._save_trailing_state()
 
                 direction = "LONG" if side == "buy" else "SHORT"
+                filled_notional = fill_price * fill_size
                 logger.info(
                     f"✅ Hyperliquid {direction} FILLED: {sym} | "
                     f"size={fill_size} @ ${fill_price:.4f} | "
                     f"margin=${actual_size_usd:.2f} × {lev}x | "
                     f"SL=${sl_price:.4f} / TP=${tp_price:.4f} | "
-                    f"score={gem_score:.0f}"
+                    f"R/R={rr:.2f}x source={tpsl_source} | score={gem_score:.0f}"
+                )
+
+                self._log_hl_trade(
+                    action="BUY",
+                    coin=sym,
+                    side=direction.lower(),
+                    price=fill_price,
+                    quantity=fill_size,
+                    value_usd=filled_notional,
+                    entry_price=fill_price,
+                    reason=f"hl_open_{tpsl_source}_rr{rr:.2f}",
+                    gem_score=gem_score,
+                    leverage=lev,
+                    stop_loss=sl_price,
+                    take_profit=tp_price,
+                    entry_time=pos.opened_at.isoformat(),
                 )
 
                 return {
@@ -1022,9 +1302,11 @@ class HyperliquidExecutor:
                     "size": fill_size,
                     "margin_usd": actual_size_usd,
                     "leverage": lev,
-                    "notional_usd": notional,
+                    "notional_usd": filled_notional,
                     "stop_loss": sl_price,
                     "take_profit": tp_price,
+                    "rr_ratio": rr,
+                    "tpsl_source": tpsl_source,
                 }
 
             except Exception as e:
