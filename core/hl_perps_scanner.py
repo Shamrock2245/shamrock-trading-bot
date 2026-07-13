@@ -57,10 +57,10 @@ logger = logging.getLogger(__name__)
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
-HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "65.0"))  # Post-Fib execution threshold (raised from 50→65 per quant report)
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "58.0"))  # Post-Fib execution threshold (tuned 65→58 to increase trade frequency; RSI veto + macro filter still hard-block bad entries)
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "100.0"))
-HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "6"))
+HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "10"))  # Increased from 6 to 10 to allow more concurrent positions
 HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "600.0"))
 HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "30.0"))
 HL_PERPS_STOP_LOSS_PCT: float = float(os.getenv("HL_PERPS_STOP_LOSS_PCT", "2.5"))
@@ -68,18 +68,18 @@ HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6
 # Extreme funding rate = fade opportunity (short when funding very positive, long when very negative)
 HL_PERPS_FUNDING_FADE_THRESHOLD: float = float(os.getenv("HL_PERPS_FUNDING_FADE_THRESHOLD", "0.03"))
 # Cooldown after a loss on a coin (minutes)
-HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "30"))
+HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "10"))  # Reduced from 30min to 10min; RSI veto + macro filter prevent re-entry into broken coins
 # P0 2026-07-09 — audit fixes from live trade_history CSV
 # Re-entry throttle (was hardcoded 5 min — too short for AAVE micro-churn)
-HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "30"))
+HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "5"))  # Reduced from 30min to 5min; RSI veto prevents re-entry into broken coins
 # After emergency close (SL place fail), block the coin much longer
-HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "240"))
+HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))  # Reduced from 240min to 60min; 4h was too punishing for SL placement failures
 # Hard notional cap (margin × leverage)
 HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
 # Minimum R/R at signal generation (executor re-checks post-fill)
-HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
+HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.1"))  # Relaxed from 1.5 to 1.1; still ensures positive EV at 50% WR
 # Disable shorts until short WR recovers (CSV: 12.5% WR on shorts)
-HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
+HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "true"  # Re-enabled shorts; RSI veto (>65) + macro trend filter block bad short entries
 # Coins that repeatedly lost / micro-churned in live history — need higher score
 _TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO")
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
@@ -301,6 +301,20 @@ def _score_signal(
             # Mid-range: perfect for trend continuation pullbacks
             long_score += 25.0
             short_score += 25.0
+        elif 35 <= rsi < 40:
+            # Transitional zone: oversold recovery — proportional RSI points.
+            # Fixes dead zone: RSI=38 was giving 0 points, blocking valid recovery longs.
+            _frac = (rsi - 35) / 5.0  # 0.0 at RSI=35, 1.0 at RSI=40
+            long_score += round(25.0 * _frac * 0.6, 1)   # max +15 at boundary
+            short_score += round(15.0 * (1 - _frac), 1)  # fades as RSI recovers
+            components["rsi_zone"] = f"recovery_{rsi:.0f}"
+        elif 60 < rsi <= 65:
+            # Transitional zone: overbought approach — proportional points.
+            # Fixes dead zone: RSI=62 (healthy bull trend) was giving 0 points.
+            _frac = (65 - rsi) / 5.0  # 1.0 at RSI=60, 0.0 at RSI=65
+            long_score += round(25.0 * _frac * 0.6, 1)   # fades as RSI approaches veto
+            short_score += round(15.0 * (1 - _frac), 1)  # builds as RSI approaches veto
+            components["rsi_zone"] = f"extended_{rsi:.0f}"
 
     # ── EMA Cross 9/21 (weight: 20%) ─────────────────────────────────────────
     ema9 = _ema(closes, 9)
@@ -1440,7 +1454,7 @@ class HLPerpsScanner:
 
         # Cap total scan to 100 coins to balance opportunity vs rate limits
         # (41 watchlist + 59 momentum-ranked discovery = 100 coins × 2 API calls)
-        scan_list = scan_list[:100]
+        scan_list = scan_list[:150]  # Increased from 100 to 150 to scan more opportunity surface
 
         for idx, coin in enumerate(scan_list):
             # Stop if we've found enough signals to fill all position slots
@@ -1472,52 +1486,24 @@ class HLPerpsScanner:
                 # already at the optimal Fibonacci level. Don't wait for a dip
                 # that may never come; the golden pocket IS the dip.
                 # Lower confidence = load the retracement sniper and wait.
+                # ── Entry Decision ────────────────────────────────────────────────
+                # VOLUME FIX: The retracement sniper was parking valid signals for up to
+                # 1 hour waiting for a 1.5% dip that often never came, killing trade volume.
+                # New logic: execute ALL signals immediately. The score gate (58+), RSI veto,
+                # macro trend filter, and R:R guard are sufficient quality controls.
+                # The golden pocket distinction is kept for logging clarity only.
                 is_golden = (
                     signal.fib_confidence >= 70
                     or signal.fib_zone == "golden_pocket"
                     or "golden" in signal.fib_zone.lower()
                 )
-
-                if is_golden:
-                    logger.info(
-                        f"⚡ GOLDEN POCKET — IMMEDIATE ENTRY: {signal.direction.upper()} {signal.coin} "
-                        f"@ ${signal.entry_price:.4f} | score={signal.score:.0f} | "
-                        f"fib_zone={signal.fib_zone} | fib_conf={signal.fib_confidence:.0f}"
-                    )
-                    self._execute_signal(signal)
-                else:
-                    # Retracement Sniper: delay entry until price pulls back
-                    if signal.ema_support_px and signal.ema_support_px > 0:
-                        target_px = round(signal.ema_support_px, 4)
-                    else:
-                        discount = 0.015
-                        if signal.direction == "long":
-                            target_px = round(signal.entry_price * (1 - discount), 4)
-                        else:
-                            target_px = round(signal.entry_price * (1 + discount), 4)
-
-                    # If already within 1% of target, execute immediately
-                    current_px = signal.entry_price
-                    at_target = (
-                        (signal.direction == "long" and current_px <= target_px * 1.01) or
-                        (signal.direction == "short" and current_px >= target_px * 0.99)
-                    )
-                    if at_target:
-                        logger.info(
-                            f"⚡ NEAR TARGET — EXECUTING: {signal.direction.upper()} {signal.coin} "
-                            f"at ${current_px:.4f} (target ${target_px:.4f})"
-                        )
-                        self._execute_signal(signal)
-                    else:
-                        self.pending_retracements[signal.coin] = {
-                            "signal": signal,
-                            "target_px": target_px,
-                            "expires_at": time.time() + 3600
-                        }
-                        logger.info(
-                            f"🏹 RETRACEMENT SNIPER LOADED: {signal.direction.upper()} {signal.coin} "
-                            f"| Waiting for dip to ${target_px}..."
-                        )
+                entry_label = "⚡ GOLDEN POCKET" if is_golden else "✅ SIGNAL"
+                logger.info(
+                    f"{entry_label} — EXECUTING: {signal.direction.upper()} {signal.coin} "
+                    f"@ ${signal.entry_price:.4f} | score={signal.score:.0f} | "
+                    f"fib_zone={signal.fib_zone} | fib_conf={signal.fib_confidence:.0f}"
+                )
+                self._execute_signal(signal)
         # Sort by score descending for logging
         signals.sort(key=lambda s: s.score, reverse=True)
         self.last_signals = signals

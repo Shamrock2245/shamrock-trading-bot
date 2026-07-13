@@ -44,7 +44,7 @@ GOLDEN_POCKET_LOW = 0.618
 GOLDEN_POCKET_HIGH = 0.65
 
 # Tolerance for "near a Fib level" (percentage)
-FIB_PROXIMITY_PCT = 1.0  # Within 1% of a level counts as "at" that level (tightened from 3.0 per quant report)
+FIB_PROXIMITY_PCT = 2.0  # Within 2% of a level counts as "at" that level (relaxed from 1.0 to increase trade frequency)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,7 +429,7 @@ def analyze_fibonacci(
 
     # Step 9: Determine alignment
     # BUY is aligned if price is at a Fibonacci support level in an uptrend
-    buy_zones = {"golden_pocket", "fib_618", "fib_500"}  # Removed fib_382/fib_786 (weak levels per quant report)
+    buy_zones = {"golden_pocket", "fib_618", "fib_500", "fib_382", "fib_786"}  # fib_382/fib_786 re-enabled: +10 boost each, increases signal frequency
     aligned = zone in buy_zones and confidence >= 15
 
     result = FibResult(
