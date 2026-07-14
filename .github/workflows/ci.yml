@@ -106,7 +106,11 @@ jobs:
             export GIT_SHA=$(git rev-parse --short HEAD)
             echo "🚀 Deploying shamrock-bot @ $GIT_SHA"
             docker compose down --remove-orphans
-            docker system prune -f 2>/dev/null || true
+            # Aggressively free disk space: remove ALL unused images + build cache
+            # -a removes all unused images (not just dangling), preventing disk exhaustion
+            docker system prune -af --volumes 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+            echo "💾 Disk free after prune: $(df -h / | tail -1 | awk '{print $4}')"
             docker compose build --no-cache
             docker compose up -d
             sleep 20
