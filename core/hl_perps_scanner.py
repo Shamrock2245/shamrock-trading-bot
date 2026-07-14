@@ -92,7 +92,6 @@ HL_PERPS_AUTOBAN_ENABLED: bool = os.getenv("HL_PERPS_AUTOBAN_ENABLED", "true").l
 HL_PERPS_AUTOBAN_MIN_TRADES: int = int(os.getenv("HL_PERPS_AUTOBAN_MIN_TRADES", "5"))  # Min trades before ban eligible
 HL_PERPS_AUTOBAN_WR_THRESHOLD: float = float(os.getenv("HL_PERPS_AUTOBAN_WR_THRESHOLD", "0.30"))  # Ban if WR < 30%
 HL_PERPS_AUTOBAN_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_HOURS", "48.0"))  # Ban duration in hours
-_COIN_PERF_FILE = _STATE_DIR / "hl_coin_perf.json"
 
 # Profit withdrawal automation
 HL_PERPS_BASE_CAPITAL: float = float(os.getenv("HL_PERPS_BASE_CAPITAL", "150.0"))
@@ -101,6 +100,7 @@ HL_PERPS_PROFIT_SWEEP_USD: float = float(os.getenv("HL_PERPS_PROFIT_SWEEP_USD", 
 # State persistence
 _STATE_DIR = Path(os.getenv("DASHBOARD_STATE_DIR", "./data/dashboard"))
 _STATE_FILE = _STATE_DIR / "hl_perps_state.json"
+_COIN_PERF_FILE = _STATE_DIR / "hl_coin_perf.json"  # Auto-blacklist win/loss stats
 
 # Global registry for cross-module cooldown access
 _global_scanner = None
