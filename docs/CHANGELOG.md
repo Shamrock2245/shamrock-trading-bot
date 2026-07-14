@@ -8,6 +8,43 @@
 ```
 
 ---
+## [2.4.0] — 2026-07-14
+### Fixed
+- **PYTHON-RR-SYNC:** Synced `HL_PERPS_MIN_RR` default in `hyperliquid_executor.py` from `1.5` → `1.1` to match `hl_perps_scanner.py`. The mismatch was the root cause of 49 rapid closes (5–6s): scanner pre-approved signals at R/R=1.1–1.4, but the executor's post-fill guard rejected them at 1.5, triggering an immediate `market_close`.
+- **PYTHON-EC-SYNC:** Synced `HL_PERPS_EMERGENCY_COOLDOWN_MIN` default in executor from `240` → `60` minutes to match scanner. 4-hour blackout was too punishing for SL placement failures on illiquid coins.
+- See `docs/HL_PERPS_RAPID_CLOSE_POSTMORTEM.md` for full root cause analysis.
+
+---
+## [2.3.0] — 2026-07-13 (CI/CD disk fix)
+### Fixed
+- **CI disk exhaustion:** `docker system prune -f` (dangling only) replaced with `docker system prune -af --volumes && docker builder prune -af` in `.github/workflows/ci.yml`. Previous builds accumulated 10–30 GB of stale image layers, causing `no space left on device` failures during `docker compose build --no-cache`. Free disk space is now logged before every build.
+
+---
+## [2.2.0] — 2026-07-13 (trade volume fix)
+### Changed
+- **`HL_PERPS_EXEC_SCORE` default:** 65 → 58. Most real setups score 50–62; RSI veto + macro filter still hard-block bad entries.
+- **`HL_PERPS_MIN_RR` default:** 1.5 → 1.1 in scanner. Still ensures positive EV at 50% WR.
+- **`HL_PERPS_REENTRY_COOLDOWN_MIN` default:** 30 → 5 minutes.
+- **`HL_PERPS_LOSS_COOLDOWN_MIN` default:** 30 → 10 minutes.
+- **`HL_PERPS_EMERGENCY_COOLDOWN_MIN` default:** 240 → 60 minutes.
+- **`HL_PERPS_LONG_ONLY` default:** `true` → `false`. Shorts re-enabled with RSI veto guard.
+- **`HL_PERPS_MAX_POSITIONS` default:** 6 → 10.
+- **Scan cap:** 100 → 150 coins per cycle.
+- **RSI dead zones:** RSI 35–40 and 60–65 now use proportional scoring instead of 0 points.
+- **Fib proximity:** 1% → 2% window.
+- **`fib_382`/`fib_786`** added to `buy_zones` with +10 score boost each.
+- **Retracement sniper:** Removed 1-hour parking delay; signals execute immediately.
+
+---
+## [2.1.1] — 2026-07-06 (SL placement fix)
+### Fixed
+- **SL retry backoff:** `_place_tpsl` now retries SL placement 3 times (1s, 2s backoff). Attempt 1 uses 50% slippage; attempts 2–3 fall back to 10% slippage which HL accepts on illiquid coins. RED TEAM GUARD only fires after all 3 attempts fail.
+- **RSI sticky veto:** RSI veto in `_score_signal` is now sticky — downstream EMA/MACD/volume/BB cannot add points back after a veto. Score is clamped to 0.0 before the trend filter.
+- **Balance key mismatch:** Scanner `_bal.get("accountValue")` corrected to `_bal.get("account_value")` (matches executor's normalized output dict). Kelly sizing and daily loss limit now use live equity instead of falling back to `HL_PERPS_BASE_CAPITAL`.
+- **Aggressive Mode block deleted** from `.env` (restored `HL_PERPS_EXEC_SCORE` to 65.0 default, `HYPERLIQUID_DEFAULT_LEVERAGE` to 3, `HYPERLIQUID_STOP_LOSS_PCT` to 2.5).
+- **Trailing stop env vars** added: `HL_TRAILING_ROE_TRIGGER_PCT=10.0`, `HL_TRAILING_DISTANCE_PCT=1.0`.
+
+---
 ## [2.1.0] — 2026-06-11
 ### Added
 - **LLM Auto-Tuner (Trading-as-Git):** Added `core/llm_auto_tuner.py` which polls every 15 minutes to quant-tune trailing stops using reasoning from `gpt-4o-mini`.

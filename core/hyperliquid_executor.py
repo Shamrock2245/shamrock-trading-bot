@@ -134,9 +134,15 @@ class HyperliquidExecutor:
         # Max fraction of account equity used as margin on a single trade.
         self.max_margin_equity_pct = float(os.getenv("HL_PERPS_MAX_MARGIN_EQUITY_PCT", "0.15"))
         # Minimum reward/risk after fill when structure SL/TP is provided.
-        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
+        # FIX (PYTHON-RR-SYNC): Synced default from 1.5 → 1.1 to match scanner's HL_PERPS_MIN_RR default.
+        # The mismatch was the root cause of 49 rapid closes (5-6s): scanner pre-approved signals at
+        # R/R=1.1-1.4, but the executor's post-fill guard rejected them at 1.5, triggering an immediate
+        # market_close (open → 1s fill wait → R/R check → close = 5-6s total).
+        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.1"))
         # Emergency-close cooldown injected into scanner (minutes).
-        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "240"))
+        # FIX (PYTHON-EC-SYNC): Synced default from 240 → 60 min to match scanner's HL_PERPS_EMERGENCY_COOLDOWN_MIN.
+        # 4-hour blackout was too punishing for SL placement failures on illiquid coins.
+        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
 
         # State
         self.positions: dict[str, HLPosition] = {}
