@@ -84,6 +84,15 @@ HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "
 _TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO")
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))
+# ── Auto-Blacklist: performance-based dynamic coin banning ───────────────────
+# A coin is auto-banned for HL_PERPS_AUTOBAN_HOURS when it has
+# >= HL_PERPS_AUTOBAN_MIN_TRADES AND a win rate below HL_PERPS_AUTOBAN_WR_THRESHOLD.
+# State persists to data/dashboard/hl_coin_perf.json so bans survive restarts.
+HL_PERPS_AUTOBAN_ENABLED: bool = os.getenv("HL_PERPS_AUTOBAN_ENABLED", "true").lower() == "true"
+HL_PERPS_AUTOBAN_MIN_TRADES: int = int(os.getenv("HL_PERPS_AUTOBAN_MIN_TRADES", "5"))  # Min trades before ban eligible
+HL_PERPS_AUTOBAN_WR_THRESHOLD: float = float(os.getenv("HL_PERPS_AUTOBAN_WR_THRESHOLD", "0.30"))  # Ban if WR < 30%
+HL_PERPS_AUTOBAN_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_HOURS", "48.0"))  # Ban duration in hours
+_COIN_PERF_FILE = _STATE_DIR / "hl_coin_perf.json"
 
 # Profit withdrawal automation
 HL_PERPS_BASE_CAPITAL: float = float(os.getenv("HL_PERPS_BASE_CAPITAL", "150.0"))
@@ -495,6 +504,12 @@ class HLPerpsScanner:
         self.total_wins: int = 0
         self.total_losses: int = 0
         self.total_pnl: float = 0.0
+        # ── Auto-Blacklist state ───────────────────────────────────────────────
+        # coin → {"wins": int, "losses": int, "last_updated": float}
+        self._coin_perf: dict[str, dict] = {}
+        # coin → unix timestamp when the ban expires
+        self._autoban_until: dict[str, float] = {}
+        self._load_coin_perf()
 
         # ── API Rate-Limit Protection ─────────────────────────────────────────
         # Cache meta() responses for 30s to stay well under HL's 1200 weight/min limit.
@@ -701,6 +716,19 @@ class HLPerpsScanner:
     def _is_on_cooldown(self, coin: str) -> bool:
         """Check if a coin is in loss / re-entry / emergency cooldown."""
         now = time.time()
+        # 0. Auto-blacklist (performance-based dynamic ban)
+        if HL_PERPS_AUTOBAN_ENABLED and coin in self._autoban_until:
+            if now < self._autoban_until[coin]:
+                remaining_h = (self._autoban_until[coin] - now) / 3600
+                logger.debug(
+                    f"[AUTO-BAN] {coin} banned for {remaining_h:.1f}h more "
+                    f"(low WR) — skip"
+                )
+                return True
+            else:
+                # Ban expired — remove and allow re-evaluation
+                del self._autoban_until[coin]
+                logger.info(f"[AUTO-BAN] {coin} ban expired — re-entering watchlist")
         # 1. Emergency cooldown (SL place-fail micro-loop — was 3–5s AAVE spam)
         if coin in getattr(self, "emergency_cooldowns", {}):
             elapsed = now - self.emergency_cooldowns[coin]
@@ -720,6 +748,77 @@ class HLPerpsScanner:
                 return True
 
         return False
+
+    def record_trade_outcome(self, coin: str, won: bool) -> None:
+        """
+        Record a closed trade outcome for a coin and auto-ban it if its
+        rolling win rate falls below the threshold.
+
+        Called by hyperliquid_executor._inject_scanner_cooldown() after every close.
+        """
+        if not HL_PERPS_AUTOBAN_ENABLED:
+            return
+        coin = coin.upper()
+        perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": time.time()})
+        if won:
+            perf["wins"] += 1
+        else:
+            perf["losses"] += 1
+        perf["last_updated"] = time.time()
+        total = perf["wins"] + perf["losses"]
+        wr = perf["wins"] / total if total > 0 else 1.0
+        # Evaluate ban eligibility
+        if (
+            total >= HL_PERPS_AUTOBAN_MIN_TRADES
+            and wr < HL_PERPS_AUTOBAN_WR_THRESHOLD
+            and coin not in self._autoban_until
+        ):
+            ban_expires = time.time() + HL_PERPS_AUTOBAN_HOURS * 3600
+            self._autoban_until[coin] = ban_expires
+            logger.warning(
+                f"🚫 [AUTO-BAN] {coin} auto-banned for {HL_PERPS_AUTOBAN_HOURS:.0f}h "
+                f"| trades={total} | WR={wr*100:.0f}% < {HL_PERPS_AUTOBAN_WR_THRESHOLD*100:.0f}% threshold"
+            )
+        self._save_coin_perf()
+
+    def _load_coin_perf(self) -> None:
+        """Load coin performance stats and active bans from disk on startup."""
+        try:
+            _STATE_DIR.mkdir(parents=True, exist_ok=True)
+            if not _COIN_PERF_FILE.exists():
+                return
+            raw = json.loads(_COIN_PERF_FILE.read_text(encoding="utf-8"))
+            self._coin_perf = raw.get("coin_perf", {})
+            # Restore active bans (skip expired ones)
+            now = time.time()
+            for coin, expires in raw.get("autoban_until", {}).items():
+                if expires > now:
+                    self._autoban_until[coin] = expires
+                    remaining_h = (expires - now) / 3600
+                    logger.info(
+                        f"[AUTO-BAN] {coin} ban restored from disk — {remaining_h:.1f}h remaining"
+                    )
+            if self._autoban_until:
+                logger.info(
+                    f"[AUTO-BAN] {len(self._autoban_until)} active bans loaded: "
+                    f"{', '.join(self._autoban_until.keys())}"
+                )
+        except Exception as e:
+            logger.warning(f"[AUTO-BAN] Failed to load coin perf state: {e}")
+
+    def _save_coin_perf(self) -> None:
+        """Persist coin performance stats and active bans to disk."""
+        try:
+            _STATE_DIR.mkdir(parents=True, exist_ok=True)
+            _COIN_PERF_FILE.write_text(
+                json.dumps(
+                    {"coin_perf": self._coin_perf, "autoban_until": self._autoban_until},
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"[AUTO-BAN] Failed to save coin perf state: {e}")
 
     def _check_daily_reset(self) -> None:
         """Reset daily PnL at midnight UTC."""

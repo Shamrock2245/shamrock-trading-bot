@@ -8,6 +8,21 @@
 ```
 
 ---
+## [2.5.0] — 2026-07-14 (auto-blacklist)
+### Added
+- **Dynamic performance-based auto-blacklist** (`HL_PERPS_AUTOBAN_*`): the scanner now tracks per-coin win/loss stats in `data/dashboard/hl_coin_perf.json`. Any coin with ≥ 5 trades and a win rate below 30% is automatically banned for 48 hours. Bans survive restarts (state is persisted to disk and reloaded on startup). Ban expiry is logged at `INFO` level; ban triggers are logged at `WARNING`.
+- **`scripts/seed_autoban.py`**: one-time script that pre-populates `hl_coin_perf.json` with real win/loss stats from the v17 trade history CSV. Immediately bans AAVE (9% WR), HMSTR (0%), BRETT (8%), GRASS (20%), EIGEN (20%), MET (20%), and MEME (0%) for 48 hours without waiting for 5 more losses.
+- **New env vars** (all optional, defaults shown):
+  - `HL_PERPS_AUTOBAN_ENABLED=true`
+  - `HL_PERPS_AUTOBAN_MIN_TRADES=5`
+  - `HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30`
+  - `HL_PERPS_AUTOBAN_HOURS=48.0`
+
+### Changed
+- `_inject_scanner_cooldown()` in `hyperliquid_executor.py` now calls `scanner.record_trade_outcome(coin, won)` on every close, feeding the auto-blacklist with live data.
+- `_is_on_cooldown()` in `hl_perps_scanner.py` checks the auto-blacklist as gate #0 (before emergency/reentry/loss cooldowns).
+
+---
 ## [2.4.0] — 2026-07-14
 ### Fixed
 - **PYTHON-RR-SYNC:** Synced `HL_PERPS_MIN_RR` default in `hyperliquid_executor.py` from `1.5` → `1.1` to match `hl_perps_scanner.py`. The mismatch was the root cause of 49 rapid closes (5–6s): scanner pre-approved signals at R/R=1.1–1.4, but the executor's post-fill guard rejected them at 1.5, triggering an immediate `market_close`.

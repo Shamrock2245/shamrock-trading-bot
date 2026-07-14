@@ -244,6 +244,11 @@ class HyperliquidExecutor:
             scanner.reentry_cooldowns[coin] = now
             if loss and hasattr(scanner, "loss_cooldowns"):
                 scanner.loss_cooldowns[coin] = now
+            # Record trade outcome for auto-blacklist win-rate tracking
+            if hasattr(scanner, "record_trade_outcome"):
+                # emergency closes (SL fail / R/R reject) always count as losses
+                won = not loss
+                scanner.record_trade_outcome(coin, won=won)
             if emergency:
                 if not hasattr(scanner, "emergency_cooldowns"):
                     scanner.emergency_cooldowns = {}
