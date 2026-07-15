@@ -8,6 +8,16 @@
 ```
 
 ---
+## [2.6.0] — 2026-07-15
+### Critical Fix: `.env` Override Trap — Bot Silent for ~23 Hours
+- **Root cause:** Hetzner `.env` (copied from `.env.example` at initial setup) contained stale values that silently overrode all code-level gate fixes from v2.1–v2.5. The bot was running with `EXEC_SCORE=65`, `MIN_RR=1.5`, `LONG_ONLY=true`, `REENTRY=30min`, `LOSS=30min`, `EMERGENCY=240min`, `MAX_POSITIONS=6` — completely undoing every volume fix deployed since July 6.
+- **Fix:** CI deploy script (`ci.yml`) now patches `.env` via `sed` on every deploy, guaranteeing correct values regardless of what is in the file. Auto-blacklist vars are also injected if missing.
+- **`.env.example` updated** with all tuned values and inline rationale comments so future server setups start correctly.
+- **New docs added:**
+  - `docs/ENV_OVERRIDE_TRAP_POSTMORTEM.md` — Full post-mortem with diagnostic steps
+  - `docs/HL_PERPS_RUNBOOK.md` — Operational runbook covering all known failure modes, gate tuning reference, and the Three-File Update Rule
+
+---
 ## [2.5.0] — 2026-07-14 (auto-blacklist)
 ### Added
 - **Dynamic performance-based auto-blacklist** (`HL_PERPS_AUTOBAN_*`): the scanner now tracks per-coin win/loss stats in `data/dashboard/hl_coin_perf.json`. Any coin with ≥ 5 trades and a win rate below 30% is automatically banned for 48 hours. Bans survive restarts (state is persisted to disk and reloaded on startup). Ban expiry is logged at `INFO` level; ban triggers are logged at `WARNING`.
