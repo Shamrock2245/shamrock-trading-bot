@@ -105,6 +105,25 @@ jobs:
             git pull origin main
             export GIT_SHA=$(git rev-parse --short HEAD)
             echo "🚀 Deploying shamrock-bot @ $GIT_SHA"
+            # ── Patch .env with tuned gate values (prevent stale .env from overriding code fixes) ──
+            # These values are the result of live trade analysis — do not revert without testing.
+            if [ -f .env ]; then
+              sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=58/' .env
+              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.1/' .env
+              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=false/' .env
+              sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
+              sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
+              sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
+              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
+              # Add auto-blacklist vars if not present
+              grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_WR_THRESHOLD=' .env || echo 'HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_HOURS=' .env || echo 'HL_PERPS_AUTOBAN_HOURS=48.0' >> .env
+              echo "✅ .env patched with tuned gate values"
+            else
+              echo "⚠️  WARNING: .env not found — bot will use code defaults"
+            fi
             docker compose down --remove-orphans
             # Aggressively free disk space: remove ALL unused images + build cache
             # -a removes all unused images (not just dangling), preventing disk exhaustion
