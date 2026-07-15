@@ -115,11 +115,12 @@ jobs:
               sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
-              # Add auto-blacklist vars if not present
-              grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
-              grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
-              grep -q '^HL_PERPS_AUTOBAN_WR_THRESHOLD=' .env || echo 'HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30' >> .env
-              grep -q '^HL_PERPS_AUTOBAN_HOURS=' .env || echo 'HL_PERPS_AUTOBAN_HOURS=48.0' >> .env
+              sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN/' .env
+              # Force-correct auto-blacklist vars (append if missing, replace if exists)
+              grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env && sed -i 's/^HL_PERPS_AUTOBAN_ENABLED=.*/HL_PERPS_AUTOBAN_ENABLED=true/' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MIN_TRADES=.*/HL_PERPS_AUTOBAN_MIN_TRADES=5/' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_WR_THRESHOLD=' .env && sed -i 's/^HL_PERPS_AUTOBAN_WR_THRESHOLD=.*/HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30/' .env || echo 'HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_HOURS=' .env && sed -i 's/^HL_PERPS_AUTOBAN_HOURS=.*/HL_PERPS_AUTOBAN_HOURS=48.0/' .env || echo 'HL_PERPS_AUTOBAN_HOURS=48.0' >> .env
               echo "✅ .env patched with tuned gate values"
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"

@@ -81,7 +81,7 @@ HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.1"))  # Relaxed f
 # Disable shorts until short WR recovers (CSV: 12.5% WR on shorts)
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "true"  # Re-enabled shorts; RSI veto (>65) + macro trend filter block bad short entries
 # Coins that repeatedly lost / micro-churned in live history — need higher score
-_TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO")
+_TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN")
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))
 # ── Auto-Blacklist: performance-based dynamic coin banning ───────────────────
