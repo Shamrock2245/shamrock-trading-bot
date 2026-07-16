@@ -323,6 +323,72 @@ class DailyGoalEngine:
         else:
             return 1.0 * tier_bonus    # Normal
 
+    def get_hl_perps_config_overrides(self) -> dict:
+        """
+        Adaptive Hyperliquid perps frequency/sizing for the $500+/day goal ladder.
+
+        Used by HLPerpsScanner to scale trade frequency without re-enabling the
+        micro-churn / stacked-gate failure modes documented in
+        docs/HL_PERPS_RAPID_CLOSE_POSTMORTEM.md and trade_history CSV audits.
+
+        Returns keys (all optional — caller merges onto base env defaults):
+          exec_score_delta   — add to HL_PERPS_EXEC_SCORE (negative = more trades)
+          reentry_cooldown_min
+          loss_cooldown_min
+          max_positions
+          size_multiplier
+          mode               — strategy mode string for logging
+          progress_pct
+          remaining_usd
+          behind_pace        — True when UTC clock pace is ahead of realized progress
+        """
+        mode = self.get_strategy_mode()
+        progress = self.progress_pct
+        remaining = self.remaining_usd
+        hour_utc = datetime.now(timezone.utc).hour
+        # Linear day pace: by hour H we expect ~H/24 of the daily target.
+        expected_progress = (hour_utc / 24.0) * 100.0
+        behind_pace = progress < (expected_progress - 15.0) and remaining > 0
+
+        # Base: balanced frequency (see CSV: need ~15–25 quality closes/day
+        # at +EV, not 65-score starvation and not 5-min AAVE churn).
+        cfg = {
+            "exec_score_delta": 0.0,
+            "reentry_cooldown_min": None,  # None = leave env default
+            "loss_cooldown_min": None,
+            "max_positions": None,
+            "size_multiplier": self.get_position_size_multiplier(),
+            "mode": mode,
+            "progress_pct": progress,
+            "remaining_usd": remaining,
+            "behind_pace": behind_pace,
+        }
+
+        # Protect/bank_it take priority over behind_pace (goal already hit).
+        if mode == "protect":
+            cfg["exec_score_delta"] = 4.0
+            cfg["reentry_cooldown_min"] = 20
+            cfg["loss_cooldown_min"] = 25
+            cfg["max_positions"] = 5
+        elif mode == "bank_it":
+            cfg["exec_score_delta"] = 7.0
+            cfg["reentry_cooldown_min"] = 30
+            cfg["loss_cooldown_min"] = 30
+            cfg["max_positions"] = 3
+        elif mode in ("catch_up", "parabolic") or behind_pace:
+            # More opportunities, still above garbage-score floor (52).
+            cfg["exec_score_delta"] = -4.0 if mode != "parabolic" else -6.0
+            cfg["reentry_cooldown_min"] = 8
+            cfg["loss_cooldown_min"] = 10
+            cfg["max_positions"] = None  # use full configured slots
+            if mode == "parabolic":
+                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.35)
+            elif behind_pace:
+                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.10)
+        # else normal — keep env defaults, size_multiplier from tier
+
+        return cfg
+
     def close_day(self) -> dict:
         """
         Called at midnight UTC to close out the day, evaluate tier progress,

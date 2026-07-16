@@ -134,15 +134,12 @@ class HyperliquidExecutor:
         # Max fraction of account equity used as margin on a single trade.
         self.max_margin_equity_pct = float(os.getenv("HL_PERPS_MAX_MARGIN_EQUITY_PCT", "0.15"))
         # Minimum reward/risk after fill when structure SL/TP is provided.
-        # FIX (PYTHON-RR-SYNC): Synced default from 1.5 → 1.1 to match scanner's HL_PERPS_MIN_RR default.
-        # The mismatch was the root cause of 49 rapid closes (5-6s): scanner pre-approved signals at
-        # R/R=1.1-1.4, but the executor's post-fill guard rejected them at 1.5, triggering an immediate
-        # market_close (open → 1s fill wait → R/R check → close = 5-6s total).
-        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.1"))
+        # MUST match scanner HL_PERPS_MIN_RR (default 1.2). Mismatch caused 49 rapid
+        # closes (5-6s): scanner approved R/R=1.1-1.4, executor rejected at 1.5 → market_close.
+        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
         # Emergency-close cooldown injected into scanner (minutes).
-        # FIX (PYTHON-EC-SYNC): Synced default from 240 → 60 min to match scanner's HL_PERPS_EMERGENCY_COOLDOWN_MIN.
-        # 4-hour blackout was too punishing for SL placement failures on illiquid coins.
-        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
+        # MUST match scanner HL_PERPS_EMERGENCY_COOLDOWN_MIN (default 90).
+        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "90"))
 
         # State
         self.positions: dict[str, HLPosition] = {}
@@ -221,6 +218,16 @@ class HyperliquidExecutor:
             trades_path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to journal trade for {coin}: {e}")
+
+    def _feed_daily_goal(self, pnl_usd: float, source: str = "scalp_hl_perps") -> None:
+        """Record Hyperliquid realized PnL into the daily goal engine ($500+/day ladder)."""
+        if not pnl_usd:
+            return
+        try:
+            from core.daily_goal_engine import get_daily_goal_engine
+            get_daily_goal_engine().record_profit(float(pnl_usd), source=source)
+        except Exception as e:
+            logger.debug(f"Hyperliquid: daily goal feed failed: {e}")
 
     def _inject_scanner_cooldown(
         self,
@@ -524,14 +531,24 @@ class HyperliquidExecutor:
                 
                 for missing_coin in missing_coins:
                     last_pos = self.positions[missing_coin]
-                    logger.info(f"Hyperliquid: detected passive closure for {missing_coin}. Cleaning up ghost position.")
-                    
+                    # last_pos.pnl is last known unrealized — best estimate for passive TP/SL
+                    est_pnl = float(getattr(last_pos, "pnl", 0.0) or 0.0)
+                    logger.info(
+                        f"Hyperliquid: detected passive closure for {missing_coin} "
+                        f"(est_pnl=${est_pnl:+.2f}). Cleaning up ghost position."
+                    )
+                    self.daily_pnl += est_pnl
+                    self._feed_daily_goal(est_pnl, source="scalp_hl_perps_passive")
                     if scanner:
                         try:
+                            scanner.daily_pnl = float(getattr(scanner, "daily_pnl", 0.0) or 0.0) + est_pnl
                             # 1. Loss Cooldown Heuristic (if last known PnL was negative)
-                            if last_pos.pnl < 0:
+                            if est_pnl < 0:
                                 scanner.loss_cooldowns[missing_coin] = time.time()
                                 logger.info(f"⏱️ Loss cooldown injected for passive close on {missing_coin}")
+                            # Record outcome for auto-ban
+                            if hasattr(scanner, "record_trade_outcome"):
+                                scanner.record_trade_outcome(missing_coin, won=(est_pnl > 0))
                             
                             # 2. Universal Re-entry Throttle
                             if not hasattr(scanner, "reentry_cooldowns"):
@@ -897,6 +914,16 @@ class HyperliquidExecutor:
 
                     pnl = self._calc_pnl(pos, float(close_price))
                     self.daily_pnl += pnl
+                    self._feed_daily_goal(pnl, source="scalp_hl_perps")
+                    # Keep scanner daily_pnl in sync for its circuit breaker
+                    try:
+                        import sys
+                        if "core.hl_perps_scanner" in sys.modules:
+                            sc = getattr(sys.modules["core.hl_perps_scanner"], "_global_scanner", None)
+                            if sc is not None:
+                                sc.daily_pnl = float(getattr(sc, "daily_pnl", 0.0) or 0.0) + pnl
+                    except Exception:
+                        pass
                     entry_px = pos.entry_price
                     pnl_pct = None
                     if entry_px and float(close_price):

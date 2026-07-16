@@ -94,6 +94,27 @@ class TestDailyGoalEngine:
                 engine.record_profit(520.0, source="arb_cross_dex")
         assert engine.strategy_mode == "protect"
 
+    def test_hl_perps_config_overrides_protect_vs_catchup(self, tmp_path):
+        """HL perps frequency adapts: protect tightens, behind-pace loosens."""
+        engine, _ = make_fresh_engine(tmp_path)
+        # Behind pace at $0 profit → lower exec bar, shorter reentry
+        behind = engine.get_hl_perps_config_overrides()
+        assert behind["behind_pace"] is True
+        assert behind["exec_score_delta"] < 0
+        assert behind["reentry_cooldown_min"] == 8
+
+        with patch("core.daily_goal_engine.settings") as mock_settings:
+            mock_settings.MODE = "live"
+            mock_settings.PARABOLIC_MODE_ENABLED = False
+            with patch("core.paper_to_live_promoter.check_and_promote"):
+                engine.record_profit(520.0, source="scalp_hl_perps")
+            # settings.MODE must stay live — paper forces strategy_mode=normal
+            protect = engine.get_hl_perps_config_overrides()
+            assert protect["mode"] == "protect"
+            assert protect["exec_score_delta"] > 0
+            assert protect["max_positions"] == 5
+            assert protect["size_multiplier"] < 1.0
+
     def test_strategy_mode_bank_it_at_150pct(self, tmp_path):
         """Strategy mode switches to 'bank_it' at 150%+ of goal."""
         engine, _ = make_fresh_engine(tmp_path)

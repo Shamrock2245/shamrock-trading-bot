@@ -15,24 +15,23 @@ score built from:
   7. Price Momentum     — 1h return vs 4h return (acceleration)
   8. Open Interest Δ    — rising OI + price rise = trend confirmation
 
-Signal Score: 0–100. Entry gate: ≥ 65.
-Direction: LONG or SHORT — both are traded.
+Signal Score: 0–100. Entry gate: ≥ EXEC_SCORE (default 58, goal-adaptive).
+Direction: LONG primary (LONG_ONLY=true by default — short WR ~17% in live book).
 Leverage: 3× default (configurable via HL_PERPS_LEVERAGE env var).
-Position size: scaled to hit $500/day target across the portfolio.
+Position size: Kelly + vol sizer + daily-goal multiplier toward $500+/day ladder.
 
-Scan universe: Top 40 perps by liquidity (BTC, ETH, SOL, etc.) + any
-perp with anomalous funding rate (absolute value > 0.03%/8h).
+Scan universe: Watchlist + momentum-ranked discovery (up to 150 coins) + funding anomalies.
 
 Integration: main.py → _hl_perps_daemon() → HLPerpsScanner.run_cycle()
 Executor: core/hyperliquid_executor.py (open_long / open_short)
 
-Safety guardrails (all inherited from hyperliquid_executor.py):
-  - Daily loss limit: $30 (HL_PERPS_DAILY_LOSS_LIMIT)
-  - Max concurrent positions: 6 (HL_PERPS_MAX_POSITIONS)
-  - Max position size: $100 per trade (HL_PERPS_MAX_POSITION_USD)
-  - Max total exposure: $600 (HL_PERPS_MAX_TOTAL_EXPOSURE)
-  - Funding rate gate: reject if funding > 0.05%/8h against direction
-  - No trade within 30 min of a loss on the same coin
+Safety guardrails:
+  - Daily loss limit: $30 floor or 33% equity (HL_PERPS_DAILY_LOSS_LIMIT)
+  - Max concurrent positions: 8 (goal-adaptive down to 3 in bank_it)
+  - Max position margin: $150 (HL_PERPS_MAX_POSITION_USD)
+  - Hard notional cap: $400 (HL_PERPS_MAX_NOTIONAL_USD)
+  - Re-entry cooldown: 12 min base (goal-adaptive 8–30)
+  - Loss cooldown: 15 min base; emergency: 90 min
 """
 
 from __future__ import annotations
@@ -59,29 +58,33 @@ HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS"
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
 HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "58.0"))  # Post-Fib execution threshold (tuned 65→58 to increase trade frequency; RSI veto + macro filter still hard-block bad entries)
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
-HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "100.0"))
-HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "10"))  # Increased from 6 to 10 to allow more concurrent positions
-HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "600.0"))
+HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "150.0"))
+HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "8"))  # 8 concurrent: enough rotation for $500/day pace without over-correlation
+HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "1200.0"))
 HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "30.0"))
 HL_PERPS_STOP_LOSS_PCT: float = float(os.getenv("HL_PERPS_STOP_LOSS_PCT", "2.5"))
 HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6.0"))
 # Extreme funding rate = fade opportunity (short when funding very positive, long when very negative)
 HL_PERPS_FUNDING_FADE_THRESHOLD: float = float(os.getenv("HL_PERPS_FUNDING_FADE_THRESHOLD", "0.03"))
 # Cooldown after a loss on a coin (minutes)
-HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "10"))  # Reduced from 30min to 10min; RSI veto + macro filter prevent re-entry into broken coins
-# P0 2026-07-09 — audit fixes from live trade_history CSV
-# Re-entry throttle (was hardcoded 5 min — too short for AAVE micro-churn)
-HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "5"))  # Reduced from 30min to 5min; RSI veto prevents re-entry into broken coins
-# After emergency close (SL place fail), block the coin much longer
-HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))  # Reduced from 240min to 60min; 4h was too punishing for SL placement failures
+# 2026-07-16 CSV: micro-holds <5m were 4% WR — loss cooldown must block revenge re-entry
+HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "15"))
+# Re-entry throttle: 12m balances AAVE micro-churn (5m was too short) vs 30m frequency death
+HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "12"))
+# After emergency close (SL place fail), block the coin longer than normal reentry
+HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "90"))
 # Hard notional cap (margin × leverage)
 HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
 # Minimum R/R at signal generation (executor re-checks post-fill)
-HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.1"))  # Relaxed from 1.5 to 1.1; still ensures positive EV at 50% WR
-# Disable shorts until short WR recovers (CSV: 12.5% WR on shorts)
-HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "true"  # Re-enabled shorts; RSI veto (>65) + macro trend filter block bad short entries
+HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))  # 1.2: slight quality bump over 1.1 without re-stacking the 1.5 gate
+# Shorts: trade_history (23) shows ~17% short WR — stay long-only until short edge is proven
+HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 # Coins that repeatedly lost / micro-churned in live history — need higher score
-_TOXIC_RAW = os.getenv("HL_PERPS_TOXIC_COINS", "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN")
+# TRB added 2026-07-16 (−$196 single loss in latest CSV export)
+_TOXIC_RAW = os.getenv(
+    "HL_PERPS_TOXIC_COINS",
+    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB",
+)
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))
 # ── Auto-Blacklist: performance-based dynamic coin banning ───────────────────
@@ -713,9 +716,53 @@ class HLPerpsScanner:
         scored.sort(key=lambda x: x[1], reverse=True)
         return [c for c, _ in scored]
 
+    def _goal_frequency_params(self) -> dict:
+        """
+        Merge env defaults with daily-goal adaptive overrides.
+
+        Goal ladder (README): Phase 1 $500/day → Phase 4 $10k+/day.
+        Behind pace → slightly lower exec bar + shorter cooldowns + more size.
+        Goal hit → protect/bank-it (higher bar, fewer slots).
+        """
+        params = {
+            "exec_score": HL_PERPS_EXEC_SCORE,
+            "reentry_cooldown_min": HL_PERPS_REENTRY_COOLDOWN_MIN,
+            "loss_cooldown_min": HL_PERPS_LOSS_COOLDOWN_MIN,
+            "max_positions": HL_PERPS_MAX_POSITIONS,
+            "size_multiplier": 1.0,
+            "mode": "normal",
+            "progress_pct": 0.0,
+            "remaining_usd": 0.0,
+            "behind_pace": False,
+        }
+        try:
+            from core.daily_goal_engine import get_daily_goal_engine
+            ov = get_daily_goal_engine().get_hl_perps_config_overrides()
+            params["exec_score"] = max(
+                52.0, HL_PERPS_EXEC_SCORE + float(ov.get("exec_score_delta") or 0.0)
+            )
+            if ov.get("reentry_cooldown_min") is not None:
+                params["reentry_cooldown_min"] = int(ov["reentry_cooldown_min"])
+            if ov.get("loss_cooldown_min") is not None:
+                params["loss_cooldown_min"] = int(ov["loss_cooldown_min"])
+            if ov.get("max_positions") is not None:
+                params["max_positions"] = max(1, int(ov["max_positions"]))
+            params["size_multiplier"] = float(ov.get("size_multiplier") or 1.0)
+            params["mode"] = str(ov.get("mode") or "normal")
+            params["progress_pct"] = float(ov.get("progress_pct") or 0.0)
+            params["remaining_usd"] = float(ov.get("remaining_usd") or 0.0)
+            params["behind_pace"] = bool(ov.get("behind_pace"))
+        except Exception as e:
+            logger.debug(f"[HL-PERPS] goal frequency params unavailable: {e}")
+        return params
+
     def _is_on_cooldown(self, coin: str) -> bool:
         """Check if a coin is in loss / re-entry / emergency cooldown."""
         now = time.time()
+        freq = self._goal_frequency_params()
+        reentry_min = int(freq["reentry_cooldown_min"])
+        loss_min = int(freq["loss_cooldown_min"])
+
         # 0. Auto-blacklist (performance-based dynamic ban)
         if HL_PERPS_AUTOBAN_ENABLED and coin in self._autoban_until:
             if now < self._autoban_until[coin]:
@@ -735,16 +782,16 @@ class HLPerpsScanner:
             if elapsed < HL_PERPS_EMERGENCY_COOLDOWN_MIN * 60:
                 return True
 
-        # 2. Universal re-entry throttle (default 30 min — was 5 min)
+        # 2. Universal re-entry throttle (goal-adaptive; base ~12 min)
         if coin in getattr(self, "reentry_cooldowns", {}):
             elapsed_reentry = now - self.reentry_cooldowns[coin]
-            if elapsed_reentry < HL_PERPS_REENTRY_COOLDOWN_MIN * 60:
+            if elapsed_reentry < reentry_min * 60:
                 return True
 
-        # 3. Loss cooldown
+        # 3. Loss cooldown (goal-adaptive)
         if coin in self.loss_cooldowns:
             elapsed_loss = now - self.loss_cooldowns[coin]
-            if elapsed_loss < HL_PERPS_LOSS_COOLDOWN_MIN * 60:
+            if elapsed_loss < loss_min * 60:
                 return True
 
         return False
@@ -1257,7 +1304,15 @@ class HLPerpsScanner:
 
         # Apply Volatility Multiplier (scales down size for high-beta coins like GRASS)
         kelly_size_usd = kelly_size_usd * vol_multiplier
-        
+
+        # Goal-adaptive size: catch-up / behind pace scales up; protect/bank-it scales down
+        try:
+            _goal_sz = float(self._goal_frequency_params().get("size_multiplier") or 1.0)
+            if _goal_sz != 1.0:
+                kelly_size_usd = kelly_size_usd * _goal_sz
+        except Exception:
+            pass
+
         # Hard cap: never risk more than max_size in a single position
         kelly_size_usd = min(kelly_size_usd, max_size)
 
@@ -1287,10 +1342,12 @@ class HLPerpsScanner:
         # ── Final execution threshold (post Fib + TA29) ─────────────────────
         # MIN_SCORE is the initial filter to let coins REACH the analysis.
         # EXEC_SCORE is the real bar — only Fib-boosted, TA29-confirmed signals trade.
-        if score < HL_PERPS_EXEC_SCORE:
+        # Goal-adaptive: behind $500/day pace lowers bar slightly; protect raises it.
+        _exec_threshold = float(self._goal_frequency_params()["exec_score"])
+        if score < _exec_threshold:
             logger.info(
-                f"[HL-PERPS] {coin} {direction.upper()} score={score:.0f} < exec_threshold={HL_PERPS_EXEC_SCORE} "
-                f"(fib={fib_zone}, tp_src={tp_source}) — NEAR MISS, not trading"
+                f"[HL-PERPS] {coin} {direction.upper()} score={score:.0f} < exec_threshold={_exec_threshold:.0f} "
+                f"(base={HL_PERPS_EXEC_SCORE}, fib={fib_zone}, tp_src={tp_source}) — NEAR MISS, not trading"
             )
             return None
 
@@ -1387,13 +1444,15 @@ class HLPerpsScanner:
             )
             return False
 
-        # Check max positions
+        # Check max positions (goal-adaptive: protect/bank_it reduce slots)
+        freq = self._goal_frequency_params()
+        max_pos = int(freq["max_positions"])
         active = len(self.hl_executor.positions)
-        if active >= HL_PERPS_MAX_POSITIONS:
-            logger.debug(f"HLPerpsScanner: max positions ({HL_PERPS_MAX_POSITIONS}) reached")
+        if active >= max_pos:
+            logger.debug(f"HLPerpsScanner: max positions ({max_pos}) reached")
             return False
 
-        # Long-only mode (CSV: shorts 12.5% WR)
+        # Long-only mode (CSV: shorts ~17% WR)
         if HL_PERPS_LONG_ONLY and signal.direction == "short":
             logger.info(
                 f"[HL-PERPS] {signal.coin} SHORT blocked — HL_PERPS_LONG_ONLY=true"
@@ -1402,9 +1461,9 @@ class HLPerpsScanner:
 
         # Toxic-coin higher bar (repeat losers / micro-churn names from live history)
         coin_u = signal.coin.upper()
-        exec_floor = HL_PERPS_EXEC_SCORE
+        exec_floor = float(freq["exec_score"])
         if coin_u in HL_PERPS_TOXIC_COINS:
-            exec_floor = HL_PERPS_EXEC_SCORE + HL_PERPS_TOXIC_SCORE_BONUS
+            exec_floor = exec_floor + HL_PERPS_TOXIC_SCORE_BONUS
             if signal.score < exec_floor:
                 logger.info(
                     f"[HL-PERPS] {signal.coin} toxic-list: score={signal.score:.0f} "
@@ -1549,11 +1608,20 @@ class HLPerpsScanner:
 
         watchlist_len = len(HL_PERPS_WATCHLIST)
         active_positions = len(self.hl_executor.positions) if self.hl_executor else 0
-        max_new_signals = HL_PERPS_MAX_POSITIONS - active_positions
+        freq = self._goal_frequency_params()
+        max_pos = int(freq["max_positions"])
+        max_new_signals = max_pos - active_positions
+        if self.scan_count % 10 == 1:
+            logger.info(
+                f"[HL-PERPS] Goal frequency | mode={freq['mode']} | "
+                f"progress={freq['progress_pct']:.0f}% | remaining=${freq['remaining_usd']:.0f} | "
+                f"behind_pace={freq['behind_pace']} | exec≥{freq['exec_score']:.0f} | "
+                f"reentry={freq['reentry_cooldown_min']}m | max_pos={max_pos} | "
+                f"size_mult={freq['size_multiplier']:.2f}"
+            )
 
-        # Cap total scan to 100 coins to balance opportunity vs rate limits
-        # (41 watchlist + 59 momentum-ranked discovery = 100 coins × 2 API calls)
-        scan_list = scan_list[:150]  # Increased from 100 to 150 to scan more opportunity surface
+        # Cap total scan to 150 coins to balance opportunity vs rate limits
+        scan_list = scan_list[:150]
 
         for idx, coin in enumerate(scan_list):
             # Stop if we've found enough signals to fill all position slots

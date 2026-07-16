@@ -108,14 +108,17 @@ jobs:
             # ── Patch .env with tuned gate values (prevent stale .env from overriding code fixes) ──
             # These values are the result of live trade analysis — do not revert without testing.
             if [ -f .env ]; then
+              # 2026-07-16: retuned from trade_history (23).csv for $500/day goal pace
+              # (exec 58, RR 1.2, long-only, 12/15/90 cooldowns — not 65/1.5/30 starvation)
               sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=58/' .env
-              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.1/' .env
-              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=false/' .env
-              sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
-              sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
-              sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
-              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
-              sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN/' .env
+              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.2/' .env
+              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=true/' .env
+              sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=12/' .env
+              sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=15/' .env
+              sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=90/' .env
+              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=8/' .env
+              sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=8/' .env || echo 'HL_PERPS_MAX_POSITIONS=8' >> .env
+              sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB/' .env
               # Force-correct auto-blacklist vars (append if missing, replace if exists)
               grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env && sed -i 's/^HL_PERPS_AUTOBAN_ENABLED=.*/HL_PERPS_AUTOBAN_ENABLED=true/' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
               grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MIN_TRADES=.*/HL_PERPS_AUTOBAN_MIN_TRADES=5/' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
