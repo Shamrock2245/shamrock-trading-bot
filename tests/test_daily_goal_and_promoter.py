@@ -101,7 +101,7 @@ class TestDailyGoalEngine:
         behind = engine.get_hl_perps_config_overrides()
         assert behind["behind_pace"] is True
         assert behind["exec_score_delta"] < 0
-        assert behind["reentry_cooldown_min"] == 8
+        assert behind["reentry_cooldown_min"] == 6  # 2026-07-17: catch-up reentry 8→6
 
         with patch("core.daily_goal_engine.settings") as mock_settings:
             mock_settings.MODE = "live"

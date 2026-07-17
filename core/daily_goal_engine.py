@@ -376,15 +376,16 @@ class DailyGoalEngine:
             cfg["loss_cooldown_min"] = 30
             cfg["max_positions"] = 3
         elif mode in ("catch_up", "parabolic") or behind_pace:
-            # More opportunities, still above garbage-score floor (52).
-            cfg["exec_score_delta"] = -4.0 if mode != "parabolic" else -6.0
-            cfg["reentry_cooldown_min"] = 8
-            cfg["loss_cooldown_min"] = 10
+            # 2026-07-17: more aggressive catch-up — CSV shows ~3.5 opens/day vs 15–25 target.
+            # Still clamped to floor 52 in scanner (never below noise threshold).
+            cfg["exec_score_delta"] = -5.0 if mode != "parabolic" else -6.0
+            cfg["reentry_cooldown_min"] = 6
+            cfg["loss_cooldown_min"] = 8
             cfg["max_positions"] = None  # use full configured slots
             if mode == "parabolic":
                 cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.35)
             elif behind_pace:
-                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.10)
+                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.15)
         # else normal — keep env defaults, size_multiplier from tier
 
         return cfg

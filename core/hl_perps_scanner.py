@@ -15,7 +15,7 @@ score built from:
   7. Price Momentum     — 1h return vs 4h return (acceleration)
   8. Open Interest Δ    — rising OI + price rise = trend confirmation
 
-Signal Score: 0–100. Entry gate: ≥ EXEC_SCORE (default 58, goal-adaptive).
+Signal Score: 0–100. Entry gate: ≥ EXEC_SCORE (default 55, goal-adaptive).
 Direction: LONG primary (LONG_ONLY=true by default — short WR ~17% in live book).
 Leverage: 3× default (configurable via HL_PERPS_LEVERAGE env var).
 Position size: Kelly + vol sizer + daily-goal multiplier toward $500+/day ladder.
@@ -27,11 +27,11 @@ Executor: core/hyperliquid_executor.py (open_long / open_short)
 
 Safety guardrails:
   - Daily loss limit: $30 floor or 33% equity (HL_PERPS_DAILY_LOSS_LIMIT)
-  - Max concurrent positions: 8 (goal-adaptive down to 3 in bank_it)
+  - Max concurrent positions: 10 (goal-adaptive down to 3 in bank_it)
   - Max position margin: $150 (HL_PERPS_MAX_POSITION_USD)
   - Hard notional cap: $400 (HL_PERPS_MAX_NOTIONAL_USD)
-  - Re-entry cooldown: 12 min base (goal-adaptive 8–30)
-  - Loss cooldown: 15 min base; emergency: 90 min
+  - Re-entry cooldown: 8 min base (goal-adaptive 6–30)
+  - Loss cooldown: 10 min base; emergency: 60 min
 """
 
 from __future__ import annotations
@@ -56,10 +56,12 @@ logger = logging.getLogger(__name__)
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
-HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "58.0"))  # Post-Fib execution threshold (tuned 65→58 to increase trade frequency; RSI veto + macro filter still hard-block bad entries)
+# 2026-07-17 trade_history (26): post-fix edge is +EV (41% WR, 3.26x R:R) but volume
+# starved at ~3.5 opens/day (Jul 16 = 1). Drop bar 58→55; floor still 52 via goal engine.
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "55.0"))
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "150.0"))
-HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "8"))  # 8 concurrent: enough rotation for $500/day pace without over-correlation
+HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "10"))  # 10 slots for $500/day rotation
 HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "1200.0"))
 HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "30.0"))
 HL_PERPS_STOP_LOSS_PCT: float = float(os.getenv("HL_PERPS_STOP_LOSS_PCT", "2.5"))
@@ -67,23 +69,23 @@ HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6
 # Extreme funding rate = fade opportunity (short when funding very positive, long when very negative)
 HL_PERPS_FUNDING_FADE_THRESHOLD: float = float(os.getenv("HL_PERPS_FUNDING_FADE_THRESHOLD", "0.03"))
 # Cooldown after a loss on a coin (minutes)
-# 2026-07-16 CSV: micro-holds <5m were 4% WR — loss cooldown must block revenge re-entry
-HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "15"))
-# Re-entry throttle: 12m balances AAVE micro-churn (5m was too short) vs 30m frequency death
-HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "12"))
+# 2026-07-17: 15m was stacking with reentry and starving volume; RSI veto + autoban still block churn
+HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "10"))
+# Re-entry throttle: 8m (was 12) — autoban handles toxic names; 5m was too short for AAVE era
+HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "8"))
 # After emergency close (SL place fail), block the coin longer than normal reentry
-HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "90"))
+HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
 # Hard notional cap (margin × leverage)
 HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
-# Minimum R/R at signal generation (executor re-checks post-fill)
-HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))  # 1.2: slight quality bump over 1.1 without re-stacking the 1.5 gate
-# Shorts: trade_history (23) shows ~17% short WR — stay long-only until short edge is proven
+# Minimum R/R at signal generation (executor re-checks post-fill) — KEEP 1.2 (post-fix R:R 3.26x)
+HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
+# Shorts: live book ~17% short WR — stay long-only until short edge is proven
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 # Coins that repeatedly lost / micro-churned in live history — need higher score
-# TRB added 2026-07-16 (−$196 single loss in latest CSV export)
+# HYPE added 2026-07-17 (4 trades, 0% WR, −$6.65 in trade_history 26)
 _TOXIC_RAW = os.getenv(
     "HL_PERPS_TOXIC_COINS",
-    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB",
+    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE",
 )
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))

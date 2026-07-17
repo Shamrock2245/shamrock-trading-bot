@@ -128,21 +128,23 @@ You are being brought in as a trading strategy tuning agent for the **Shamrock T
 
 ---
 
-## Current Live Configuration (July 15, 2026)
+## Current Live Configuration (July 17, 2026 — v2.7.0)
 
 | Variable | Value | Notes |
 |---|---|---|
-| `HL_PERPS_EXEC_SCORE` | `58` | Entry threshold |
-| `HL_PERPS_MIN_RR` | `1.1` | Must match in both scanner AND executor |
-| `HL_PERPS_LONG_ONLY` | `false` | Shorts enabled with RSI veto guard |
-| `HL_PERPS_REENTRY_COOLDOWN_MIN` | `5` | Per-coin re-entry throttle |
+| `HL_PERPS_EXEC_SCORE` | `55` | Entry threshold (was 58; goal-adaptive floor 52) |
+| `HL_PERPS_MIN_RR` | `1.2` | Must match in both scanner AND executor |
+| `HL_PERPS_LONG_ONLY` | `true` | Shorts ~17% WR — stay off until edge proven |
+| `HL_PERPS_REENTRY_COOLDOWN_MIN` | `8` | Per-coin re-entry throttle |
 | `HL_PERPS_LOSS_COOLDOWN_MIN` | `10` | Post-loss cooldown |
 | `HL_PERPS_EMERGENCY_COOLDOWN_MIN` | `60` | Post-SL-failure cooldown |
 | `HYPERLIQUID_MAX_POSITIONS` | `10` | Max concurrent positions |
-| `HYPERLIQUID_DEFAULT_LEVERAGE` | `3` | Reduced from 7 |
+| `HL_PERPS_MAX_POSITIONS` | `10` | Scanner-side slot cap |
+| `HYPERLIQUID_DEFAULT_LEVERAGE` | `3` | Reduced from 7 — never raise |
 | `HYPERLIQUID_STOP_LOSS_PCT` | `2.5` | Per-trade SL |
-| `HYPERLIQUID_TAKE_PROFIT_PCT` | `12.0` | Per-trade TP |
+| `HYPERLIQUID_TAKE_PROFIT_PCT` | `12.0` | Executor fallback TP |
 | `HYPERLIQUID_DAILY_LOSS_LIMIT` | `100.0` | Circuit breaker floor |
+| `HL_PERPS_TOXIC_COINS` | AAVE…TRB,**HYPE** | Higher score bar for known losers |
 | `HL_PERPS_AUTOBAN_ENABLED` | `true` | Dynamic coin blacklist |
 | `HL_PERPS_AUTOBAN_WR_THRESHOLD` | `0.30` | Ban if WR < 30% |
 | `HL_PERPS_AUTOBAN_MIN_TRADES` | `5` | Min sample before ban |

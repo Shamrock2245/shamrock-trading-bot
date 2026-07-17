@@ -138,8 +138,8 @@ class HyperliquidExecutor:
         # closes (5-6s): scanner approved R/R=1.1-1.4, executor rejected at 1.5 → market_close.
         self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
         # Emergency-close cooldown injected into scanner (minutes).
-        # MUST match scanner HL_PERPS_EMERGENCY_COOLDOWN_MIN (default 90).
-        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "90"))
+        # MUST match scanner HL_PERPS_EMERGENCY_COOLDOWN_MIN (default 60).
+        self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
 
         # State
         self.positions: dict[str, HLPosition] = {}

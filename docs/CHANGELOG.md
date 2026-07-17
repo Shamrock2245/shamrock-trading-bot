@@ -8,6 +8,25 @@
 ```
 
 ---
+## [2.7.0] — 2026-07-17
+### Tuned: Frequency unstack from trade_history (26).csv
+- **Analysis (trade_history 24–26, downloaded Jul 17):** Post-fix (Jul 13+) edge is real — 17 closes, **+$28.76**, 41.2% WR, **3.26× R:R**, avg loss only −$2.25. Rapid closes nearly gone (1 residual CRV 4s on Jul 14). Primary bottleneck is **volume**: ~3.5 opens/day (Jul 16 = 1) vs 15–25 target.
+- **Kept (quality working):** `HL_PERPS_MIN_RR=1.2`, `HL_PERPS_LONG_ONLY=true` (shorts ~17% WR all-time), leverage 3×, autoban, RSI sticky veto, SL retry backoff.
+- **Changed (Three-File Rule):**
+
+| Variable | Old | New | Why |
+|---|---|---|---|
+| `HL_PERPS_EXEC_SCORE` | 58 | **55** | Near-miss band 55–58 was blocking volume; goal floor still 52 |
+| `HL_PERPS_REENTRY_COOLDOWN_MIN` | 12 | **8** | Autoban handles toxic churn; 12m stacked starvation |
+| `HL_PERPS_LOSS_COOLDOWN_MIN` | 15 | **10** | Same |
+| `HL_PERPS_EMERGENCY_COOLDOWN_MIN` | 90 | **60** | SL-fail blackout still > reentry; 90 was excess |
+| `HYPERLIQUID_MAX_POSITIONS` / `HL_PERPS_MAX_POSITIONS` | 8 | **10** | More concurrent rotation |
+| `HL_PERPS_TOXIC_COINS` | …TRB | …TRB,**HYPE** | HYPE 4 trades / 0% WR / −$6.65 |
+
+- **Goal-adaptive catch-up sharpened:** behind-pace / catch-up `exec_score_delta` −4 → **−5**, reentry 8→**6**, loss 10→**8**, size mult 1.10→**1.15** (still floor exec 52).
+- Files: `core/hl_perps_scanner.py`, `core/hyperliquid_executor.py` (emergency default sync), `core/daily_goal_engine.py`, `.env.example`, `.github/workflows/ci.yml`.
+
+---
 ## [2.6.0] — 2026-07-15
 ### Critical Fix: `.env` Override Trap — Bot Silent for ~23 Hours
 - **Root cause:** Hetzner `.env` (copied from `.env.example` at initial setup) contained stale values that silently overrode all code-level gate fixes from v2.1–v2.5. The bot was running with `EXEC_SCORE=65`, `MIN_RR=1.5`, `LONG_ONLY=true`, `REENTRY=30min`, `LOSS=30min`, `EMERGENCY=240min`, `MAX_POSITIONS=6` — completely undoing every volume fix deployed since July 6.
