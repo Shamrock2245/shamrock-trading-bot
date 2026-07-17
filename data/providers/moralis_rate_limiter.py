@@ -26,6 +26,7 @@ Usage:
   from data.providers.moralis_rate_limiter import rate_check, record_cu
 
   rate_check()         # Call before every Moralis API request
+  rate_check(150)      # Optional estimated CU for legacy callers; throttling still request-based
   record_cu(cost)      # Call after each request with the CU cost (from response headers)
 """
 
@@ -96,11 +97,16 @@ def _get_effective_limit() -> int:
     return PRO_MAX_IN_WINDOW  # 240 calls/4s
 
 
-def rate_check() -> None:
+def rate_check(estimated_cu: float | None = None) -> None:
     """
     Global Moralis rate limiter. Call before EVERY Moralis API request.
     Uses a sliding window algorithm matching Moralis's 4-second evaluation window.
     Thread-safe via lock.
+
+    estimated_cu is accepted for compatibility with discovery/analytics callers
+    that annotate endpoint cost before the response headers are available. Actual
+    CU accounting remains in record_cu() so failed/skipped calls are not double
+    counted.
     """
     global _total_calls, _total_sleeps, _total_sleep_seconds
     with _lock:

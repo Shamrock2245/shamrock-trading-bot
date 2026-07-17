@@ -123,6 +123,8 @@ jobs:
               # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
               grep -q '^HYPERLIQUID_MIN_GEM_SCORE=' .env && sed -i 's/^HYPERLIQUID_MIN_GEM_SCORE=.*/HYPERLIQUID_MIN_GEM_SCORE=55/' .env || echo 'HYPERLIQUID_MIN_GEM_SCORE=55' >> .env
               grep -q '^HYPERLIQUID_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HYPERLIQUID_MAX_TOTAL_EXPOSURE=.*/HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000' >> .env
+              # Force free-tier mini-class OpenAI model while leaving the server-side secret key untouched.
+              grep -q '^OPENAI_MODEL=' .env && sed -i 's/^OPENAI_MODEL=.*/OPENAI_MODEL=gpt-5-mini/' .env || echo 'OPENAI_MODEL=gpt-5-mini' >> .env
               # Force-correct auto-blacklist vars (append if missing, replace if exists)
               grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env && sed -i 's/^HL_PERPS_AUTOBAN_ENABLED=.*/HL_PERPS_AUTOBAN_ENABLED=true/' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
               grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MIN_TRADES=.*/HL_PERPS_AUTOBAN_MIN_TRADES=5/' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
@@ -132,15 +134,58 @@ jobs:
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"
             fi
-            docker compose down --remove-orphans
-            # Aggressively free disk space: remove ALL unused images + build cache
-            # -a removes all unused images (not just dangling), preventing disk exhaustion
-            docker system prune -af --volumes 2>/dev/null || true
-            docker builder prune -af 2>/dev/null || true
-            echo "💾 Disk free after prune: $(df -h / | tail -1 | awk '{print $4}')"
-            docker compose build --no-cache
-            docker compose up -d
-            sleep 20
+            echo "💾 Disk free before build: $(df -h / | tail -1 | awk '{print $4}')"
+            # Safe pre-build cleanup only: remove dangling layers/cache without stopping live containers.
+            docker image prune -f 2>/dev/null || true
+            docker builder prune -f --filter 'until=24h' --keep-storage 2GB 2>/dev/null || true
+            echo "💾 Disk free after safe pre-build cleanup: $(df -h / | tail -1 | awk '{print $4}')"
+
+            # Build first while the current stack keeps running. If this fails, production stays up.
+            docker compose build --pull
+
+            # Only replace containers after the new images are available.
+            docker compose up -d --remove-orphans
+
+            echo "⏳ Waiting for shamrock-bot container health..."
+            for i in $(seq 1 30); do
+              status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' shamrock-bot 2>/dev/null || echo missing)
+              if [ "$status" = "healthy" ]; then
+                echo "✅ shamrock-bot is healthy"
+                break
+              fi
+              if [ "$status" = "exited" ] || [ "$status" = "dead" ] || [ "$status" = "missing" ]; then
+                docker compose ps
+                docker logs shamrock-bot --tail=120 2>/dev/null || true
+                echo "❌ shamrock-bot failed to stay running (status=$status)"
+                exit 1
+              fi
+              if [ "$i" -eq 30 ]; then
+                docker compose ps
+                docker logs shamrock-bot --tail=160 2>/dev/null || true
+                echo "❌ shamrock-bot did not become healthy (last status=$status)"
+                exit 1
+              fi
+              sleep 10
+            done
+
+            echo "⏳ Checking Hyperliquid startup readiness log..."
+            for i in $(seq 1 24); do
+              if docker logs shamrock-bot --since=10m 2>&1 | grep -q 'Hyperliquid ready'; then
+                echo "✅ Hyperliquid ready log observed"
+                break
+              fi
+              if [ "$i" -eq 24 ]; then
+                docker logs shamrock-bot --tail=200 2>/dev/null || true
+                echo "❌ Hyperliquid ready log not observed after deploy"
+                exit 1
+              fi
+              sleep 5
+            done
+
             docker compose ps
             docker logs shamrock-bot --tail=30
+            # Post-deploy cleanup after successful health/readiness only. Do not prune volumes.
+            docker image prune -af --filter 'until=24h' 2>/dev/null || true
+            docker builder prune -af --filter 'until=24h' --keep-storage 2GB 2>/dev/null || true
+            echo "💾 Disk free after post-deploy cleanup: $(df -h / | tail -1 | awk '{print $4}')"
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"

@@ -85,10 +85,28 @@ def get_openai_client():
     if not _openai_client:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY not found. LLM Auto-Tuner disabled.")
+            logger.info(
+                f"🧠 Auto-Tuner skipped: no OPENAI_API_KEY configured (model={get_openai_model()})"
+            )
             return None
         _openai_client = OpenAI(api_key=api_key)
     return _openai_client
+
+
+def _is_open_gem_position(position: Dict[str, Any]) -> bool:
+    """Return True for open spot/gem positions managed by positions.json."""
+    if position.get("status") != "open":
+        return False
+
+    # Scope guard: this tuner only adjusts positions.json spot/gem trailing stops.
+    # Hyperliquid perps have separate risk controls and must not be silently tuned here.
+    venue = str(position.get("exchange") or position.get("venue") or "").lower()
+    market_type = str(position.get("market_type") or position.get("type") or "").lower()
+    chain = str(position.get("chain") or "").lower()
+    if "hyperliquid" in venue or "perp" in market_type or chain == "hyperliquid":
+        return False
+
+    return bool(position.get("token_symbol"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,13 +117,21 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     """
     Use OpenAI to evaluate positions and propose parameter adjustments (Trading-as-Git).
     """
+    model = get_openai_model()
     client = get_openai_client()
-    if not client or not positions:
+    if not client:
+        return []
+    if not positions:
+        logger.info(f"🧠 Auto-Tuner skipped: no positions found in positions.json (model={model})")
         return []
 
-    # Filter to only open positions
-    open_positions = [p for p in positions if p.get("status") == "open"]
+    # Filter to only open spot/gem positions. Hyperliquid perps are out of scope.
+    open_positions = [p for p in positions if _is_open_gem_position(p)]
     if not open_positions:
+        logger.info(
+            f"🧠 Auto-Tuner skipped: no open gem/spot positions in positions.json "
+            f"(model={model}; HL perps out of scope)"
+        )
         return []
 
     # Simplify positions to save tokens
@@ -151,7 +177,6 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     """
     
     try:
-        model = get_openai_model()
         # GPT-5.6 family (luna/terra/sol) rejects non-default temperature and
         # uses max_completion_tokens instead of max_tokens. Build kwargs carefully.
         kwargs = {
@@ -191,7 +216,7 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
         return []
         
     except Exception as e:
-        logger.error(f"Error querying OpenAI for tuning commands: {e}")
+        logger.error(f"🧠 Auto-Tuner API error with model={model}: {e}")
         return []
 
 
@@ -215,9 +240,9 @@ def run_auto_tuner_cycle(force: bool = False) -> None:
         # Check in-memory timestamp first (fast path)
         if _last_run_time > 0 and (now - _last_run_time) < AUTO_TUNE_COOLDOWN_SECONDS:
             remaining = AUTO_TUNE_COOLDOWN_SECONDS - (now - _last_run_time)
-            logger.debug(
-                f"🧠 Auto-Tuner dedup: skipping — last run {now - _last_run_time:.0f}s ago, "
-                f"next in {remaining:.0f}s"
+            logger.info(
+                f"🧠 Auto-Tuner skipped: cooldown active — last run {now - _last_run_time:.0f}s ago, "
+                f"next in {remaining:.0f}s (model={get_openai_model()})"
             )
             return
 
@@ -226,9 +251,10 @@ def run_auto_tuner_cycle(force: bool = False) -> None:
         if file_ts > 0 and (now - file_ts) < AUTO_TUNE_COOLDOWN_SECONDS:
             _last_run_time = file_ts  # Sync in-memory with file
             remaining = AUTO_TUNE_COOLDOWN_SECONDS - (now - file_ts)
-            logger.debug(
-                f"🧠 Auto-Tuner dedup (file lock): skipping — last run {now - file_ts:.0f}s ago, "
-                f"next in {remaining:.0f}s"
+            logger.info(
+                f"🧠 Auto-Tuner skipped: cooldown active from file lock — "
+                f"last run {now - file_ts:.0f}s ago, next in {remaining:.0f}s "
+                f"(model={get_openai_model()})"
             )
             return
 
