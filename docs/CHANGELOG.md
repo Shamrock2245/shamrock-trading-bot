@@ -91,7 +91,7 @@
 ---
 ## [2.1.0] — 2026-06-11
 ### Added
-- **LLM Auto-Tuner (Trading-as-Git):** Added `core/llm_auto_tuner.py` which polls on a 30-minute cycle to quant-tune trailing stops using reasoning from `gpt-5.6` (`OPENAI_MODEL`, default `gpt-5.6`).
+- **LLM Auto-Tuner (Trading-as-Git):** Added `core/llm_auto_tuner.py` which polls on a 30-minute cycle to quant-tune trailing stops using reasoning from `gpt-5.6-luna` (`OPENAI_MODEL`, default `gpt-5.6-luna`).
 - **ShamrockGuard:** Added `core/shamrock_guard.py` to enforce daily profit goals (e.g. $500/day) using "Bank-It Mode" and strict daily drawdown caps.
 - **Hourly Reports:** Added `core/hourly_report.py` to compile metrics (PnL, position counts, active regimes) and dispatch them hourly via Slack and Telegram.
 

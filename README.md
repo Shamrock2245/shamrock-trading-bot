@@ -77,7 +77,7 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
   - **Phase 3 (Acceleration):** $5,000/day Target (Heavy nuclear wallet leverage)
   - **Phase 4 (Compound/Whale):** $10,000+/day Target (Full auto-tune scaling)
   As targets are met, it leverages realized gains to increase buying power and dynamic position sizing for exponential compounding.
-- **LLM Auto-Tuner (OpenAlice TaG)** — Reasoning-driven agent powered by `gpt-5.6` (override with `OPENAI_MODEL`) that reviews active positions on a 30-minute cycle, adjusts trailing stops, and commits parameter updates using a "Trading-as-Git" workflow.
+- **LLM Auto-Tuner (OpenAlice TaG)** — Reasoning-driven agent powered by `gpt-5.6-luna` (override with `OPENAI_MODEL`) that reviews active positions on a 30-minute cycle, adjusts trailing stops, and commits parameter updates using a "Trading-as-Git" workflow.
 - **ShamrockGuard & Daily Goals** — Enforces a strict daily target (e.g. $500/day) and dynamically scales down position sizes or enters "Bank-It Mode" to protect profits when the target is nearing completion. Protects against excessive daily drawdowns.
 - **TimesFM Forecaster** — Google's 200M-param foundation model runs locally on the VPS; forecasts 4-hour price direction as a confirmation signal before entry
 - **RL Position Sizer** — reinforcement learning agent that trains every 24 hours on completed trades and learns optimal position size multipliers per situation

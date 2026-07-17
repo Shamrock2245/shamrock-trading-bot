@@ -69,9 +69,9 @@ def _write_lock_timestamp(ts: float) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 _openai_client = None
 
-# Default: GPT-5.6 flagship alias (routes to gpt-5.6-sol). Override with OPENAI_MODEL.
-# Tiers: gpt-5.6 / gpt-5.6-sol (flagship), gpt-5.6-terra (balanced), gpt-5.6-luna (cheap).
-DEFAULT_OPENAI_MODEL = "gpt-5.6"
+# Default: GPT-5.6 Luna (fast / cost-sensitive). Override with OPENAI_MODEL.
+# Tiers: gpt-5.6-luna (cheap), gpt-5.6-terra (balanced), gpt-5.6 / gpt-5.6-sol (flagship).
+DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
 
 
 def get_openai_model() -> str:
