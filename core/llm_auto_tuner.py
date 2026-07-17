@@ -150,15 +150,28 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     
     try:
         model = get_openai_model()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a quantitative trading auto-tuner. Output only a JSON array."},
-                {"role": "user", "content": prompt}
+        # GPT-5.6 family (luna/terra/sol) rejects non-default temperature and
+        # uses max_completion_tokens instead of max_tokens. Build kwargs carefully.
+        kwargs = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a quantitative trading auto-tuner. Output only a JSON array.",
+                },
+                {"role": "user", "content": prompt},
             ],
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
+            "response_format": {"type": "json_object"},
+        }
+        model_l = model.lower()
+        if model_l.startswith("gpt-5") or "5.6" in model_l:
+            kwargs["max_completion_tokens"] = 1200
+            # temperature must be omitted (only default=1 is accepted)
+        else:
+            kwargs["temperature"] = 0.2
+            kwargs["max_tokens"] = 1200
+
+        response = client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content
         if not content:
             return []
