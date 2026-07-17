@@ -69,9 +69,11 @@ def _write_lock_timestamp(ts: float) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 _openai_client = None
 
-# Default: GPT-5.6 Luna (fast / cost-sensitive). Override with OPENAI_MODEL.
-# Tiers: gpt-5.6-luna (cheap), gpt-5.6-terra (balanced), gpt-5.6 / gpt-5.6-sol (flagship).
-DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
+# Default: gpt-5-mini — on OpenAI "share inputs/outputs" free daily tier
+# (up to ~2.5M tokens/day across mini/nano class). Override with OPENAI_MODEL.
+# Free high-volume examples: gpt-5-mini, gpt-5.4-mini, gpt-4o-mini
+# Paid frontier (not free daily): gpt-5.6-luna / terra / sol
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 
 
 def get_openai_model() -> str:
