@@ -120,6 +120,9 @@ jobs:
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
               sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=10/' .env || echo 'HL_PERPS_MAX_POSITIONS=10' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE/' .env
+              # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
+              grep -q '^HYPERLIQUID_MIN_GEM_SCORE=' .env && sed -i 's/^HYPERLIQUID_MIN_GEM_SCORE=.*/HYPERLIQUID_MIN_GEM_SCORE=55/' .env || echo 'HYPERLIQUID_MIN_GEM_SCORE=55' >> .env
+              grep -q '^HYPERLIQUID_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HYPERLIQUID_MAX_TOTAL_EXPOSURE=.*/HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000' >> .env
               # Force-correct auto-blacklist vars (append if missing, replace if exists)
               grep -q '^HL_PERPS_AUTOBAN_ENABLED=' .env && sed -i 's/^HL_PERPS_AUTOBAN_ENABLED=.*/HL_PERPS_AUTOBAN_ENABLED=true/' .env || echo 'HL_PERPS_AUTOBAN_ENABLED=true' >> .env
               grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MIN_TRADES=.*/HL_PERPS_AUTOBAN_MIN_TRADES=5/' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env

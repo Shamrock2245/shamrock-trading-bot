@@ -127,7 +127,14 @@ class HyperliquidExecutor:
         self.stop_loss_pct = settings.HYPERLIQUID_STOP_LOSS_PCT
         self.take_profit_pct = settings.HYPERLIQUID_TAKE_PROFIT_PCT
         self.daily_loss_limit = settings.HYPERLIQUID_DAILY_LOSS_LIMIT
-        self.min_gem_score = getattr(settings, "HYPERLIQUID_MIN_GEM_SCORE", 80)
+        # Prefer HL_PERPS_EXEC_SCORE (scanner gate) so executor never rejects
+        # signals the scanner already approved. Fall back to HYPERLIQUID_MIN_GEM_SCORE.
+        # Mismatch (scanner 55 / executor 65) caused 0 trades after 2026-07-17 deploy.
+        _exec_score = os.getenv("HL_PERPS_EXEC_SCORE")
+        if _exec_score not in (None, ""):
+            self.min_gem_score = float(_exec_score)
+        else:
+            self.min_gem_score = float(getattr(settings, "HYPERLIQUID_MIN_GEM_SCORE", 55))
         self.use_testnet = settings.HYPERLIQUID_USE_TESTNET
         # Hard notional cap (margin × leverage). Prevents Kelly spikes like GRASS $2808.
         self.max_notional_usd = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
@@ -506,14 +513,23 @@ class HyperliquidExecutor:
                 # Use `or self.default_leverage` to guard against None before int().
                 raw_lev = leverage_info.get("value")
                 lev = int(raw_lev) if raw_lev is not None else self.default_leverage
+                if lev <= 0:
+                    lev = self.default_leverage
                 unrealized_pnl = float(p.get("unrealizedPnl", 0))
+
+                # size_usd is MARGIN USD everywhere (open path + exposure + PnL).
+                # HL API gives coin size × entry = NOTIONAL; convert to margin.
+                # Bug (2026-07-17): storing notional here made exposure calc do
+                # notional × leverage again → 3× overcount → permanent exposure-cap block.
+                notional_usd = abs(szi) * entry_px
+                margin_usd = notional_usd / lev
 
                 self.positions[coin] = HLPosition(
                     coin=coin,
                     side="long" if szi > 0 else "short",
                     entry_price=entry_px,
                     size=abs(szi),
-                    size_usd=abs(szi) * entry_px,
+                    size_usd=margin_usd,
                     leverage=lev,
                     pnl=unrealized_pnl,
                 )
