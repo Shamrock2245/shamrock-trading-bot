@@ -69,6 +69,15 @@ def _write_lock_timestamp(ts: float) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 _openai_client = None
 
+# Default: GPT-5.6 flagship alias (routes to gpt-5.6-sol). Override with OPENAI_MODEL.
+# Tiers: gpt-5.6 / gpt-5.6-sol (flagship), gpt-5.6-terra (balanced), gpt-5.6-luna (cheap).
+DEFAULT_OPENAI_MODEL = "gpt-5.6"
+
+
+def get_openai_model() -> str:
+    return (os.environ.get("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip()
+
+
 def get_openai_client():
     global _openai_client
     if not _openai_client:
@@ -140,8 +149,9 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     """
     
     try:
+        model = get_openai_model()
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": "You are a quantitative trading auto-tuner. Output only a JSON array."},
                 {"role": "user", "content": prompt}
@@ -211,7 +221,9 @@ def run_auto_tuner_cycle(force: bool = False) -> None:
     daily_pnl = engine.today_profit_usd
     target_pnl = engine.current_target_usd
     
-    logger.info("🧠 Running LLM Auto-Tuner Cycle (30-min interval)...")
+    logger.info(
+        f"🧠 Running LLM Auto-Tuner Cycle (30-min interval, model={get_openai_model()})..."
+    )
     
     positions = load_positions()
     commands = generate_tuning_commands(positions, daily_pnl, target_pnl)

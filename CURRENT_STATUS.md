@@ -14,7 +14,7 @@ The entire trade pipeline is wired and working end-to-end:
 - **Rug Protection**: Dev wallet age/frequency/sell pattern analysis + fuzzy-match copycat detection (instant-reject)
 - **Moralis Pro Integration**: Primary enrichment — buying pressure, on-chain strength, security scores, holder analytics, discovery tokens
 - **Binance Pulse**: Smart money signals, social hype, unified rankings (free, no key)
-- **LLM Auto-Tuner (Trading-as-Git)**: AI quantitative tuning of active positions. Modifies trailing stops based on logic reasoning via `gpt-4o-mini`.
+- **LLM Auto-Tuner (Trading-as-Git)**: AI quantitative tuning of active positions. Modifies trailing stops based on logic reasoning via `gpt-5.6` (`OPENAI_MODEL`).
 - **ShamrockGuard**: Global risk protector. Scales position sizing relative to the $500/day profit goal, and enforces maximum daily drawdowns.
 - **Hourly Reports**: Hourly dispatches to Telegram and Slack with current PnL, active regime, and position count.
 - **Progression of Goals & Pyramiding**:

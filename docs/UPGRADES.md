@@ -216,13 +216,14 @@ The `LLMAutoTuner` operates as an asynchronous agent using the "Trading-as-Git" 
 **Tuning Pipeline:**
 1. Polls every 15 minutes.
 2. Extracts live active positions and relevant metrics.
-3. Packages the metrics and submits them to `gpt-4o-mini` with a specific prompt (derived from the `OpenAlice` concept).
+3. Packages the metrics and submits them to `gpt-5.6` (override with `OPENAI_MODEL`) with a specific prompt (derived from the `OpenAlice` concept).
 4. The LLM provides a JSON payload "commit" of parameter adjustments (e.g. tightening trailing stops).
 5. The tuner applies the commit to the active positions to lock in gains or give winning trades more room to breathe.
 
 ### New Environment Variables
 ```
 OPENAI_API_KEY=<your_openai_api_key>      # Required for Auto-Tuner
+OPENAI_MODEL=gpt-5.6                     # Optional; gpt-5.6-sol | terra | luna also valid
 ```
 
 ---
@@ -266,7 +267,7 @@ DAILY_PROFIT_TARGET_USD=500           # Target to hit Bank-It Mode
 | `ml/weight_optimizer.py` | **New** — XGBoost dynamic weight optimizer |
 | `scanner/gem_scanner.py` | **Upgraded** — Bundle gate wired in; ML dynamic weights in scoring formula |
 | `main.py` | **Upgraded** — WalletMonitor daemon started in `run_bot_loop()` |
-| `core/llm_auto_tuner.py` | **New** — AI Auto-Tuner with gpt-4o-mini |
+| `core/llm_auto_tuner.py` | **New** — AI Auto-Tuner with gpt-5.6 (OPENAI_MODEL) |
 | `core/shamrock_guard.py` | **New** — Daily targets and Bank-it mode |
 | `core/hourly_report.py` | **New** — Status reporting every 60m |
 | `config/settings.py` | **Upgraded** — All new env vars documented with safe defaults |
