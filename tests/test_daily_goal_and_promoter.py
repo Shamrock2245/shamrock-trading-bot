@@ -97,11 +97,18 @@ class TestDailyGoalEngine:
     def test_hl_perps_config_overrides_protect_vs_catchup(self, tmp_path):
         """HL perps frequency adapts: protect tightens, behind-pace loosens."""
         engine, _ = make_fresh_engine(tmp_path)
-        # Behind pace at $0 profit → lower exec bar, shorter reentry
-        behind = engine.get_hl_perps_config_overrides()
-        assert behind["behind_pace"] is True
-        assert behind["exec_score_delta"] < 0
-        assert behind["reentry_cooldown_min"] == 6  # 2026-07-17: catch-up reentry 8→6
+        # Freeze late UTC so expected_progress is high enough that $0 profit
+        # is "behind pace" (CI at ~03:00 UTC made this flaky: expected < 15%).
+        from datetime import datetime, timezone
+        fixed_now = datetime(2026, 7, 18, 20, 0, 0, tzinfo=timezone.utc)
+        with patch("core.daily_goal_engine.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            mock_datetime.side_effect = lambda *a, **k: datetime(*a, **k) if a else fixed_now
+            # Behind pace at $0 profit → lower exec bar, shorter reentry
+            behind = engine.get_hl_perps_config_overrides()
+            assert behind["behind_pace"] is True
+            assert behind["exec_score_delta"] < 0
+            assert behind["reentry_cooldown_min"] == 6  # 2026-07-17: catch-up reentry 8→6
 
         with patch("core.daily_goal_engine.settings") as mock_settings:
             mock_settings.MODE = "live"
