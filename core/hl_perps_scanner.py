@@ -62,8 +62,9 @@ HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "55.0"))
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "150.0"))
 HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "10"))  # 10 slots for $500/day rotation
-HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "1200.0"))
-HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "30.0"))
+# Align with executor HYPERLIQUID_MAX_TOTAL_EXPOSURE (notional, margin×lev). 1200 was too tight at 10×$400.
+HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "5000.0"))
+HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "100.0"))
 HL_PERPS_STOP_LOSS_PCT: float = float(os.getenv("HL_PERPS_STOP_LOSS_PCT", "2.5"))
 HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6.0"))
 # Extreme funding rate = fade opportunity (short when funding very positive, long when very negative)
@@ -83,12 +84,20 @@ HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 # Coins that repeatedly lost / micro-churned in live history — need higher score
 # HYPE added 2026-07-17 (4 trades, 0% WR, −$6.65 in trade_history 26)
+# trade_history (27): TRB/GRASS/EIGEN/MET/HMSTR/FARTCOIN/HYPE/BRETT heavy losers; AAVE noisy.
 _TOXIC_RAW = os.getenv(
     "HL_PERPS_TOXIC_COINS",
-    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE",
+    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO",
 )
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
-HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "15.0"))
+# Higher bar for toxic names (was 15) — history shows they still leaked through
+HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "20.0"))
+# Optional hour block (local America/New_York). trade_history(27): hour 10/17/22 worst PnL.
+# Empty string disables. Example: "10,17,22"
+_BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
+HL_PERPS_BLOCKED_HOURS_ET: set[int] = {
+    int(h.strip()) for h in _BLOCKED_HOURS_RAW.split(",") if h.strip().isdigit()
+}
 # ── Auto-Blacklist: performance-based dynamic coin banning ───────────────────
 # A coin is auto-banned for HL_PERPS_AUTOBAN_HOURS when it has
 # >= HL_PERPS_AUTOBAN_MIN_TRADES AND a win rate below HL_PERPS_AUTOBAN_WR_THRESHOLD.
@@ -1559,6 +1568,23 @@ class HLPerpsScanner:
         self.scan_count += 1
         cycle_start = time.time()
 
+        # ── Time gate (America/New_York) — trade_history(27) worst hours ──
+        # Blocks NEW entries only; open positions still managed by executor/trailing.
+        if HL_PERPS_BLOCKED_HOURS_ET:
+            try:
+                from zoneinfo import ZoneInfo
+                et_hour = datetime.now(ZoneInfo("America/New_York")).hour
+            except Exception:
+                et_hour = datetime.now(timezone.utc).hour  # fallback UTC
+            if et_hour in HL_PERPS_BLOCKED_HOURS_ET:
+                if self.scan_count % 10 == 1:
+                    logger.info(
+                        f"[HL-PERPS] Time gate: hour={et_hour} ET in blocked set "
+                        f"{sorted(HL_PERPS_BLOCKED_HOURS_ET)} — skipping new entries this cycle"
+                    )
+                self._save_state([])
+                return []
+
         # ── Retracement Sniper: Check pending entries ──
         if self.pending_retracements and self.hl_executor and self.hl_executor.is_available():
             current_time = time.time()
@@ -1625,11 +1651,13 @@ class HLPerpsScanner:
         # Cap total scan to 150 coins to balance opportunity vs rate limits
         scan_list = scan_list[:150]
 
+        # ── CRITICAL FIX (trade_history 27 / live 2026-07-17): ────────────────
+        # Old logic broke after first signal when max_new_signals<=1:
+        #   if len(signals) >= max(max_new_signals, 1): break
+        # With full/near-full books that meant ONLY BTC (first watchlist coin)
+        # was ever scored — 230+ scans of "1 coins" and zero multi-coin alpha.
+        # Correct approach: scan full universe, rank by score, execute top-N only.
         for idx, coin in enumerate(scan_list):
-            # Stop if we've found enough signals to fill all position slots
-            if len(signals) >= max(max_new_signals, 1):
-                break
-
             # Skip if already in a position or pending sniper entry
             if self.hl_executor and coin in self.hl_executor.positions:
                 continue
@@ -1637,8 +1665,6 @@ class HLPerpsScanner:
                 continue
 
             # Rate-limit: 0.25s delay every 3 non-watchlist coins
-            # 100 coins × 2 API calls = 200 calls. At ~0.25s per 3 coins,
-            # scan takes ~16s for discovery coins + ~10s for watchlist = ~26s total.
             if idx >= watchlist_len and idx % 3 == 0:
                 time.sleep(0.25)
 
@@ -1650,32 +1676,25 @@ class HLPerpsScanner:
                 signals.append(signal)
                 self.signals_generated += 1
 
-                # ── Entry Decision: Immediate vs Sniper ────────────────────────
-                # Golden pocket (fib confidence >= 70) = EXECUTE NOW — price is
-                # already at the optimal Fibonacci level. Don't wait for a dip
-                # that may never come; the golden pocket IS the dip.
-                # Lower confidence = load the retracement sniper and wait.
-                # ── Entry Decision ────────────────────────────────────────────────
-                # VOLUME FIX: The retracement sniper was parking valid signals for up to
-                # 1 hour waiting for a 1.5% dip that often never came, killing trade volume.
-                # New logic: execute ALL signals immediately. The score gate (58+), RSI veto,
-                # macro trend filter, and R:R guard are sufficient quality controls.
-                # The golden pocket distinction is kept for logging clarity only.
-                is_golden = (
-                    signal.fib_confidence >= 70
-                    or signal.fib_zone == "golden_pocket"
-                    or "golden" in signal.fib_zone.lower()
-                )
-                entry_label = "⚡ GOLDEN POCKET" if is_golden else "✅ SIGNAL"
-                logger.info(
-                    f"{entry_label} — EXECUTING: {signal.direction.upper()} {signal.coin} "
-                    f"@ ${signal.entry_price:.4f} | score={signal.score:.0f} | "
-                    f"fib_zone={signal.fib_zone} | fib_conf={signal.fib_confidence:.0f}"
-                )
-                self._execute_signal(signal)
-        # Sort by score descending for logging
+        # Sort by score descending — best setups first
         signals.sort(key=lambda s: s.score, reverse=True)
         self.last_signals = signals
+
+        # Execute only what we have room for (0 when full — still scanned above)
+        to_execute = signals[: max(0, max_new_signals)]
+        for signal in to_execute:
+            is_golden = (
+                signal.fib_confidence >= 70
+                or signal.fib_zone == "golden_pocket"
+                or "golden" in (signal.fib_zone or "").lower()
+            )
+            entry_label = "⚡ GOLDEN POCKET" if is_golden else "✅ SIGNAL"
+            logger.info(
+                f"{entry_label} — EXECUTING: {signal.direction.upper()} {signal.coin} "
+                f"@ ${signal.entry_price:.4f} | score={signal.score:.0f} | "
+                f"fib_zone={signal.fib_zone} | fib_conf={signal.fib_confidence:.0f}"
+            )
+            self._execute_signal(signal)
 
         elapsed = time.time() - cycle_start
         if signals:
