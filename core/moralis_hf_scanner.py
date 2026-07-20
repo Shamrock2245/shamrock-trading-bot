@@ -21,9 +21,25 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 class HighFrequencyMoralisScanner:
+    """
+    STUB / scaffolding only (Manus 2026-07-20).
+
+    `_get_volume_spiking_tokens` returns [] until a real Moralis trending + HL
+    ticker intersection is implemented. Default OFF so the bot does not pretend
+    to hunt alpha. Do not wire into HL entry until this returns real candidates.
+    """
+
     def __init__(self):
-        self.enabled = getattr(settings, "HF_MORALIS_SCANNER_ENABLED", True)
-        self.interval = getattr(settings, "HF_SCANNER_INTERVAL", 300)  # 5 minutes
+        import os
+        # Default FALSE — stub returns empty lists; enable only after API is real
+        env_raw = os.getenv("HF_MORALIS_SCANNER_ENABLED")
+        if env_raw is not None:
+            self.enabled = env_raw.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            self.enabled = bool(getattr(settings, "HF_MORALIS_SCANNER_ENABLED", False))
+        self.interval = int(
+            os.getenv("HF_SCANNER_INTERVAL", getattr(settings, "HF_SCANNER_INTERVAL", 300))
+        )
         self._thread = None
         self._stop_event = threading.Event()
         self._last_scan_time = None
@@ -34,18 +50,24 @@ class HighFrequencyMoralisScanner:
         self.min_holders = 50  # At least 50 holders
         
         # Trending narratives for 2026
+        # NOTE: BRETT/FARTCOIN/GRASS/HYPE are also on the HL toxic list — do not
+        # treat narrative match alone as an entry signal without toxic filter.
         self.trending_narratives = {
-            "memes": ["BONK", "DOGE", "SHIB", "PEPE", "BRETT", "FARTCOIN"],
-            "ai": ["BITTENSOR", "RNDR", "KAITO", "VIRTUAL", "GROK"],
-            "depin": ["RNDR", "DIONE", "GRASS", "RENDER"],
-            "hyperliquid": ["HYPE"],
+            "memes": ["BONK", "DOGE", "SHIB", "PEPE"],
+            "ai": ["BITTENSOR", "RNDR", "VIRTUAL", "GROK"],
+            "depin": ["RNDR", "DIONE", "RENDER"],
+            "hyperliquid": [],
             "prediction": ["RESOLV", "ONDO"],
         }
 
     def start(self):
         if not self.enabled:
-            logger.info("HF Moralis Scanner: Disabled via config.")
+            logger.info("HF Moralis Scanner: Disabled via config (stub — no live alpha feed).")
             return
+        logger.warning(
+            "HF Moralis Scanner: ENABLED but still a STUB — scan_for_alpha() returns []. "
+            "Wire Moralis trending → HL ticker map before relying on this path."
+        )
         if self._thread and self._thread.is_alive():
             return
             

@@ -23,7 +23,7 @@ from pathlib import Path
 TOXIC_COIN_STATS = {
     "AAVE":     {"wins": 2,  "losses": 20},  # WR=9%   (22 trades)
     "HMSTR":    {"wins": 0,  "losses": 10},  # WR=0%   (10 trades)
-    "BRETT":    {"wins": 1,  "losses": 12},  # WR=8%   (13 trades)
+    "BRETT":    {"wins": 1,  "losses": 12},  # WR=8%  (13 trades)
     "GRASS":    {"wins": 1,  "losses": 4},   # WR=20%  (5 trades)
     "EIGEN":    {"wins": 1,  "losses": 4},   # WR=20%  (5 trades)
     "APE":      {"wins": 2,  "losses": 4},   # WR=33%  (6 trades) — borderline
@@ -31,6 +31,8 @@ TOXIC_COIN_STATS = {
     "HYPE":     {"wins": 0,  "losses": 4},   # WR=0%   (4 trades) — below min but pattern clear
     "MEME":     {"wins": 0,  "losses": 5},   # WR=0%   (5 trades)
     "FARTCOIN": {"wins": 0,  "losses": 3},   # WR=0%   (3 trades) — below min but pattern clear
+    # trade_history (28) last 7d: 7 trades, 14% WR, −$30.57 (worst coin)
+    "KAITO":    {"wins": 1,  "losses": 6},   # WR=14%  (7 trades)
 }
 
 # Ban threshold config (must match HL_PERPS_AUTOBAN_* env vars)

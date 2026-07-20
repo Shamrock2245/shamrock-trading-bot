@@ -85,9 +85,10 @@ HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "t
 # Coins that repeatedly lost / micro-churned in live history — need higher score
 # HYPE added 2026-07-17 (4 trades, 0% WR, −$6.65 in trade_history 26)
 # trade_history (27): TRB/GRASS/EIGEN/MET/HMSTR/FARTCOIN/HYPE/BRETT heavy losers; AAVE noisy.
+# trade_history (28): KAITO 7 trades / 14% WR / −$30.57 last 7d (worst coin).
 _TOXIC_RAW = os.getenv(
     "HL_PERPS_TOXIC_COINS",
-    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO",
+    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO,KAITO",
 )
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 # Higher bar for toxic names (was 15) — history shows they still leaked through

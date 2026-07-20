@@ -1414,6 +1414,10 @@ async def run_bot_loop():
     _TRAILING_DISTANCE_PCT: float = float(os.getenv("HL_TRAILING_DISTANCE_PCT", "1.0"))
     _TRAILING_POLL_SECONDS: float = float(os.getenv("HL_TRAILING_POLL_SECONDS", "30.0"))
     _TRAILING_MIN_MOVE_PCT: float = 0.15  # Minimum % improvement before placing a new SL order
+    # Early profit-lock (price-move based) + hard loss timeout — Manus 2026-07-20 upgrade, wired here
+    _PROFIT_LOCK_ENABLED: bool = os.getenv("PROFIT_LOCK_ENABLED", "true").lower() in (
+        "1", "true", "yes", "on",
+    )
 
     # Shared reference to the executor — populated by _hl_perps_daemon once it starts
     _trailing_exec_ref: list = []  # mutable container so inner function can write to it
@@ -1421,6 +1425,9 @@ async def run_bot_loop():
     def _hl_trailing_monitor_daemon():
         """Background thread: dynamic trailing profit-lock for all open HL perp positions."""
         import time as _time
+        from datetime import datetime as _dt, timezone as _tz
+        from core.profit_lock_manager import evaluate_position as _eval_profit_lock
+
         _time.sleep(45)  # Wait for HL perps daemon to initialize the executor
 
         # Grab the executor reference once it is available
@@ -1442,7 +1449,8 @@ async def run_bot_loop():
             f"🔒 Trailing Profit-Lock monitor ACTIVE | "
             f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | "
             f"trail={_TRAILING_DISTANCE_PCT}% behind mark | "
-            f"poll={_TRAILING_POLL_SECONDS}s"
+            f"poll={_TRAILING_POLL_SECONDS}s | "
+            f"early_be+timeout={'ON' if _PROFIT_LOCK_ENABLED else 'OFF'}"
         )
 
         _backoff_seconds = 0  # exponential backoff on rate-limit errors
@@ -1471,6 +1479,76 @@ async def run_bot_loop():
                         # Persist peak/trough update (cheap JSON write)
                         if price_updated:
                             _exec._save_trailing_state()
+
+                        # ── Early BE lock + hard loss time-out (price-move based) ─────
+                        # Closes multi-hour losers (trade_history 28: −$55 last 7d ≥4h)
+                        # and locks winners at +1.5% before full ROE trail activates.
+                        if _PROFIT_LOCK_ENABLED and pos.entry_price and pos.opened_at:
+                            _peak = (
+                                pos.highest_price
+                                if pos.side == "long"
+                                else (pos.lowest_price if pos.lowest_price < float("inf") else mark_price)
+                            )
+                            _pl = _eval_profit_lock(
+                                coin=pos.coin,
+                                current_price=mark_price,
+                                entry_price=pos.entry_price,
+                                entry_time=pos.opened_at,
+                                side=pos.side,
+                                peak_price=_peak if _peak and _peak > 0 else mark_price,
+                                current_sl=pos.stop_loss_price,
+                                now=_dt.now(_tz.utc),
+                            )
+                            if _pl.should_close:
+                                logger.warning(
+                                    f"⏰ LOSS TIMEOUT CLOSE | {pos.coin} {pos.side.upper()} | "
+                                    f"hold={_pl.hold_hours:.1f}h | pnl={_pl.pnl_pct:.2f}% | "
+                                    f"reason={_pl.reason}"
+                                )
+                                _close_res = _exec.close_position(pos.coin)
+                                if not _close_res:
+                                    logger.error(
+                                        f"❌ Loss timeout close failed for {pos.coin} — will retry next cycle"
+                                    )
+                                continue  # skip trail ratchet; position should be gone
+
+                            if _pl.should_update_sl and _pl.sl_price is not None:
+                                _cur_sl = pos.stop_loss_price
+                                _new_sl = float(_pl.sl_price)
+                                _improve = False
+                                if pos.side == "long":
+                                    if _cur_sl is None or _new_sl > float(_cur_sl) * (1 + _TRAILING_MIN_MOVE_PCT / 100):
+                                        # Also accept first BE lock even if improvement < min when SL was far below
+                                        if _cur_sl is None or _new_sl > float(_cur_sl):
+                                            if _cur_sl is None:
+                                                _improve = True
+                                            else:
+                                                _imp_pct = (_new_sl - float(_cur_sl)) / float(_cur_sl) * 100
+                                                # BE locks often jump far (from -2.5% SL to +0.1%) — always allow
+                                                _improve = _imp_pct >= _TRAILING_MIN_MOVE_PCT or _pl.reason == "break_even_lock"
+                                else:
+                                    if _cur_sl is None or _new_sl < float(_cur_sl):
+                                        if _cur_sl is None:
+                                            _improve = True
+                                        else:
+                                            _imp_pct = (float(_cur_sl) - _new_sl) / float(_cur_sl) * 100
+                                            _improve = _imp_pct >= _TRAILING_MIN_MOVE_PCT or _pl.reason == "break_even_lock"
+                                if _improve:
+                                    result = _exec.update_trailing_stop(pos.coin, round(_new_sl, 6))
+                                    if result:
+                                        # Mark trailing active once BE/early trail has locked profit
+                                        if not pos.trailing_stop_active and _pl.reason in (
+                                            "break_even_lock", "early_trail",
+                                        ):
+                                            pos.trailing_stop_active = True
+                                            _exec._save_trailing_state()
+                                        logger.info(
+                                            f"🔒 PROFIT-LOCK SL | {pos.coin} | "
+                                            f"reason={_pl.reason} | sl=${_new_sl:.6f} | "
+                                            f"pnl={_pl.pnl_pct:.2f}%"
+                                        )
+                                    else:
+                                        _rate_limited = True
 
                         # ── Calculate ROE (Return on Equity) ─────────────────────────
                         if pos.side == "long":
@@ -1623,7 +1701,9 @@ async def run_bot_loop():
     logger.info(
         "🔒 Dynamic Trailing Profit-Lock daemon started — "
         f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | trail={_TRAILING_DISTANCE_PCT}% | "
-        f"poll={_TRAILING_POLL_SECONDS}s | state=data/dashboard/hl_trailing_state.json"
+        f"poll={_TRAILING_POLL_SECONDS}s | early_be+4h_timeout="
+        f"{'ON' if _PROFIT_LOCK_ENABLED else 'OFF'} | "
+        f"state=data/dashboard/hl_trailing_state.json"
     )
 
     # ── Delta-Neutral Funding Rate Farmer ────────────────────────────────────────────────
