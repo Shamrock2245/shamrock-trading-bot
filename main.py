@@ -1418,6 +1418,10 @@ async def run_bot_loop():
     _PROFIT_LOCK_ENABLED: bool = os.getenv("PROFIT_LOCK_ENABLED", "true").lower() in (
         "1", "true", "yes", "on",
     )
+    # Winning tuning (trade_history 29): tighter BE/trail/timeout + TP1 partial — supersedes profit_lock when on
+    _WINNING_RISK_ENABLED: bool = os.getenv("WINNING_RISK_MANAGER_ENABLED", "true").lower() in (
+        "1", "true", "yes", "on",
+    )
 
     # Shared reference to the executor — populated by _hl_perps_daemon once it starts
     _trailing_exec_ref: list = []  # mutable container so inner function can write to it
@@ -1427,6 +1431,7 @@ async def run_bot_loop():
         import time as _time
         from datetime import datetime as _dt, timezone as _tz
         from core.profit_lock_manager import evaluate_position as _eval_profit_lock
+        from core.winning_risk_manager import evaluate_position as _eval_winning_risk
 
         _time.sleep(45)  # Wait for HL perps daemon to initialize the executor
 
@@ -1450,6 +1455,7 @@ async def run_bot_loop():
             f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | "
             f"trail={_TRAILING_DISTANCE_PCT}% behind mark | "
             f"poll={_TRAILING_POLL_SECONDS}s | "
+            f"winning_risk={'ON' if _WINNING_RISK_ENABLED else 'OFF'} | "
             f"early_be+timeout={'ON' if _PROFIT_LOCK_ENABLED else 'OFF'}"
         )
 
@@ -1480,22 +1486,116 @@ async def run_bot_loop():
                         if price_updated:
                             _exec._save_trailing_state()
 
-                        # ── Early BE lock + hard loss time-out (price-move based) ─────
-                        # Closes multi-hour losers (trade_history 28: −$55 last 7d ≥4h)
-                        # and locks winners at +1.5% before full ROE trail activates.
-                        if _PROFIT_LOCK_ENABLED and pos.entry_price and pos.opened_at:
-                            _peak = (
-                                pos.highest_price
-                                if pos.side == "long"
-                                else (pos.lowest_price if pos.lowest_price < float("inf") else mark_price)
+                        # ── Winning risk OR legacy profit-lock (price-move based) ─────
+                        # Winning (trade_history 29): BE@0.75%, TP1 50%@+2%, trail 0.5%,
+                        # 30-min −1% tighten, hard timeout 2h. Supersedes profit_lock when on.
+                        _peak = (
+                            pos.highest_price
+                            if pos.side == "long"
+                            else (pos.lowest_price if pos.lowest_price < float("inf") else mark_price)
+                        )
+                        _peak = _peak if _peak and _peak > 0 else mark_price
+
+                        if _WINNING_RISK_ENABLED and pos.entry_price and pos.opened_at:
+                            _wr = _eval_winning_risk(
+                                coin=pos.coin,
+                                current_price=mark_price,
+                                entry_price=pos.entry_price,
+                                entry_time=pos.opened_at,
+                                side=pos.side,
+                                peak_price=_peak,
+                                current_sl=pos.stop_loss_price,
+                                tp1_hit=bool(getattr(pos, "tp1_hit", False)),
+                                now=_dt.now(_tz.utc),
                             )
+                            if _wr.should_close:
+                                logger.warning(
+                                    f"⏰ WINNING TIMEOUT CLOSE | {pos.coin} {pos.side.upper()} | "
+                                    f"hold={_wr.hold_minutes:.0f}m | pnl={_wr.pnl_pct:.2f}% | "
+                                    f"reason={_wr.reason}"
+                                )
+                                _close_res = _exec.close_position(pos.coin)
+                                if not _close_res:
+                                    logger.error(
+                                        f"❌ Winning timeout close failed for {pos.coin} — will retry next cycle"
+                                    )
+                                continue
+
+                            if _wr.should_partial_close:
+                                logger.info(
+                                    f"💰 WINNING TP1 | {pos.coin} | close {_wr.close_size_pct:.0f}% | "
+                                    f"pnl={_wr.pnl_pct:.2f}% | reason={_wr.reason}"
+                                )
+                                _part = _exec.close_position(pos.coin, size_pct=_wr.close_size_pct)
+                                if _part:
+                                    if _wr.mark_tp1:
+                                        try:
+                                            # pos may be gone if partial degenerated to full close
+                                            if pos.coin in _exec.positions:
+                                                _exec.positions[pos.coin].tp1_hit = True
+                                                _exec.positions[pos.coin].trailing_stop_active = True
+                                                _exec._save_trailing_state()
+                                        except Exception:
+                                            pass
+                                else:
+                                    _rate_limited = True
+                                continue  # re-evaluate next poll after size change
+
+                            if _wr.should_update_sl and _wr.sl_price is not None:
+                                _cur_sl = pos.stop_loss_price
+                                _new_sl = float(_wr.sl_price)
+                                _improve = False
+                                _fast_reasons = (
+                                    "winning_break_even",
+                                    "winning_30min_rule",
+                                    "winning_aggressive_trail",
+                                )
+                                if pos.side == "long":
+                                    if _cur_sl is None or _new_sl > float(_cur_sl):
+                                        if _cur_sl is None:
+                                            _improve = True
+                                        else:
+                                            _imp_pct = (_new_sl - float(_cur_sl)) / float(_cur_sl) * 100
+                                            _improve = (
+                                                _imp_pct >= _TRAILING_MIN_MOVE_PCT
+                                                or _wr.reason in _fast_reasons
+                                            )
+                                else:
+                                    if _cur_sl is None or _new_sl < float(_cur_sl):
+                                        if _cur_sl is None:
+                                            _improve = True
+                                        else:
+                                            _imp_pct = (float(_cur_sl) - _new_sl) / float(_cur_sl) * 100
+                                            _improve = (
+                                                _imp_pct >= _TRAILING_MIN_MOVE_PCT
+                                                or _wr.reason in _fast_reasons
+                                            )
+                                if _improve:
+                                    result = _exec.update_trailing_stop(pos.coin, round(_new_sl, 6))
+                                    if result:
+                                        if not pos.trailing_stop_active and _wr.reason in (
+                                            "winning_break_even",
+                                            "winning_aggressive_trail",
+                                        ):
+                                            pos.trailing_stop_active = True
+                                            _exec._save_trailing_state()
+                                        logger.info(
+                                            f"🔒 WINNING SL | {pos.coin} | "
+                                            f"reason={_wr.reason} | sl=${_new_sl:.6f} | "
+                                            f"pnl={_wr.pnl_pct:.2f}%"
+                                        )
+                                    else:
+                                        _rate_limited = True
+
+                        elif _PROFIT_LOCK_ENABLED and pos.entry_price and pos.opened_at:
+                            # Legacy profit-lock path (when Winning is disabled)
                             _pl = _eval_profit_lock(
                                 coin=pos.coin,
                                 current_price=mark_price,
                                 entry_price=pos.entry_price,
                                 entry_time=pos.opened_at,
                                 side=pos.side,
-                                peak_price=_peak if _peak and _peak > 0 else mark_price,
+                                peak_price=_peak,
                                 current_sl=pos.stop_loss_price,
                                 now=_dt.now(_tz.utc),
                             )
@@ -1510,22 +1610,19 @@ async def run_bot_loop():
                                     logger.error(
                                         f"❌ Loss timeout close failed for {pos.coin} — will retry next cycle"
                                     )
-                                continue  # skip trail ratchet; position should be gone
+                                continue
 
                             if _pl.should_update_sl and _pl.sl_price is not None:
                                 _cur_sl = pos.stop_loss_price
                                 _new_sl = float(_pl.sl_price)
                                 _improve = False
                                 if pos.side == "long":
-                                    if _cur_sl is None or _new_sl > float(_cur_sl) * (1 + _TRAILING_MIN_MOVE_PCT / 100):
-                                        # Also accept first BE lock even if improvement < min when SL was far below
-                                        if _cur_sl is None or _new_sl > float(_cur_sl):
-                                            if _cur_sl is None:
-                                                _improve = True
-                                            else:
-                                                _imp_pct = (_new_sl - float(_cur_sl)) / float(_cur_sl) * 100
-                                                # BE locks often jump far (from -2.5% SL to +0.1%) — always allow
-                                                _improve = _imp_pct >= _TRAILING_MIN_MOVE_PCT or _pl.reason == "break_even_lock"
+                                    if _cur_sl is None or _new_sl > float(_cur_sl):
+                                        if _cur_sl is None:
+                                            _improve = True
+                                        else:
+                                            _imp_pct = (_new_sl - float(_cur_sl)) / float(_cur_sl) * 100
+                                            _improve = _imp_pct >= _TRAILING_MIN_MOVE_PCT or _pl.reason == "break_even_lock"
                                 else:
                                     if _cur_sl is None or _new_sl < float(_cur_sl):
                                         if _cur_sl is None:
@@ -1536,7 +1633,6 @@ async def run_bot_loop():
                                 if _improve:
                                     result = _exec.update_trailing_stop(pos.coin, round(_new_sl, 6))
                                     if result:
-                                        # Mark trailing active once BE/early trail has locked profit
                                         if not pos.trailing_stop_active and _pl.reason in (
                                             "break_even_lock", "early_trail",
                                         ):
@@ -1701,7 +1797,8 @@ async def run_bot_loop():
     logger.info(
         "🔒 Dynamic Trailing Profit-Lock daemon started — "
         f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | trail={_TRAILING_DISTANCE_PCT}% | "
-        f"poll={_TRAILING_POLL_SECONDS}s | early_be+4h_timeout="
+        f"poll={_TRAILING_POLL_SECONDS}s | winning_risk="
+        f"{'ON' if _WINNING_RISK_ENABLED else 'OFF'} | early_be+timeout="
         f"{'ON' if _PROFIT_LOCK_ENABLED else 'OFF'} | "
         f"state=data/dashboard/hl_trailing_state.json"
     )

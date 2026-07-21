@@ -92,6 +92,8 @@ class HLPosition:
     trailing_stop_active: bool = False  # True once ROE > 5% threshold hit
     sl_order_id: Optional[int] = None   # On-chain SL order ID (int on HL)
     tp_order_id: Optional[int] = None   # On-chain TP order ID (for reference)
+    # Winning tuning: TP1 partial already taken (50% at +2%)
+    tp1_hit: bool = False
 
 
 class HyperliquidExecutor:
@@ -900,12 +902,26 @@ class HyperliquidExecutor:
             take_profit_price=take_profit_price,
         )
 
-    def close_position(self, symbol: str) -> Optional[dict]:
-        """Close an open position."""
+    def close_position(
+        self,
+        symbol: str,
+        size_pct: Optional[float] = None,
+    ) -> Optional[dict]:
+        """Close an open position.
+
+        Args:
+            symbol: Perp coin ticker.
+            size_pct: If set (0–100], close only that fraction (Winning TP1).
+                      None / >=100 → full close via market_close.
+        """
         if not self.is_available():
             return None
 
         sym = _normalize_symbol(symbol)
+
+        # Partial close path (Winning TP1 front-load)
+        if size_pct is not None and 0 < float(size_pct) < 100:
+            return self._close_position_partial(sym, float(size_pct))
 
         with self._lock:
             pos = self.positions.get(sym)
@@ -985,6 +1001,109 @@ class HyperliquidExecutor:
 
             except Exception as e:
                 logger.error(f"Hyperliquid close error for {sym}: {e}")
+                return None
+
+    def _close_position_partial(self, sym: str, size_pct: float) -> Optional[dict]:
+        """Close a fraction of an open position (Winning TP1). Leaves remainder open."""
+        with self._lock:
+            pos = self.positions.get(sym)
+            if not pos:
+                logger.warning(f"Hyperliquid: no open position for {sym} (partial)")
+                return None
+            if pos.size <= 0:
+                return None
+
+            close_sz = pos.size * (size_pct / 100.0)
+            # HL rejects dust sizes — leave a viable remainder
+            remain = pos.size - close_sz
+            if remain <= 0 or close_sz <= 0:
+                # Degenerate → full close
+                pass
+            try:
+                if remain <= 0 or close_sz <= 0:
+                    result = self._execute_api(self._exchange.market_close, sym)
+                    partial = False
+                else:
+                    result = self._execute_api(
+                        self._exchange.market_close, sym, sz=close_sz
+                    )
+                    partial = True
+
+                if not (result and result.get("status") == "ok"):
+                    logger.error(f"Hyperliquid partial close failed for {sym}: {result}")
+                    return None
+
+                time.sleep(0.4)
+                fills = self._get_recent_fills(sym)
+                close_price = float(fills[0].get("px", 0) or 0) if fills else 0.0
+
+                if not partial:
+                    pnl = self._calc_pnl(pos, close_price) if close_price else 0.0
+                    self.daily_pnl += pnl
+                    self._feed_daily_goal(pnl, source="scalp_hl_perps")
+                    del self.positions[sym]
+                    self._save_trailing_state()
+                    logger.info(
+                        f"✅ Hyperliquid FULL CLOSE (via partial path) {sym} | "
+                        f"PnL=${pnl:+.2f}"
+                    )
+                    return {"coin": sym, "close_price": close_price, "pnl": pnl, "partial": False}
+
+                # Scale position size down; realize proportional PnL on closed slice
+                frac = close_sz / pos.size if pos.size else 0.0
+                full_pnl = self._calc_pnl(pos, close_price) if close_price else 0.0
+                pnl = full_pnl * frac
+                self.daily_pnl += pnl
+                self._feed_daily_goal(pnl, source="scalp_hl_perps_tp1")
+                try:
+                    import sys
+                    if "core.hl_perps_scanner" in sys.modules:
+                        sc = getattr(sys.modules["core.hl_perps_scanner"], "_global_scanner", None)
+                        if sc is not None:
+                            sc.daily_pnl = float(getattr(sc, "daily_pnl", 0.0) or 0.0) + pnl
+                except Exception:
+                    pass
+
+                pos.size = remain
+                pos.size_usd = pos.size_usd * (1.0 - frac) if pos.size_usd else pos.size_usd
+                pos.tp1_hit = True
+                pos.trailing_stop_active = True
+                self._save_trailing_state()
+                logger.info(
+                    f"💰 Hyperliquid TP1 PARTIAL {sym} | closed {size_pct:.0f}% "
+                    f"({close_sz:.6f} coins) @ ${close_price} | realized≈${pnl:+.2f} | "
+                    f"remain={remain:.6f}"
+                )
+                self._log_hl_trade(
+                    action="SELL",
+                    coin=sym,
+                    side=pos.side,
+                    price=float(close_price) if close_price else 0.0,
+                    quantity=close_sz,
+                    value_usd=float(close_price or 0) * close_sz,
+                    entry_price=pos.entry_price,
+                    pnl_usd=pnl,
+                    pnl_pct=None,
+                    reason="winning_tp1_partial",
+                    leverage=pos.leverage,
+                    stop_loss=pos.stop_loss_price,
+                    take_profit=pos.take_profit_price,
+                    entry_time=(
+                        pos.opened_at.isoformat()
+                        if getattr(pos, "opened_at", None)
+                        else None
+                    ),
+                )
+                return {
+                    "coin": sym,
+                    "close_price": close_price,
+                    "pnl": pnl,
+                    "partial": True,
+                    "size_pct": size_pct,
+                    "remain_size": remain,
+                }
+            except Exception as e:
+                logger.error(f"Hyperliquid partial close error for {sym}: {e}")
                 return None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -1550,6 +1669,7 @@ class HyperliquidExecutor:
                     "sl_order_id": pos.sl_order_id,
                     "tp_order_id": pos.tp_order_id,
                     "stop_loss_price": pos.stop_loss_price,
+                    "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
                 }
             _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
@@ -1576,6 +1696,7 @@ class HyperliquidExecutor:
                 pos.trailing_stop_active = bool(saved.get("trailing_stop_active", False))
                 pos.sl_order_id = saved.get("sl_order_id")
                 pos.tp_order_id = saved.get("tp_order_id")
+                pos.tp1_hit = bool(saved.get("tp1_hit", False))
                 # Restore persisted SL price only if it is tighter than what HL returned
                 persisted_sl = saved.get("stop_loss_price")
                 if persisted_sl is not None:

@@ -1,156 +1,376 @@
 """
-core/winning_risk_manager.py — "Winning" Risk Management & Profit Capture Engine
+core/winning_risk_manager.py — "Winning" Risk Management decision engine
 
-Implements aggressive profit-locking and loss-prevention strategies:
-1. Ultra-Fast Break-even: Lock break-even at +0.75% profit (vs. +1.5%)
-2. TP1 Front-loading: Close 50% at +2% profit to secure "house money"
-3. The 30-Min Rule: Tighten SL to -1% if no profit within 30 minutes
-4. Aggressive Trailing: 0.5% trailing stop after TP1 (vs. 1.5%)
+Wired into main.py → _hl_trailing_monitor_daemon when WINNING_RISK_MANAGER_ENABLED=true.
+Does NOT own on-chain order state (executor / hl_trailing_state.json does).
 
-This module closes the "Slow Leak" by preventing small losses and long-duration bleeds.
+Closes capital leaks diagnosed from trade_history (29):
+  PF 0.67 overall | toxic hours 08–14 ET −$326 | losers ≥4h −$504 | small cuts −$63
+
+Rules (price-move %, leverage-agnostic):
+1. Hard loss timeout (default 2h) — force-close multi-hour red holds
+2. 30-Min Rule — if still red after 30m, tighten SL to −1%
+3. TP1 front-load — partial close 50% at +2%
+4. Ultra-fast break-even — lock SL to entry±buffer at +0.75%
+5. Aggressive trail — 0.5% from peak once TP1 hit or pnl ≥ trail activate
+
+Manus originally shipped a priority-bugged class (BE always returned before TP1/trail
+could fire) with zero callers. This rewrite matches profit_lock_manager style.
 """
 
+from __future__ import annotations
+
 import logging
-import time
-from typing import Dict, Optional
-from datetime import datetime
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+@dataclass(frozen=True)
+class WinningRiskConfig:
+    enabled: bool = True
+    # Ultra-fast break-even
+    be_pct: float = 0.75
+    be_buffer_pct: float = 0.05
+    # TP1 front-load
+    tp1_profit_pct: float = 2.0
+    tp1_size_pct: float = 50.0
+    # Aggressive trail (after TP1 or once trail activates)
+    trail_activate_pct: float = 2.0
+    trail_distance_pct: float = 0.5
+    # 30-min rule
+    min_rule_minutes: float = 30.0
+    min_rule_sl_pct: float = -1.0  # tighten SL to −1% from entry
+    # Hard timeout (tighter than profit_lock 4h — trade_history 29: 4h+ = −$504)
+    loss_timeout_hours: float = 2.0
+    # Toxic zone (America/New_York wall-clock hour)
+    toxic_zone_enabled: bool = True
+    toxic_zone_start: int = 8
+    toxic_zone_end: int = 14
+    toxic_zone_size_mult: float = 0.5
+
+
+@dataclass
+class WinningRiskDecision:
+    """Result of evaluating one open position under Winning rules."""
+
+    status: str  # "active" | "timeout_close" | "partial_close"
+    sl_price: Optional[float] = None
+    close_size_pct: float = 0.0  # 0–100 for partial_close
+    reason: str = ""
+    pnl_pct: float = 0.0
+    hold_minutes: float = 0.0
+    mark_tp1: bool = False  # caller should persist tp1_hit=True after partial
+
+    @property
+    def should_close(self) -> bool:
+        return self.status == "timeout_close"
+
+    @property
+    def should_partial_close(self) -> bool:
+        return self.status == "partial_close" and self.close_size_pct > 0
+
+    @property
+    def should_update_sl(self) -> bool:
+        return self.sl_price is not None and self.status == "active"
+
+
+def _to_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def default_config() -> WinningRiskConfig:
+    """Fresh config from current env (tests can monkeypatch env)."""
+    return WinningRiskConfig(
+        enabled=_env_bool("WINNING_RISK_MANAGER_ENABLED", True),
+        be_pct=_env_float("FAST_BREAK_EVEN_PCT", 0.75),
+        be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05),
+        tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 2.0),
+        tp1_size_pct=_env_float("TP1_SIZE_PCT", 50.0),
+        trail_activate_pct=_env_float("TP1_PROFIT_PCT", 2.0),  # trail arms at same level
+        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 0.5),
+        min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 30.0),
+        min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.0),
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.0),
+        toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
+        toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
+        toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),
+        toxic_zone_size_mult=_env_float("TOXIC_ZONE_SIZE_MULT", 0.5),
+    )
+
+
+def _pnl_pct(side: str, entry: float, current: float) -> float:
+    if entry <= 0:
+        return 0.0
+    if side == "long":
+        return ((current - entry) / entry) * 100.0
+    return ((entry - current) / entry) * 100.0
+
+
+def _sl_is_improvement(
+    side: str,
+    new_sl: float,
+    current_sl: Optional[float],
+) -> bool:
+    """True if new_sl is strictly tighter (more protective) than current_sl."""
+    if current_sl is None or current_sl <= 0:
+        return True
+    if side == "long":
+        return new_sl > current_sl
+    return new_sl < current_sl
+
+
+def evaluate_position(
+    *,
+    coin: str,
+    current_price: float,
+    entry_price: float,
+    entry_time: datetime,
+    side: str = "long",
+    peak_price: Optional[float] = None,
+    current_sl: Optional[float] = None,
+    tp1_hit: bool = False,
+    now: Optional[datetime] = None,
+    config: Optional[WinningRiskConfig] = None,
+) -> WinningRiskDecision:
+    """
+    Evaluate Winning risk rules for one open position.
+
+    Priority (first match wins for terminal actions; SL picks most protective):
+      1. Hard loss timeout → timeout_close
+      2. TP1 partial close at +tp1_profit_pct (once)
+      3. Merge SL candidates: aggressive trail | BE lock | 30-min tighten
+    """
+    cfg = config or default_config()
+    side = (side or "long").lower()
+    if side not in ("long", "short"):
+        side = "long"
+
+    if not cfg.enabled:
+        return WinningRiskDecision(status="active", reason="disabled")
+
+    if entry_price <= 0 or current_price <= 0:
+        return WinningRiskDecision(status="active", reason="invalid_price")
+
+    now_utc = _to_utc(now or datetime.now(timezone.utc))
+    entry_utc = _to_utc(entry_time)
+    hold_minutes = max(0.0, (now_utc - entry_utc).total_seconds() / 60.0)
+    hold_hours = hold_minutes / 60.0
+    pnl = _pnl_pct(side, entry_price, current_price)
+
+    if side == "long":
+        peak = peak_price if peak_price and peak_price > 0 else current_price
+        peak = max(peak, current_price)
+    else:
+        if peak_price and peak_price > 0:
+            peak = min(peak_price, current_price)
+        else:
+            peak = current_price
+
+    # ── 1. Hard loss timeout ──────────────────────────────────────────────────
+    if pnl < 0 and hold_hours >= cfg.loss_timeout_hours:
+        logger.warning(
+            f"[{coin}] Winning hard timeout: {hold_hours:.1f}h in loss ({pnl:.2f}%). "
+            f"Force-close to free capital."
+        )
+        return WinningRiskDecision(
+            status="timeout_close",
+            reason=f"winning_loss_timeout_{hold_hours:.1f}h",
+            pnl_pct=pnl,
+            hold_minutes=hold_minutes,
+        )
+
+    # ── 2. TP1 front-load (before BE/trail so partial can fire) ───────────────
+    if (not tp1_hit) and pnl >= cfg.tp1_profit_pct and cfg.tp1_size_pct > 0:
+        logger.info(
+            f"[{coin}] 💰 TP1 Front-loading: +{pnl:.2f}% → close {cfg.tp1_size_pct:.0f}%"
+        )
+        return WinningRiskDecision(
+            status="partial_close",
+            close_size_pct=cfg.tp1_size_pct,
+            reason=f"tp1_front_load_+{pnl:.2f}%",
+            pnl_pct=pnl,
+            hold_minutes=hold_minutes,
+            mark_tp1=True,
+        )
+
+    # ── 3. SL candidates (pick most protective) ───────────────────────────────
+    recommended_sl: Optional[float] = None
+    reason = "hold"
+
+    # 3a. Aggressive trail after TP1, or once pnl reaches trail activate
+    trail_armed = tp1_hit or pnl >= cfg.trail_activate_pct
+    if trail_armed and pnl > 0:
+        trail_frac = cfg.trail_distance_pct / 100.0
+        if side == "long":
+            trail_sl = peak * (1.0 - trail_frac)
+        else:
+            trail_sl = peak * (1.0 + trail_frac)
+        if _sl_is_improvement(side, trail_sl, current_sl):
+            recommended_sl = trail_sl
+            reason = "winning_aggressive_trail"
+
+    # 3b. Ultra-fast break-even at +0.75%
+    if pnl >= cfg.be_pct:
+        if side == "long":
+            be_sl = entry_price * (1.0 + cfg.be_buffer_pct / 100.0)
+        else:
+            be_sl = entry_price * (1.0 - cfg.be_buffer_pct / 100.0)
+        if _sl_is_improvement(side, be_sl, current_sl):
+            # Prefer trail if already tighter; else BE
+            if recommended_sl is None:
+                recommended_sl = be_sl
+                reason = "winning_break_even"
+            elif side == "long" and be_sl > recommended_sl:
+                # BE higher than trail only if trail is somehow below BE (unusual)
+                pass
+            elif side == "short" and be_sl < recommended_sl:
+                pass
+            # If trail not set yet, BE wins; if trail set, keep trail (more protective on runners)
+            if reason != "winning_aggressive_trail":
+                recommended_sl = be_sl
+                reason = "winning_break_even"
+
+    # 3c. 30-Min Rule: still red after N minutes → tighten SL to −1%
+    if hold_minutes >= cfg.min_rule_minutes and pnl < 0:
+        # min_rule_sl_pct is negative (e.g. -1.0) → long SL below entry, short above
+        offset = cfg.min_rule_sl_pct / 100.0
+        if side == "long":
+            tight_sl = entry_price * (1.0 + offset)  # e.g. entry * 0.99
+        else:
+            tight_sl = entry_price * (1.0 - offset)  # e.g. entry * 1.01
+        if _sl_is_improvement(side, tight_sl, current_sl):
+            # Prefer if tighter than any other candidate (we're in loss — usually only this fires)
+            if recommended_sl is None:
+                recommended_sl = tight_sl
+                reason = "winning_30min_rule"
+            elif side == "long" and tight_sl > recommended_sl:
+                recommended_sl = tight_sl
+                reason = "winning_30min_rule"
+            elif side == "short" and tight_sl < recommended_sl:
+                recommended_sl = tight_sl
+                reason = "winning_30min_rule"
+
+    if recommended_sl is not None:
+        logger.info(
+            f"[{coin}] Winning SL | reason={reason} | sl={recommended_sl:.8f} | "
+            f"pnl={pnl:.2f}% | hold={hold_minutes:.0f}m"
+        )
+
+    return WinningRiskDecision(
+        status="active",
+        sl_price=recommended_sl,
+        reason=reason,
+        pnl_pct=pnl,
+        hold_minutes=hold_minutes,
+    )
+
+
+def is_toxic_zone(
+    hour: Optional[int] = None,
+    config: Optional[WinningRiskConfig] = None,
+) -> bool:
+    """True if wall-clock hour is in the toxic trading window (default 08–14 ET)."""
+    cfg = config or default_config()
+    if not cfg.toxic_zone_enabled:
+        return False
+    if hour is None:
+        try:
+            from zoneinfo import ZoneInfo
+
+            hour = datetime.now(ZoneInfo("America/New_York")).hour
+        except Exception:
+            hour = datetime.now(timezone.utc).hour
+    return cfg.toxic_zone_start <= hour < cfg.toxic_zone_end
+
+
+def get_position_size_multiplier(
+    hour: Optional[int] = None,
+    config: Optional[WinningRiskConfig] = None,
+) -> float:
+    """Reduce size during toxic hours (trade_history 29: 08–14 ET −$326 vs +$28 elsewhere)."""
+    cfg = config or default_config()
+    if is_toxic_zone(hour=hour, config=cfg):
+        logger.info(
+            f"⚠️  Toxic Zone hour — reducing position size to "
+            f"{cfg.toxic_zone_size_mult * 100:.0f}%"
+        )
+        return cfg.toxic_zone_size_mult
+    return 1.0
+
+
 class WinningRiskManager:
-    def __init__(self):
-        # Ultra-Fast Break-even Settings
-        self.fast_break_even_pct = 0.75  # Lock break-even at +0.75%
-        self.fast_break_even_sl_offset = 0.05  # Entry + 0.05%
-        
-        # TP1 Front-loading Settings
-        self.tp1_profit_pct = 2.0       # Take profit at +2%
-        self.tp1_size_pct = 50          # Sell 50% of position
-        
-        # The 30-Min Rule
-        self.min_rule_time_minutes = 30  # Close or tighten SL after 30 min
-        self.min_rule_sl_offset = -1.0   # Tighten to -1%
-        
-        # Aggressive Trailing Stop
-        self.trailing_stop_pct = 0.5    # 0.5% trailing (vs. 1.5%)
-        
-        # Toxic Zone Restriction (08:00-14:00 EST)
-        self.toxic_zone_start = 8
-        self.toxic_zone_end = 14
-        
-    def evaluate_position(self, pos_data: Dict) -> Dict:
-        """
-        Evaluate a position and return action recommendations.
-        
-        pos_data: {
-            'coin': str,
-            'entry_price': float,
-            'current_price': float,
-            'entry_time': float (unix timestamp),
-            'side': str ('long' or 'short'),
-            'tp1_hit': bool (has TP1 been executed?),
-            'peak_price': float (highest price seen),
-            'position_size': float
+    """Thin wrapper for convenience imports (same pattern as ProfitLockManager)."""
+
+    def __init__(self, config: Optional[WinningRiskConfig] = None):
+        self.config = config
+
+    def evaluate_position(self, pos_data: dict) -> dict:
+        """Dict-style API compatible with Manus's original sketch."""
+        entry_time = pos_data.get("entry_time")
+        if isinstance(entry_time, (int, float)):
+            entry_time = datetime.fromtimestamp(float(entry_time), tz=timezone.utc)
+        elif not isinstance(entry_time, datetime):
+            entry_time = datetime.now(timezone.utc)
+
+        d = evaluate_position(
+            coin=str(pos_data.get("coin", "UNKNOWN")),
+            current_price=float(pos_data["current_price"]),
+            entry_price=float(pos_data["entry_price"]),
+            entry_time=entry_time,
+            side=str(pos_data.get("side", "long")),
+            peak_price=pos_data.get("peak_price"),
+            current_sl=pos_data.get("current_sl") or pos_data.get("sl_price"),
+            tp1_hit=bool(pos_data.get("tp1_hit", False)),
+            config=self.config,
+        )
+        out: dict = {
+            "action": "none",
+            "reason": d.reason,
+            "pnl_pct": d.pnl_pct,
+            "hold_minutes": d.hold_minutes,
         }
-        
-        Returns: {
-            'action': str ('none', 'update_sl', 'partial_close', 'close_all'),
-            'sl_price': float (if action is update_sl),
-            'close_size_pct': float (if action is partial_close),
-            'reason': str
-        }
-        """
-        coin = pos_data.get('coin', 'UNKNOWN')
-        entry_px = pos_data['entry_price']
-        curr_px = pos_data['current_price']
-        side = pos_data['side']
-        entry_time = pos_data['entry_time']
-        tp1_hit = pos_data.get('tp1_hit', False)
-        peak_px = pos_data.get('peak_price', curr_px)
-        
-        # Calculate PnL %
-        if side == 'long':
-            pnl_pct = ((curr_px - entry_px) / entry_px) * 100
-        else:  # short
-            pnl_pct = ((entry_px - curr_px) / entry_px) * 100
-        
-        # Calculate time elapsed (minutes)
-        time_elapsed = (time.time() - entry_time) / 60
-        
-        # ─────────────────────────────────────────────────────────────
-        # 1. Ultra-Fast Break-even at +0.75%
-        # ─────────────────────────────────────────────────────────────
-        if pnl_pct >= self.fast_break_even_pct:
-            if side == 'long':
-                new_sl = entry_px * (1 + self.fast_break_even_sl_offset / 100)
-            else:
-                new_sl = entry_px * (1 - self.fast_break_even_sl_offset / 100)
-            
-            logger.info(f"[{coin}] 🎯 Ultra-Fast Break-even: +{pnl_pct:.2f}% → SL to {new_sl:.8f}")
-            return {
-                'action': 'update_sl',
-                'sl_price': new_sl,
-                'reason': f'Ultra-Fast Break-even at +{pnl_pct:.2f}%'
-            }
-        
-        # ─────────────────────────────────────────────────────────────
-        # 2. TP1 Front-loading at +2%
-        # ─────────────────────────────────────────────────────────────
-        if pnl_pct >= self.tp1_profit_pct and not tp1_hit:
-            logger.info(f"[{coin}] 💰 TP1 Front-loading: +{pnl_pct:.2f}% → Close {self.tp1_size_pct}%")
-            return {
-                'action': 'partial_close',
-                'close_size_pct': self.tp1_size_pct,
-                'reason': f'TP1 Front-loading at +{pnl_pct:.2f}%'
-            }
-        
-        # ─────────────────────────────────────────────────────────────
-        # 3. The 30-Min Rule: Tighten SL if no profit in 30 min
-        # ─────────────────────────────────────────────────────────────
-        if time_elapsed >= self.min_rule_time_minutes and pnl_pct < 0:
-            if side == 'long':
-                new_sl = entry_px * (1 + self.min_rule_sl_offset / 100)
-            else:
-                new_sl = entry_px * (1 - self.min_rule_sl_offset / 100)
-            
-            logger.warning(f"[{coin}] ⏱️  30-Min Rule: {time_elapsed:.0f}m in loss ({pnl_pct:.2f}%) → Tighten SL to {new_sl:.8f}")
-            return {
-                'action': 'update_sl',
-                'sl_price': new_sl,
-                'reason': f'30-Min Rule: {time_elapsed:.0f}m in loss'
-            }
-        
-        # ─────────────────────────────────────────────────────────────
-        # 4. Aggressive Trailing Stop (0.5%) after TP1
-        # ─────────────────────────────────────────────────────────────
-        if tp1_hit and pnl_pct > 0:
-            if side == 'long':
-                trail_sl = peak_px * (1 - self.trailing_stop_pct / 100)
-            else:
-                trail_sl = peak_px * (1 + self.trailing_stop_pct / 100)
-            
-            logger.debug(f"[{coin}] 📉 Aggressive Trailing: Peak {peak_px:.8f} → Trail SL {trail_sl:.8f}")
-            return {
-                'action': 'update_sl',
-                'sl_price': trail_sl,
-                'reason': f'Aggressive Trailing at {pnl_pct:.2f}%'
-            }
-        
-        return {'action': 'none', 'reason': 'No action required'}
+        if d.should_close:
+            out["action"] = "close_all"
+        elif d.should_partial_close:
+            out["action"] = "partial_close"
+            out["close_size_pct"] = d.close_size_pct
+        elif d.should_update_sl:
+            out["action"] = "update_sl"
+            out["sl_price"] = d.sl_price
+        return out
 
     def is_toxic_zone(self, hour: int) -> bool:
-        """Check if current hour is in the toxic zone (08:00-14:00 EST)."""
-        return self.toxic_zone_start <= hour < self.toxic_zone_end
+        return is_toxic_zone(hour=hour, config=self.config)
 
     def get_position_size_multiplier(self, hour: int) -> float:
-        """
-        Return position size multiplier based on time of day.
-        During toxic zone, reduce size by 50%.
-        """
-        if self.is_toxic_zone(hour):
-            logger.info(f"⚠️  Toxic Zone detected (hour {hour}). Reducing position size to 50%.")
-            return 0.5
-        return 1.0
+        return get_position_size_multiplier(hour=hour, config=self.config)
 
 
 # Global instance
