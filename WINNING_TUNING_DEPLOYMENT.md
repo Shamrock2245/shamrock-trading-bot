@@ -1,206 +1,126 @@
-# Shamrock Trading Bot: "Winning" Tuning Deployment Guide
+# Shamrock Trading Bot: "Winning" Tuning — Integration Complete
 
-**Date:** July 20, 2026  
-**Status:** Ready for Production  
-**Expected Outcome:** Profit Factor 0.68 → 1.5+ (3-7 days)
-
----
-
-## Executive Summary
-
-The "Slow Leak" has been diagnosed and repaired. The bot was bleeding capital through:
-1. **Small losses** (95 trades, -$109.40) from weak entries
-2. **Long-duration losses** (43 trades, -$312.71) from holding losers too long
-3. **Toxic hour losses** (08:00-14:00 EST) from trading during choppy market conditions
-
-This deployment closes all code gaps with three new modules and aggressive tuning.
+**Date:** July 21, 2026  
+**Status:** **WIRED** into production code paths (Manus modules were previously unwired)  
+**Source CSV:** `trade_history (29).csv` (406 fills, 221 closed pairs)
 
 ---
 
-## What's New
+## Second-set-of-eyes findings (Manus gap)
 
-### 1. **Winning Risk Manager** (`core/winning_risk_manager.py`)
-Implements the "Winning" exit strategy:
-- **Ultra-Fast Break-even:** Lock break-even at +0.75% (vs. +1.5%)
-- **TP1 Front-loading:** Close 50% at +2% profit
-- **The 30-Min Rule:** Tighten SL to -1% if no profit in 30 minutes
-- **Aggressive Trailing:** 0.5% trailing stop after TP1
+Manus commit `8d776bb` added four files only:
 
-### 2. **Winning Entry Filter** (`core/hl_scanner_winning_tuning.py`)
-Implements strict entry criteria:
-- **Volume Floor:** $1M minimum 24h volume (was $100k)
-- **VWAP Filter:** Only enter if price is above VWAP on 15m
-- **Narrative Bonus:** High-narrative coins can bypass strict gate
-- **Volatility Adjustment:** High ATR (>5%) reduces position size by 50%
-- **Dynamic Blacklist:** Auto-blacklist coins with 3+ SL hits in 24h
+| File | Manus state | After this pass |
+|------|-------------|-----------------|
+| `core/winning_risk_manager.py` | Standalone; **TP1/trail dead** (BE always returned first); **zero callers** | Pure `evaluate_position()`; correct priority; wired in `main.py` trailing monitor |
+| `core/hl_scanner_winning_tuning.py` | Standalone; **zero callers** | Stateful filter + SL blacklist; wired in `hl_perps_scanner._execute_signal` |
+| `.env.winning` | Reference only; enabled HF Moralis stub | Corrected; CI patches live `.env` on deploy |
+| `WINNING_TUNING_DEPLOYMENT.md` | "how to integrate later" | Documents **actual** wiring |
 
-### 3. **Configuration Update** (`.env.winning`)
-All tuning parameters in one place for easy adjustment.
+This is the same pattern as Manus’s earlier profit-lock drop (fixed in `1ccf85c` / `PROFIT_LOCK_UPGRADE.md`).
 
 ---
 
-## Integration Steps
+## trade_history (29) diagnosis (verified)
 
-### Step 1: Merge New Modules
-```bash
-# Already added to the repository:
-# - core/winning_risk_manager.py
-# - core/hl_scanner_winning_tuning.py
-# - .env.winning (reference configuration)
-```
+| Metric | Value |
+|--------|------:|
+| Closed trades | 221 |
+| Win rate | 35.75% |
+| Profit factor | **0.668** |
+| Net PnL | **−$298.21** |
+| Small losses (&lt;$3) | 87 trades, −$62.63 |
+| Losers held ≥30m | 64 trades, −$603.63 |
+| Losers held ≥4h | 44 trades, **−$503.63** |
+| Opens 08–14 (hour) | 110 trades, **−$326.10** |
+| Other hours | 111 trades, **+$27.90** |
+| Last 7d | 53 trades, 39.6% WR, PF ≈ 1.01, net +$1 |
 
-### Step 2: Update Core Executor (`core/executor.py`)
-Add the Winning Risk Manager to the position update loop:
+Manus’s high-level diagnosis is right (small cuts + long bleeds + toxic hours). The **largest** dollar leak is multi-hour losers, not sub-$3 noise.
 
-```python
-from core.winning_risk_manager import winning_risk_manager
+---
 
-def update_position_stops(position):
-    """Update stops using Winning Risk Manager logic."""
-    action = winning_risk_manager.evaluate_position({
-        'coin': position['coin'],
-        'entry_price': position['entry_price'],
-        'current_price': position['current_price'],
-        'entry_time': position['entry_time'],
-        'side': position['side'],
-        'tp1_hit': position.get('tp1_hit', False),
-        'peak_price': position.get('peak_price', position['current_price']),
-        'position_size': position['size']
-    })
-    
-    if action['action'] == 'update_sl':
-        position['sl_price'] = action['sl_price']
-        logger.info(f"SL Updated: {action['reason']}")
-    elif action['action'] == 'partial_close':
-        close_position(position, action['close_size_pct'])
-        logger.info(f"TP1 Executed: {action['reason']}")
-```
+## What is live now
 
-### Step 3: Update HL Perps Scanner (`core/hl_perps_scanner.py`)
-Integrate the Winning Entry Filter:
+### Exit path — `main.py` → `_hl_trailing_monitor_daemon`
 
-```python
-from core.hl_scanner_winning_tuning import winning_entry_filter
+When `WINNING_RISK_MANAGER_ENABLED=true` (default):
 
-def get_entry_candidates():
-    """Get candidates with Winning Entry Filter."""
-    candidates = scan_convergence_gate()
-    
-    # Filter through Winning Entry Filter
-    approved = []
-    for token in candidates:
-        validation = winning_entry_filter.validate_entry({
-            'symbol': token['symbol'],
-            'current_price': token['price'],
-            'volume_24h_usd': token['volume_24h'],
-            'vwap_15m': token['vwap_15m'],
-            'atr_pct': token['atr_pct'],
-            'narrative_score': token['narrative_score'],
-            'sl_count_24h': token.get('sl_count_24h', 0)
-        })
-        
-        if validation['approved']:
-            token['position_size_multiplier'] = validation['position_size_multiplier']
-            approved.append(token)
-    
-    return approved
-```
+1. **Hard timeout 2h** still red → `close_position()` (tighter than profit_lock 4h)
+2. **TP1 @ +2%** → `close_position(size_pct=50)` partial; marks `tp1_hit`
+3. **Ultra-fast BE @ +0.75%** → SL to entry + 0.05%
+4. **Aggressive trail 0.5%** from peak after TP1 / +2%
+5. **30-Min Rule** still red → tighten SL to −1%
 
-### Step 4: Update Configuration
-```bash
-# Copy the Winning tuning settings to your .env
-cat .env.winning >> .env
+When Winning is **off**, legacy profit_lock (BE 1.5% / trail 3% / 4h) still runs.
 
-# Or manually add these key settings:
+### Entry path — `hl_perps_scanner._execute_signal`
+
+When `WINNING_ENTRY_FILTER_ENABLED=true` (default):
+
+1. **$1M** `dayNtlVlm` floor (missing volume = allow; don’t halt book on cache miss)
+2. Dynamic blacklist after **3 SL hits / 24h**
+3. High ATR size cut (when atr provided)
+4. **Toxic zone 08–14 ET** → size × 0.5
+
+Toxic list adds **HEMI, ONDO** from v29.
+
+### Executor
+
+- `HLPosition.tp1_hit` persisted in `hl_trailing_state.json`
+- `close_position(symbol, size_pct=…)` for TP1 partials via `market_close(sz=…)`
+
+---
+
+## Config (also in `.env.example` + CI deploy patch)
+
+```env
 WINNING_RISK_MANAGER_ENABLED=true
 WINNING_ENTRY_FILTER_ENABLED=true
-MIN_VOLUME_USD=1000000
 FAST_BREAK_EVEN_PCT=0.75
 TP1_PROFIT_PCT=2.0
+TP1_SIZE_PCT=50
+MIN_RULE_TIME_MINUTES=30
+TRAILING_STOP_PCT=0.5
+WINNING_LOSS_TIMEOUT_HOURS=2.0
 TOXIC_ZONE_RESTRICTION=true
+MIN_VOLUME_USD=1000000
+HF_MORALIS_SCANNER_ENABLED=false   # still a stub — never enable
 ```
 
-### Step 5: Deploy
+---
+
+## Tests
+
 ```bash
-# Run preflight check
-python3 scripts/preflight_check.py
-
-# Build and deploy
-docker compose build --no-cache
-docker compose up -d
-
-# Monitor logs
-docker compose logs -f shamrock-bot | grep -E "Winning|Ultra-Fast|TP1|30-Min|Trailing"
+python -m pytest tests/test_winning_risk_manager.py tests/test_profit_lock_manager.py -q
 ```
 
 ---
 
-## Expected Behavior
+## Deploy
 
-### Before (v29 Trade History)
-- **Profit Factor:** 0.68 (losing money)
-- **Win Rate:** 26.97%
-- **Small Losses:** 95 trades, -$109.40
-- **Long-Duration Losses:** 43 trades, -$312.71
-
-### After (Expected, 3-7 days)
-- **Profit Factor:** 1.5+ (profitable)
-- **Win Rate:** 50%+
-- **Small Losses:** Eliminated by $1M volume floor + VWAP filter
-- **Long-Duration Losses:** Eliminated by 30-Min Rule
-- **Daily Profit:** Consistent $500+ sweeps to L1 Paycheck Wallet
-
----
-
-## Monitoring & Tuning
-
-### Key Metrics to Watch
-1. **Profit Factor:** Should trend toward 2.0+
-2. **Win Rate:** Should improve to 50%+
-3. **Average Trade Duration:** Should decrease (faster exits)
-4. **Toxic Zone Performance:** Should be neutral (size reduced 50%)
-
-### Fine-Tuning Knobs
-If the bot is still too aggressive:
-- Increase `FAST_BREAK_EVEN_PCT` to 1.0
-- Increase `MIN_RULE_TIME_MINUTES` to 45
-- Increase `MIN_VOLUME_USD` to $2M
-
-If the bot is too conservative:
-- Decrease `FAST_BREAK_EVEN_PCT` to 0.5
-- Decrease `MIN_RULE_TIME_MINUTES` to 20
-- Decrease `MIN_VOLUME_USD` to $500k
-
----
-
-## Rollback Plan
-
-If issues arise:
 ```bash
-# Revert to previous version
-git revert HEAD
-
-# Rebuild
-docker compose build --no-cache
-docker compose up -d
+# After merge to main (CI also patches server .env):
+docker compose build --no-cache && docker compose up -d
+docker compose logs -f shamrock-bot | grep -E "WINNING|Winning|TP1|30min|Toxic Zone"
 ```
 
 ---
 
-## Next Steps
+## Knobs if too tight / too loose
 
-1. **Deploy this update** to production
-2. **Monitor for 3-7 days** to confirm Profit Factor improvement
-3. **Once Profit Factor > 1.5**, scale capital from $150 to $1k-$5k
-4. **Target:** $500/day consistent sweep to L1 Paycheck Wallet
-5. **Ultimate Goal:** $10,000/day parabolic profit target
+| Symptom | Adjust |
+|---------|--------|
+| Too few entries | Lower `MIN_VOLUME_USD` to 500000 |
+| Still multi-hour red | Lower `WINNING_LOSS_TIMEOUT_HOURS` to 1.5 |
+| Stopped out of winners | Raise `FAST_BREAK_EVEN_PCT` to 1.0 or `TRAILING_STOP_PCT` to 0.8 |
+| Toxic hours still bleed | Expand `HL_PERPS_BLOCKED_HOURS_ET` (already blocks 10,17,22 hard) |
 
 ---
 
-## Questions?
+## Explicitly NOT claimed
 
-Refer to:
-- `Winning_Tuning_Plan.md` — Detailed tuning rationale
-- `GUARDRAILS.md` — Safety constraints
-- `CURRENT_STATUS.md` — System state
-- `README.md` — Architecture overview
+- Profit factor will not magically jump to 1.5 on day one — need 3–7 days of live sample.
+- VWAP filter only applies when `vwap_15m` is supplied (scanner currently passes 0 → skip).
+- HF Moralis scanner remains a disabled stub (Manus’s `.env.winning` wrongly set it true).

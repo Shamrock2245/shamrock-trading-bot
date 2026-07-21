@@ -86,9 +86,10 @@ HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "t
 # HYPE added 2026-07-17 (4 trades, 0% WR, −$6.65 in trade_history 26)
 # trade_history (27): TRB/GRASS/EIGEN/MET/HMSTR/FARTCOIN/HYPE/BRETT heavy losers; AAVE noisy.
 # trade_history (28): KAITO 7 trades / 14% WR / −$30.57 last 7d (worst coin).
+# trade_history (29): HEMI 3 trades / 0% WR / −$15.5 recent; ONDO one-shot −$18.
 _TOXIC_RAW = os.getenv(
     "HL_PERPS_TOXIC_COINS",
-    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO,KAITO",
+    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO,KAITO,HEMI,ONDO",
 )
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 # Higher bar for toxic names (was 15) — history shows they still leaked through
@@ -99,6 +100,10 @@ _BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
 HL_PERPS_BLOCKED_HOURS_ET: set[int] = {
     int(h.strip()) for h in _BLOCKED_HOURS_RAW.split(",") if h.strip().isdigit()
 }
+# Winning entry filter (trade_history 29) — volume floor + toxic-hour size cut
+WINNING_ENTRY_FILTER_ENABLED: bool = os.getenv(
+    "WINNING_ENTRY_FILTER_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
 # ── Auto-Blacklist: performance-based dynamic coin banning ───────────────────
 # A coin is auto-banned for HL_PERPS_AUTOBAN_HOURS when it has
 # >= HL_PERPS_AUTOBAN_MIN_TRADES AND a win rate below HL_PERPS_AUTOBAN_WR_THRESHOLD.
@@ -1493,6 +1498,58 @@ class HLPerpsScanner:
                 f"${max_margin_for_notional:.2f} (notional cap ${HL_PERPS_MAX_NOTIONAL_USD:.0f})"
             )
             size_usd = round(max_margin_for_notional, 2)
+
+        # ── Winning entry filter (volume floor, blacklist, ATR size cut, toxic zone) ──
+        if WINNING_ENTRY_FILTER_ENABLED:
+            try:
+                from core.hl_scanner_winning_tuning import winning_entry_filter
+                from core.winning_risk_manager import get_position_size_multiplier
+
+                day_vol = 0.0
+                atr_pct = 0.0
+                try:
+                    ctxs = self._get_asset_ctxs_cached()
+                    ctx = ctxs.get(coin_u) or ctxs.get(signal.coin)
+                    if ctx:
+                        day_vol = float(ctx.get("dayNtlVlm") or 0)
+                except Exception:
+                    pass
+                try:
+                    comps = signal.components or {}
+                    # Prefer explicit atr if present; else rough from vol_multiplier inverse
+                    if comps.get("atr_pct") is not None:
+                        atr_pct = float(comps["atr_pct"])
+                except Exception:
+                    pass
+
+                validation = winning_entry_filter.validate_entry({
+                    "symbol": signal.coin,
+                    "current_price": signal.entry_price,
+                    "volume_24h_usd": day_vol,
+                    "vwap_15m": 0.0,  # optional; 0 = skip VWAP gate
+                    "atr_pct": atr_pct,
+                    "narrative_score": 0.0,
+                    "sl_count_24h": 0,
+                    "side": signal.direction,
+                })
+                if not validation.get("approved"):
+                    logger.info(
+                        f"[HL-PERPS] {signal.coin} Winning entry blocked: "
+                        f"{validation.get('reason')}"
+                    )
+                    return False
+                size_mult = float(validation.get("position_size_multiplier") or 1.0)
+                # Toxic-hour size cut (08–14 ET): trade_history 29 −$326 vs +$28 elsewhere
+                size_mult *= float(get_position_size_multiplier())
+                if size_mult != 1.0:
+                    new_size = round(max(10.0, size_usd * size_mult), 2)
+                    logger.info(
+                        f"[HL-PERPS] {signal.coin} Winning size ×{size_mult:.2f}: "
+                        f"${size_usd:.2f} → ${new_size:.2f}"
+                    )
+                    size_usd = new_size
+            except Exception as _win_err:
+                logger.debug(f"[HL-PERPS] Winning entry filter error (allowing): {_win_err}")
 
         try:
             open_kwargs = dict(

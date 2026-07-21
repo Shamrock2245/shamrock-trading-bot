@@ -265,6 +265,13 @@ class HyperliquidExecutor:
                 # emergency closes (SL fail / R/R reject) always count as losses
                 won = not loss
                 scanner.record_trade_outcome(coin, won=won)
+            # Winning dynamic blacklist: feed SL hits (3+ / 24h → ban)
+            if loss:
+                try:
+                    from core.hl_scanner_winning_tuning import winning_entry_filter
+                    winning_entry_filter.record_sl_hit(coin)
+                except Exception:
+                    pass
             if emergency:
                 if not hasattr(scanner, "emergency_cooldowns"):
                     scanner.emergency_cooldowns = {}
