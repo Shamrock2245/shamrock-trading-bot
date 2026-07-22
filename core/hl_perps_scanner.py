@@ -82,18 +82,28 @@ HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", 
 HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
 # Shorts: live book ~17% short WR — stay long-only until short edge is proven
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
-# Coins that repeatedly lost / micro-churned in live history — need higher score
-# HYPE added 2026-07-17 (4 trades, 0% WR, −$6.65 in trade_history 26)
-# trade_history (27): TRB/GRASS/EIGEN/MET/HMSTR/FARTCOIN/HYPE/BRETT heavy losers; AAVE noisy.
-# trade_history (28): KAITO 7 trades / 14% WR / −$30.57 last 7d (worst coin).
-# trade_history (29): HEMI 3 trades / 0% WR / −$15.5 recent; ONDO one-shot −$18.
+# ── Hard ban (trade_history 31): NEVER open these — score+20 was not enough ──
+# Soft toxic (score bonus) still let KAITO/APE EXECUTING live on 2026-07-22.
+# Confirmed multi-trade losers from v26–v31 (AAVE kept off hard-ban: net +$68).
+_HARD_BAN_RAW = os.getenv(
+    "HL_PERPS_HARD_BAN_COINS",
+    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO",
+)
+HL_PERPS_HARD_BAN_COINS: set[str] = {
+    c.strip().upper() for c in _HARD_BAN_RAW.split(",") if c.strip()
+}
+# Soft toxic: higher score bar only (not a hard skip). Borderline / noisy names.
+# HYPE added 2026-07-17; KAITO/HEMI/ONDO moved to hard-ban after v29–v31.
 _TOXIC_RAW = os.getenv(
     "HL_PERPS_TOXIC_COINS",
-    "AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO,KAITO,HEMI,ONDO",
+    "AAVE",
 )
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
-# Higher bar for toxic names (was 15) — history shows they still leaked through
+# Higher bar for soft-toxic names
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "20.0"))
+# Cap new opens per scan cycle — trade_history 31 / live 2026-07-22 sprayed 6–9
+# entries in one minute when behind_pace. Rank full universe, take top-N only.
+HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "3"))
 # Optional hour block (local America/New_York). trade_history(27): hour 10/17/22 worst PnL.
 # Empty string disables. Example: "10,17,22"
 _BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
@@ -1476,10 +1486,17 @@ class HLPerpsScanner:
             )
             return False
 
-        # Toxic-coin higher bar (repeat losers / micro-churn names from live history)
         coin_u = signal.coin.upper()
+        # Hard ban — never open (v31: score+20 soft toxic still let KAITO/APE through)
+        if coin_u in HL_PERPS_HARD_BAN_COINS:
+            logger.info(
+                f"[HL-PERPS] {signal.coin} HARD-BANNED (HL_PERPS_HARD_BAN_COINS) — skip"
+            )
+            return False
+
+        # Soft toxic: higher score bar only (repeat losers / noisy names)
         exec_floor = float(freq["exec_score"])
-        if coin_u in HL_PERPS_TOXIC_COINS:
+        if coin_u in HL_PERPS_TOXIC_COINS and coin_u not in HL_PERPS_HARD_BAN_COINS:
             exec_floor = exec_floor + HL_PERPS_TOXIC_SCORE_BONUS
             if signal.score < exec_floor:
                 logger.info(
@@ -1696,14 +1713,17 @@ class HLPerpsScanner:
         active_positions = len(self.hl_executor.positions) if self.hl_executor else 0
         freq = self._goal_frequency_params()
         max_pos = int(freq["max_positions"])
-        max_new_signals = max_pos - active_positions
+        free_slots = max(0, max_pos - active_positions)
+        # Cap spray: free slots AND max-new-per-scan (v31 behind_pace spray fix)
+        max_new_per_scan = max(1, int(HL_PERPS_MAX_NEW_PER_SCAN))
+        max_new_signals = min(free_slots, max_new_per_scan)
         if self.scan_count % 10 == 1:
             logger.info(
                 f"[HL-PERPS] Goal frequency | mode={freq['mode']} | "
                 f"progress={freq['progress_pct']:.0f}% | remaining=${freq['remaining_usd']:.0f} | "
                 f"behind_pace={freq['behind_pace']} | exec≥{freq['exec_score']:.0f} | "
                 f"reentry={freq['reentry_cooldown_min']}m | max_pos={max_pos} | "
-                f"size_mult={freq['size_multiplier']:.2f}"
+                f"max_new/scan={max_new_per_scan} | size_mult={freq['size_multiplier']:.2f}"
             )
 
         # Cap total scan to 150 coins to balance opportunity vs rate limits
@@ -1721,6 +1741,9 @@ class HLPerpsScanner:
                 continue
             if coin in self.pending_retracements:
                 continue
+            # Hard-ban early — no TA / no EXECUTING log noise
+            if coin.upper() in HL_PERPS_HARD_BAN_COINS:
+                continue
 
             # Rate-limit: 0.25s delay every 3 non-watchlist coins
             if idx >= watchlist_len and idx % 3 == 0:
@@ -1731,6 +1754,8 @@ class HLPerpsScanner:
             scanned += 1
 
             if signal:
+                if signal.coin.upper() in HL_PERPS_HARD_BAN_COINS:
+                    continue
                 signals.append(signal)
                 self.signals_generated += 1
 
@@ -1740,6 +1765,18 @@ class HLPerpsScanner:
 
         # Execute only what we have room for (0 when full — still scanned above)
         to_execute = signals[: max(0, max_new_signals)]
+        if signals and free_slots <= 0:
+            logger.warning(
+                f"[HL-PERPS] {len(signals)} signals ready but 0 free slots "
+                f"(local_positions={active_positions}/{max_pos}). "
+                f"If exchange is flat, ghosts are blocking — sync/purge required. "
+                f"coins={sorted(list(self.hl_executor.positions.keys())[:12]) if self.hl_executor else []}"
+            )
+        elif signals and max_new_signals < free_slots and len(signals) > max_new_signals:
+            logger.info(
+                f"[HL-PERPS] Entry cap: executing top {max_new_signals}/{len(signals)} "
+                f"signals (max_new_per_scan={max_new_per_scan}, free_slots={free_slots})"
+            )
         for signal in to_execute:
             is_golden = (
                 signal.fib_confidence >= 70

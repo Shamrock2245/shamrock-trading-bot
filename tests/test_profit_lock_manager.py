@@ -178,10 +178,11 @@ def test_manager_wrapper_dict_api():
 
 
 def test_kaito_in_toxic_source_default(monkeypatch):
-    """trade_history 28: KAITO must be in the code default toxic list."""
+    """trade_history 28/31: KAITO must be hard-banned (soft toxic was insufficient)."""
     import importlib
     import core.hl_perps_scanner as scanner
 
     monkeypatch.delenv("HL_PERPS_TOXIC_COINS", raising=False)
+    monkeypatch.delenv("HL_PERPS_HARD_BAN_COINS", raising=False)
     scanner = importlib.reload(scanner)
-    assert "KAITO" in scanner.HL_PERPS_TOXIC_COINS
+    assert "KAITO" in scanner.HL_PERPS_HARD_BAN_COINS

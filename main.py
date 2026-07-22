@@ -1460,9 +1460,33 @@ async def run_bot_loop():
         )
 
         _backoff_seconds = 0  # exponential backoff on rate-limit errors
+        _sync_every_n = max(1, int(float(os.getenv("HL_POSITION_SYNC_EVERY_N", "4"))))
+        _sync_tick = 0
 
         while True:
             try:
+                # Reconcile local positions with live HL book periodically.
+                # Without this, TP/SL/manual closes leave ghosts that fill max_positions
+                # and block new entries while spamming Winning timeout closes.
+                _sync_tick += 1
+                if _sync_tick % _sync_every_n == 1:
+                    try:
+                        before = set(_exec.positions.keys())
+                        _exec._sync_positions()
+                        after = set(_exec.positions.keys())
+                        purged = before - after
+                        if purged:
+                            logger.warning(
+                                f"🧹 HL trailing sync purged ghosts: {sorted(purged)} | "
+                                f"live_slots={len(after)}"
+                            )
+                        else:
+                            logger.debug(
+                                f"HL trailing sync OK | live_slots={len(after)}"
+                            )
+                    except Exception as _sync_err:
+                        logger.warning(f"HL trailing position sync failed: {_sync_err}")
+
                 # Snapshot positions to avoid holding lock during price fetches
                 positions_snapshot = list(_exec.positions.values())
 

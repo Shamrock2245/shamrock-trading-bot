@@ -501,6 +501,61 @@ class HyperliquidExecutor:
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to load tickers: {e}")
 
+    def _exchange_position_size(self, sym: str) -> Optional[float]:
+        """Return live szi for coin from HL clearinghouse.
+
+        Returns:
+          float size (0.0 = confirmed flat), or None if the live query failed
+          (do NOT treat None as flat — avoids purging real positions on 429s).
+        """
+        try:
+            state = self._execute_api(self._info.user_state, self.wallet_address)
+            if not isinstance(state, dict):
+                return None
+            for pos in state.get("assetPositions", []) or []:
+                p = pos.get("position", {}) or {}
+                if (p.get("coin") or "").upper() == sym.upper():
+                    return float(p.get("szi") or 0)
+            # Coin not in assetPositions list → flat
+            return 0.0
+        except Exception as e:
+            logger.debug(f"Hyperliquid: live size check failed for {sym}: {e}")
+            return None
+
+    def _purge_ghost_position(
+        self,
+        sym: str,
+        reason: str = "flat_on_exchange",
+        *,
+        already_locked: bool = False,
+    ) -> None:
+        """Remove a local position that no longer exists on Hyperliquid.
+
+        Critical: without this, closed fills leave ghosts that fill max_positions
+        slots, block re-entry, and spam failed Winning timeout closes (→ 429s).
+
+        already_locked=True when caller already holds self._lock (non-reentrant).
+        """
+        def _do() -> None:
+            if sym not in self.positions:
+                return
+            last = self.positions.pop(sym, None)
+            try:
+                self._save_trailing_state()
+            except Exception:
+                pass
+            est = float(getattr(last, "pnl", 0.0) or 0.0) if last else 0.0
+            logger.warning(
+                f"🧹 Hyperliquid GHOST PURGE | {sym} | reason={reason} | "
+                f"last_uPnl≈${est:+.2f} | local_slots_now={len(self.positions)}"
+            )
+
+        if already_locked:
+            _do()
+        else:
+            with self._lock:
+                _do()
+
     def _sync_positions(self) -> None:
         """Sync open positions from Hyperliquid account state."""
         try:
@@ -533,7 +588,9 @@ class HyperliquidExecutor:
                 notional_usd = abs(szi) * entry_px
                 margin_usd = notional_usd / lev
 
-                self.positions[coin] = HLPosition(
+                # Preserve trailing metadata across sync (do not clobber peaks/oids)
+                prev = self.positions.get(coin)
+                new_pos = HLPosition(
                     coin=coin,
                     side="long" if szi > 0 else "short",
                     entry_price=entry_px,
@@ -542,9 +599,23 @@ class HyperliquidExecutor:
                     leverage=lev,
                     pnl=unrealized_pnl,
                 )
+                if prev is not None:
+                    new_pos.opened_at = prev.opened_at
+                    new_pos.highest_price = prev.highest_price or entry_px
+                    new_pos.lowest_price = prev.lowest_price if prev.lowest_price != float("inf") else entry_px
+                    new_pos.trailing_stop_active = prev.trailing_stop_active
+                    new_pos.sl_order_id = prev.sl_order_id
+                    new_pos.tp_order_id = prev.tp_order_id
+                    new_pos.stop_loss_price = prev.stop_loss_price
+                    new_pos.take_profit_price = prev.take_profit_price
+                    new_pos.tp1_hit = bool(getattr(prev, "tp1_hit", False))
+                else:
+                    new_pos.highest_price = entry_px
+                    new_pos.lowest_price = entry_px
+                self.positions[coin] = new_pos
             
             # Identify missing coins (closed passively via TP/SL or liquidation)
-            missing_coins = [c for c in self.positions if c not in active_coins]
+            missing_coins = [c for c in list(self.positions.keys()) if c not in active_coins]
             if missing_coins:
                 import sys
                 import time
@@ -562,11 +633,10 @@ class HyperliquidExecutor:
                         f"Hyperliquid: detected passive closure for {missing_coin} "
                         f"(est_pnl=${est_pnl:+.2f}). Cleaning up ghost position."
                     )
-                    self.daily_pnl += est_pnl
-                    self._feed_daily_goal(est_pnl, source="scalp_hl_perps_passive")
+                    # Do NOT feed daily_goal for ghosts already closed on-exchange —
+                    # realized PnL was booked at fill time. Only inject cooldowns.
                     if scanner:
                         try:
-                            scanner.daily_pnl = float(getattr(scanner, "daily_pnl", 0.0) or 0.0) + est_pnl
                             # 1. Loss Cooldown Heuristic (if last known PnL was negative)
                             if est_pnl < 0:
                                 scanner.loss_cooldowns[missing_coin] = time.time()
@@ -586,8 +656,16 @@ class HyperliquidExecutor:
                     # Remove the ghost position
                     del self.positions[missing_coin]
 
+                # Persist cleaned trailing state so restarts don't re-hydrate ghosts
+                try:
+                    self._save_trailing_state()
+                except Exception:
+                    pass
+
             if self.positions:
                 logger.info(f"Hyperliquid: synced {len(self.positions)} open positions")
+            else:
+                logger.info("Hyperliquid: synced 0 open positions (flat)")
             # Restore trailing stop state from disk (survives restarts)
             self._load_trailing_state()
         except Exception as e:
@@ -1003,10 +1081,32 @@ class HyperliquidExecutor:
 
                     return {"coin": sym, "close_price": close_price, "pnl": pnl}
                 else:
+                    # Close rejected — often because we are already flat (ghost local state).
+                    # Verify live size and purge so we free slots and stop 429 spam.
+                    live_sz = self._exchange_position_size(sym)
+                    if live_sz is not None and abs(live_sz) < 1e-12:
+                        self._purge_ghost_position(
+                            sym,
+                            reason=f"close_failed_already_flat:{result}",
+                            already_locked=True,
+                        )
+                        return {"coin": sym, "close_price": 0, "pnl": 0.0, "ghost_purged": True}
                     logger.error(f"Hyperliquid close failed for {sym}: {result}")
                     return None
 
             except Exception as e:
+                # Same ghost path for exceptions (e.g. reduce-only / no position)
+                try:
+                    live_sz = self._exchange_position_size(sym)
+                    if live_sz is not None and abs(live_sz) < 1e-12:
+                        self._purge_ghost_position(
+                            sym,
+                            reason=f"close_exception_already_flat:{e}",
+                            already_locked=True,
+                        )
+                        return {"coin": sym, "close_price": 0, "pnl": 0.0, "ghost_purged": True}
+                except Exception:
+                    pass
                 logger.error(f"Hyperliquid close error for {sym}: {e}")
                 return None
 
@@ -1037,6 +1137,20 @@ class HyperliquidExecutor:
                     partial = True
 
                 if not (result and result.get("status") == "ok"):
+                    live_sz = self._exchange_position_size(sym)
+                    if live_sz is not None and abs(live_sz) < 1e-12:
+                        self._purge_ghost_position(
+                            sym,
+                            reason=f"partial_close_failed_flat:{result}",
+                            already_locked=True,
+                        )
+                        return {
+                            "coin": sym,
+                            "close_price": 0,
+                            "pnl": 0.0,
+                            "ghost_purged": True,
+                            "partial": False,
+                        }
                     logger.error(f"Hyperliquid partial close failed for {sym}: {result}")
                     return None
 

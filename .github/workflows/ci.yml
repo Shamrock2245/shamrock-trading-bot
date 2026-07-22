@@ -119,8 +119,11 @@ jobs:
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
               sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=10/' .env || echo 'HL_PERPS_MAX_POSITIONS=10' >> .env
-              sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE,HMSTR,GRASS,EIGEN,POPCAT,MORPHO,BRETT,APE,MET,MEME,FARTCOIN,TRB,HYPE,LIT,JTO,KAITO,HEMI,ONDO/' .env
+              # v31: hard-ban proven losers; soft toxic score-bonus for AAVE only
+              grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO' >> .env
+              sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
+              grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=3/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=3' >> .env
               grep -q '^HL_PERPS_BLOCKED_HOURS_ET=' .env && sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=10,17,22/' .env || echo 'HL_PERPS_BLOCKED_HOURS_ET=10,17,22' >> .env
               grep -q '^HL_PERPS_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HL_PERPS_MAX_TOTAL_EXPOSURE=.*/HL_PERPS_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HL_PERPS_MAX_TOTAL_EXPOSURE=5000' >> .env
               # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
@@ -141,7 +144,7 @@ jobs:
               grep -q '^TP1_SIZE_PCT=' .env && sed -i 's/^TP1_SIZE_PCT=.*/TP1_SIZE_PCT=50/' .env || echo 'TP1_SIZE_PCT=50' >> .env
               grep -q '^MIN_RULE_TIME_MINUTES=' .env && sed -i 's/^MIN_RULE_TIME_MINUTES=.*/MIN_RULE_TIME_MINUTES=30/' .env || echo 'MIN_RULE_TIME_MINUTES=30' >> .env
               grep -q '^TRAILING_STOP_PCT=' .env && sed -i 's/^TRAILING_STOP_PCT=.*/TRAILING_STOP_PCT=0.5/' .env || echo 'TRAILING_STOP_PCT=0.5' >> .env
-              grep -q '^WINNING_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^WINNING_LOSS_TIMEOUT_HOURS=.*/WINNING_LOSS_TIMEOUT_HOURS=2.0/' .env || echo 'WINNING_LOSS_TIMEOUT_HOURS=2.0' >> .env
+              grep -q '^WINNING_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^WINNING_LOSS_TIMEOUT_HOURS=.*/WINNING_LOSS_TIMEOUT_HOURS=1.5/' .env || echo 'WINNING_LOSS_TIMEOUT_HOURS=1.5' >> .env
               grep -q '^TOXIC_ZONE_RESTRICTION=' .env && sed -i 's/^TOXIC_ZONE_RESTRICTION=.*/TOXIC_ZONE_RESTRICTION=true/' .env || echo 'TOXIC_ZONE_RESTRICTION=true' >> .env
               grep -q '^MIN_VOLUME_USD=' .env && sed -i 's/^MIN_VOLUME_USD=.*/MIN_VOLUME_USD=1000000/' .env || echo 'MIN_VOLUME_USD=1000000' >> .env
               # Profit-lock kept as fallback when Winning is off
