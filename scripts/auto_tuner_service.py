@@ -64,6 +64,13 @@ def main():
             except Exception as e:
                 logger.error(f"❌ Optuna cycle failed: {e}")
             last_optuna_run = time.time()
+
+        # 3. Run Self-Improving AI Agent Audit (OpenAlice style)
+        try:
+            from core.self_improving_agent import improving_agent
+            improving_agent.run_self_audit(force=False)
+        except Exception as e:
+            logger.error(f"❌ Self-Improving Agent audit failed: {e}")
             
         # Sleep for 15 minutes before checking again
         time.sleep(900)

@@ -110,6 +110,8 @@ class WinningEntryFilter:
             self.dynamic_blacklist.append(symbol)
             logger.warning(f"[{symbol}] 🚫 Added to blacklist: {sl_count} SL hits in 24h")
 
+    add_to_blacklist = update_blacklist
+
     def clear_blacklist(self) -> None:
         if self.dynamic_blacklist:
             logger.info(f"Clearing dynamic blacklist: {self.dynamic_blacklist}")

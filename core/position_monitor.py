@@ -2106,6 +2106,13 @@ class PositionMonitor:
                         last_auto_tune_time = current_time
                     except Exception as at_e:
                         logger.error(f"Auto-Tuner Error: {at_e}")
+
+                # Run Self-Improving Agent Audit Cycle
+                try:
+                    from core.self_improving_agent import improving_agent
+                    improving_agent.run_self_audit()
+                except Exception as sia_e:
+                    logger.error(f"Self-Improving Agent Audit Error: {sia_e}")
                         
                 # Run Hourly Report every 60 minutes
                 if current_time - last_hourly_report_time >= HOURLY_REPORT_INTERVAL:

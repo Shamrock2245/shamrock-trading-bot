@@ -224,6 +224,11 @@ OPTUNA_AUTO_APPLY = os.getenv("OPTUNA_AUTO_APPLY", "true").lower() == "true"  # 
 OPTUNA_DB_PATH = os.getenv("OPTUNA_DB_PATH", "data/optuna_studies.db")       # SQLite persistence
 OPTUNA_LOOKBACK_DAYS = int(os.getenv("OPTUNA_LOOKBACK_DAYS", "60"))          # Trade history window
 
+# ── Upgrade 3c: Self-Improving AI Agent (OpenAlice style) ───────────────────
+SELF_IMPROVEMENT_ENABLED = os.getenv("SELF_IMPROVEMENT_ENABLED", "true").lower() == "true"
+SELF_IMPROVEMENT_INTERVAL_SECONDS = float(os.getenv("SELF_IMPROVEMENT_INTERVAL_SECONDS", "86400"))  # 24 hours
+SELF_IMPROVEMENT_AUDIT_FILE = os.getenv("SELF_IMPROVEMENT_AUDIT_FILE", "output/self_improving_audit.json")
+
 # ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
 WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"
 WALLET_MONITOR_POLL_INTERVAL = int(os.getenv("WALLET_MONITOR_POLL_INTERVAL", "30"))      # seconds between polls
