@@ -14,7 +14,7 @@ The entire trade pipeline is wired and working end-to-end:
 - **Rug Protection**: Dev wallet age/frequency/sell pattern analysis + fuzzy-match copycat detection (instant-reject)
 - **Moralis Pro Integration**: Primary enrichment — buying pressure, on-chain strength, security scores, holder analytics, discovery tokens
 - **Binance Pulse**: Smart money signals, social hype, unified rankings (free, no key)
-- **LLM Auto-Tuner (Trading-as-Git)**: AI quantitative tuning of active positions. Modifies trailing stops via `gpt-5-mini` by default (`OPENAI_MODEL`; free daily mini-class when sharing enabled).
+- **LLM Auto-Tuner & Self-Improving AI Agent (Trading-as-Git)**: AI quantitative tuning & closed-loop performance auditing (`core/self_improving_agent.py` & `core/llm_auto_tuner.py`). Analyzes `output/trades.json`, detects failure patterns (weak entries, hope trades, toxic zone leaks, repeat losers), tunes dynamic parameters/blacklists, and uses OpenAI (`OPENAI_API_KEY`, default `gpt-5-mini`) with deterministic rule-based fallback.
 - **ShamrockGuard**: Global risk protector. Scales position sizing relative to the $500/day profit goal, and enforces maximum daily drawdowns.
 - **Hourly Reports**: Hourly dispatches to Telegram and Slack with current PnL, active regime, and position count.
 - **Progression of Goals & Pyramiding**:
@@ -105,6 +105,7 @@ Jupiter (SOL) / 1inch (EVM) / Trader Joe (AVAX) → Sign → Broadcast
 | `core/hourly_report.py` | Slack & TG Hourly updates on PnL & positions |
 | `core/shamrock_guard.py` | Bank-It Mode & strict Drawdown limiting |
 | `core/llm_auto_tuner.py` | LLM quantitative tuning with TaG methodology |
+| `core/self_improving_agent.py` | Self-improving AI agent closed-loop audit & dynamic blacklisting |
 | `config/wallets.py` | Conservative + Nuclear strategy profiles |
 | `config/settings.py` | 200+ configurable thresholds |
 | `main.py` | Bot loop orchestrator |

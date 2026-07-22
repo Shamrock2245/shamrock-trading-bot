@@ -77,7 +77,7 @@ Every token must pass a gauntlet of safety gates before any buy is executed:
   - **Phase 3 (Acceleration):** $5,000/day Target (Heavy nuclear wallet leverage)
   - **Phase 4 (Compound/Whale):** $10,000+/day Target (Full auto-tune scaling)
   As targets are met, it leverages realized gains to increase buying power and dynamic position sizing for exponential compounding.
-- **LLM Auto-Tuner (OpenAlice TaG)** — Reasoning-driven agent powered by `gpt-5-mini` by default (free daily high-volume class when data sharing is enabled; override with `OPENAI_MODEL`) that reviews active positions on a 30-minute cycle, adjusts trailing stops, and commits parameter updates using a "Trading-as-Git" workflow.
+- **LLM Auto-Tuner & Self-Improving AI Agent (OpenAlice TaG)** — Closed-loop feedback engine powered by OpenAI (`OPENAI_API_KEY` in `.env`, default model `gpt-5-mini`) that analyzes `output/trades.json` performance, detects failure modes (weak entries, hope trades, toxic zone leaks, repeat losers), tunes dynamic parameters/blacklists, and commits parameter updates using a "Trading-as-Git" workflow. Includes deterministic fallback when `OPENAI_API_KEY` is absent.
 - **ShamrockGuard & Daily Goals** — Enforces a strict daily target (e.g. $500/day) and dynamically scales down position sizes or enters "Bank-It Mode" to protect profits when the target is nearing completion. Protects against excessive daily drawdowns.
 - **TimesFM Forecaster** — Google's 200M-param foundation model runs locally on the VPS; forecasts 4-hour price direction as a confirmation signal before entry
 - **RL Position Sizer** — reinforcement learning agent that trains every 24 hours on completed trades and learns optimal position size multipliers per situation
@@ -170,6 +170,12 @@ MODE=paper   # ← START HERE. Switch to 'live' only after testing.
 MAX_POSITION_SIZE_PERCENT=2.0
 STOP_LOSS_PERCENT=10.0
 CIRCUIT_BREAKER_PERCENT=15.0
+
+# OpenAI Integration (Auto-Tuner & Self-Improving Agent)
+OPENAI_API_KEY=sk-proj-your_openai_api_key_here
+OPENAI_MODEL=gpt-5-mini
+SELF_IMPROVEMENT_ENABLED=true
+SELF_IMPROVEMENT_INTERVAL_SECONDS=86400  # 24 hours
 ```
 
 > See [MANUS_PROJECT_INSTRUCTIONS.md](./MANUS_PROJECT_INSTRUCTIONS.md) for the full `.env` reference with all available parameters.
@@ -368,6 +374,7 @@ shamrock-trading-bot/
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Hetzner VPS setup, Docker deploy, monitoring, log rotation |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Dev workflow, code standards, adding chains/providers, roadmap |
 | [CURRENT_STATUS.md](./CURRENT_STATUS.md) | Living architecture document — current pipeline state, configs, key files |
+| [SELF_IMPROVING_UPGRADE.md](./SELF_IMPROVING_UPGRADE.md) | Self-Improving AI Agent closed-loop feedback, LLM audits & fallback architecture |
 | [MANUS_PROJECT_INSTRUCTIONS.md](./MANUS_PROJECT_INSTRUCTIONS.md) | Full project spec, API references, phase-by-phase build guide |
 | [OFFENSIVE_GUARDRAILS_DESIGN.md](./OFFENSIVE_GUARDRAILS_DESIGN.md) | Offensive guardrails architecture + design rationale |
 

@@ -7,6 +7,18 @@
 - Description of change
 ```
 
+## [2.8.0] — 2026-07-22
+### Added & Completed: OpenAlice Self-Improving AI Agent Closed-Loop Feedback
+- **Completed `SelfImprovingAgent` (`core/self_improving_agent.py`):**
+  - Aligned trade history source to canonical `output/trades.json` (configurable via `TRADES_FILE`).
+  - Added metric calculation (win rate, PnL, average win/loss, trade count).
+  - Added failure mode analysis for weak entries (< $5 or < -1.5%), hope trades (> 30 min hold in loss), toxic zone losses (08:00–14:00 EST), and repeat loser tokens (SL hits >= 2).
+  - Implemented safe OpenAI API calls (`OPENAI_API_KEY` in `.env`, default model `gpt-5-mini`) with rule-based fallback when key is absent.
+  - Implemented automatic dynamic blacklisting (`WinningEntryFilter` update) and audit persistence to `output/self_improving_audit.json`.
+  - Added 24-hour cooldown lock (`output/self_improving_lock.json`).
+- **Runtime Wiring:** Integrated `run_self_audit()` into `core/position_monitor.py` periodic loop and `scripts/auto_tuner_service.py`.
+- **Test Suite:** Added 7 unit tests in `tests/test_self_improving_agent.py` (72/72 core tests passing).
+
 ---
 ## [2.7.0] — 2026-07-17
 ### Tuned: Frequency unstack from trade_history (26).csv
