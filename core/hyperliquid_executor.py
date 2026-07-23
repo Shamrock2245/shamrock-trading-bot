@@ -182,8 +182,16 @@ class HyperliquidExecutor:
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
         entry_time: Optional[str] = None,
+        mfe_pct: Optional[float] = None,
+        mae_pct: Optional[float] = None,
     ) -> None:
-        """Append a Hyperliquid fill to output/trades.json for analytics."""
+        """Append a Hyperliquid fill to output/trades.json for analytics.
+
+        v32 (OpenAlice retrospective): mfe_pct / mae_pct = max favorable /
+        adverse excursion over the hold (tracked peak/trough vs entry). The
+        self-improving agent uses these to calibrate SL and trail distances
+        from realized data instead of guessing.
+        """
         try:
             trades_path = Path(os.getenv("TRADES_FILE", "output/trades.json"))
             trades_path.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +227,8 @@ class HyperliquidExecutor:
                 "leverage": leverage,
                 "stop_loss": stop_loss,
                 "take_profit": take_profit,
+                "mfe_pct": mfe_pct,
+                "mae_pct": mae_pct,
             }
             trades.append(record)
             # Keep journal bounded
@@ -227,6 +237,34 @@ class HyperliquidExecutor:
             trades_path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to journal trade for {coin}: {e}")
+
+    @staticmethod
+    def _calc_mfe_mae(pos: "HLPosition") -> tuple:
+        """v32: max favorable / adverse excursion (%) from tracked peak/trough.
+
+        For longs: MFE = entry→highest_price, MAE = entry→lowest seen (we only
+        track highest for longs, so MAE falls back to None when unavailable).
+        For shorts: MFE = entry→lowest_price move in our favor.
+        Returns (mfe_pct, mae_pct); None where the excursion wasn't tracked.
+        """
+        try:
+            entry = float(pos.entry_price or 0)
+            if entry <= 0:
+                return None, None
+            hi = float(pos.highest_price or 0)
+            lo = pos.lowest_price
+            lo = float(lo) if lo not in (None, float("inf")) else 0.0
+            if pos.side == "long":
+                mfe = ((hi - entry) / entry * 100.0) if hi > 0 else None
+                mae = ((lo - entry) / entry * 100.0) if lo > 0 else None
+            else:
+                mfe = ((entry - lo) / entry * 100.0) if lo > 0 else None
+                mae = ((entry - hi) / entry * 100.0) if hi > 0 else None
+            mfe = round(mfe, 3) if mfe is not None else None
+            mae = round(mae, 3) if mae is not None else None
+            return mfe, mae
+        except Exception:
+            return None, None
 
     def _feed_daily_goal(self, pnl_usd: float, source: str = "scalp_hl_perps") -> None:
         """Record Hyperliquid realized PnL into the daily goal engine ($500+/day ladder)."""
@@ -1061,6 +1099,7 @@ class HyperliquidExecutor:
                         f"PnL=${pnl:+.2f} | daily_pnl=${self.daily_pnl:+.2f}"
                     )
 
+                    _mfe, _mae = self._calc_mfe_mae(pos)
                     self._log_hl_trade(
                         action="SELL",
                         coin=sym,
@@ -1076,6 +1115,8 @@ class HyperliquidExecutor:
                         stop_loss=pos.stop_loss_price,
                         take_profit=pos.take_profit_price,
                         entry_time=entry_time,
+                        mfe_pct=_mfe,
+                        mae_pct=_mae,
                     )
                     self._inject_scanner_cooldown(sym, loss=(pnl < 0))
 
@@ -1195,6 +1236,7 @@ class HyperliquidExecutor:
                     f"({close_sz:.6f} coins) @ ${close_price} | realized≈${pnl:+.2f} | "
                     f"remain={remain:.6f}"
                 )
+                _mfe, _mae = self._calc_mfe_mae(pos)
                 self._log_hl_trade(
                     action="SELL",
                     coin=sym,
@@ -1205,6 +1247,8 @@ class HyperliquidExecutor:
                     entry_price=pos.entry_price,
                     pnl_usd=pnl,
                     pnl_pct=None,
+                    mfe_pct=_mfe,
+                    mae_pct=_mae,
                     reason="winning_tp1_partial",
                     leverage=pos.leverage,
                     stop_loss=pos.stop_loss_price,

@@ -134,7 +134,7 @@ class SelfImprovingAgent:
         win_rate = (len(wins) / len(closed_pnls)) * 100.0 if closed_pnls else 0.0
         total_pnl = sum(closed_pnls)
 
-        return {
+        metrics = {
             "win_rate": round(win_rate, 2),
             "total_pnl": round(total_pnl, 2),
             "trade_count": len(closed_pnls),
@@ -143,6 +143,36 @@ class SelfImprovingAgent:
             "avg_win_usd": round(sum(wins) / len(wins), 2) if wins else 0.0,
             "avg_loss_usd": round(sum(losses) / len(losses), 2) if losses else 0.0
         }
+
+        # ── v32 (OpenAlice retrospective): MFE/MAE excursion calibration ──────
+        # From trades that journal mfe_pct/mae_pct, compute how much favorable
+        # move winners give back and how deep losers dip before dying. These
+        # feed the nightly audit: e.g. if avg winner MFE is 3.1% but avg
+        # realized win is 1.2%, the trail is too tight (giving back 60%+).
+        mfe_wins, mfe_losses, mae_wins, mae_losses = [], [], [], []
+        for t in trades:
+            try:
+                pnl = float(t.get("closedPnl", t.get("pnl_usd", 0.0)) or 0.0)
+                mfe = t.get("mfe_pct")
+                mae = t.get("mae_pct")
+                if mfe is not None:
+                    (mfe_wins if pnl > 0 else mfe_losses).append(float(mfe))
+                if mae is not None:
+                    (mae_wins if pnl > 0 else mae_losses).append(float(mae))
+            except (ValueError, TypeError):
+                continue
+        def _avg(lst):
+            return round(sum(lst) / len(lst), 3) if lst else None
+        if mfe_wins or mfe_losses:
+            metrics["excursion"] = {
+                "avg_mfe_winners_pct": _avg(mfe_wins),
+                "avg_mfe_losers_pct": _avg(mfe_losses),   # >1% here = losers that WERE winners → trail/BE too slow
+                "avg_mae_winners_pct": _avg(mae_wins),    # how deep winners dip → SL must sit below this
+                "avg_mae_losers_pct": _avg(mae_losses),
+                "sample_count": len(mfe_wins) + len(mfe_losses),
+            }
+
+        return metrics
 
     def identify_failure_modes(self, trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         recent_trades = trades[-30:] if len(trades) > 30 else trades
@@ -218,11 +248,20 @@ class SelfImprovingAgent:
         Detected Failure Patterns:
         {json.dumps(failure_data, indent=2)}
 
-        Current Strategy Rules:
+        Current Strategy Rules (v32 "Let Winners Breathe"):
         - Volume Floor: $1,000,000 USD
         - Fast Break-Even: +0.75%
-        - 30-Min Rule: Active (tightens SL after 30m if negative)
+        - 45-Min Rule: Active (tightens SL to -1.5% after 45m if negative)
+        - Loss Timeout: 4h force-close for red holds
+        - Tiered Trail: +2%→1.25% | +4%→1.75% | +8%→2.5% from peak
+        - TP1 Partial: 40% at +2%
+        - Daily Open Cap: 24 opens/day, max 2 new per scan
+        - Per-Coin Edge Sizing: 0.6x–1.3x by realized win rate
         - Toxic Hours: 08:00-14:00 EST (50% position sizing)
+        If `excursion` metrics are present, use them to calibrate:
+        - avg_mfe_losers_pct > 1% → losers were once winners → recommend faster break-even
+        - avg_mfe_winners_pct much larger than realized avg win → trail too tight → widen ladder
+        - avg_mae_winners_pct close to SL distance → SL too tight → widen initial SL
 
         Task:
         Analyze these findings and propose parameter tuning or dynamic blacklisting recommendations.

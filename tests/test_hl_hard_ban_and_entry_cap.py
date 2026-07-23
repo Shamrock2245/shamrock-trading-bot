@@ -1,4 +1,4 @@
-"""v31 tuning: hard-ban toxic coins + max new entries per scan."""
+"""v31/v32 tuning: hard-ban toxic coins, per-scan cap, daily open cap, edge sizing."""
 
 import importlib
 from types import SimpleNamespace
@@ -86,14 +86,117 @@ def test_execute_signal_allows_non_banned(monkeypatch):
 
 
 def test_max_new_per_scan_default(monkeypatch):
+    # v32: 3 → 2 (trade_history 34: 67 opens/day fee bleed)
     sc = _reload_scanner(monkeypatch, HL_PERPS_MAX_NEW_PER_SCAN=None)
-    assert sc.HL_PERPS_MAX_NEW_PER_SCAN == 3
+    assert sc.HL_PERPS_MAX_NEW_PER_SCAN == 2
 
 
 def test_entry_cap_math():
     """free_slots and max_new_per_scan combine as min()."""
     free_slots = 10
-    max_new_per_scan = 3
-    assert min(free_slots, max_new_per_scan) == 3
+    max_new_per_scan = 2
+    assert min(free_slots, max_new_per_scan) == 2
     free_slots = 1
     assert min(free_slots, max_new_per_scan) == 1
+
+
+# ── v32: daily open cap ──────────────────────────────────────────────────────
+
+def _make_ready_scanner(sc):
+    scanner = sc.HLPerpsScanner(hl_executor=MagicMock())
+    scanner.hl_executor.is_available.return_value = True
+    scanner.hl_executor.positions = {}
+    scanner.hl_executor.get_balance.return_value = {"account_value": 1700.0}
+    scanner.hl_executor.open_long = MagicMock(return_value={"coin": "GMX"})
+    return scanner
+
+
+def _gmx_signal():
+    return SimpleNamespace(
+        coin="GMX",
+        direction="long",
+        score=80.0,
+        leverage=3,
+        position_size_usd=150.0,
+        entry_price=6.5,
+        stop_loss_price=6.3,
+        take_profit_price=6.9,
+        components={},
+    )
+
+
+def test_daily_open_cap_default(monkeypatch):
+    sc = _reload_scanner(monkeypatch, HL_PERPS_MAX_OPENS_PER_DAY=None)
+    assert sc.HL_PERPS_MAX_OPENS_PER_DAY == 24
+
+
+def test_daily_open_cap_blocks_after_limit(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_HARD_BAN_COINS="KAITO",
+        HL_PERPS_TOXIC_COINS="",
+        WINNING_ENTRY_FILTER_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+        HL_PERPS_LONG_ONLY="true",
+        HL_PERPS_MAX_OPENS_PER_DAY="2",
+    )
+    scanner = _make_ready_scanner(sc)
+    # First two opens pass and increment the counter
+    assert scanner._execute_signal(_gmx_signal()) is True
+    assert scanner._execute_signal(_gmx_signal()) is True
+    assert scanner.opens_today == 2
+    # Third is blocked by the daily cap
+    assert scanner._execute_signal(_gmx_signal()) is False
+    assert scanner.hl_executor.open_long.call_count == 2
+
+
+def test_daily_open_cap_resets_at_new_day(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        WINNING_ENTRY_FILTER_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+        HL_PERPS_MAX_OPENS_PER_DAY="2",
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner.opens_today = 2
+    scanner.daily_pnl_reset_date = "2000-01-01"  # stale → forces reset
+    scanner._check_daily_reset()
+    assert scanner.opens_today == 0
+
+
+# ── v32: per-coin edge sizing ──────────────────────────────────────────────
+
+def test_edge_sizing_neutral_below_min_trades(monkeypatch):
+    sc = _reload_scanner(monkeypatch, HL_PERPS_EDGE_SIZING_ENABLED="true", HL_PERPS_EDGE_MIN_TRADES="4")
+    scanner = _make_ready_scanner(sc)
+    scanner._coin_perf = {"MON": {"wins": 2, "losses": 1}}  # 3 trades < 4
+    assert scanner.get_edge_size_multiplier("MON") == 1.0
+    assert scanner.get_edge_size_multiplier("UNKNOWN") == 1.0
+
+
+def test_edge_sizing_scales_with_win_rate(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_EDGE_SIZING_ENABLED="true",
+        HL_PERPS_EDGE_MIN_TRADES="4",
+        HL_PERPS_EDGE_SIZE_MIN="0.6",
+        HL_PERPS_EDGE_SIZE_MAX="1.3",
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner._coin_perf = {
+        "WINNER": {"wins": 8, "losses": 2},   # 80% WR → max 1.3
+        "NEUTRAL": {"wins": 5, "losses": 5},  # 50% WR → 1.0
+        "WEAK": {"wins": 3, "losses": 7},     # 30% WR → min 0.6
+        "MID": {"wins": 4, "losses": 6},      # 40% WR → 0.8 (midpoint 0.6→1.0)
+    }
+    assert scanner.get_edge_size_multiplier("WINNER") == 1.3
+    assert scanner.get_edge_size_multiplier("NEUTRAL") == 1.0
+    assert scanner.get_edge_size_multiplier("WEAK") == 0.6
+    assert scanner.get_edge_size_multiplier("MID") == 0.8
+
+
+def test_edge_sizing_disabled_returns_neutral(monkeypatch):
+    sc = _reload_scanner(monkeypatch, HL_PERPS_EDGE_SIZING_ENABLED="false")
+    scanner = _make_ready_scanner(sc)
+    scanner._coin_perf = {"WINNER": {"wins": 9, "losses": 1}}
+    assert scanner.get_edge_size_multiplier("WINNER") == 1.0

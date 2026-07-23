@@ -21,6 +21,7 @@ CFG = WinningRiskConfig(
     tp1_size_pct=50.0,
     trail_activate_pct=2.0,
     trail_distance_pct=0.5,
+    trail_ladder="",  # legacy flat-trail fixture (v32 ladder tested separately)
     min_rule_minutes=30.0,
     min_rule_sl_pct=-1.0,
     loss_timeout_hours=2.0,
@@ -83,9 +84,86 @@ def test_aggressive_trail_after_tp1():
         config=CFG,
     )
     assert d.should_update_sl
-    # 0.5% trail from peak 104 → 103.48
+    # CFG has no ladder → flat 0.5% trail from peak 104 → 103.48
     assert abs(d.sl_price - 104.0 * 0.995) < 1e-9
     assert d.reason == "winning_aggressive_trail"
+
+
+def test_v32_trail_ladder_parsing():
+    from core.winning_risk_manager import parse_trail_ladder, trail_distance_for_pnl
+
+    ladder = parse_trail_ladder("2:1.25,4:1.75,8:2.5")
+    assert ladder == [(2.0, 1.25), (4.0, 1.75), (8.0, 2.5)]
+    # Malformed entries are skipped
+    assert parse_trail_ladder("garbage,2:1.25,:,x:y") == [(2.0, 1.25)]
+    assert parse_trail_ladder("") == []
+    # Rung selection: highest threshold ≤ peak wins; below first rung → base
+    assert trail_distance_for_pnl(1.0, ladder, 0.9) == 0.9
+    assert trail_distance_for_pnl(2.5, ladder, 0.9) == 1.25
+    assert trail_distance_for_pnl(5.0, ladder, 0.9) == 1.75
+    assert trail_distance_for_pnl(12.0, ladder, 0.9) == 2.5
+    # Empty ladder → flat base
+    assert trail_distance_for_pnl(12.0, [], 0.9) == 0.9
+
+
+def test_v32_tiered_trail_widens_for_runner():
+    """An +8% runner must trail 2.5% from peak, not the flat base distance."""
+    cfg = WinningRiskConfig(
+        enabled=True,
+        be_pct=0.75,
+        be_buffer_pct=0.05,
+        tp1_profit_pct=2.0,
+        tp1_size_pct=40.0,
+        trail_activate_pct=2.0,
+        trail_distance_pct=1.25,
+        trail_ladder="2:1.25,4:1.75,8:2.5",
+        min_rule_minutes=45.0,
+        min_rule_sl_pct=-1.5,
+        loss_timeout_hours=4.0,
+    )
+    entry = 100.0
+    now = datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc)
+    d = evaluate_position(
+        coin="MON",
+        current_price=108.0,
+        entry_price=entry,
+        entry_time=now - timedelta(hours=2),
+        side="long",
+        peak_price=109.0,  # +9% peak → top rung 2.5%
+        current_sl=100.05,
+        tp1_hit=True,
+        now=now,
+        config=cfg,
+    )
+    assert d.should_update_sl
+    assert d.sl_price == pytest.approx(109.0 * (1 - 0.025))
+    assert d.reason == "winning_aggressive_trail"
+
+
+def test_v32_fresh_winner_uses_first_rung():
+    """A fresh +2.5% winner trails at 1.25%, not wider."""
+    cfg = WinningRiskConfig(
+        enabled=True,
+        trail_activate_pct=2.0,
+        trail_distance_pct=1.25,
+        trail_ladder="2:1.25,4:1.75,8:2.5",
+    )
+    entry = 100.0
+    now = datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc)
+    d = evaluate_position(
+        coin="LDO",
+        current_price=102.2,
+        entry_price=entry,
+        entry_time=now - timedelta(minutes=50),
+        side="long",
+        peak_price=102.5,  # +2.5% peak → first rung 1.25%
+        current_sl=100.05,
+        tp1_hit=True,
+        now=now,
+        config=cfg,
+    )
+    assert d.should_update_sl
+    assert d.sl_price == pytest.approx(102.5 * (1 - 0.0125))
 
 
 def test_thirty_min_rule_tightens_sl():

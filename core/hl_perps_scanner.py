@@ -103,7 +103,21 @@ HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "20.0"))
 # Cap new opens per scan cycle — trade_history 31 / live 2026-07-22 sprayed 6–9
 # entries in one minute when behind_pace. Rank full universe, take top-N only.
-HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "3"))
+# v32: 3 → 2 (trade_history 34: 67 opens on 7/22, fees ~4x the gross edge).
+HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "2"))
+# v32: hard daily churn cap — new opens per UTC day across all coins. The edge
+# shape (7/14–7/21: 42% WR, >2% winners = all the profit) supports ~15–25
+# quality trades/day; 67/day is pure fee bleed. Resets at midnight UTC.
+HL_PERPS_MAX_OPENS_PER_DAY: int = int(os.getenv("HL_PERPS_MAX_OPENS_PER_DAY", "24"))
+# v32: per-coin edge sizing — scale size by realized per-coin expectancy from
+# hl_coin_perf.json (already persisted for autoban). Proven winners get up to
+# EDGE_SIZE_MAX, chronic underperformers get EDGE_SIZE_MIN. Neutral → 1.0.
+HL_PERPS_EDGE_SIZING_ENABLED: bool = os.getenv(
+    "HL_PERPS_EDGE_SIZING_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+HL_PERPS_EDGE_SIZE_MIN: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MIN", "0.6"))
+HL_PERPS_EDGE_SIZE_MAX: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MAX", "1.3"))
+HL_PERPS_EDGE_MIN_TRADES: int = int(os.getenv("HL_PERPS_EDGE_MIN_TRADES", "4"))
 # Optional hour block (local America/New_York). trade_history(27): hour 10/17/22 worst PnL.
 # Empty string disables. Example: "10,17,22"
 _BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
@@ -521,6 +535,7 @@ class HLPerpsScanner:
         self.trades_executed: int = 0
         self.daily_pnl: float = 0.0
         self.daily_pnl_reset_date: str = ""
+        self.opens_today: int = 0  # v32: daily churn cap counter (resets midnight UTC)
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.reentry_cooldowns: dict[str, float] = {} # coin → timestamp of last close
         self.emergency_cooldowns: dict[str, float] = {}  # coin → timestamp of emergency SL-fail close
@@ -895,13 +910,52 @@ class HLPerpsScanner:
             logger.warning(f"[AUTO-BAN] Failed to save coin perf state: {e}")
 
     def _check_daily_reset(self) -> None:
-        """Reset daily PnL at midnight UTC."""
+        """Reset daily PnL and the opens-per-day counter at midnight UTC."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self.daily_pnl_reset_date:
             if self.daily_pnl != 0:
                 logger.info(f"HLPerpsScanner: daily PnL reset (was ${self.daily_pnl:+.2f})")
+            if self.opens_today:
+                logger.info(f"HLPerpsScanner: opens/day reset (was {self.opens_today})")
             self.daily_pnl = 0.0
+            self.opens_today = 0
             self.daily_pnl_reset_date = today
+
+    def get_edge_size_multiplier(self, coin: str) -> float:
+        """v32 per-coin edge sizing — scale size by realized expectancy.
+
+        Uses the win/loss record already persisted in hl_coin_perf.json (autoban
+        state). Coins with a proven positive record scale up toward
+        HL_PERPS_EDGE_SIZE_MAX; chronic underperformers scale down toward
+        HL_PERPS_EDGE_SIZE_MIN. Below HL_PERPS_EDGE_MIN_TRADES → neutral 1.0.
+
+        Mapping: wr 0.30 → EDGE_SIZE_MIN, wr 0.50 → 1.0, wr 0.70+ → EDGE_SIZE_MAX
+        (linear in between). The 30% floor aligns with the autoban threshold —
+        anything below it gets banned outright, so sizing only shades the middle.
+        """
+        if not HL_PERPS_EDGE_SIZING_ENABLED:
+            return 1.0
+        perf = self._coin_perf.get(coin.upper())
+        if not perf:
+            return 1.0
+        wins = int(perf.get("wins", 0))
+        losses = int(perf.get("losses", 0))
+        total = wins + losses
+        if total < HL_PERPS_EDGE_MIN_TRADES:
+            return 1.0
+        wr = wins / total
+        lo, hi = HL_PERPS_EDGE_SIZE_MIN, HL_PERPS_EDGE_SIZE_MAX
+        if wr <= 0.30:
+            mult = lo
+        elif wr >= 0.70:
+            mult = hi
+        elif wr < 0.50:
+            # 0.30→0.50 maps lo→1.0
+            mult = lo + (wr - 0.30) / 0.20 * (1.0 - lo)
+        else:
+            # 0.50→0.70 maps 1.0→hi
+            mult = 1.0 + (wr - 0.50) / 0.20 * (hi - 1.0)
+        return round(mult, 3)
 
     def scan_coin(self, coin: str, funding_rate: float) -> Optional[PerpSignal]:
         """
@@ -1470,6 +1524,15 @@ class HLPerpsScanner:
                 f"hit limit -${daily_limit:.2f} (33% of ${_eq_for_limit:.2f} equity) — halting perps trading"
             )
             return False
+        # v32: daily churn cap — 67 opens on 7/22 bled ~$43 of fees against a
+        # −$11 gross edge. Quality over quantity, hard stop at N opens/day.
+        if HL_PERPS_MAX_OPENS_PER_DAY > 0 and self.opens_today >= HL_PERPS_MAX_OPENS_PER_DAY:
+            if self.opens_today == HL_PERPS_MAX_OPENS_PER_DAY:
+                logger.warning(
+                    f"🚫 HLPerpsScanner DAILY OPEN CAP: {self.opens_today}/"
+                    f"{HL_PERPS_MAX_OPENS_PER_DAY} opens used — no new entries until midnight UTC"
+                )
+            return False
 
         # Check max positions (goal-adaptive: protect/bank_it reduce slots)
         freq = self._goal_frequency_params()
@@ -1567,6 +1630,18 @@ class HLPerpsScanner:
                     size_usd = new_size
             except Exception as _win_err:
                 logger.debug(f"[HL-PERPS] Winning entry filter error (allowing): {_win_err}")
+        # ── v32: per-coin edge sizing — feed proven winners, starve marginal names ──
+        try:
+            edge_mult = self.get_edge_size_multiplier(coin_u)
+            if edge_mult != 1.0:
+                new_size = round(max(10.0, size_usd * edge_mult), 2)
+                logger.info(
+                    f"[HL-PERPS] {signal.coin} Edge size ×{edge_mult:.2f} "
+                    f"(realized WR-based): ${size_usd:.2f} → ${new_size:.2f}"
+                )
+                size_usd = new_size
+        except Exception as _edge_err:
+            logger.debug(f"[HL-PERPS] Edge sizing error (neutral): {_edge_err}")
 
         try:
             open_kwargs = dict(
@@ -1584,11 +1659,13 @@ class HLPerpsScanner:
 
             if result:
                 self.trades_executed += 1
+                self.opens_today += 1  # v32 daily churn cap counter
                 logger.info(
                     f"✅ HLPerpsScanner: {signal.direction.upper()} {signal.coin} executed | "
                     f"size=${size_usd} × {signal.leverage}x | "
                     f"score={signal.score} | "
-                    f"SL=${signal.stop_loss_price} TP=${signal.take_profit_price}"
+                    f"SL=${signal.stop_loss_price} TP=${signal.take_profit_price} | "
+                    f"opens_today={self.opens_today}/{HL_PERPS_MAX_OPENS_PER_DAY}"
                 )
                 return True
             else:
@@ -1850,6 +1927,9 @@ class HLPerpsScanner:
                 "signals_generated": self.signals_generated,
                 "trades_executed": self.trades_executed,
                 "daily_pnl": round(self.daily_pnl, 2),
+                "opens_today": self.opens_today,
+                "opens_today_date": self.daily_pnl_reset_date,
+                "max_opens_per_day": HL_PERPS_MAX_OPENS_PER_DAY,
                 "daily_loss_limit": max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0),
                 "enabled": self.enabled,
                 "pending_retracements": pending_serializable,
@@ -1881,6 +1961,19 @@ class HLPerpsScanner:
         try:
             import json
             raw = json.loads(_STATE_FILE.read_text())
+            # v32: restore opens_today so a restart cannot bypass the daily cap
+            try:
+                saved_date = str(raw.get("opens_today_date") or "")
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if saved_date == today:
+                    self.opens_today = int(raw.get("opens_today") or 0)
+                    self.daily_pnl_reset_date = saved_date
+                    if self.opens_today:
+                        logger.info(
+                            f"HLPerpsScanner: restored opens_today={self.opens_today} from state"
+                        )
+            except Exception:
+                pass
             pending_raw = raw.get("pending_retracements", {})
             current_time = time.time()
             
@@ -1932,6 +2025,8 @@ class HLPerpsScanner:
             "signals_generated": self.signals_generated,
             "trades_executed": self.trades_executed,
             "daily_pnl": round(self.daily_pnl, 2),
+            "opens_today": self.opens_today,
+            "max_opens_per_day": HL_PERPS_MAX_OPENS_PER_DAY,
             "daily_loss_limit": max(HL_PERPS_DAILY_LOSS_LIMIT, 50.0),
             "watchlist_size": len(HL_PERPS_WATCHLIST),
             "scan_interval_seconds": HL_PERPS_SCAN_INTERVAL,

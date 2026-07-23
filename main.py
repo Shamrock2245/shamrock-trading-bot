@@ -1403,10 +1403,14 @@ async def run_bot_loop():
     # NOTE: _hl_perps_thread is started BELOW after _hl_perps_daemon_with_trailing_ref is defined
     # Monitors all open HL perp positions every 30 seconds (HL_TRAILING_POLL_SECONDS).
     # Once a position achieves >10% ROE (HL_TRAILING_ROE_TRIGGER_PCT), the static SL is
-    # cancelled and replaced with a step-function trailing stop:
-    #   - Peak ROE >= 50%  → trail distance = HL_TRAILING_DISTANCE_PCT * 0.4  (extremely tight)
-    #   - Peak ROE >= 20%  → trail distance = HL_TRAILING_DISTANCE_PCT * 0.7  (tighter)
-    #   - Otherwise        → trail distance = HL_TRAILING_DISTANCE_PCT         (default 1.0%)
+    # cancelled and replaced with a step-function trailing stop.
+    # v32 (trade_history 34): the old step function TIGHTENED as ROE grew
+    # (×0.4 at 50% ROE) — the same runner-choking bug as the flat 0.5% Winning
+    # trail. Now the trail WIDENS with peak ROE so winners can keep running
+    # (a 1.5× trail on a 50%-ROE runner still locks the bulk of the move):
+    #   - Peak ROE >= 50%  → trail distance = HL_TRAILING_DISTANCE_PCT * 1.5
+    #   - Peak ROE >= 20%  → trail distance = HL_TRAILING_DISTANCE_PCT * 1.25
+    #   - Otherwise        → trail distance = HL_TRAILING_DISTANCE_PCT (default 1.0%)
     # The trailing stop ratchets up (longs) / down (shorts) as price moves in our favour.
     # State is persisted to data/dashboard/hl_trailing_state.json on every update.
     # ─────────────────────────────────────────────────────────────────────────────
@@ -1499,12 +1503,22 @@ async def run_bot_loop():
 
                         # ── Update peak / trough ───────────────────────────────────────
                         price_updated = False
-                        if pos.side == "long" and mark_price > pos.highest_price:
-                            pos.highest_price = mark_price
-                            price_updated = True
-                        elif pos.side == "short" and mark_price < pos.lowest_price:
-                            pos.lowest_price = mark_price
-                            price_updated = True
+                        if pos.side == "long":
+                            if mark_price > pos.highest_price:
+                                pos.highest_price = mark_price
+                                price_updated = True
+                            # v32: track trough for longs too (MAE analytics)
+                            if mark_price < pos.lowest_price:
+                                pos.lowest_price = mark_price
+                                price_updated = True
+                        else:
+                            if mark_price < pos.lowest_price:
+                                pos.lowest_price = mark_price
+                                price_updated = True
+                            # v32: track peak for shorts too (MAE analytics)
+                            if mark_price > pos.highest_price:
+                                pos.highest_price = mark_price
+                                price_updated = True
 
                         # Persist peak/trough update (cheap JSON write)
                         if price_updated:
@@ -1696,10 +1710,11 @@ async def run_bot_loop():
                                 peak_move_pct = (pos.entry_price - pos.lowest_price) / pos.entry_price * 100
                             peak_roe_pct = peak_move_pct * pos.leverage
 
+                            # v32: WIDEN with peak ROE (was ×0.4/×0.7 tighten — choked runners)
                             if peak_roe_pct >= 50.0:
-                                trail_mult = (_TRAILING_DISTANCE_PCT * 0.4) / 100  # Extremely tight once up >50%
+                                trail_mult = (_TRAILING_DISTANCE_PCT * 1.5) / 100  # room to run
                             elif peak_roe_pct >= 20.0:
-                                trail_mult = (_TRAILING_DISTANCE_PCT * 0.7) / 100  # Tighter once up >20%
+                                trail_mult = (_TRAILING_DISTANCE_PCT * 1.25) / 100
                             else:
                                 trail_mult = _TRAILING_DISTANCE_PCT / 100
 
