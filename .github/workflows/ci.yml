@@ -123,7 +123,10 @@ jobs:
               grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
-              grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=3/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=3' >> .env
+              # v32 churn caps (trade_history 34): 2 new/scan + 24 opens/day (was 3 / unlimited)
+              grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=2/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=2' >> .env
+              grep -q '^HL_PERPS_MAX_OPENS_PER_DAY=' .env && sed -i 's/^HL_PERPS_MAX_OPENS_PER_DAY=.*/HL_PERPS_MAX_OPENS_PER_DAY=24/' .env || echo 'HL_PERPS_MAX_OPENS_PER_DAY=24' >> .env
+              grep -q '^HL_PERPS_EDGE_SIZING_ENABLED=' .env && sed -i 's/^HL_PERPS_EDGE_SIZING_ENABLED=.*/HL_PERPS_EDGE_SIZING_ENABLED=true/' .env || echo 'HL_PERPS_EDGE_SIZING_ENABLED=true' >> .env
               grep -q '^HL_PERPS_BLOCKED_HOURS_ET=' .env && sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=10,17,22/' .env || echo 'HL_PERPS_BLOCKED_HOURS_ET=10,17,22' >> .env
               grep -q '^HL_PERPS_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HL_PERPS_MAX_TOTAL_EXPOSURE=.*/HL_PERPS_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HL_PERPS_MAX_TOTAL_EXPOSURE=5000' >> .env
               # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
@@ -136,15 +139,19 @@ jobs:
               grep -q '^HL_PERPS_AUTOBAN_MIN_TRADES=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MIN_TRADES=.*/HL_PERPS_AUTOBAN_MIN_TRADES=5/' .env || echo 'HL_PERPS_AUTOBAN_MIN_TRADES=5' >> .env
               grep -q '^HL_PERPS_AUTOBAN_WR_THRESHOLD=' .env && sed -i 's/^HL_PERPS_AUTOBAN_WR_THRESHOLD=.*/HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30/' .env || echo 'HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30' >> .env
               grep -q '^HL_PERPS_AUTOBAN_HOURS=' .env && sed -i 's/^HL_PERPS_AUTOBAN_HOURS=.*/HL_PERPS_AUTOBAN_HOURS=48.0/' .env || echo 'HL_PERPS_AUTOBAN_HOURS=48.0' >> .env
-              # Winning tuning (trade_history 29): BE@0.75%, TP1, 30-min rule, 2h timeout, $1M vol floor
+              # v32 "Let Winners Breathe" (trade_history 34): tiered trail, 4h timeout,
+              # 45m/−1.5% red rule, TP1 40%, churn caps — NOT the v31 0.5%/1.5h choke.
               grep -q '^WINNING_RISK_MANAGER_ENABLED=' .env && sed -i 's/^WINNING_RISK_MANAGER_ENABLED=.*/WINNING_RISK_MANAGER_ENABLED=true/' .env || echo 'WINNING_RISK_MANAGER_ENABLED=true' >> .env
               grep -q '^WINNING_ENTRY_FILTER_ENABLED=' .env && sed -i 's/^WINNING_ENTRY_FILTER_ENABLED=.*/WINNING_ENTRY_FILTER_ENABLED=true/' .env || echo 'WINNING_ENTRY_FILTER_ENABLED=true' >> .env
               grep -q '^FAST_BREAK_EVEN_PCT=' .env && sed -i 's/^FAST_BREAK_EVEN_PCT=.*/FAST_BREAK_EVEN_PCT=0.75/' .env || echo 'FAST_BREAK_EVEN_PCT=0.75' >> .env
+              grep -q '^FAST_BREAK_EVEN_SL_OFFSET=' .env && sed -i 's/^FAST_BREAK_EVEN_SL_OFFSET=.*/FAST_BREAK_EVEN_SL_OFFSET=0.05/' .env || echo 'FAST_BREAK_EVEN_SL_OFFSET=0.05' >> .env
               grep -q '^TP1_PROFIT_PCT=' .env && sed -i 's/^TP1_PROFIT_PCT=.*/TP1_PROFIT_PCT=2.0/' .env || echo 'TP1_PROFIT_PCT=2.0' >> .env
-              grep -q '^TP1_SIZE_PCT=' .env && sed -i 's/^TP1_SIZE_PCT=.*/TP1_SIZE_PCT=50/' .env || echo 'TP1_SIZE_PCT=50' >> .env
-              grep -q '^MIN_RULE_TIME_MINUTES=' .env && sed -i 's/^MIN_RULE_TIME_MINUTES=.*/MIN_RULE_TIME_MINUTES=30/' .env || echo 'MIN_RULE_TIME_MINUTES=30' >> .env
-              grep -q '^TRAILING_STOP_PCT=' .env && sed -i 's/^TRAILING_STOP_PCT=.*/TRAILING_STOP_PCT=0.5/' .env || echo 'TRAILING_STOP_PCT=0.5' >> .env
-              grep -q '^WINNING_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^WINNING_LOSS_TIMEOUT_HOURS=.*/WINNING_LOSS_TIMEOUT_HOURS=1.5/' .env || echo 'WINNING_LOSS_TIMEOUT_HOURS=1.5' >> .env
+              grep -q '^TP1_SIZE_PCT=' .env && sed -i 's/^TP1_SIZE_PCT=.*/TP1_SIZE_PCT=40/' .env || echo 'TP1_SIZE_PCT=40' >> .env
+              grep -q '^MIN_RULE_TIME_MINUTES=' .env && sed -i 's/^MIN_RULE_TIME_MINUTES=.*/MIN_RULE_TIME_MINUTES=45/' .env || echo 'MIN_RULE_TIME_MINUTES=45' >> .env
+              grep -q '^MIN_RULE_SL_OFFSET=' .env && sed -i 's/^MIN_RULE_SL_OFFSET=.*/MIN_RULE_SL_OFFSET=-1.5/' .env || echo 'MIN_RULE_SL_OFFSET=-1.5' >> .env
+              grep -q '^TRAILING_STOP_PCT=' .env && sed -i 's/^TRAILING_STOP_PCT=.*/TRAILING_STOP_PCT=1.25/' .env || echo 'TRAILING_STOP_PCT=1.25' >> .env
+              grep -q '^TRAIL_LADDER=' .env && sed -i 's/^TRAIL_LADDER=.*/TRAIL_LADDER=2:1.25,4:1.75,8:2.5/' .env || echo 'TRAIL_LADDER=2:1.25,4:1.75,8:2.5' >> .env
+              grep -q '^WINNING_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^WINNING_LOSS_TIMEOUT_HOURS=.*/WINNING_LOSS_TIMEOUT_HOURS=4.0/' .env || echo 'WINNING_LOSS_TIMEOUT_HOURS=4.0' >> .env
               grep -q '^TOXIC_ZONE_RESTRICTION=' .env && sed -i 's/^TOXIC_ZONE_RESTRICTION=.*/TOXIC_ZONE_RESTRICTION=true/' .env || echo 'TOXIC_ZONE_RESTRICTION=true' >> .env
               grep -q '^MIN_VOLUME_USD=' .env && sed -i 's/^MIN_VOLUME_USD=.*/MIN_VOLUME_USD=1000000/' .env || echo 'MIN_VOLUME_USD=1000000' >> .env
               # Profit-lock kept as fallback when Winning is off
@@ -152,7 +159,7 @@ jobs:
               grep -q '^PROFIT_LOCK_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^PROFIT_LOCK_LOSS_TIMEOUT_HOURS=.*/PROFIT_LOCK_LOSS_TIMEOUT_HOURS=4.0/' .env || echo 'PROFIT_LOCK_LOSS_TIMEOUT_HOURS=4.0' >> .env
               # HF Moralis scanner is a stub — keep disabled until real API is wired
               grep -q '^HF_MORALIS_SCANNER_ENABLED=' .env && sed -i 's/^HF_MORALIS_SCANNER_ENABLED=.*/HF_MORALIS_SCANNER_ENABLED=false/' .env || echo 'HF_MORALIS_SCANNER_ENABLED=false' >> .env
-              echo "✅ .env patched with tuned gate values"
+              echo "✅ .env patched with v32 Let Winners Breathe values"
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"
             fi

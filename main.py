@@ -1454,6 +1454,22 @@ async def run_bot_loop():
                     f"⚠️ Trailing monitor: still waiting for HL executor reference ({_wait_count * 8}s elapsed)..."
                 )
 
+        # Log effective Winning config so deploys can confirm v32 (not stale .env v31)
+        _wr_cfg_summary = ""
+        if _WINNING_RISK_ENABLED:
+            try:
+                from core.winning_risk_manager import default_config as _wr_default
+
+                _wrc = _wr_default()
+                _wr_cfg_summary = (
+                    f" | v32 Let Winners Breathe | "
+                    f"trail_ladder={_wrc.trail_ladder} | "
+                    f"timeout={_wrc.loss_timeout_hours}h | "
+                    f"tp1={_wrc.tp1_size_pct:.0f}%@+{_wrc.tp1_profit_pct}% | "
+                    f"min_rule={_wrc.min_rule_minutes:.0f}m→{_wrc.min_rule_sl_pct}%"
+                )
+            except Exception as _wre:
+                _wr_cfg_summary = f" | v32 config load failed: {_wre}"
         logger.info(
             f"🔒 Trailing Profit-Lock monitor ACTIVE | "
             f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | "
@@ -1461,6 +1477,7 @@ async def run_bot_loop():
             f"poll={_TRAILING_POLL_SECONDS}s | "
             f"winning_risk={'ON' if _WINNING_RISK_ENABLED else 'OFF'} | "
             f"early_be+timeout={'ON' if _PROFIT_LOCK_ENABLED else 'OFF'}"
+            f"{_wr_cfg_summary}"
         )
 
         _backoff_seconds = 0  # exponential backoff on rate-limit errors
@@ -1525,8 +1542,8 @@ async def run_bot_loop():
                             _exec._save_trailing_state()
 
                         # ── Winning risk OR legacy profit-lock (price-move based) ─────
-                        # Winning (trade_history 29): BE@0.75%, TP1 50%@+2%, trail 0.5%,
-                        # 30-min −1% tighten, hard timeout 2h. Supersedes profit_lock when on.
+                        # v32 Winning: BE@0.75%, TP1 40%@+2%, trail ladder 1.25/1.75/2.5,
+                        # 45-min −1.5% tighten, hard timeout 4h. Supersedes profit_lock when on.
                         _peak = (
                             pos.highest_price
                             if pos.side == "long"
@@ -1834,7 +1851,7 @@ async def run_bot_loop():
     )
     _hl_trailing_thread.start()
     logger.info(
-        "🔒 Dynamic Trailing Profit-Lock daemon started — "
+        "🔒 Dynamic Trailing Profit-Lock daemon started — v32 | "
         f"trigger={_TRAILING_ROE_TRIGGER_PCT}% ROE | trail={_TRAILING_DISTANCE_PCT}% | "
         f"poll={_TRAILING_POLL_SECONDS}s | winning_risk="
         f"{'ON' if _WINNING_RISK_ENABLED else 'OFF'} | early_be+timeout="
