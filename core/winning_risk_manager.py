@@ -4,15 +4,19 @@ core/winning_risk_manager.py — "Winning" Risk Management decision engine
 Wired into main.py → _hl_trailing_monitor_daemon when WINNING_RISK_MANAGER_ENABLED=true.
 Does NOT own on-chain order state (executor / hl_trailing_state.json does).
 
-Closes capital leaks diagnosed from trade_history (29):
-  PF 0.67 overall | toxic hours 08–14 ET −$326 | losers ≥4h −$504 | small cuts −$63
+Closes capital leaks diagnosed from trade_history (29), retuned by trade_history (34):
+  v31 killed the fat tails (worst loss −13% → −2.7%) but over-corrected — the 0.5%
+  trail + 1.5h loss timeout choked every runner (post-v31: WR 22.5%, max win +2.16%,
+  37 churn exits in −0.5..0%). 7/14–7/21 proved the edge: 18 winners >2% = +$151.
 
-Rules (price-move %, leverage-agnostic):
-1. Hard loss timeout (default 2h) — force-close multi-hour red holds
-2. 30-Min Rule — if still red after 30m, tighten SL to −1%
-3. TP1 front-load — partial close 50% at +2%
+Rules (price-move %, leverage-agnostic) — v32 "Let Winners Breathe":
+1. Hard loss timeout (default 4h) — force-close multi-hour red holds
+   (1–4h is the historically profitable hold bucket; 1.5h was closing winners early)
+2. 45-Min Rule — if still red after 45m, tighten SL to −1.5%
+3. TP1 front-load — partial close 40% at +2% (keep more runner)
 4. Ultra-fast break-even — lock SL to entry±buffer at +0.75%
-5. Aggressive trail — 0.5% from peak once TP1 hit or pnl ≥ trail activate
+5. Tiered trail — profit-laddered distance from peak (OpenAlice trailing_stop):
+   +2% → 1.25% | +4% → 1.75% | +8% → 2.5% (runners get room as they grow)
 
 Manus originally shipped a priority-bugged class (BE always returned before TP1/trail
 could fire) with zero callers. This rewrite matches profit_lock_manager style.
@@ -56,17 +60,22 @@ class WinningRiskConfig:
     # Ultra-fast break-even
     be_pct: float = 0.75
     be_buffer_pct: float = 0.05
-    # TP1 front-load
+    # TP1 front-load (v32: 40% — keep more of the runner)
     tp1_profit_pct: float = 2.0
-    tp1_size_pct: float = 50.0
-    # Aggressive trail (after TP1 or once trail activates)
+    tp1_size_pct: float = 40.0
+    # Trail (after TP1 or once trail activates)
     trail_activate_pct: float = 2.0
-    trail_distance_pct: float = 0.5
-    # 30-min rule
-    min_rule_minutes: float = 30.0
-    min_rule_sl_pct: float = -1.0  # tighten SL to −1% from entry
-    # Hard timeout (tighter than profit_lock 4h — trade_history 29: 4h+ = −$504)
-    loss_timeout_hours: float = 2.0
+    trail_distance_pct: float = 1.25
+    # v32 profit-tiered trail ladder "peak_pnl:trail_dist,…" — wider trail as the
+    # runner grows. trade_history 34: 0.5% flat trail capped every winner ≤ +2.16%
+    # post-v31 while >2% winners were the only net-positive bucket (+$151).
+    trail_ladder: str = "2:1.25,4:1.75,8:2.5"
+    # 45-min rule (v32: was 30m/−1% — too twitchy, fed the −0.5..0% churn band)
+    min_rule_minutes: float = 45.0
+    min_rule_sl_pct: float = -1.5  # tighten SL to −1.5% from entry
+    # Hard timeout — v32: 4h. Hold-bucket PnL: 1–4h +$13 (36.7% WR), 4–12h 52.8% WR.
+    # The 1.5h timeout was force-closing trades that were about to work.
+    loss_timeout_hours: float = 4.0
     # Toxic zone (America/New_York wall-clock hour)
     toxic_zone_enabled: bool = True
     toxic_zone_start: int = 8
@@ -112,13 +121,14 @@ def default_config() -> WinningRiskConfig:
         be_pct=_env_float("FAST_BREAK_EVEN_PCT", 0.75),
         be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05),
         tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 2.0),
-        tp1_size_pct=_env_float("TP1_SIZE_PCT", 50.0),
+        tp1_size_pct=_env_float("TP1_SIZE_PCT", 40.0),
         trail_activate_pct=_env_float("TP1_PROFIT_PCT", 2.0),  # trail arms at same level
-        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 0.5),
-        min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 30.0),
-        min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.0),
-        # v31: multi-hour red still largest $ leak — default 1.5h (was 2.0)
-        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 1.5),
+        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 1.25),
+        trail_ladder=os.getenv("TRAIL_LADDER", "2:1.25,4:1.75,8:2.5"),
+        min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 45.0),
+        min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.5),
+        # v32: 4h (was 1.5h) — 1–4h holds are the profitable bucket; 1.5h choked them
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 4.0),
         toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
         toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
         toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),
@@ -132,6 +142,44 @@ def _pnl_pct(side: str, entry: float, current: float) -> float:
     if side == "long":
         return ((current - entry) / entry) * 100.0
     return ((entry - current) / entry) * 100.0
+
+
+def parse_trail_ladder(raw: str) -> list:
+    """Parse "2:1.25,4:1.75,8:2.5" → [(2.0, 1.25), (4.0, 1.75), (8.0, 2.5)].
+
+    Sorted ascending by peak-pnl threshold. Malformed entries are skipped; an
+    empty or fully-malformed string returns [] (caller falls back to flat trail).
+    """
+    rungs = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        lhs, rhs = part.split(":", 1)
+        try:
+            thresh = float(lhs.strip())
+            dist = float(rhs.strip())
+        except (TypeError, ValueError):
+            continue
+        if dist > 0:
+            rungs.append((thresh, dist))
+    rungs.sort(key=lambda r: r[0])
+    return rungs
+
+
+def trail_distance_for_pnl(peak_pnl_pct: float, ladder: list, base_distance: float) -> float:
+    """Pick trail distance for the current peak-pnl from the tiered ladder.
+
+    The highest rung whose threshold ≤ peak_pnl wins; below the first rung (or
+    with an empty ladder) the flat base distance applies.
+    """
+    dist = base_distance
+    for thresh, rung_dist in ladder:
+        if peak_pnl_pct >= thresh:
+            dist = rung_dist
+        else:
+            break
+    return dist
 
 
 def _sl_is_improvement(
@@ -225,10 +273,15 @@ def evaluate_position(
     recommended_sl: Optional[float] = None
     reason = "hold"
 
-    # 3a. Aggressive trail after TP1, or once pnl reaches trail activate
+    # 3a. Tiered trail after TP1, or once pnl reaches trail activate.
+    # v32: distance widens with PEAK profit (entry→peak move picks the rung),
+    # so an +8% runner trails 2.5% while a fresh +2% winner trails 1.25%.
     trail_armed = tp1_hit or pnl >= cfg.trail_activate_pct
     if trail_armed and pnl > 0:
-        trail_frac = cfg.trail_distance_pct / 100.0
+        peak_pnl = _pnl_pct(side, entry_price, peak)
+        ladder = parse_trail_ladder(getattr(cfg, "trail_ladder", "") or "")
+        trail_dist = trail_distance_for_pnl(peak_pnl, ladder, cfg.trail_distance_pct)
+        trail_frac = trail_dist / 100.0
         if side == "long":
             trail_sl = peak * (1.0 - trail_frac)
         else:
@@ -258,7 +311,7 @@ def evaluate_position(
                 recommended_sl = be_sl
                 reason = "winning_break_even"
 
-    # 3c. 30-Min Rule: still red after N minutes → tighten SL to −1%
+    # 3c. 45-Min Rule (v32): still red after N minutes → tighten SL to −1.5%
     if hold_minutes >= cfg.min_rule_minutes and pnl < 0:
         # min_rule_sl_pct is negative (e.g. -1.0) → long SL below entry, short above
         offset = cfg.min_rule_sl_pct / 100.0

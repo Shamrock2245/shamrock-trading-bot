@@ -375,17 +375,31 @@ class DailyGoalEngine:
             cfg["reentry_cooldown_min"] = 30
             cfg["loss_cooldown_min"] = 30
             cfg["max_positions"] = 3
-        elif mode in ("catch_up", "parabolic") or behind_pace:
-            # 2026-07-17: more aggressive catch-up — CSV shows ~3.5 opens/day vs 15–25 target.
-            # Still clamped to floor 52 in scanner (never below noise threshold).
-            cfg["exec_score_delta"] = -5.0 if mode != "parabolic" else -6.0
-            cfg["reentry_cooldown_min"] = 6
-            cfg["loss_cooldown_min"] = 8
+        elif mode == "parabolic":
+            # Parabolic = goal already smashed (150%+), playing with house money.
+            # Keep the tier/mode size boost but no score-bar discount (quality holds).
+            cfg["exec_score_delta"] = 0.0
+            cfg["reentry_cooldown_min"] = 8
+            cfg["loss_cooldown_min"] = 10
             cfg["max_positions"] = None  # use full configured slots
-            if mode == "parabolic":
-                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.35)
-            elif behind_pace:
-                cfg["size_multiplier"] = max(cfg["size_multiplier"], 1.15)
+        elif mode == "catch_up":
+            # v32 (trade_history 34): catch-up stays mildly more active but never
+            # sprays — the old -5 delta + size boost on losing days produced 67
+            # opens on 7/22 at 22.5% WR with fees ~4x the gross edge (anti-Kelly).
+            cfg["exec_score_delta"] = -2.0
+            cfg["reentry_cooldown_min"] = 8
+            cfg["loss_cooldown_min"] = 10
+            cfg["max_positions"] = None  # use full configured slots
+            # v32: no urgency-based size boost — size scales with equity, not FOMO
+            cfg["size_multiplier"] = min(cfg["size_multiplier"], 1.0)
+        elif behind_pace:
+            # v32 INVERSION: behind pace means today's signals are NOT working.
+            # Raise the quality bar — fewer, better trades. Never lower it and
+            # never scale size up while losing.
+            cfg["exec_score_delta"] = 3.0
+            cfg["reentry_cooldown_min"] = 12
+            cfg["loss_cooldown_min"] = 15
+            cfg["size_multiplier"] = min(cfg["size_multiplier"], 1.0)
         # else normal — keep env defaults, size_multiplier from tier
 
         return cfg
