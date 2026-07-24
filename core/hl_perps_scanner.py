@@ -119,6 +119,35 @@ HL_PERPS_EDGE_SIZING_ENABLED: bool = os.getenv(
 HL_PERPS_EDGE_SIZE_MIN: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MIN", "0.6"))
 HL_PERPS_EDGE_SIZE_MAX: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MAX", "1.3"))
 HL_PERPS_EDGE_MIN_TRADES: int = int(os.getenv("HL_PERPS_EDGE_MIN_TRADES", "4"))
+# ── v33 (freqtrade protections + OpenAlice right-side trading) ──────────────
+# Regime gate: consult core/regime_filter before entries. Shorts allowed only
+# in NUKE/bearish regime (live short WR ~17% otherwise); longs blocked during
+# NUKE; CHOPPY halves size. TRENDING = full speed.
+HL_PERPS_REGIME_GATE_ENABLED: bool = os.getenv(
+    "HL_PERPS_REGIME_GATE_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+# Global StoplossGuard (freqtrade): N stop-loss/negative closes across ALL
+# coins within WINDOW minutes → halt new entries for HALT minutes. Catches
+# cascade days like 7/22 (67 opens, 21.5% WR) where signals fought the tape.
+HL_PERPS_SLGUARD_ENABLED: bool = os.getenv(
+    "HL_PERPS_SLGUARD_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+HL_PERPS_SLGUARD_LIMIT: int = int(os.getenv("HL_PERPS_SLGUARD_LIMIT", "4"))
+HL_PERPS_SLGUARD_WINDOW_MIN: int = int(os.getenv("HL_PERPS_SLGUARD_WINDOW_MIN", "120"))
+HL_PERPS_SLGUARD_HALT_MIN: int = int(os.getenv("HL_PERPS_SLGUARD_HALT_MIN", "90"))
+# Fee-aware minimum edge (freqtrade/jesse expectancy): skip signals whose TP
+# distance can't clear the taker roundtrip (~0.09% on HL) + slippage with
+# margin to spare. 53 of 121 closes on 7/22–7/24 died in the -0.6..0% noise
+# band — pure fee bleed on moves that could never pay.
+HL_PERPS_MIN_TP_DISTANCE_PCT: float = float(os.getenv("HL_PERPS_MIN_TP_DISTANCE_PCT", "0.8"))
+# Leverage-ROE sanity cap (hummingbot risk style): cap effective leverage so a
+# stop-out costs at most MAX_SL_ROE_LOSS_PCT of position margin.
+# max_lev = MAX_SL_ROE_LOSS_PCT / sl_distance_pct (e.g. 12 / 2.5 = 4.8 → 4x).
+# Bounds the 10-15x scalp boost to what the SL math can actually afford.
+HL_PERPS_MAX_SL_ROE_LOSS_PCT: float = float(os.getenv("HL_PERPS_MAX_SL_ROE_LOSS_PCT", "12.0"))
+# Repeat-loser day-block: a coin with N losing closes today is blocked until
+# the daily reset (ENA: 10 closes, -$17.58 across 7/22–7/24 — death by re-entry).
+HL_PERPS_DAY_LOSER_BLOCK: int = int(os.getenv("HL_PERPS_DAY_LOSER_BLOCK", "2"))
 # Optional hour block (local America/New_York). trade_history(27): hour 10/17/22 worst PnL.
 # Empty string disables. Example: "10,17,22"
 _BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
@@ -537,6 +566,11 @@ class HLPerpsScanner:
         self.daily_pnl: float = 0.0
         self.daily_pnl_reset_date: str = ""
         self.opens_today: int = 0  # v32: daily churn cap counter (resets midnight UTC)
+        # v33: freqtrade StoplossGuard — timestamps of recent losing closes (all coins)
+        self._recent_loss_closes: deque = deque(maxlen=50)
+        self._slguard_halt_until: float = 0.0
+        # v33: repeat-loser day-block — coin → losing closes today (resets midnight UTC)
+        self._day_losses: dict[str, int] = {}
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.reentry_cooldowns: dict[str, float] = {} # coin → timestamp of last close
         self.emergency_cooldowns: dict[str, float] = {}  # coin → timestamp of emergency SL-fail close
@@ -846,9 +880,25 @@ class HLPerpsScanner:
 
         Called by hyperliquid_executor._inject_scanner_cooldown() after every close.
         """
+        coin = coin.upper()
+        # v33: feed the global StoplossGuard + repeat-loser day-block regardless
+        # of autoban being enabled — these are separate freqtrade-style protections.
+        if not won:
+            now_ts = time.time()
+            self._recent_loss_closes.append(now_ts)
+            self._day_losses[coin] = self._day_losses.get(coin, 0) + 1
+            if HL_PERPS_SLGUARD_ENABLED and self._slguard_halt_until < now_ts:
+                window_start = now_ts - HL_PERPS_SLGUARD_WINDOW_MIN * 60
+                recent = sum(1 for t in self._recent_loss_closes if t >= window_start)
+                if recent >= HL_PERPS_SLGUARD_LIMIT:
+                    self._slguard_halt_until = now_ts + HL_PERPS_SLGUARD_HALT_MIN * 60
+                    logger.warning(
+                        f"\U0001f6d1 [SL-GUARD] {recent} losing closes in "
+                        f"{HL_PERPS_SLGUARD_WINDOW_MIN}min — new entries halted "
+                        f"{HL_PERPS_SLGUARD_HALT_MIN}min (freqtrade StoplossGuard)"
+                    )
         if not HL_PERPS_AUTOBAN_ENABLED:
             return
-        coin = coin.upper()
         perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": time.time()})
         if won:
             perf["wins"] += 1
@@ -918,6 +968,7 @@ class HLPerpsScanner:
                 logger.info(f"HLPerpsScanner: daily PnL reset (was ${self.daily_pnl:+.2f})")
             if self.opens_today:
                 logger.info(f"HLPerpsScanner: opens/day reset (was {self.opens_today})")
+            self._day_losses = {}  # v33: repeat-loser day-block resets with the day
             self.daily_pnl = 0.0
             self.opens_today = 0
             self.daily_pnl_reset_date = today
@@ -1581,6 +1632,16 @@ class HLPerpsScanner:
                 )
             return False
 
+        # v33: global StoplossGuard halt (freqtrade) — cascade of losing closes
+        # means signals are fighting the tape; stand down and let it pass.
+        if HL_PERPS_SLGUARD_ENABLED and time.time() < self._slguard_halt_until:
+            remaining = (self._slguard_halt_until - time.time()) / 60
+            logger.info(
+                f"[HL-PERPS] {signal.coin} blocked — SL-GUARD halt active "
+                f"({remaining:.0f}min remaining)"
+            )
+            return False
+
         # Check max positions (goal-adaptive: protect/bank_it reduce slots)
         freq = self._goal_frequency_params()
         max_pos = int(freq["max_positions"])
@@ -1596,7 +1657,80 @@ class HLPerpsScanner:
             )
             return False
 
+        # v33: regime gate (OpenAlice right-side trading). Shorts only when the
+        # tape is actually bearish (NUKE); longs stand down during NUKE; CHOPPY
+        # halves size further down. Fail-open on regime fetch errors.
+        regime_size_mult = 1.0
+        if HL_PERPS_REGIME_GATE_ENABLED:
+            try:
+                from core.regime_filter import get_regime, Regime
+                _rs = get_regime()  # cached 5min
+                if _rs is not None:
+                    if signal.direction == "short" and _rs.regime != Regime.NUKE:
+                        logger.info(
+                            f"[HL-PERPS] {signal.coin} SHORT blocked — regime "
+                            f"{_rs.regime.value} is not bearish (shorts only in NUKE)"
+                        )
+                        return False
+                    if signal.direction == "long" and _rs.regime == Regime.NUKE:
+                        logger.info(
+                            f"[HL-PERPS] {signal.coin} LONG blocked — NUKE regime "
+                            f"(right-side trading: don't catch falling knives)"
+                        )
+                        return False
+                    if _rs.regime == Regime.CHOPPY:
+                        regime_size_mult = 0.5
+            except Exception as _rg_err:
+                logger.debug(f"[HL-PERPS] regime gate skipped ({_rg_err})")
+
         coin_u = signal.coin.upper()
+
+        # v33: repeat-loser day-block — stop feeding the same losing coin today
+        if (
+            HL_PERPS_DAY_LOSER_BLOCK > 0
+            and self._day_losses.get(coin_u, 0) >= HL_PERPS_DAY_LOSER_BLOCK
+        ):
+            logger.info(
+                f"[HL-PERPS] {signal.coin} blocked — {self._day_losses[coin_u]} losing "
+                f"closes today (≥{HL_PERPS_DAY_LOSER_BLOCK}) — back tomorrow"
+            )
+            return False
+
+        # v33: fee-aware minimum edge — TP must be able to pay the fees + spread.
+        # 53/121 closes on 7/22–7/24 died in -0.6..0% — moves that could never pay.
+        try:
+            if signal.direction == "long":
+                tp_dist_pct = (signal.take_profit_price - signal.entry_price) / signal.entry_price * 100
+            else:
+                tp_dist_pct = (signal.entry_price - signal.take_profit_price) / signal.entry_price * 100
+            if tp_dist_pct < HL_PERPS_MIN_TP_DISTANCE_PCT:
+                logger.info(
+                    f"[HL-PERPS] {signal.coin} blocked — TP distance {tp_dist_pct:.2f}% "
+                    f"< {HL_PERPS_MIN_TP_DISTANCE_PCT}% (can't clear fees; noise trade)"
+                )
+                return False
+        except (TypeError, ZeroDivisionError):
+            pass
+
+        # v33: leverage-ROE sanity cap — a stop-out may cost at most
+        # HL_PERPS_MAX_SL_ROE_LOSS_PCT of margin. At 2.5% SL that means ≤4x;
+        # the 10-15x scalp boost only survives with a much tighter SL.
+        try:
+            if signal.direction == "long":
+                sl_dist_pct = (signal.entry_price - signal.stop_loss_price) / signal.entry_price * 100
+            else:
+                sl_dist_pct = (signal.stop_loss_price - signal.entry_price) / signal.entry_price * 100
+            if sl_dist_pct > 0:
+                max_lev_for_sl = max(1, int(HL_PERPS_MAX_SL_ROE_LOSS_PCT / sl_dist_pct))
+                if int(signal.leverage or 1) > max_lev_for_sl:
+                    logger.info(
+                        f"[HL-PERPS] {signal.coin} leverage {signal.leverage}x → "
+                        f"{max_lev_for_sl}x (SL {sl_dist_pct:.2f}% × lev ≤ "
+                        f"{HL_PERPS_MAX_SL_ROE_LOSS_PCT:.0f}% ROE loss cap)"
+                    )
+                    signal.leverage = max_lev_for_sl
+        except (TypeError, ZeroDivisionError):
+            pass
         # Hard ban — never open (v31: score+20 soft toxic still let KAITO/APE through)
         if coin_u in HL_PERPS_HARD_BAN_COINS:
             logger.info(
@@ -1618,6 +1752,10 @@ class HLPerpsScanner:
         # Cap margin so notional (margin × lev) stays under hard cap
         lev = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
         size_usd = min(signal.position_size_usd, HL_PERPS_MAX_POSITION_USD)
+        # v33: CHOPPY regime halves size (right-side trading)
+        if regime_size_mult != 1.0:
+            size_usd = round(size_usd * regime_size_mult, 2)
+            logger.info(f"[HL-PERPS] {signal.coin} size ×{regime_size_mult} (CHOPPY regime)")
         max_margin_for_notional = HL_PERPS_MAX_NOTIONAL_USD / lev
         if size_usd > max_margin_for_notional:
             logger.info(
