@@ -1668,7 +1668,25 @@ class HLPerpsScanner:
                 size_mult = float(validation.get("position_size_multiplier") or 1.0)
                 # Toxic-hour size cut (08–14 ET): trade_history 29 −$326 vs +$28 elsewhere
                 size_mult *= float(get_position_size_multiplier())
+
+                # ── Moralis On-Chain Score & Alpha Gate (TraderAlice Moralis Integration) ──
+                try:
+                    from data.providers.moralis_money import get_token_score
+                    m_score_data = get_token_score(signal.coin, chain="ethereum")
+                    if m_score_data and isinstance(m_score_data, dict):
+                        m_score = int(m_score_data.get("score", 0))
+                        if m_score > 0:
+                            if m_score < 40:
+                                logger.info(f"[HL-PERPS] {signal.coin} Moralis score low ({m_score}/100) — entry blocked")
+                                return False
+                            elif m_score >= 70:
+                                logger.info(f"[HL-PERPS] 💎 {signal.coin} Moralis Alpha High Score ({m_score}/100) — conviction boost")
+                                size_mult *= 1.25
+                except Exception as _m_err:
+                    logger.debug(f"[HL-PERPS] Moralis score check error (allow): {_m_err}")
+
                 if size_mult != 1.0:
+
                     new_size = round(max(10.0, size_usd * size_mult), 2)
                     logger.info(
                         f"[HL-PERPS] {signal.coin} Winning size ×{size_mult:.2f}: "
