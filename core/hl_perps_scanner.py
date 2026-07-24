@@ -958,6 +958,39 @@ class HLPerpsScanner:
             mult = 1.0 + (wr - 0.50) / 0.20 * (hi - 1.0)
         return round(mult, 3)
 
+    def get_max_allowed_leverage(self, coin: str, requested_leverage: int) -> int:
+        """Pre-trade safety gate: cap max leverage based on backtest edge & live win rate.
+        High leverage (10x-15x) requires proven edge (WR >= 40% or backtested PF > 1.2).
+        Underperforming tokens (WR < 35% or negative backtest PnL) are capped at 3x max.
+        """
+        coin_u = coin.upper()
+        # High-edge backtested whitelist (PF > 1.2 in multi-regime 14d/30d backtests)
+        backtest_high_edge = {"KBONK", "FARTCOIN", "ATOM", "ONDO", "LDO", "BCH", "AAVE", "OP", "STX", "DOGE", "DOT"}
+        # High-loss backtested blacklist (consistently negative backtest PnL)
+        backtest_low_edge = {"AVAX", "APT", "ARB", "DYDX", "KPEPE", "JUP", "TRUMP", "NEAR", "LINK", "XRP", "BTC", "ETH"}
+
+        if coin_u in backtest_low_edge:
+            logger.info(f"[{coin_u}] 🛡️ Leverage capped at 3x: low backtest edge / negative PnL")
+            return min(requested_leverage, 3)
+
+        perf = self._coin_perf.get(coin_u, {})
+        wins = int(perf.get("wins", 0))
+        losses = int(perf.get("losses", 0))
+        total = wins + losses
+        if total >= 3:
+            wr = wins / total
+            if wr < 0.35:
+                logger.info(f"[{coin_u}] 🛡️ Leverage capped at 3x: low live win rate {wr*100:.1f}% ({wins}/{total})")
+                return min(requested_leverage, 3)
+            elif wr >= 0.50 or coin_u in backtest_high_edge:
+                return requested_leverage  # Proven edge: full requested leverage up to 15x
+
+        if coin_u in backtest_high_edge:
+            return requested_leverage
+        return min(requested_leverage, 10)
+
+
+
     def scan_coin(self, coin: str, funding_rate: float) -> Optional[PerpSignal]:
         """
         Scan a single perp market and return a signal if one exists.
@@ -1405,6 +1438,10 @@ class HLPerpsScanner:
             effective_leverage = min(15, max(10, int(HL_PERPS_LEVERAGE * 2.5)))
         elif vol_spike >= 1.4 or score >= 60.0:
             effective_leverage = min(10, max(6, int(HL_PERPS_LEVERAGE * 1.5)))
+
+        # Pre-leverage safety gate: verify backtest win rate & coin edge before allowing >3x leverage
+        effective_leverage = self.get_max_allowed_leverage(coin, effective_leverage)
+
 
         signal = PerpSignal(
             coin=coin,
