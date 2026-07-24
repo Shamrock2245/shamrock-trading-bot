@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>HL Perps Backtest — 2026-07-24</title>
+<style>
+body{font-family:monospace;background:#0f172a;color:#e2e8f0;padding:2rem}
+h1{color:#38bdf8}h2{color:#7dd3fc}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid #1e293b}
+th{background:#1e293b;color:#94a3b8}
+td:first-child{text-align:left;font-weight:bold}
+.stat{display:inline-block;margin:8px 16px 8px 0;padding:12px 20px;
+       background:#1e293b;border-radius:8px;min-width:140px}
+.stat-label{font-size:0.75rem;color:#64748b}
+.stat-value{font-size:1.4rem;font-weight:bold;color:#38bdf8}
+.hit{color:#22c55e}.miss{color:#ef4444}
+</style></head><body>
+<h1>🔬 Hyperliquid Perps Backtest</h1>
+<p style="color:#64748b">2026-07-24T17:26:32.704816+00:00 | 14d lookback | 
+3x leverage | TP=6.0% | SL=2.5%</p>
+
+<div>
+<div class="stat"><div class="stat-label">Total PnL</div>
+<div class="stat-value" style="color:#ef4444">$-477.53</div></div>
+<div class="stat"><div class="stat-label">Avg Daily PnL</div>
+<div class="stat-value" style="color:#ef4444">$-34.11</div></div>
+<div class="stat"><div class="stat-label">Projected/Month</div>
+<div class="stat-value">$-1,023.30</div></div>
+<div class="stat"><div class="stat-label">Win Rate</div>
+<div class="stat-value">29.2%</div></div>
+<div class="stat"><div class="stat-label">Profit Factor</div>
+<div class="stat-value">0.81</div></div>
+<div class="stat"><div class="stat-label">Sharpe Ratio</div>
+<div class="stat-value">-8.91</div></div>
+<div class="stat"><div class="stat-label">Total Trades</div>
+<div class="stat-value">319</div></div>
+<div class="stat"><div class="stat-label">Max Drawdown</div>
+<div class="stat-value" style="color:#ef4444">$115.05</div></div>
+<div class="stat"><div class="stat-label">$500/Day Target</div>
+<div class="stat-value miss">
+❌ MISS</div></div>
+</div>
+
+<h2>Per-Coin Results</h2>
+<table>
+<tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit Factor</th>
+<th>Total PnL</th><th>Sharpe</th><th>Max DD</th></tr>
+<tr><td>kBONK</td><td>25</td><td>44.0%</td><td>1.69</td><td style='color:#22c55e'>$+111.70</td><td>22.63</td><td>$46.02</td></tr>
+<tr><td>FARTCOIN</td><td>17</td><td>41.2%</td><td>1.48</td><td style='color:#22c55e'>$+55.25</td><td>16.86</td><td>$53.79</td></tr>
+<tr><td>ATOM</td><td>3</td><td>66.7%</td><td>31.96</td><td style='color:#22c55e'>$+51.82</td><td>120.67</td><td>$0.00</td></tr>
+<tr><td>ONDO</td><td>17</td><td>41.2%</td><td>1.44</td><td style='color:#22c55e'>$+50.11</td><td>15.35</td><td>$46.02</td></tr>
+<tr><td>LDO</td><td>14</td><td>42.9%</td><td>1.46</td><td style='color:#22c55e'>$+42.03</td><td>15.66</td><td>$34.51</td></tr>
+<tr><td>BCH</td><td>6</td><td>50.0%</td><td>2.09</td><td style='color:#22c55e'>$+37.64</td><td>32.65</td><td>$34.51</td></tr>
+<tr><td>APE</td><td>13</td><td>38.5%</td><td>1.22</td><td style='color:#22c55e'>$+20.51</td><td>8.50</td><td>$23.01</td></tr>
+<tr><td>AAVE</td><td>10</td><td>40.0%</td><td>1.27</td><td style='color:#22c55e'>$+18.73</td><td>10.19</td><td>$23.01</td></tr>
+<tr><td>OP</td><td>4</td><td>50.0%</td><td>1.81</td><td style='color:#22c55e'>$+18.54</td><td>26.01</td><td>$23.01</td></tr>
+<tr><td>kSHIB</td><td>1</td><td>100.0%</td><td>10.00</td><td style='color:#22c55e'>$+13.55</td><td>0.00</td><td>$0.00</td></tr>
+<tr><td>STX</td><td>7</td><td>42.9%</td><td>1.29</td><td style='color:#22c55e'>$+13.36</td><td>10.65</td><td>$46.02</td></tr>
+<tr><td>BNB</td><td>1</td><td>100.0%</td><td>10.00</td><td style='color:#22c55e'>$+9.88</td><td>0.00</td><td>$0.00</td></tr>
+<tr><td>DOGE</td><td>4</td><td>50.0%</td><td>1.33</td><td style='color:#22c55e'>$+7.50</td><td>11.21</td><td>$23.01</td></tr>
+<tr><td>HYPE</td><td>8</td><td>37.5%</td><td>1.13</td><td style='color:#22c55e'>$+7.45</td><td>5.24</td><td>$34.51</td></tr>
+<tr><td>DOT</td><td>4</td><td>25.0%</td><td>1.09</td><td style='color:#22c55e'>$+2.13</td><td>3.18</td><td>$23.01</td></tr>
+<tr><td>TRX</td><td>1</td><td>0.0%</td><td>0.00</td><td style='color:#ef4444'>$-1.39</td><td>0.00</td><td>$0.00</td></tr>
+<tr><td>INJ</td><td>12</td><td>33.3%</td><td>0.92</td><td style='color:#ef4444'>$-7.01</td><td>-3.33</td><td>$42.28</td></tr>
+<tr><td>WLD</td><td>22</td><td>27.3%</td><td>0.91</td><td style='color:#ef4444'>$-15.03</td><td>-3.79</td><td>$46.02</td></tr>
+<tr><td>CRV</td><td>9</td><td>22.2%</td><td>0.75</td><td style='color:#ef4444'>$-17.44</td><td>-11.62</td><td>$57.52</td></tr>
+<tr><td>BTC</td><td>3</td><td>0.0%</td><td>0.00</td><td style='color:#ef4444'>$-23.01</td><td>-132.40</td><td>$23.01</td></tr>
+<tr><td>LINK</td><td>4</td><td>25.0%</td><td>0.06</td><td style='color:#ef4444'>$-32.34</td><td>-127.80</td><td>$34.51</td></tr>
+<tr><td>LTC</td><td>8</td><td>25.0%</td><td>0.49</td><td style='color:#ef4444'>$-34.88</td><td>-30.71</td><td>$57.52</td></tr>
+<tr><td>SUI</td><td>5</td><td>20.0%</td><td>0.22</td><td style='color:#ef4444'>$-36.03</td><td>-78.45</td><td>$46.02</td></tr>
+<tr><td>ETH</td><td>4</td><td>0.0%</td><td>0.00</td><td style='color:#ef4444'>$-37.08</td><td>-224.06</td><td>$34.51</td></tr>
+<tr><td>SOL</td><td>5</td><td>20.0%</td><td>0.19</td><td style='color:#ef4444'>$-37.13</td><td>-85.18</td><td>$46.02</td></tr>
+<tr><td>ENA</td><td>7</td><td>14.3%</td><td>0.41</td><td style='color:#ef4444'>$-39.20</td><td>-39.56</td><td>$46.02</td></tr>
+<tr><td>NEAR</td><td>11</td><td>18.2%</td><td>0.57</td><td style='color:#ef4444'>$-40.15</td><td>-23.39</td><td>$65.29</td></tr>
+<tr><td>ADA</td><td>10</td><td>20.0%</td><td>0.52</td><td style='color:#ef4444'>$-44.62</td><td>-29.51</td><td>$65.29</td></tr>
+<tr><td>XRP</td><td>5</td><td>20.0%</td><td>0.03</td><td style='color:#ef4444'>$-44.75</td><td>-163.94</td><td>$46.02</td></tr>
+<tr><td>UNI</td><td>9</td><td>22.2%</td><td>0.43</td><td style='color:#ef4444'>$-46.23</td><td>-37.73</td><td>$80.53</td></tr>
+<tr><td>TRUMP</td><td>5</td><td>0.0%</td><td>0.00</td><td style='color:#ef4444'>$-49.98</td><td>-310.03</td><td>$46.02</td></tr>
+<tr><td>JUP</td><td>10</td><td>20.0%</td><td>0.42</td><td style='color:#ef4444'>$-53.65</td><td>-39.43</td><td>$65.29</td></tr>
+<tr><td>kPEPE</td><td>11</td><td>18.2%</td><td>0.43</td><td style='color:#ef4444'>$-59.48</td><td>-38.66</td><td>$76.80</td></tr>
+<tr><td>DYDX</td><td>10</td><td>20.0%</td><td>0.33</td><td style='color:#ef4444'>$-61.72</td><td>-48.72</td><td>$65.29</td></tr>
+<tr><td>ARB</td><td>12</td><td>16.7%</td><td>0.34</td><td style='color:#ef4444'>$-75.52</td><td>-49.09</td><td>$103.54</td></tr>
+<tr><td>APT</td><td>11</td><td>9.1%</td><td>0.25</td><td style='color:#ef4444'>$-81.98</td><td>-63.62</td><td>$103.54</td></tr>
+<tr><td>AVAX</td><td>11</td><td>9.1%</td><td>0.14</td><td style='color:#ef4444'>$-99.11</td><td>-106.89</td><td>$115.05</td></tr>
+
+</table>
+</body></html>
