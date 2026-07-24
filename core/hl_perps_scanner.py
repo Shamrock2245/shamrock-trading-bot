@@ -77,11 +77,12 @@ HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MI
 # After emergency close (SL place fail), block the coin longer than normal reentry
 HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
 # Hard notional cap (margin × leverage)
-HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
+HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "250.0"))
 # Minimum R/R at signal generation (executor re-checks post-fill) — KEEP 1.2 (post-fix R:R 3.26x)
 HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
-# Shorts: live book ~17% short WR — stay long-only until short edge is proven
-HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
+# Symmetric trading — allow shorts when tokens break down or BTC regime is bearish (TraderAlice pattern)
+HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "true"
+
 # ── Hard ban (trade_history 31): NEVER open these — score+20 was not enough ──
 # Soft toxic (score bonus) still let KAITO/APE EXECUTING live on 2026-07-22.
 # Confirmed multi-trade losers from v26–v31 (AAVE kept off hard-ban: net +$68).
@@ -1397,6 +1398,14 @@ class HLPerpsScanner:
         # Hard cap: never risk more than max_size in a single position
         kelly_size_usd = min(kelly_size_usd, max_size)
 
+        # ── Dynamic Scalp Leverage Boost (TraderAlice pattern) ─────────────────────
+        # Fast 5m/15m scalps with volume spike or high conviction score get a leverage boost (10x-15x)
+        effective_leverage = HL_PERPS_LEVERAGE
+        if vol_spike >= 2.0 or score >= 70.0:
+            effective_leverage = min(15, max(10, int(HL_PERPS_LEVERAGE * 2.5)))
+        elif vol_spike >= 1.4 or score >= 60.0:
+            effective_leverage = min(10, max(6, int(HL_PERPS_LEVERAGE * 1.5)))
+
         signal = PerpSignal(
             coin=coin,
             direction=direction,
@@ -1404,8 +1413,9 @@ class HLPerpsScanner:
             entry_price=current_price,
             stop_loss_price=round(stop_loss, 6),
             take_profit_price=round(take_profit, 6),
-            leverage=HL_PERPS_LEVERAGE,
+            leverage=effective_leverage,
             position_size_usd=round(kelly_size_usd, 2),
+
             rsi=rsi_val,
             ema_cross=components.get("ema_cross"),
             macd_signal="buy" if (components.get("macd_hist") or 0) > 0 else "sell",
