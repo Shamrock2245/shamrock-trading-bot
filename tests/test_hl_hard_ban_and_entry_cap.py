@@ -200,3 +200,125 @@ def test_edge_sizing_disabled_returns_neutral(monkeypatch):
     scanner = _make_ready_scanner(sc)
     scanner._coin_perf = {"WINNER": {"wins": 9, "losses": 1}}
     assert scanner.get_edge_size_multiplier("WINNER") == 1.0
+
+
+# ── v33: freqtrade protections + regime gate ──────────────────────────────
+
+def _v33_env(**extra):
+    env = dict(
+        WINNING_ENTRY_FILTER_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+        HL_PERPS_REGIME_GATE_ENABLED="false",
+        HL_PERPS_LONG_ONLY="true",
+        HL_PERPS_HARD_BAN_COINS="KAITO",
+        HL_PERPS_TOXIC_COINS="",
+    )
+    env.update(extra)
+    return env
+
+
+def test_slguard_halts_after_loss_cascade(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        **_v33_env(HL_PERPS_SLGUARD_LIMIT="3", HL_PERPS_SLGUARD_WINDOW_MIN="120",
+                   HL_PERPS_SLGUARD_HALT_MIN="90", HL_PERPS_AUTOBAN_ENABLED="false"),
+    )
+    scanner = _make_ready_scanner(sc)
+    for coin in ("A1", "B2", "C3"):
+        scanner.record_trade_outcome(coin, won=False)
+    assert scanner._slguard_halt_until > 0
+    # Entries now blocked
+    assert scanner._execute_signal(_gmx_signal()) is False
+    scanner.hl_executor.open_long.assert_not_called()
+
+
+def test_slguard_ignores_wins(monkeypatch):
+    sc = _reload_scanner(monkeypatch, **_v33_env(HL_PERPS_SLGUARD_LIMIT="3"))
+    scanner = _make_ready_scanner(sc)
+    for coin in ("A1", "B2", "C3", "D4"):
+        scanner.record_trade_outcome(coin, won=True)
+    assert scanner._slguard_halt_until == 0.0
+
+
+def test_day_loser_block(monkeypatch):
+    from datetime import datetime, timezone
+    sc = _reload_scanner(monkeypatch, **_v33_env(HL_PERPS_DAY_LOSER_BLOCK="2"))
+    scanner = _make_ready_scanner(sc)
+    # Anchor the daily-reset date so _check_daily_reset doesn't wipe the block
+    scanner.daily_pnl_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    scanner._day_losses = {"GMX": 2}
+    assert scanner._execute_signal(_gmx_signal()) is False
+    scanner.hl_executor.open_long.assert_not_called()
+    # A different coin still trades
+    sig = _gmx_signal()
+    sig.coin = "OP"
+    assert scanner._execute_signal(sig) is True
+
+
+def test_fee_aware_min_tp_distance(monkeypatch):
+    sc = _reload_scanner(monkeypatch, **_v33_env(HL_PERPS_MIN_TP_DISTANCE_PCT="0.8"))
+    scanner = _make_ready_scanner(sc)
+    sig = _gmx_signal()
+    sig.entry_price = 100.0
+    sig.take_profit_price = 100.4  # 0.4% < 0.8% — noise trade
+    sig.stop_loss_price = 99.0
+    assert scanner._execute_signal(sig) is False
+    sig2 = _gmx_signal()
+    sig2.entry_price = 100.0
+    sig2.take_profit_price = 102.0  # 2% — pays
+    sig2.stop_loss_price = 99.0
+    assert scanner._execute_signal(sig2) is True
+
+
+def test_leverage_roe_cap(monkeypatch):
+    """15x leverage with a 2.5% SL = 37.5% ROE stop-out — capped to 4x at 12% ROE."""
+    sc = _reload_scanner(monkeypatch, **_v33_env(HL_PERPS_MAX_SL_ROE_LOSS_PCT="12.0"))
+    scanner = _make_ready_scanner(sc)
+    sig = _gmx_signal()
+    sig.entry_price = 100.0
+    sig.stop_loss_price = 97.5   # 2.5% SL
+    sig.take_profit_price = 106.0
+    sig.leverage = 15
+    assert scanner._execute_signal(sig) is True
+    assert sig.leverage == 4  # 12 / 2.5 = 4.8 → int → 4
+
+
+def test_regime_gate_blocks_short_when_not_nuke(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        **_v33_env(HL_PERPS_REGIME_GATE_ENABLED="true", HL_PERPS_LONG_ONLY="false"),
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner.hl_executor.open_short = MagicMock(return_value={"coin": "GMX"})
+
+    from unittest.mock import patch
+    import core.regime_filter as rf
+    trending_state = rf.RegimeState(
+        regime=rf.Regime.TRENDING, adx=30.0, volume_ratio=1.0,
+        timestamp=0.0, details="test",
+    )
+    sig = _gmx_signal()
+    sig.direction = "short"
+    sig.entry_price = 100.0
+    sig.stop_loss_price = 102.5
+    sig.take_profit_price = 97.0
+    with patch("core.regime_filter.get_regime", return_value=trending_state):
+        assert scanner._execute_signal(sig) is False
+    scanner.hl_executor.open_short.assert_not_called()
+
+
+def test_regime_gate_blocks_long_in_nuke(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        **_v33_env(HL_PERPS_REGIME_GATE_ENABLED="true"),
+    )
+    scanner = _make_ready_scanner(sc)
+    from unittest.mock import patch
+    import core.regime_filter as rf
+    nuke_state = rf.RegimeState(
+        regime=rf.Regime.NUKE, adx=40.0, volume_ratio=2.0,
+        timestamp=0.0, details="test",
+    )
+    with patch("core.regime_filter.get_regime", return_value=nuke_state):
+        assert scanner._execute_signal(_gmx_signal()) is False
+    scanner.hl_executor.open_long.assert_not_called()
