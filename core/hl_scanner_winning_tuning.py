@@ -47,8 +47,9 @@ class WinningEntryConfig:
     narrative_gate_bypass: bool = True
     max_atr_pct: float = 5.0
     high_vol_size_multiplier: float = 0.5
-    blacklist_sl_hits: int = 3
-    blacklist_window_sec: float = 24 * 3600
+    blacklist_sl_hits: int = 2
+    blacklist_window_sec: float = 12 * 3600
+    hard_blacklist: List[str] = field(default_factory=lambda: ["TRB", "GRASS", "EIGEN", "MET", "SOL"])
 
 
 def default_entry_config() -> WinningEntryConfig:
@@ -60,8 +61,8 @@ def default_entry_config() -> WinningEntryConfig:
         narrative_gate_bypass=_env_bool("NARRATIVE_GATE_BYPASS", True),
         max_atr_pct=_env_float("MAX_ATR_PCT", 5.0),
         high_vol_size_multiplier=_env_float("HIGH_VOL_SIZE_MULTIPLIER", 0.5),
-        blacklist_sl_hits=int(_env_float("WINNING_BLACKLIST_SL_HITS", 3)),
-        blacklist_window_sec=_env_float("WINNING_BLACKLIST_WINDOW_SEC", 24 * 3600),
+        blacklist_sl_hits=int(_env_float("WINNING_BLACKLIST_SL_HITS", 2)),
+        blacklist_window_sec=_env_float("WINNING_BLACKLIST_WINDOW_SEC", 12 * 3600),
     )
 
 
@@ -73,6 +74,7 @@ class WinningEntryFilter:
     # symbol → list of unix timestamps of SL hits
     _sl_hits: Dict[str, List[float]] = field(default_factory=dict)
     dynamic_blacklist: List[str] = field(default_factory=list)
+
 
     def _prune_hits(self, symbol: str, now: Optional[float] = None) -> None:
         now = now if now is not None else time.time()
@@ -148,6 +150,15 @@ class WinningEntryFilter:
         size_multiplier = 1.0
         self._prune_hits(symbol)
 
+        # ── 0. Hard blacklist (toxic tokens from trade_history diagnosis) ─────
+        if symbol in cfg.hard_blacklist:
+            logger.warning(f"[{symbol}] ❌ Entry Blocked: static hard blacklist")
+            return {
+                "approved": False,
+                "reason": "hard_blacklist",
+                "position_size_multiplier": 0.0,
+            }
+
         # ── 1. Dynamic blacklist ──────────────────────────────────────────────
         if symbol in self.dynamic_blacklist or sl_count >= cfg.blacklist_sl_hits:
             if sl_count >= cfg.blacklist_sl_hits:
@@ -158,6 +169,7 @@ class WinningEntryFilter:
                 "reason": "dynamic_blacklist",
                 "position_size_multiplier": 0.0,
             }
+
 
         # ── 2. Volume floor ($1M day notional) ────────────────────────────────
         # Only enforce when volume is provided (>0). Missing data → log + allow

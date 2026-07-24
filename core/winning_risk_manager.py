@@ -64,23 +64,21 @@ class WinningRiskConfig:
     tp1_profit_pct: float = 2.0
     tp1_size_pct: float = 40.0
     # Trail (after TP1 or once trail activates)
-    trail_activate_pct: float = 2.0
-    trail_distance_pct: float = 1.25
-    # v32 profit-tiered trail ladder "peak_pnl:trail_dist,…" — wider trail as the
-    # runner grows. trade_history 34: 0.5% flat trail capped every winner ≤ +2.16%
-    # post-v31 while >2% winners were the only net-positive bucket (+$151).
-    trail_ladder: str = "2:1.25,4:1.75,8:2.5"
-    # 45-min rule (v32: was 30m/−1% — too twitchy, fed the −0.5..0% churn band)
+    trail_activate_pct: float = 1.5
+    trail_distance_pct: float = 1.0
+    # Dynamic profit-tiered trail ladder
+    trail_ladder: str = "1.5:1.0,3:1.5,6:2.0"
+    # 45-min rule: still red after 45m → tighten SL to −1.5%
     min_rule_minutes: float = 45.0
     min_rule_sl_pct: float = -1.5  # tighten SL to −1.5% from entry
-    # Hard timeout — v32: 4h. Hold-bucket PnL: 1–4h +$13 (36.7% WR), 4–12h 52.8% WR.
-    # The 1.5h timeout was force-closing trades that were about to work.
-    loss_timeout_hours: float = 4.0
+    # Hard timeout: 2.0h to cut stale losing positions early
+    loss_timeout_hours: float = 2.0
     # Toxic zone (America/New_York wall-clock hour)
     toxic_zone_enabled: bool = True
     toxic_zone_start: int = 8
     toxic_zone_end: int = 14
     toxic_zone_size_mult: float = 0.5
+
 
 
 @dataclass
@@ -122,18 +120,18 @@ def default_config() -> WinningRiskConfig:
         be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05),
         tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 2.0),
         tp1_size_pct=_env_float("TP1_SIZE_PCT", 40.0),
-        trail_activate_pct=_env_float("TP1_PROFIT_PCT", 2.0),  # trail arms at same level
-        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 1.25),
-        trail_ladder=os.getenv("TRAIL_LADDER", "2:1.25,4:1.75,8:2.5"),
+        trail_activate_pct=_env_float("TP1_PROFIT_PCT", 1.5),  # trail arms at same level
+        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 1.0),
+        trail_ladder=os.getenv("TRAIL_LADDER", "1.5:1.0,3:1.5,6:2.0"),
         min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 45.0),
         min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.5),
-        # v32: 4h (was 1.5h) — 1–4h holds are the profitable bucket; 1.5h choked them
-        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 4.0),
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.0),
         toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
         toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
         toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),
         toxic_zone_size_mult=_env_float("TOXIC_ZONE_SIZE_MULT", 0.5),
     )
+
 
 
 def _pnl_pct(side: str, entry: float, current: float) -> float:

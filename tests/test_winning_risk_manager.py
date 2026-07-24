@@ -283,11 +283,12 @@ def test_entry_missing_volume_does_not_block():
     """Missing ctx volume (0) must not halt all trading."""
     f = WinningEntryFilter(config=WinningEntryConfig(enabled=True, min_volume_usd=1_000_000))
     out = f.validate_entry({
-        "symbol": "SOL",
-        "current_price": 150.0,
+        "symbol": "ETH",
+        "current_price": 3000.0,
         "volume_24h_usd": 0,
     })
     assert out["approved"] is True
+
 
 
 def test_vwap_blocks_long_below():
