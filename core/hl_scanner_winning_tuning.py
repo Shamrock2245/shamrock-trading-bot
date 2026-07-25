@@ -41,7 +41,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
 @dataclass
 class WinningEntryConfig:
     enabled: bool = True
-    min_volume_usd: float = 1_000_000.0
+    min_volume_usd: float = 1_500_000.0
     use_vwap_filter: bool = True
     narrative_score_threshold: float = 0.8
     narrative_gate_bypass: bool = True
@@ -49,13 +49,19 @@ class WinningEntryConfig:
     high_vol_size_multiplier: float = 0.5
     blacklist_sl_hits: int = 2
     blacklist_window_sec: float = 12 * 3600
-    hard_blacklist: List[str] = field(default_factory=lambda: ["TRB", "GRASS", "EIGEN", "MET", "SOL"])
+    hard_blacklist: List[str] = field(
+        default_factory=lambda: [
+            "TRB", "GRASS", "EIGEN", "MET", "SOL", "ENA", "ZEC", "ETH",
+            "BSV", "CRV", "PENDLE", "UNI", "ACE", "ADA", "STABLE", "SUI",
+            "KAITO", "APE", "HEMI", "ONDO", "MORPHO", "LIT"
+        ]
+    )
 
 
 def default_entry_config() -> WinningEntryConfig:
     return WinningEntryConfig(
         enabled=_env_bool("WINNING_ENTRY_FILTER_ENABLED", True),
-        min_volume_usd=_env_float("MIN_VOLUME_USD", 1_000_000.0),
+        min_volume_usd=_env_float("MIN_VOLUME_USD", 1_500_000.0),
         use_vwap_filter=_env_bool("USE_VWAP_FILTER", True),
         narrative_score_threshold=_env_float("NARRATIVE_SCORE_THRESHOLD", 0.8),
         narrative_gate_bypass=_env_bool("NARRATIVE_GATE_BYPASS", True),

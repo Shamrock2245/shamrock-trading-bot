@@ -266,12 +266,12 @@ def test_entry_volume_floor():
 
 def test_entry_blacklist_after_3_sl():
     f = WinningEntryFilter(
-        config=WinningEntryConfig(enabled=True, min_volume_usd=1_000_000, blacklist_sl_hits=3)
+        config=WinningEntryConfig(enabled=True, min_volume_usd=1_000_000, blacklist_sl_hits=3, hard_blacklist=[])
     )
     for _ in range(3):
-        f.record_sl_hit("HEMI")
+        f.record_sl_hit("TESTCOIN")
     out = f.validate_entry({
-        "symbol": "HEMI",
+        "symbol": "TESTCOIN",
         "current_price": 1.0,
         "volume_24h_usd": 5_000_000,
     })
@@ -281,20 +281,19 @@ def test_entry_blacklist_after_3_sl():
 
 def test_entry_missing_volume_does_not_block():
     """Missing ctx volume (0) must not halt all trading."""
-    f = WinningEntryFilter(config=WinningEntryConfig(enabled=True, min_volume_usd=1_000_000))
+    f = WinningEntryFilter(config=WinningEntryConfig(enabled=True, min_volume_usd=1_000_000, hard_blacklist=[]))
     out = f.validate_entry({
-        "symbol": "ETH",
+        "symbol": "TESTETH",
         "current_price": 3000.0,
         "volume_24h_usd": 0,
     })
     assert out["approved"] is True
 
 
-
 def test_vwap_blocks_long_below():
-    f = WinningEntryFilter(config=WinningEntryConfig(enabled=True, use_vwap_filter=True))
+    f = WinningEntryFilter(config=WinningEntryConfig(enabled=True, use_vwap_filter=True, hard_blacklist=[]))
     out = f.validate_entry({
-        "symbol": "ETH",
+        "symbol": "TESTETH",
         "current_price": 99.0,
         "volume_24h_usd": 10_000_000,
         "vwap_15m": 100.0,

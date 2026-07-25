@@ -39,8 +39,10 @@ def get_openai_client():
     if not api_key:
         return None
     try:
+        import httpx
         from openai import OpenAI
-        return OpenAI(api_key=api_key)
+        http_client = httpx.Client()
+        return OpenAI(api_key=api_key, http_client=http_client)
     except Exception as e:
         logger.warning(f"Failed to initialize OpenAI client for self-improving agent: {e}")
         return None
@@ -84,11 +86,68 @@ class SelfImprovingAgent:
         except Exception as e:
             logger.debug(f"Self-Improving Agent: Lock file write failed: {e}")
 
+    def parse_csv_trades(self, csv_path: Path) -> List[Dict[str, Any]]:
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        df["dt"] = pd.to_datetime(df["time"], format="%m/%d/%Y - %H:%M:%S")
+        df = df.sort_values("dt").reset_index(drop=True)
+        
+        trades = []
+        for coin, group in df.groupby("coin"):
+            open_stack = []
+            for idx, row in group.iterrows():
+                is_open = str(row["dir"]).startswith("Open")
+                is_close = str(row["dir"]).startswith("Close")
+                if is_open:
+                    open_stack.append(row)
+                elif is_close:
+                    pnl = float(row["closedPnl"])
+                    ntl = float(row["ntl"])
+                    fee = float(row["fee"])
+                    if open_stack:
+                        open_row = open_stack.pop(0)
+                        duration_sec = (row["dt"] - open_row["dt"]).total_seconds()
+                        fee += float(open_row["fee"])
+                        open_time_str = open_row["dt"].isoformat()
+                    else:
+                        duration_sec = 0.0
+                        open_time_str = row["dt"].isoformat()
+                    
+                    trades.append({
+                        "token_symbol": coin,
+                        "coin": coin,
+                        "dir": row["dir"],
+                        "action": "SELL",
+                        "entry_time": open_time_str,
+                        "close_time": row["dt"].isoformat(),
+                        "opened_at": open_time_str,
+                        "closed_at": row["dt"].isoformat(),
+                        "holding_duration_seconds": duration_sec,
+                        "hold_time": duration_sec,
+                        "closedPnl": pnl,
+                        "pnl_usd": pnl,
+                        "realized_pnl": pnl,
+                        "pnl_pct": (pnl / ntl * 100.0) if ntl > 0 else 0.0,
+                        "fee": fee,
+                        "reason": "stop_loss" if pnl < 0 else "take_profit",
+                        "exit_reason": "sl_hit" if pnl < 0 else "tp_hit",
+                        "signal_scores": {"composite_score": 75.0, "momentum_score": 70.0, "volume_score": 80.0}
+                    })
+        return trades
+
     def load_trade_history(self) -> List[Dict[str, Any]]:
         path = self.history_file
         if not path.exists():
             logger.info(f"Self-Improving Agent: Trade history file not found at {path}")
             return []
+        
+        if str(path).lower().endswith(".csv"):
+            try:
+                return self.parse_csv_trades(path)
+            except Exception as e:
+                logger.error(f"Self-Improving Agent: Error parsing CSV {path}: {e}")
+                return []
+                
         try:
             data = json.loads(path.read_text())
             if isinstance(data, list):
@@ -285,7 +344,7 @@ class SelfImprovingAgent:
                 ],
                 "response_format": {"type": "json_object"}
             }
-            if model.lower().startswith("gpt-5") or "5.6" in model.lower():
+            if "gpt-5" in model.lower() or "o1" in model.lower() or "o3" in model.lower():
                 kwargs["max_completion_tokens"] = 1000
             else:
                 kwargs["temperature"] = 0.2

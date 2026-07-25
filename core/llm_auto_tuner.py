@@ -89,7 +89,9 @@ def get_openai_client():
                 f"🧠 Auto-Tuner skipped: no OPENAI_API_KEY configured (model={get_openai_model()})"
             )
             return None
-        _openai_client = OpenAI(api_key=api_key)
+        import httpx
+        http_client = httpx.Client()
+        _openai_client = OpenAI(api_key=api_key, http_client=http_client)
     return _openai_client
 
 

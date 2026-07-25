@@ -88,7 +88,7 @@ HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "
 # Confirmed multi-trade losers from v26–v31 (AAVE kept off hard-ban: net +$68).
 _HARD_BAN_RAW = os.getenv(
     "HL_PERPS_HARD_BAN_COINS",
-    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO",
+    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI",
 )
 HL_PERPS_HARD_BAN_COINS: set[str] = {
     c.strip().upper() for c in _HARD_BAN_RAW.split(",") if c.strip()
@@ -148,9 +148,9 @@ HL_PERPS_MAX_SL_ROE_LOSS_PCT: float = float(os.getenv("HL_PERPS_MAX_SL_ROE_LOSS_
 # Repeat-loser day-block: a coin with N losing closes today is blocked until
 # the daily reset (ENA: 10 closes, -$17.58 across 7/22–7/24 — death by re-entry).
 HL_PERPS_DAY_LOSER_BLOCK: int = int(os.getenv("HL_PERPS_DAY_LOSER_BLOCK", "2"))
-# Optional hour block (local America/New_York). trade_history(27): hour 10/17/22 worst PnL.
-# Empty string disables. Example: "10,17,22"
-_BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "10,17,22")
+# Optional hour block (local America/New_York). trade_history(39): hours 0,1,6,10,11,13,14,18 worst PnL.
+# Empty string disables. Example: "0,1,6,10,11,13,14,18"
+_BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "0,1,6,10,11,13,14,18")
 HL_PERPS_BLOCKED_HOURS_ET: set[int] = {
     int(h.strip()) for h in _BLOCKED_HOURS_RAW.split(",") if h.strip().isdigit()
 }
