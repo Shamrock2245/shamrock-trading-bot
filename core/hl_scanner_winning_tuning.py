@@ -41,7 +41,15 @@ def _env_bool(name: str, default: bool = True) -> bool:
 @dataclass
 class WinningEntryConfig:
     enabled: bool = True
-    min_volume_usd: float = 1_500_000.0
+    # Soft floor: below this → size cut (not hard reject). CSV40: $1M binary starved mid-caps.
+    min_volume_usd: float = 500_000.0
+    # Hard floor: below this → reject (illiquid trash / thin books)
+    hard_volume_usd: float = 250_000.0
+    # Between hard and soft → size multiplier
+    low_volume_size_multiplier: float = 0.5
+    # Above this → mild size boost for deep books
+    high_volume_usd: float = 2_000_000.0
+    high_volume_size_multiplier: float = 1.1
     use_vwap_filter: bool = True
     narrative_score_threshold: float = 0.8
     narrative_gate_bypass: bool = True
@@ -61,7 +69,11 @@ class WinningEntryConfig:
 def default_entry_config() -> WinningEntryConfig:
     return WinningEntryConfig(
         enabled=_env_bool("WINNING_ENTRY_FILTER_ENABLED", True),
-        min_volume_usd=_env_float("MIN_VOLUME_USD", 1_500_000.0),
+        min_volume_usd=_env_float("MIN_VOLUME_USD", 500_000.0),
+        hard_volume_usd=_env_float("MIN_VOLUME_HARD_USD", 250_000.0),
+        low_volume_size_multiplier=_env_float("LOW_VOLUME_SIZE_MULT", 0.5),
+        high_volume_usd=_env_float("HIGH_VOLUME_USD", 2_000_000.0),
+        high_volume_size_multiplier=_env_float("HIGH_VOLUME_SIZE_MULT", 1.1),
         use_vwap_filter=_env_bool("USE_VWAP_FILTER", True),
         narrative_score_threshold=_env_float("NARRATIVE_SCORE_THRESHOLD", 0.8),
         narrative_gate_bypass=_env_bool("NARRATIVE_GATE_BYPASS", True),
@@ -177,19 +189,37 @@ class WinningEntryFilter:
             }
 
 
-        # ── 2. Volume floor ($1M day notional) ────────────────────────────────
-        # Only enforce when volume is provided (>0). Missing data → log + allow
-        # so a bad ctx cache does not halt all trading.
-        if volume > 0 and volume < cfg.min_volume_usd:
-            logger.warning(
-                f"[{symbol}] ❌ Entry Blocked: Volume ${volume:,.0f} < "
-                f"${cfg.min_volume_usd:,.0f}"
-            )
-            return {
-                "approved": False,
-                "reason": f"volume_below_floor_${volume:,.0f}",
-                "position_size_multiplier": 0.0,
-            }
+        # ── 2. Volume tiers (CSV40 / live STBL-GMX starvation fix) ────────────
+        # Only when volume is provided (>0). Missing data → log + allow so a
+        # bad ctx cache does not halt all trading.
+        #   < hard_volume_usd      → reject (too thin)
+        #   hard..soft (min_vol)   → size × low_volume_size_multiplier
+        #   soft..high             → full size
+        #   ≥ high_volume_usd      → mild size boost
+        if volume > 0:
+            hard_floor = min(cfg.hard_volume_usd, cfg.min_volume_usd)
+            if volume < hard_floor:
+                logger.warning(
+                    f"[{symbol}] ❌ Entry Blocked: Volume ${volume:,.0f} < "
+                    f"hard floor ${hard_floor:,.0f}"
+                )
+                return {
+                    "approved": False,
+                    "reason": f"volume_below_hard_${volume:,.0f}",
+                    "position_size_multiplier": 0.0,
+                }
+            if volume < cfg.min_volume_usd:
+                size_multiplier *= cfg.low_volume_size_multiplier
+                logger.info(
+                    f"[{symbol}] ⚠️  Volume ${volume:,.0f} < soft floor "
+                    f"${cfg.min_volume_usd:,.0f} → size ×{cfg.low_volume_size_multiplier}"
+                )
+            elif volume >= cfg.high_volume_usd:
+                size_multiplier *= cfg.high_volume_size_multiplier
+                logger.info(
+                    f"[{symbol}] 💎 Volume ${volume:,.0f} ≥ high tier "
+                    f"${cfg.high_volume_usd:,.0f} → size ×{cfg.high_volume_size_multiplier}"
+                )
 
         # ── 3. VWAP filter (only when vwap supplied) ──────────────────────────
         if cfg.use_vwap_filter and vwap > 0 and curr_px > 0:

@@ -50,6 +50,83 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_tp_sl_geometry(
+    *,
+    direction: str,
+    entry: float,
+    take_profit: float,
+    stop_loss: float,
+    min_rr: float,
+    default_sl_pct: float,
+    tp_source: str,
+) -> tuple[float, float, str]:
+    """Force valid structure: long SL < entry < TP; short TP < entry < SL.
+
+    When Fib (or any path) places TP on the wrong side of entry — the live
+    failure mode spamming "invalid Fib target" — rebuild TP from SL risk
+    using Jesse-style R-multiple: TP = entry ± min_rr × |entry − SL|.
+    """
+    if entry <= 0:
+        return take_profit, stop_loss, tp_source
+
+    d = (direction or "long").lower()
+    src = tp_source or "fixed"
+    min_rr = max(0.5, float(min_rr or 1.2))
+    default_sl_pct = max(0.001, float(default_sl_pct or 0.025))
+
+    if d == "long":
+        # SL must be strictly below entry
+        if stop_loss <= 0 or stop_loss >= entry:
+            stop_loss = entry * (1.0 - default_sl_pct)
+            src = f"{src}+sl_rebuilt"
+        risk = entry - stop_loss
+        if risk <= 0:
+            stop_loss = entry * (1.0 - default_sl_pct)
+            risk = entry - stop_loss
+            src = f"{src}+sl_rebuilt"
+        # TP must be strictly above entry with min R/R
+        need_tp = entry + min_rr * risk
+        if take_profit <= entry:
+            take_profit = need_tp
+            src = f"{src}+rr_fallback"
+            logger.info(
+                f"[HL-PERPS] geometry repair LONG: Fib/TP was ≤ entry — "
+                f"rebuilt TP=${take_profit:.6f} (R/R≥{min_rr:.2f}× risk=${risk:.6f})"
+            )
+        else:
+            # TP above entry but R/R too thin → stretch TP only
+            reward = take_profit - entry
+            if risk > 0 and (reward / risk) < min_rr:
+                take_profit = need_tp
+                src = f"{src}+rr_stretch"
+    else:
+        # short: SL above entry, TP below
+        if stop_loss <= 0 or stop_loss <= entry:
+            stop_loss = entry * (1.0 + default_sl_pct)
+            src = f"{src}+sl_rebuilt"
+        risk = stop_loss - entry
+        if risk <= 0:
+            stop_loss = entry * (1.0 + default_sl_pct)
+            risk = stop_loss - entry
+            src = f"{src}+sl_rebuilt"
+        need_tp = entry - min_rr * risk
+        if take_profit >= entry or take_profit <= 0:
+            take_profit = max(need_tp, entry * 1e-8)
+            src = f"{src}+rr_fallback"
+            logger.info(
+                f"[HL-PERPS] geometry repair SHORT: Fib/TP was ≥ entry — "
+                f"rebuilt TP=${take_profit:.6f} (R/R≥{min_rr:.2f}× risk=${risk:.6f})"
+            )
+        else:
+            reward = entry - take_profit
+            if risk > 0 and (reward / risk) < min_rr:
+                take_profit = max(need_tp, entry * 1e-8)
+                src = f"{src}+rr_stretch"
+
+    return float(take_profit), float(stop_loss), src
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration (all overridable via .env)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1367,6 +1444,20 @@ class HLPerpsScanner:
                 take_profit = current_price * (1 - tp_pct)
             tp_source = "fixed"
 
+        # ── Geometry repair (P0): Fib often yields TP on wrong side of entry ──
+        # Live symptom: "LONG rejected: TP ≤ entry — invalid Fib target" for
+        # LINK/LTC/UNI/AAVE while Fib zone was "aligned". Jesse-style R-multiple
+        # fallback keeps the SL structure and places TP at min_rr × risk.
+        take_profit, stop_loss, tp_source = _ensure_tp_sl_geometry(
+            direction=direction,
+            entry=current_price,
+            take_profit=take_profit,
+            stop_loss=stop_loss,
+            min_rr=HL_PERPS_MIN_RR,
+            default_sl_pct=HL_PERPS_STOP_LOSS_PCT / 100,
+            tp_source=tp_source,
+        )
+
         # Build reasoning string
         rsi_val = components.get("rsi")
         vol_spike = components.get("volume_spike")
@@ -1531,20 +1622,40 @@ class HLPerpsScanner:
             return None
 
         # ── R/R Ratio Guard (OpenAlice Guard Pipeline) ────────────────────────
-        # Reject signals where TP/SL math doesn't make sense.
-        # Raised to 1.5x (2026-07-09) — live book had ~28% WR; need higher R/R for +EV.
+        # Geometry already repaired above; re-check after signal build in case
+        # volatility widener or rounding inverted levels.
+        take_profit, stop_loss, _geo_src = _ensure_tp_sl_geometry(
+            direction=direction,
+            entry=current_price,
+            take_profit=signal.take_profit_price,
+            stop_loss=signal.stop_loss_price,
+            min_rr=HL_PERPS_MIN_RR,
+            default_sl_pct=HL_PERPS_STOP_LOSS_PCT / 100,
+            tp_source=tp_source,
+        )
+        if (
+            abs(take_profit - signal.take_profit_price) > 1e-12
+            or abs(stop_loss - signal.stop_loss_price) > 1e-12
+        ):
+            signal.take_profit_price = round(take_profit, 6)
+            signal.stop_loss_price = round(stop_loss, 6)
+            tp_source = _geo_src
+            components["tp_source"] = tp_source
+
         MIN_RR_RATIO = HL_PERPS_MIN_RR
         rr = signal.r_r_ratio
 
-        # Sanity: TP must be on the correct side of entry
-        if direction == "long" and take_profit <= current_price:
+        # Final sanity — should never fire after geometry repair
+        if direction == "long" and signal.take_profit_price <= current_price:
             logger.warning(
-                f"[HL-PERPS] {coin} LONG rejected: TP=${take_profit:.4f} ≤ entry=${current_price:.4f} — invalid Fib target"
+                f"[HL-PERPS] {coin} LONG rejected after geometry repair: "
+                f"TP=${signal.take_profit_price:.4f} ≤ entry=${current_price:.4f}"
             )
             return None
-        if direction == "short" and take_profit >= current_price:
+        if direction == "short" and signal.take_profit_price >= current_price:
             logger.warning(
-                f"[HL-PERPS] {coin} SHORT rejected: TP=${take_profit:.4f} ≥ entry=${current_price:.4f} — invalid Fib target"
+                f"[HL-PERPS] {coin} SHORT rejected after geometry repair: "
+                f"TP=${signal.take_profit_price:.4f} ≥ entry=${current_price:.4f}"
             )
             return None
 
@@ -1807,19 +1918,33 @@ class HLPerpsScanner:
                 # Toxic-hour size cut (08–14 ET): trade_history 29 −$326 vs +$28 elsewhere
                 size_mult *= float(get_position_size_multiplier())
 
-                # ── Moralis On-Chain Score & Alpha Gate (TraderAlice Moralis Integration) ──
+                # ── Moralis On-Chain Score (resolve ticker → contract first) ──
+                # Passing "VVV" as tokenAddress was a no-op (API fails, except allow).
+                # Use hl_token_resolve: static map + Moralis Token Search, then score.
                 try:
-                    from data.providers.moralis_money import get_token_score
-                    m_score_data = get_token_score(signal.coin, chain="ethereum")
+                    from data.providers.hl_token_resolve import moralis_score_for_hl_coin
+
+                    m_score_data = moralis_score_for_hl_coin(signal.coin)
                     if m_score_data and isinstance(m_score_data, dict):
-                        m_score = int(m_score_data.get("score", 0))
+                        m_score = int(m_score_data.get("score", 0) or 0)
+                        r_chain = m_score_data.get("resolved_chain", "?")
                         if m_score > 0:
                             if m_score < 40:
-                                logger.info(f"[HL-PERPS] {signal.coin} Moralis score low ({m_score}/100) — entry blocked")
+                                logger.info(
+                                    f"[HL-PERPS] {signal.coin} Moralis score low "
+                                    f"({m_score}/100 on {r_chain}) — entry blocked"
+                                )
                                 return False
-                            elif m_score >= 70:
-                                logger.info(f"[HL-PERPS] 💎 {signal.coin} Moralis Alpha High Score ({m_score}/100) — conviction boost")
+                            if m_score >= 70:
+                                logger.info(
+                                    f"[HL-PERPS] 💎 {signal.coin} Moralis Alpha "
+                                    f"({m_score}/100 on {r_chain}) — size ×1.25"
+                                )
                                 size_mult *= 1.25
+                    else:
+                        logger.debug(
+                            f"[HL-PERPS] {signal.coin} Moralis unresolved — neutral gate"
+                        )
                 except Exception as _m_err:
                     logger.debug(f"[HL-PERPS] Moralis score check error (allow): {_m_err}")
 

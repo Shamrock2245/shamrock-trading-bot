@@ -58,11 +58,18 @@ class SelfImprovingAgent:
     def history_file(self) -> Path:
         if self.history_file_override:
             return Path(self.history_file_override)
-        trades_env = os.getenv("TRADES_FILE", "output/trades.json")
-        path = Path(trades_env)
-        if not path.exists() and Path("/app/output/trades.json").exists():
-            return Path("/app/output/trades.json")
-        return path
+        # OpenAlice SSoT: prefer HL exchange fills ledger (scripts/sync_hl_fills.py)
+        # over partial trades.json so audits match Hyperliquid UI / CSV exports.
+        for candidate in (
+            os.getenv("HL_PAIRED_TRADES_FILE", "output/hl_paired_trades.json"),
+            "/app/output/hl_paired_trades.json",
+            os.getenv("TRADES_FILE", "output/trades.json"),
+            "/app/output/trades.json",
+        ):
+            path = Path(candidate)
+            if path.exists() and path.stat().st_size > 2:
+                return path
+        return Path(os.getenv("TRADES_FILE", "output/trades.json"))
 
     def _read_lock_timestamp(self) -> float:
         try:

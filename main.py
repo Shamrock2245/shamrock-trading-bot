@@ -844,40 +844,46 @@ async def run_bot_loop():
                 fastlane_queue.task_done()
 
     try:
-        from core.wallet_monitor import start_monitor as _start_wallet_monitor
-        def _on_copy_trade_signal(candidate, signal):
-            """Callback: enqueue copy-trade candidates for execution in main loop."""
-            with copy_trade_lock:
-                copy_trade_queue.append((candidate, signal))
-            if settings.WALLET_MONITOR_FASTLANE_ENABLED:
-                _enqueue_fastlane(candidate, signal)
+        # Phase 0 profitability: park copy-trade when disabled or primary is unfunded
+        # (live logs: "primary wallet balance $0.00 too low" every cycle → noise + RPC burn).
+        _wm_enabled = bool(getattr(settings, "WALLET_MONITOR_ENABLED", True))
+        if not _wm_enabled:
+            logger.info("⏸️  Wallet monitor parked (WALLET_MONITOR_ENABLED=false)")
+        else:
+            from core.wallet_monitor import start_monitor as _start_wallet_monitor
+            def _on_copy_trade_signal(candidate, signal):
+                """Callback: enqueue copy-trade candidates for execution in main loop."""
+                with copy_trade_lock:
+                    copy_trade_queue.append((candidate, signal))
+                if settings.WALLET_MONITOR_FASTLANE_ENABLED:
+                    _enqueue_fastlane(candidate, signal)
+                logger.info(
+                    f"🔥 COPY TRADE SIGNAL: {signal.token_symbol} [{signal.chain}] "
+                    f"Tier {signal.tier} | {len(signal.confirming_wallets)} alpha wallets | "
+                    f"buy=${signal.buy_value_usd:.0f}"
+                )
+                try:
+                    notify_alert(
+                        f"🔥 Copy Trade Signal: {signal.token_symbol}",
+                        f"Chain: {signal.chain} | Tier {signal.tier} | "
+                        f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
+                        f"Alpha buy: ${signal.buy_value_usd:.0f}",
+                        level="info",
+                    )
+                    tg_notify_alert(
+                        f"🔥 Copy Trade Signal: {signal.token_symbol}",
+                        f"Chain: {signal.chain} | Tier {signal.tier} | "
+                        f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
+                        f"Alpha buy: ${signal.buy_value_usd:.0f}",
+                        level="info",
+                    )
+                except Exception:
+                    pass
+            _wallet_monitor = _start_wallet_monitor(on_signal_callback=_on_copy_trade_signal)
             logger.info(
-                f"🔥 COPY TRADE SIGNAL: {signal.token_symbol} [{signal.chain}] "
-                f"Tier {signal.tier} | {len(signal.confirming_wallets)} alpha wallets | "
-                f"buy=${signal.buy_value_usd:.0f}"
+                f"✅ Wallet monitor daemon started: "
+                f"{len(getattr(settings, 'SMART_MONEY_WALLETS', []))} alpha wallets tracked"
             )
-            try:
-                notify_alert(
-                    f"🔥 Copy Trade Signal: {signal.token_symbol}",
-                    f"Chain: {signal.chain} | Tier {signal.tier} | "
-                    f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
-                    f"Alpha buy: ${signal.buy_value_usd:.0f}",
-                    level="info",
-                )
-                tg_notify_alert(
-                    f"🔥 Copy Trade Signal: {signal.token_symbol}",
-                    f"Chain: {signal.chain} | Tier {signal.tier} | "
-                    f"{len(signal.confirming_wallets)} alpha wallets confirmed | "
-                    f"Alpha buy: ${signal.buy_value_usd:.0f}",
-                    level="info",
-                )
-            except Exception:
-                pass
-        _wallet_monitor = _start_wallet_monitor(on_signal_callback=_on_copy_trade_signal)
-        logger.info(
-            f"✅ Wallet monitor daemon started: "
-            f"{len(getattr(settings, 'SMART_MONEY_WALLETS', []))} alpha wallets tracked"
-        )
     except Exception as _wm_err:
         logger.warning(f"Wallet monitor failed to start: {_wm_err}")
 
@@ -1268,55 +1274,60 @@ async def run_bot_loop():
     logger.info("✅ CEX/DEX StatArb Scanner daemon started")
 
     # ── Arbitrage Scanner Daemon: cross-DEX, triangular, cross-chain ─────────────────────
-    def _arb_scan_daemon():
-        """Background thread: continuously scans for arbitrage opportunities."""
-        import time as _time
-        _time.sleep(30)  # Wait 30s for bot to fully initialize
-        _arb_init_backoff = 30
-        while True:
-            try:
-                from scanner.arb_scanner import ArbScanner
-                from core.arb_executor import get_arb_executor
-                _arb_scanner_inst = ArbScanner()
-                _arb_exec_inst = get_arb_executor()
-                logger.info("✅ Arbitrage Scanner daemon initialized")
-                break
-            except Exception as _arb_init_err:
-                logger.error(f"Arb scanner init failed: {_arb_init_err}. Retrying in {_arb_init_backoff}s...")
-                _time.sleep(_arb_init_backoff)
-                _arb_init_backoff = min(_arb_init_backoff * 2, 300)
-        while True:
-            try:
-                # Get dynamic scan interval from daily goal engine
-                _dge = get_daily_goal_engine()
-                _arb_cfg = _dge.get_arb_config_overrides()
-                _scan_interval = _arb_cfg.get("scan_interval_seconds", 15)
-                # Scan for opportunities
-                opportunities = _arb_scanner_inst.scan_all()
-                if opportunities:
-                    logger.info(
-                        f"🔍 ARB SCAN: {len(opportunities)} opportunities found | "
-                        f"mode={_dge.strategy_mode} | interval={_scan_interval}s"
-                    )
-                    for opp in opportunities[:5]:  # Execute top 5 per cycle
-                        result = _arb_exec_inst.execute(opp)
-                        if result.success:
-                            # Record arb profits in ALL modes (paper + live) so
-                            # arb P&L counts toward the $500/day goal engine.
-                            _dge.record_profit(
-                                result.net_profit_usd,
-                                source=f"arb_{opp.strategy}",
-                            )
-                _time.sleep(_scan_interval)
-            except Exception as _arb_cycle_err:
-                logger.warning(f"Arb scan cycle error: {_arb_cycle_err}")
-                _time.sleep(30)
-    _arb_thread = threading.Thread(target=_arb_scan_daemon, daemon=True, name="arb-scanner")
-    _arb_thread.start()
-    logger.info(
-        "✅ Arbitrage Scanner daemon started — "
-        "cross-DEX | triangular | cross-chain | $500/day floor active"
-    )
+    # Phase 0: respect ARB_ENABLED. Live was spamming flash-arb "Insufficient USDC"
+    # every ~60s while primary EVM wallet is $0 — burns logs and competes with HL.
+    if not bool(getattr(settings, "ARB_ENABLED", True)):
+        logger.info("⏸️  Arbitrage Scanner parked (ARB_ENABLED=false) — HL perps is primary")
+    else:
+        def _arb_scan_daemon():
+            """Background thread: continuously scans for arbitrage opportunities."""
+            import time as _time
+            _time.sleep(30)  # Wait 30s for bot to fully initialize
+            _arb_init_backoff = 30
+            while True:
+                try:
+                    from scanner.arb_scanner import ArbScanner
+                    from core.arb_executor import get_arb_executor
+                    _arb_scanner_inst = ArbScanner()
+                    _arb_exec_inst = get_arb_executor()
+                    logger.info("✅ Arbitrage Scanner daemon initialized")
+                    break
+                except Exception as _arb_init_err:
+                    logger.error(f"Arb scanner init failed: {_arb_init_err}. Retrying in {_arb_init_backoff}s...")
+                    _time.sleep(_arb_init_backoff)
+                    _arb_init_backoff = min(_arb_init_backoff * 2, 300)
+            while True:
+                try:
+                    # Get dynamic scan interval from daily goal engine
+                    _dge = get_daily_goal_engine()
+                    _arb_cfg = _dge.get_arb_config_overrides()
+                    _scan_interval = _arb_cfg.get("scan_interval_seconds", 15)
+                    # Scan for opportunities
+                    opportunities = _arb_scanner_inst.scan_all()
+                    if opportunities:
+                        logger.info(
+                            f"🔍 ARB SCAN: {len(opportunities)} opportunities found | "
+                            f"mode={_dge.strategy_mode} | interval={_scan_interval}s"
+                        )
+                        for opp in opportunities[:5]:  # Execute top 5 per cycle
+                            result = _arb_exec_inst.execute(opp)
+                            if result.success:
+                                # Record arb profits in ALL modes (paper + live) so
+                                # arb P&L counts toward the $500/day goal engine.
+                                _dge.record_profit(
+                                    result.net_profit_usd,
+                                    source=f"arb_{opp.strategy}",
+                                )
+                    _time.sleep(_scan_interval)
+                except Exception as _arb_cycle_err:
+                    logger.warning(f"Arb scan cycle error: {_arb_cycle_err}")
+                    _time.sleep(30)
+        _arb_thread = threading.Thread(target=_arb_scan_daemon, daemon=True, name="arb-scanner")
+        _arb_thread.start()
+        logger.info(
+            "✅ Arbitrage Scanner daemon started — "
+            "cross-DEX | triangular | cross-chain | $500/day floor active"
+        )
 
     # ── MEV Extractor: JIT Liquidity Sniper + Backrun Engine ──────────────────────────────────────────────────────────────────────────────
     def _mev_daemon():

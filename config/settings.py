@@ -103,6 +103,10 @@ HYPERLIQUID_MEV_SUBACCOUNT = os.getenv("HYPERLIQUID_MEV_SUBACCOUNT", "")
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 MORALIS_API_KEY = os.getenv("MORALIS_API_KEY", "")
+# Workspace identity (admin.moralis.com/settings/workspace)
+MORALIS_WORKSPACE_NAME = os.getenv("MORALIS_WORKSPACE_NAME", "")
+MORALIS_WORKSPACE_ID = os.getenv("MORALIS_WORKSPACE_ID", "")
+MORALIS_STREAMS_REGION = os.getenv("MORALIS_STREAMS_REGION", "us-west-2")
 TOKEN_SNIFFER_API_KEY = os.getenv("TOKEN_SNIFFER_API_KEY", "")
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")  # Optional — enhances GoPlus rate limits
 # LunarCrush removed (no free API)
@@ -253,12 +257,17 @@ COPYTRADE_MAX_DELAY_REJECT_SECONDS = int(os.getenv("COPYTRADE_MAX_DELAY_REJECT_S
 COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTION_START_SECONDS", "180"))  # TUNED: 60→180s — start size reduction at 3 min (signals are still actionable)
 
 # Moralis Streams webhook ingestion (push-based low-latency detection)
+# Secret = Workspace → Stream Settings → Secret Key (x-signature verification)
 MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "true").lower() == "true"
 MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
 MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
 MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
-# Public URL that Moralis will POST webhooks to (must be reachable from internet)
-MORALIS_STREAMS_WEBHOOK_URL = os.getenv("MORALIS_STREAMS_WEBHOOK_URL", "")  # e.g. http://46.62.231.43:8787
+# Public URL that Moralis will POST webhooks to (must be current VPS IP)
+MORALIS_STREAMS_WEBHOOK_URL = os.getenv("MORALIS_STREAMS_WEBHOOK_URL", "")  # e.g. http://46.62.231.43:8787/moralis/streams
+# Optional pins from admin.moralis.com/streams
+MORALIS_STREAM_ID_ALPHA_WALLETS = os.getenv("MORALIS_STREAM_ID_ALPHA_WALLETS", "")
+MORALIS_STREAM_ID_SOLANA_ALPHA = os.getenv("MORALIS_STREAM_ID_SOLANA_ALPHA", "")
+MORALIS_STREAM_ID_SOLANA_DISCOVERY = os.getenv("MORALIS_STREAM_ID_SOLANA_DISCOVERY", "")
 
 # Streams Manager — auto-creates and syncs streams on Moralis
 MORALIS_STREAMS_AUTO_SYNC = os.getenv("MORALIS_STREAMS_AUTO_SYNC", "true").lower() == "true"
