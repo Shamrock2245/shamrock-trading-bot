@@ -133,15 +133,16 @@ def _ensure_tp_sl_geometry(
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
-# 2026-07-17 trade_history (26): post-fix edge is +EV (41% WR, 3.26x R:R) but volume
-# starved at ~3.5 opens/day (Jul 16 = 1). Drop bar 58→55; floor still 52 via goal engine.
-HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "55.0"))
+# v40 (CSV40 + live): raise bar after Fib geometry fix restores valid signals.
+# Quality over spray — PF 0.65 lifetime needs fewer, better entries.
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "58.0"))
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "150.0"))
-HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "10"))  # 10 slots for $500/day rotation
-# Align with executor HYPERLIQUID_MAX_TOTAL_EXPOSURE (notional, margin×lev). 1200 was too tight at 10×$400.
-HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "5000.0"))
-HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "100.0"))
+# Cap concurrent risk: 4 slots on ~$1.6k equity (was 10 → overspread + fee churn)
+HL_PERPS_MAX_POSITIONS: int = int(os.getenv("HL_PERPS_MAX_POSITIONS", "4"))
+# Total exposure ≈ max 4 × $350 notional
+HL_PERPS_MAX_TOTAL_EXPOSURE: float = float(os.getenv("HL_PERPS_MAX_TOTAL_EXPOSURE", "1400.0"))
+HL_PERPS_DAILY_LOSS_LIMIT: float = float(os.getenv("HL_PERPS_DAILY_LOSS_LIMIT", "80.0"))
 HL_PERPS_STOP_LOSS_PCT: float = float(os.getenv("HL_PERPS_STOP_LOSS_PCT", "2.5"))
 HL_PERPS_TAKE_PROFIT_PCT: float = float(os.getenv("HL_PERPS_TAKE_PROFIT_PCT", "6.0"))
 # Extreme funding rate = fade opportunity (short when funding very positive, long when very negative)
@@ -153,12 +154,12 @@ HL_PERPS_LOSS_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_LOSS_COOLDOWN_MIN", "1
 HL_PERPS_REENTRY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_REENTRY_COOLDOWN_MIN", "8"))
 # After emergency close (SL place fail), block the coin longer than normal reentry
 HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))
-# Hard notional cap (margin × leverage)
-HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "250.0"))
-# Minimum R/R at signal generation (executor re-checks post-fill) — KEEP 1.2 (post-fix R:R 3.26x)
+# Hard notional cap (margin × leverage). CSV40: ≥$500 notional = −$279 on 10 trades.
+HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "350.0"))
+# Minimum R/R at signal generation (executor re-checks post-fill)
 HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
-# Symmetric trading — allow shorts when tokens break down or BTC regime is bearish (TraderAlice pattern)
-HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "false").lower() == "true"
+# Live short WR ~17% / PF 0.55 — long-only until short edge proven.
+HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 
 # ── Hard ban (trade_history 31): NEVER open these — score+20 was not enough ──
 # Soft toxic (score bonus) still let KAITO/APE EXECUTING live on 2026-07-22.
@@ -179,14 +180,11 @@ _TOXIC_RAW = os.getenv(
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 # Higher bar for soft-toxic names
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "20.0"))
-# Cap new opens per scan cycle — trade_history 31 / live 2026-07-22 sprayed 6–9
-# entries in one minute when behind_pace. Rank full universe, take top-N only.
-# v32: 3 → 2 (trade_history 34: 67 opens on 7/22, fees ~4x the gross edge).
-HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "2"))
-# v32: hard daily churn cap — new opens per UTC day across all coins. The edge
-# shape (7/14–7/21: 42% WR, >2% winners = all the profit) supports ~15–25
-# quality trades/day; 67/day is pure fee bleed. Resets at midnight UTC.
-HL_PERPS_MAX_OPENS_PER_DAY: int = int(os.getenv("HL_PERPS_MAX_OPENS_PER_DAY", "24"))
+# Cap new opens per scan — spray days (7/22: 67 opens) destroyed edge.
+# v40: 1 best setup per cycle.
+HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "1"))
+# Daily churn hard stop. Target 4–10 quality trades/day, not 60.
+HL_PERPS_MAX_OPENS_PER_DAY: int = int(os.getenv("HL_PERPS_MAX_OPENS_PER_DAY", "10"))
 # v32: per-coin edge sizing — scale size by realized per-coin expectancy from
 # hl_coin_perf.json (already persisted for autoban). Proven winners get up to
 # EDGE_SIZE_MAX, chronic underperformers get EDGE_SIZE_MIN. Neutral → 1.0.

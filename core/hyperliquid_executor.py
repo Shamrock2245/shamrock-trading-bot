@@ -139,7 +139,7 @@ class HyperliquidExecutor:
             self.min_gem_score = float(getattr(settings, "HYPERLIQUID_MIN_GEM_SCORE", 55))
         self.use_testnet = settings.HYPERLIQUID_USE_TESTNET
         # Hard notional cap (margin × leverage). Prevents Kelly spikes like GRASS $2808.
-        self.max_notional_usd = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "400.0"))
+        self.max_notional_usd = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "350.0"))
         # Max fraction of account equity used as margin on a single trade.
         self.max_margin_equity_pct = float(os.getenv("HL_PERPS_MAX_MARGIN_EQUITY_PCT", "0.15"))
         # Minimum reward/risk after fill when structure SL/TP is provided.

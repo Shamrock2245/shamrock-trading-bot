@@ -67,12 +67,12 @@ class WinningRiskConfig:
     trail_activate_pct: float = 1.5
     trail_distance_pct: float = 1.0
     # Dynamic profit-tiered trail ladder
-    trail_ladder: str = "1.5:1.0,3:1.5,6:2.0"
+    trail_ladder: str = "2:1.25,4:1.75,8:2.5"
     # 45-min rule: still red after 45m → tighten SL to −1.5%
     min_rule_minutes: float = 45.0
     min_rule_sl_pct: float = -1.5  # tighten SL to −1.5% from entry
-    # Hard timeout: 2.0h to cut stale losing positions early
-    loss_timeout_hours: float = 2.0
+    # Hard timeout: force-close multi-hour red holds (no hope trades)
+    loss_timeout_hours: float = 2.5
     # Toxic zone (America/New_York wall-clock hour)
     toxic_zone_enabled: bool = True
     toxic_zone_start: int = 8
@@ -122,10 +122,11 @@ def default_config() -> WinningRiskConfig:
         tp1_size_pct=_env_float("TP1_SIZE_PCT", 40.0),
         trail_activate_pct=_env_float("TP1_PROFIT_PCT", 1.5),  # trail arms at same level
         trail_distance_pct=_env_float("TRAILING_STOP_PCT", 1.0),
-        trail_ladder=os.getenv("TRAIL_LADDER", "1.5:1.0,3:1.5,6:2.0"),
+        trail_ladder=os.getenv("TRAIL_LADDER", "2:1.25,4:1.75,8:2.5"),
         min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 45.0),
         min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.5),
-        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.0),
+        # v40: cut hope trades faster (CSV multi-hour losers = main $ leak)
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.5),
         toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
         toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
         toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),

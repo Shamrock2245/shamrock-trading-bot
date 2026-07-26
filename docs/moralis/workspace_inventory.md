@@ -44,9 +44,21 @@ Env pins (optional): `MORALIS_STREAM_ID_*`
 
 ## Nodes (admin.moralis.com/nodes)
 
-Dual site per chain → `*_RPC_URL` (site1) + `*_RPC_FALLBACK` (site2):
+Dual site per chain → `*_RPC_URL` (site1) + `*_RPC_FALLBACK` (site2).  
+Keys live **only** in `.env` / server env (never commit).
 
-- Ethereum, BSC, Arbitrum, Avalanche, Base
+| Chain | Env vars | Optional key env |
+|-------|----------|------------------|
+| Ethereum | `ETH_RPC_URL`, `ETH_RPC_FALLBACK` | `MORALIS_NODE_KEY_ETH` |
+| BSC | `BSC_RPC_URL`, `BSC_RPC_FALLBACK` | `MORALIS_NODE_KEY_BSC` |
+| Arbitrum | `ARB_RPC_URL`, `ARB_RPC_FALLBACK` | `MORALIS_NODE_KEY_ARB` |
+| Avalanche | `AVAX_RPC_URL`, `AVAX_RPC_FALLBACK` | `MORALIS_NODE_KEY_AVAX` |
+| Base | `BASE_RPC_URL`, `BASE_RPC_FALLBACK` | `MORALIS_NODE_KEY_BASE` |
+
+URL shape: `https://site{1\|2}.moralis-nodes.com/{chain}/{key}`
+
+`config/chains.py` reads these env vars at import time. After changing `.env`, recreate the bot container.
+
 - Solana: not in Nodes table → Helius / Solana Data API
 
 ## Product split (profit architecture)

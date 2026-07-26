@@ -86,16 +86,16 @@ def test_execute_signal_allows_non_banned(monkeypatch):
 
 
 def test_max_new_per_scan_default(monkeypatch):
-    # v32: 3 → 2 (trade_history 34: 67 opens/day fee bleed)
+    # v40: 2 → 1 (quality over spray)
     sc = _reload_scanner(monkeypatch, HL_PERPS_MAX_NEW_PER_SCAN=None)
-    assert sc.HL_PERPS_MAX_NEW_PER_SCAN == 2
+    assert sc.HL_PERPS_MAX_NEW_PER_SCAN == 1
 
 
 def test_entry_cap_math():
     """free_slots and max_new_per_scan combine as min()."""
     free_slots = 10
-    max_new_per_scan = 2
-    assert min(free_slots, max_new_per_scan) == 2
+    max_new_per_scan = 1
+    assert min(free_slots, max_new_per_scan) == 1
     free_slots = 1
     assert min(free_slots, max_new_per_scan) == 1
 
@@ -126,8 +126,9 @@ def _gmx_signal():
 
 
 def test_daily_open_cap_default(monkeypatch):
+    # v40: 24 → 10 quality trades/day max
     sc = _reload_scanner(monkeypatch, HL_PERPS_MAX_OPENS_PER_DAY=None)
-    assert sc.HL_PERPS_MAX_OPENS_PER_DAY == 24
+    assert sc.HL_PERPS_MAX_OPENS_PER_DAY == 10
 
 
 def test_daily_open_cap_blocks_after_limit(monkeypatch):
