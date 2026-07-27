@@ -192,8 +192,17 @@ HL_PERPS_EDGE_SIZING_ENABLED: bool = os.getenv(
     "HL_PERPS_EDGE_SIZING_ENABLED", "true"
 ).lower() in ("1", "true", "yes", "on")
 HL_PERPS_EDGE_SIZE_MIN: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MIN", "0.6"))
-HL_PERPS_EDGE_SIZE_MAX: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MAX", "1.3"))
-HL_PERPS_EDGE_MIN_TRADES: int = int(os.getenv("HL_PERPS_EDGE_MIN_TRADES", "4"))
+# v41 (th41: winners avg $259 ntl vs losers $288 — size must chase the edge
+# faster): promote proven coins sooner (3 trades) and higher (1.5x). VVV+NIL
+# delivered +$53 of the +$50 net window; they earned bigger size on day one.
+HL_PERPS_EDGE_SIZE_MAX: float = float(os.getenv("HL_PERPS_EDGE_SIZE_MAX", "1.5"))
+HL_PERPS_EDGE_MIN_TRADES: int = int(os.getenv("HL_PERPS_EDGE_MIN_TRADES", "3"))
+# v41 hot-streak boost (OpenAlice momentum): a coin with >= HOT_STREAK_WINS
+# consecutive winning closes today gets an extra size multiplier while the
+# streak lives. NIL 7/27: 4 early wins then the +$24.57 runner — ramp size
+# DURING streaks, not after the day is over.
+HL_PERPS_HOT_STREAK_WINS: int = int(os.getenv("HL_PERPS_HOT_STREAK_WINS", "2"))
+HL_PERPS_HOT_STREAK_MULT: float = float(os.getenv("HL_PERPS_HOT_STREAK_MULT", "1.25"))
 # ── v33 (freqtrade protections + OpenAlice right-side trading) ──────────────
 # Regime gate: consult core/regime_filter before entries. Shorts allowed only
 # in NUKE/bearish regime (live short WR ~17% otherwise); longs blocked during
@@ -214,7 +223,7 @@ HL_PERPS_SLGUARD_HALT_MIN: int = int(os.getenv("HL_PERPS_SLGUARD_HALT_MIN", "90"
 # distance can't clear the taker roundtrip (~0.09% on HL) + slippage with
 # margin to spare. 53 of 121 closes on 7/22–7/24 died in the -0.6..0% noise
 # band — pure fee bleed on moves that could never pay.
-HL_PERPS_MIN_TP_DISTANCE_PCT: float = float(os.getenv("HL_PERPS_MIN_TP_DISTANCE_PCT", "0.8"))
+HL_PERPS_MIN_TP_DISTANCE_PCT: float = float(os.getenv("HL_PERPS_MIN_TP_DISTANCE_PCT", "1.0"))
 # Leverage-ROE sanity cap (hummingbot risk style): cap effective leverage so a
 # stop-out costs at most MAX_SL_ROE_LOSS_PCT of position margin.
 # max_lev = MAX_SL_ROE_LOSS_PCT / sl_distance_pct (e.g. 12 / 2.5 = 4.8 → 4x).
@@ -222,7 +231,11 @@ HL_PERPS_MIN_TP_DISTANCE_PCT: float = float(os.getenv("HL_PERPS_MIN_TP_DISTANCE_
 HL_PERPS_MAX_SL_ROE_LOSS_PCT: float = float(os.getenv("HL_PERPS_MAX_SL_ROE_LOSS_PCT", "12.0"))
 # Repeat-loser day-block: a coin with N losing closes today is blocked until
 # the daily reset (ENA: 10 closes, -$17.58 across 7/22–7/24 — death by re-entry).
-HL_PERPS_DAY_LOSER_BLOCK: int = int(os.getenv("HL_PERPS_DAY_LOSER_BLOCK", "2"))
+# v41: raised 2 → 3 and made net-aware — the flat "2 losses = blocked" rule
+# would have blocked NIL on 7/27 (2 small losses at 02:36/02:55) right before
+# its +$24.57 and +$12.28 winners. A coin is now blocked only when it has
+# >= DAY_LOSER_BLOCK losing closes AND zero winning closes today.
+HL_PERPS_DAY_LOSER_BLOCK: int = int(os.getenv("HL_PERPS_DAY_LOSER_BLOCK", "3"))
 # Optional hour block (local America/New_York). trade_history(39): hours 0,1,6,10,11,13,14,18 worst PnL.
 # Empty string disables. Example: "0,1,6,10,11,13,14,18"
 _BLOCKED_HOURS_RAW = os.getenv("HL_PERPS_BLOCKED_HOURS_ET", "0,1,6,10,11,13,14,18")
@@ -646,6 +659,10 @@ class HLPerpsScanner:
         self._slguard_halt_until: float = 0.0
         # v33: repeat-loser day-block — coin → losing closes today (resets midnight UTC)
         self._day_losses: dict[str, int] = {}
+        # v41: day wins per coin (net-aware day-block + hot-streak boost)
+        self._day_wins: dict[str, int] = {}
+        # v41: consecutive winning closes today per coin (hot-streak boost)
+        self._win_streak: dict[str, int] = {}
         self.loss_cooldowns: dict[str, float] = {}  # coin → timestamp of last loss
         self.reentry_cooldowns: dict[str, float] = {} # coin → timestamp of last close
         self.emergency_cooldowns: dict[str, float] = {}  # coin → timestamp of emergency SL-fail close
@@ -958,7 +975,12 @@ class HLPerpsScanner:
         coin = coin.upper()
         # v33: feed the global StoplossGuard + repeat-loser day-block regardless
         # of autoban being enabled — these are separate freqtrade-style protections.
+        if won:
+            # v41: track day wins and consecutive-win streaks (hot-streak sizing)
+            self._day_wins[coin] = self._day_wins.get(coin, 0) + 1
+            self._win_streak[coin] = self._win_streak.get(coin, 0) + 1
         if not won:
+            self._win_streak[coin] = 0  # v41: streak dies on any loss
             now_ts = time.time()
             self._recent_loss_closes.append(now_ts)
             self._day_losses[coin] = self._day_losses.get(coin, 0) + 1
@@ -1044,6 +1066,8 @@ class HLPerpsScanner:
             if self.opens_today:
                 logger.info(f"HLPerpsScanner: opens/day reset (was {self.opens_today})")
             self._day_losses = {}  # v33: repeat-loser day-block resets with the day
+            self._day_wins = {}    # v41: net-aware day-block resets with the day
+            self._win_streak = {}  # v41: hot streaks don't carry across days
             self.daily_pnl = 0.0
             self.opens_today = 0
             self.daily_pnl_reset_date = today
@@ -1794,14 +1818,17 @@ class HLPerpsScanner:
 
         coin_u = signal.coin.upper()
 
-        # v33: repeat-loser day-block — stop feeding the same losing coin today
+        # v33/v41: repeat-loser day-block (net-aware) — stop feeding a coin that
+        # is only losing today. A coin with any winning close keeps its slot:
+        # NIL 7/27 took 2 small losses then printed +$24.57 and +$12.28.
         if (
             HL_PERPS_DAY_LOSER_BLOCK > 0
             and self._day_losses.get(coin_u, 0) >= HL_PERPS_DAY_LOSER_BLOCK
+            and self._day_wins.get(coin_u, 0) == 0
         ):
             logger.info(
                 f"[HL-PERPS] {signal.coin} blocked — {self._day_losses[coin_u]} losing "
-                f"closes today (≥{HL_PERPS_DAY_LOSER_BLOCK}) — back tomorrow"
+                f"closes and 0 wins today (≥{HL_PERPS_DAY_LOSER_BLOCK}) — back tomorrow"
             )
             return False
 
@@ -1968,6 +1995,29 @@ class HLPerpsScanner:
                 size_usd = new_size
         except Exception as _edge_err:
             logger.debug(f"[HL-PERPS] Edge sizing error (neutral): {_edge_err}")
+
+        # ── v41: hot-streak boost (OpenAlice momentum) — ramp size DURING a coin's
+        # winning streak, not after the day ends. Still bounded by the max
+        # position margin and the notional cap re-check below.
+        try:
+            streak = self._win_streak.get(coin_u, 0)
+            if (
+                HL_PERPS_HOT_STREAK_WINS > 0
+                and streak >= HL_PERPS_HOT_STREAK_WINS
+                and HL_PERPS_HOT_STREAK_MULT > 1.0
+            ):
+                boosted = round(size_usd * HL_PERPS_HOT_STREAK_MULT, 2)
+                boosted = min(boosted, HL_PERPS_MAX_POSITION_USD)
+                _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
+                boosted = min(boosted, round(HL_PERPS_MAX_NOTIONAL_USD / _lev_now, 2))
+                if boosted > size_usd:
+                    logger.info(
+                        f"[HL-PERPS] {signal.coin} \U0001f525 hot streak ({streak} wins) "
+                        f"×{HL_PERPS_HOT_STREAK_MULT}: ${size_usd:.2f} → ${boosted:.2f}"
+                    )
+                    size_usd = boosted
+        except Exception as _hs_err:
+            logger.debug(f"[HL-PERPS] Hot-streak sizing error (neutral): {_hs_err}")
 
         try:
             open_kwargs = dict(

@@ -308,6 +308,37 @@ def test_regime_gate_blocks_short_when_not_nuke(monkeypatch):
     scanner.hl_executor.open_short.assert_not_called()
 
 
+def test_day_loser_block_net_aware_allows_winner(monkeypatch):
+    """v41: a coin with losses AND a win today keeps trading (NIL 7/27 case)."""
+    from datetime import datetime, timezone
+    sc = _reload_scanner(monkeypatch, **_v33_env(HL_PERPS_DAY_LOSER_BLOCK="3"))
+    scanner = _make_ready_scanner(sc)
+    scanner.daily_pnl_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    scanner._day_losses = {"GMX": 3}
+    scanner._day_wins = {"GMX": 1}  # one win today → keeps its slot
+    assert scanner._execute_signal(_gmx_signal()) is True
+
+
+def test_hot_streak_boost_and_reset(monkeypatch):
+    """v41: 2 consecutive wins → 1.25x size boost; any loss resets the streak."""
+    sc = _reload_scanner(
+        monkeypatch,
+        **_v33_env(HL_PERPS_HOT_STREAK_WINS="2", HL_PERPS_HOT_STREAK_MULT="1.25"),
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner.record_trade_outcome("GMX", won=True)
+    scanner.record_trade_outcome("GMX", won=True)
+    assert scanner._win_streak["GMX"] == 2
+    sig = _gmx_signal()
+    assert scanner._execute_signal(sig) is True
+    # open_long called with boosted size (base 150 × 1.25 capped by notional/lev)
+    _, kwargs = scanner.hl_executor.open_long.call_args
+    assert kwargs["size_usd"] > 100.0  # boosted above the notional-capped base
+    # streak dies on a loss
+    scanner.record_trade_outcome("GMX", won=False)
+    assert scanner._win_streak["GMX"] == 0
+
+
 def test_regime_gate_blocks_long_in_nuke(monkeypatch):
     sc = _reload_scanner(
         monkeypatch,
