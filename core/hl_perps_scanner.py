@@ -133,9 +133,9 @@ def _ensure_tp_sl_geometry(
 HL_PERPS_ENABLED: bool = os.getenv("HL_PERPS_ENABLED", "true").lower() == "true"
 HL_PERPS_SCAN_INTERVAL: float = float(os.getenv("HL_PERPS_SCAN_INTERVAL_SECONDS", "30.0"))
 HL_PERPS_MIN_SCORE: float = float(os.getenv("HL_PERPS_MIN_SCORE", "20.0"))  # Initial filter (lets coins reach Fib analysis)
-# v40 (CSV40 + live): raise bar after Fib geometry fix restores valid signals.
-# Quality over spray — PF 0.65 lifetime needs fewer, better entries.
-HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "58.0"))
+# v4.5 (trade_history 42): raise bar to 65.0 for high conviction setups.
+# Quality over spray — PF 0.68 lifetime needs fewer, higher score entries.
+HL_PERPS_EXEC_SCORE: float = float(os.getenv("HL_PERPS_EXEC_SCORE", "65.0"))
 HL_PERPS_LEVERAGE: int = int(os.getenv("HL_PERPS_LEVERAGE", "3"))
 HL_PERPS_MAX_POSITION_USD: float = float(os.getenv("HL_PERPS_MAX_POSITION_USD", "150.0"))
 # Cap concurrent risk: 4 slots on ~$1.6k equity (was 10 → overspread + fee churn)
@@ -161,12 +161,10 @@ HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
 # Live short WR ~17% / PF 0.55 — long-only until short edge proven.
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 
-# ── Hard ban (trade_history 31): NEVER open these — score+20 was not enough ──
-# Soft toxic (score bonus) still let KAITO/APE EXECUTING live on 2026-07-22.
-# Confirmed multi-trade losers from v26–v31 (AAVE kept off hard-ban: net +$68).
+# ── Hard ban (trade_history 42): NEVER open these — confirmed multi-trade losers ──
 _HARD_BAN_RAW = os.getenv(
     "HL_PERPS_HARD_BAN_COINS",
-    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI",
+    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI",
 )
 HL_PERPS_HARD_BAN_COINS: set[str] = {
     c.strip().upper() for c in _HARD_BAN_RAW.split(",") if c.strip()

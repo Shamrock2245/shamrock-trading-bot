@@ -1562,6 +1562,27 @@ async def run_bot_loop():
                         )
                         _peak = _peak if _peak and _peak > 0 else mark_price
 
+                        # ── Hard Max Loss Circuit Breaker ($15 USD / -5% PnL) ─────────────────
+                        _max_loss_usd = float(os.getenv("MAX_TRADE_LOSS_USD", "15.0"))
+                        _entry_px = float(pos.entry_price or 0)
+                        if _entry_px > 0 and mark_price > 0:
+                            if pos.side == "long":
+                                _cur_pnl_pct = (mark_price - _entry_px) / _entry_px * 100.0
+                            else:
+                                _cur_pnl_pct = (_entry_px - mark_price) / _entry_px * 100.0
+                            _est_notional = float(pos.size or 0) * mark_price if pos.size else float(getattr(pos, "size_usd", 0) or 0)
+                            _est_pnl_usd = (_cur_pnl_pct / 100.0) * _est_notional
+                            if _est_pnl_usd <= -_max_loss_usd or _cur_pnl_pct <= -5.0:
+                                logger.warning(
+                                    f"🚨 HARD LOSS CAP TRIGGERED | {pos.coin} {pos.side.upper()} | "
+                                    f"est_pnl=${_est_pnl_usd:+.2f} (limit -${_max_loss_usd:.2f}) | "
+                                    f"pnl_pct={_cur_pnl_pct:.2f}% → Emergency Force Close!"
+                                )
+                                _close_res = _exec.close_position(pos.coin)
+                                if not _close_res:
+                                    logger.error(f"❌ Hard loss cap close failed for {pos.coin}")
+                                continue
+
                         if _WINNING_RISK_ENABLED and pos.entry_price and pos.opened_at:
                             _wr = _eval_winning_risk(
                                 coin=pos.coin,
