@@ -1,5 +1,5 @@
 # HL Perps Engine — Operational Runbook
-**Last Updated:** July 15, 2026  
+**Last Updated:** July 29, 2026  
 **Covers:** Hyperliquid perpetuals scanner, executor, trailing stop monitor, auto-blacklist  
 **Server:** Hetzner `46.62.231.43` — Docker Compose, container `shamrock-bot`
 
@@ -48,12 +48,12 @@ docker compose logs bot --tail=200 | grep -E "NEAR MISS|score=|gate|cooldown|ban
 |---|---|---|
 | `NEAR MISS: score=54 < 65` | EXEC_SCORE is still 65 | `.env` patch didn't apply — see Step 3 |
 | `NEAR MISS: score=54 < 58` | Signals are borderline | Lower `HL_PERPS_EXEC_SCORE` to 55 in `.env` |
-| `SHORT blocked — HL_PERPS_LONG_ONLY=true` | LONG_ONLY still true | `.env` patch didn't apply |
-| `max positions (6) reached` | MAX_POSITIONS still 6 | `.env` patch didn't apply |
+| `SHORT blocked — HL_PERPS_LONG_ONLY=true` | LONG_ONLY still true | Set `HL_PERPS_LONG_ONLY=false` in `.env` |
+| `max positions (6) reached` | MAX_POSITIONS still 6 | Check position capacity or purge ghosts |
 | `[AUTO-BAN] COIN banned for Xh` | Auto-blacklist working | Expected — check if too many coins are banned |
-| `🛑 CIRCUIT BREAKER: daily PnL` | Daily loss limit hit | Check `HYPERLIQUID_DAILY_LOSS_LIMIT` — may need to wait until midnight UTC for reset |
+| `🛑 CIRCUIT BREAKER: daily PnL` | Daily loss limit hit | Check `HYPERLIQUID_DAILY_LOSS_LIMIT` — resets at midnight UTC |
 | `Re-entry throttle activated` | Normal cooldown | Check cooldown duration — should be 5 min |
-| `Emergency cooldown activated` | SL placement failed | Check `HL_PERPS_EMERGENCY_COOLDOWN_MIN` — should be 60 min, not 240 |
+| `Emergency cooldown activated` | SL placement failed | Check `HL_PERPS_EMERGENCY_COOLDOWN_MIN` — should be 60 min |
 
 ### Step 3 — Force-apply the env patch manually
 
@@ -67,7 +67,10 @@ sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=false/' .env
 sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
 sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
 sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
-sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
+sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=6/' .env
+sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=6/' .env
+sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=/' .env
+sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=GRASS,TRB,HMSTR,FARTCOIN/' .env
 docker compose restart bot && docker compose logs bot --tail=30
 ```
 
@@ -94,11 +97,11 @@ If too many coins are banned and the watchlist is exhausted, reduce `HL_PERPS_AU
 
 ### Known Causes
 
-**Cause A — SL API rejection (sub-2s closes):**  
-HL API rejects the SL order with `"Order price cannot be more than 95% away from the reference price"` on illiquid coins. The 3-attempt retry backoff (1s, 2s) handles this — if all 3 fail, RED TEAM GUARD fires a market close.
+**Cause A — SL size precision / OID mismatch (sub-2s closes):**  
+HL API rejects the SL order with `Invalid order size` when un-rounded float size is passed. Handled & fixed by `szDecimals` rounding in `_place_tpsl` and live `user_state` position size querying in `_open_position`.
 
 **Cause B — Scanner/executor MIN_RR mismatch (5–6s closes):**  
-Scanner pre-approves a signal at R/R = 1.1–1.4x. Executor's post-fill R/R check uses a different (higher) threshold and rejects it, triggering `market_close`. Fixed by syncing both to `HL_PERPS_MIN_RR=1.1`.
+Scanner pre-approves a signal at R/R = 1.1–1.4x while executor checked against a higher threshold. Fixed by syncing both to `HL_PERPS_MIN_RR=1.1`.
 
 **Diagnosis:**
 ```bash
