@@ -108,26 +108,22 @@ jobs:
             # ── Patch .env with tuned gate values (prevent stale .env from overriding code fixes) ──
             # These values are the result of live trade analysis — do not revert without testing.
             if [ -f .env ]; then
-              # 2026-07-17: retuned from trade_history (26).csv
-              # Edge OK (41% WR, 3.26x R:R post-fix) but volume starved (~3.5 opens/day).
-              # exec 55, RR 1.2, long-only, 8/10/60 cooldowns, 10 slots — not 58/12/15/90/8.
-              sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=55/' .env
-              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.2/' .env
-              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=true/' .env
-              sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=8/' .env
+              # 2026-07-29: Un-choked profitability settings (SL precision fix + un-banned majors + 24/7 ET liquidity)
+              sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=58/' .env
+              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.1/' .env
+              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=false/' .env
+              sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
               sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
-              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=10/' .env
-              sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=10/' .env || echo 'HL_PERPS_MAX_POSITIONS=10' >> .env
-              # v31: hard-ban proven losers; soft toxic score-bonus for AAVE only
-              grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO' >> .env
+              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=6/' .env
+              sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=6/' .env || echo 'HL_PERPS_MAX_POSITIONS=6' >> .env
+              grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=GRASS,TRB,HMSTR,FARTCOIN/' .env || echo 'HL_PERPS_HARD_BAN_COINS=GRASS,TRB,HMSTR,FARTCOIN' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
-              # v32 churn caps (trade_history 34): 2 new/scan + 24 opens/day (was 3 / unlimited)
               grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=2/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=2' >> .env
               grep -q '^HL_PERPS_MAX_OPENS_PER_DAY=' .env && sed -i 's/^HL_PERPS_MAX_OPENS_PER_DAY=.*/HL_PERPS_MAX_OPENS_PER_DAY=24/' .env || echo 'HL_PERPS_MAX_OPENS_PER_DAY=24' >> .env
               grep -q '^HL_PERPS_EDGE_SIZING_ENABLED=' .env && sed -i 's/^HL_PERPS_EDGE_SIZING_ENABLED=.*/HL_PERPS_EDGE_SIZING_ENABLED=true/' .env || echo 'HL_PERPS_EDGE_SIZING_ENABLED=true' >> .env
-              grep -q '^HL_PERPS_BLOCKED_HOURS_ET=' .env && sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=10,17,22/' .env || echo 'HL_PERPS_BLOCKED_HOURS_ET=10,17,22' >> .env
+              grep -q '^HL_PERPS_BLOCKED_HOURS_ET=' .env && sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=/' .env || echo 'HL_PERPS_BLOCKED_HOURS_ET=' >> .env
               grep -q '^HL_PERPS_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HL_PERPS_MAX_TOTAL_EXPOSURE=.*/HL_PERPS_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HL_PERPS_MAX_TOTAL_EXPOSURE=5000' >> .env
               # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
               grep -q '^HYPERLIQUID_MIN_GEM_SCORE=' .env && sed -i 's/^HYPERLIQUID_MIN_GEM_SCORE=.*/HYPERLIQUID_MIN_GEM_SCORE=55/' .env || echo 'HYPERLIQUID_MIN_GEM_SCORE=55' >> .env

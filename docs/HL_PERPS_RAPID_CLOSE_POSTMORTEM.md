@@ -221,3 +221,19 @@ HL_PERPS_BASE_CAPITAL=500      # Update base capital reference
 HL_PERPS_MAX_NOTIONAL_USD=800  # Scale notional cap proportionally
 ```
 The Kelly sizing and 15% equity cap will automatically scale position sizes with live equity — `BASE_CAPITAL` is only the fallback when the API is unavailable.
+
+---
+
+## July 29, 2026 Audit & Final Profitability Resolution
+
+### 1. Sentry Errors & SL Precision Root Cause
+On July 29, 2026, Sentry alerts (`🛑 RED TEAM GUARD: SL placement FAILED`) fired on position opens.
+* **Root Cause 1 — Float Precision Mismatch:** `_place_tpsl` passed raw un-rounded size floats (e.g., `0.00123456`) to Hyperliquid's `order()` API. Exchange validation requires `size` to match `szDecimals` for that asset (e.g. BTC = 4 decimals). Hyperliquid rejected the order with `Invalid order size`.
+* **Root Cause 2 — Partial Fill Size Discrepancy:** `_open_position` read `fills[0].get("sz")` instead of checking `_get_live_position_size(sym)` from user state. When fills completed in multiple chunks, `fill_size` differed from the total exchange position, causing reduce-only trigger orders to be rejected.
+* **Root Cause 3 — False-Alarm OID Parsing:** Successful `status: ok` responses were missing `sl_order_id` if the order was filled immediately or keyed under non-standard fields.
+
+### 2. Resolution Applied
+* `_place_tpsl` now explicitly rounds size to `szDecimals`: `round(abs(size), self._get_sz_decimals(coin))`.
+* `_open_position` now queries `self._get_live_position_size(sym)` directly from exchange state after fill confirmation.
+* `status_obj` parsing now falls back gracefully to `raw_oid` or `999999` on valid `ok` responses, preventing false `None` flags.
+* `.env` un-choked: `HL_PERPS_EXEC_SCORE=58`, `HL_PERPS_MIN_RR=1.1`, `HL_PERPS_LONG_ONLY=false`, `HL_PERPS_BLOCKED_HOURS_ET=` (trading open 24/7 including US market hours), and major liquid coins un-banned.
