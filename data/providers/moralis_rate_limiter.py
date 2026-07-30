@@ -1,33 +1,18 @@
 """
-data/providers/moralis_rate_limiter.py — Shared Global Rate Limiter for Moralis Pro
+data/providers/moralis_rate_limiter.py — Shared Global Rate Limiter (Business plan)
 ===================================================================================
-Moralis Pro Plan:
-  - 80 requests per second (evaluated over a rolling 4-second window)
-  - 100 million CU/month
-  - Auto-scaling on CU overage (billed, not blocked)
+Moralis Business plan (Shamrock workspace, admin 2026-07):
+  - ~80 requests/sec throughput class (we target 60 RPS = 75% headroom)
+  - ~500 million CU/month Data API allotment
+  - Soft cap via MORALIS_MONTHLY_CU_BUDGET (default 394M leaves ~21% headroom)
 
-PROBLEM SOLVED:
-  Previously, each of the 10 Moralis modules had its own independent rate limiter
-  set to 25 req/min (0.4 RPS per module). Combined throughput was capped at
-  ~200 req/min (3.3 RPS) — that's 96% below the Pro limit of 4,800 req/min.
-
-  This module replaces all per-module rate limiters with a single shared instance
-  using a proper sliding window algorithm tuned for Pro-tier throughput.
-
-BUDGET CONTROL:
-  CU budget read from settings.MORALIS_MONTHLY_CU_BUDGET (set via .env).
-  Current plan: 394M CU/month. Average endpoint costs ~50 CU.
-  We set our ceiling at 60 RPS (75% of 80) to leave headroom and avoid overage.
-
-  CU tracking: each call records its CU cost. If monthly CU budget approaches
-  90%, we downshift to 20 RPS to prevent overage billing.
+CU tracking: prefer live header x-request-weight via data.providers.moralis_http.
+record_cu() still accepts raw costs for callers that parse headers themselves.
 
 Usage:
   from data.providers.moralis_rate_limiter import rate_check, record_cu
-
-  rate_check()         # Call before every Moralis API request
-  rate_check(150)      # Optional estimated CU for legacy callers; throttling still request-based
-  record_cu(cost)      # Call after each request with the CU cost (from response headers)
+  rate_check()
+  record_cu(cost)  # from x-request-weight
 """
 
 from __future__ import annotations

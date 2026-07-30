@@ -716,13 +716,27 @@ def get_token_score(token_address: str, chain: str) -> Optional[dict]:
     Get Moralis token score (0–100) for a specific token.
     Includes volume, transaction count, and supply concentration metrics.
     This score directly feeds into the gem scorer as the 'moralis_score' field.
+
+    Solana Token Score is EVM-only after July 31 2026 — returns None for solana
+    (saves 100 CU/call and avoids empty/error responses).
     """
     if not _available(chain):
+        return None
+    # Token Score becomes EVM-only on 2026-07-31
+    if str(chain).lower() == "solana":
         return None
     moralis_chain = CHAIN_MAP[chain]
     cache_key = f"score_{chain}_{token_address.lower()}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
+
+    # Budget gate — score is 100 CU; skip under emergency throttle
+    try:
+        from core.moralis_cu_budget import cu_budget
+        if not cu_budget.can_afford("token_score"):
+            return None
+    except Exception:
+        pass
 
     _rate_check()
     try:
@@ -732,6 +746,13 @@ def get_token_score(token_address: str, chain: str) -> Optional[dict]:
             headers=_headers(),
             timeout=10,
         )
+        # Live CU accounting from response header
+        try:
+            from data.providers.moralis_http import _parse_request_weight, _record_usage
+            w = _parse_request_weight(resp) or 100
+            _record_usage("token_score", w)
+        except Exception:
+            pass
         if resp.status_code in (402, 403):
             return None
         resp.raise_for_status()
@@ -1166,13 +1187,42 @@ def get_bonding_status(token_address: str, chain: str) -> Optional[dict]:
     Check if a token is still in a bonding curve (pump.fun, moonshot, etc.).
     Returns {"is_bonding": bool, "exchange": str} or None on failure.
     Pre-graduation tokens are extremely high risk — used as a reject gate.
+
+    Solana bonding-status REST sunsets July 31 2026 → Data Feeds recipe first.
+    EVM path remains on Universal /tokens/{addr}/bonding-status when available.
     """
+    if not token_address:
+        return None
+    chain_l = str(chain).lower()
+    cache_key = f"bonding_{chain_l}_{token_address if chain_l == 'solana' else token_address.lower()}"
+    if _is_cached(cache_key):
+        return _get_cache(cache_key)
+
+    # Solana: Data Feeds first (0 CU), never burn CU on sunset REST after cutover
+    if chain_l == "solana":
+        try:
+            from data.providers import moralis_datafeeds as df
+            if df.available():
+                status = df.get_bonding_status(token_address)
+                if status is not None:
+                    _set_cache(cache_key, status)
+                    return status
+        except Exception as e:
+            logger.debug(f"DataFeeds bonding status: {e}")
+        # Without Data Feeds we cannot know bonding status for free — neutral (not reject)
+        _set_cache(cache_key, None)
+        return None
+
     if not _available(chain):
         return None
     moralis_chain = CHAIN_MAP[chain]
-    cache_key = f"bonding_{chain}_{token_address.lower()}"
-    if _is_cached(cache_key):
-        return _get_cache(cache_key)
+
+    try:
+        from core.moralis_cu_budget import cu_budget
+        if not cu_budget.can_afford("bonding_status"):
+            return None
+    except Exception:
+        pass
 
     _rate_check()
     try:
@@ -1182,6 +1232,12 @@ def get_bonding_status(token_address: str, chain: str) -> Optional[dict]:
             headers=_headers(),
             timeout=10,
         )
+        try:
+            from data.providers.moralis_http import _parse_request_weight, _record_usage
+            w = _parse_request_weight(resp) or 20
+            _record_usage("bonding_status", w)
+        except Exception:
+            pass
         if resp.status_code in (402, 403, 404):
             return None
         resp.raise_for_status()

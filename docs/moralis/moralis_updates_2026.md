@@ -1,6 +1,37 @@
 # Moralis API Updates & Capabilities Reference (2026)
 
-This document provides a guide to the latest official Moralis API updates, features, and deprecations as of May 2026, and details how the Shamrock Trading Bot leverages them to achieve maximum capital efficiency and intelligence.
+This document provides a guide to the latest official Moralis API updates, features, and deprecations as of May–July 2026, and details how the Shamrock Trading Bot leverages them to achieve maximum capital efficiency and intelligence.
+
+---
+
+## 0. July 31 2026 Sunset — Shamrock Status (actioned 2026-07-30)
+
+Moralis removes several Solana holder / launchpad discovery endpoints and makes Token Score **EVM-only** on **July 31, 2026**.
+
+| Area | REST (dying) | Shamrock replacement |
+|------|--------------|----------------------|
+| Solana top holders | `GET /token/{net}/{addr}/top-holders` | Data Feeds `token_holders` SQL → Helius DAS / public RPC |
+| Solana holder metrics / historical | `holders/*` | Free cascade / neutral (no CU) |
+| Pump.fun new / bonding / graduated | `exchange/pumpfun/*` | Data Feeds `launchpad_events` → DexScreener Solana profiles |
+| Solana bonding-status | `…/bonding-status` | Data Feeds `token_bonding_status` |
+| Solana Token Score | `/tokens/{addr}/score` on Solana | Skipped (EVM score only) |
+| EVM historical holders | `/erc20/…/holders/historical` | Neutral until Data Feeds historical_balances |
+
+**Architecture modules**
+- `data/providers/moralis_http.py` — shared GET/POST + live `x-request-weight` CU accounting
+- `data/providers/moralis_datafeeds.py` — optional Postgres sink queries (0 CU)
+- Soft budget: `MORALIS_MONTHLY_CU_BUDGET` (default 394M of ~500M Business plan)
+
+**Live CU probes (2026-07-30 headers)**
+- EVM price → `x-request-weight: 50`
+- EVM token score → `x-request-weight: 100`
+- Solana price → `X-Request-Weight: 10`
+- Solana top-holders / graduated → `50` (still live today; blocked after cutover)
+
+**Data Feeds next step (when access granted)**
+1. Admin → Data Feeds → starter packs for **Token Holders** + **Token Bonding Status** (Solana)
+2. `docker compose up` sink → Postgres
+3. Set `MORALIS_DATAFEEDS_DSN=postgresql://…` and `MORALIS_DATAFEEDS_ENABLED=true`
 
 ---
 

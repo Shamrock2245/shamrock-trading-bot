@@ -44,7 +44,7 @@ from state import (
     request_manual_buy,
     get_all_alpha_wallets,
 )
-from components import render_section_header
+from components import render_section_header, render_moralis_cu_budget_widget
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page Config
@@ -334,6 +334,9 @@ with st.sidebar:
         st.metric("Uptime", uptime_str, border=True)
     with _sb2:
         st.metric("Cycles", f"{cycle:,}", border=True)
+
+    st.markdown('<div class="section-label">Moralis CU</div>', unsafe_allow_html=True)
+    render_moralis_cu_budget_widget(compact=True)
 
     last_cycle = status.get("last_cycle_at", "")
     if last_cycle:
@@ -985,6 +988,9 @@ st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
 
 # ── ZONE 4: STRATEGY & SYSTEM ────────────────────────────────────────────────
 render_section_header("🔧", "Strategy & system", "Copy-trade · Rebalance · Watchlist")
+
+# Moralis CU budget (full card on main surface)
+render_moralis_cu_budget_widget(compact=False)
 
 ct_col, rb_col = st.columns([1, 1])
 

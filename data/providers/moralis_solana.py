@@ -227,11 +227,95 @@ def get_sniper_score(pair_address: str) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Token Top Holders  (GET /token/{network}/{address}/top-holders) — 50 CU
+# 5. Token Top Holders
+#    REST GET /token/{network}/{address}/top-holders — SUNSET July 31 2026 (50 CU)
+#    Cascade (0 CU preferred): Data Feeds → Helius DAS → public RPC → (pre-sunset REST)
 # ─────────────────────────────────────────────────────────────────────────────
+def _holders_from_helius(token_address: str, limit: int = 10) -> dict:
+    """Free (Helius key) holder concentration for Solana mints."""
+    try:
+        from data.providers.helius_enrichment import (
+            _helius_get_token_accounts,
+            _public_rpc_largest_accounts,
+            _public_rpc_supply,
+        )
+        accounts = _helius_get_token_accounts(token_address, limit=max(limit, 20))
+        if not accounts:
+            # Public RPC largest accounts (no owner labels, still useful for concentration)
+            largest = _public_rpc_largest_accounts(token_address)
+            if not largest:
+                return {}
+            supply = _public_rpc_supply(token_address) or 0
+            holders = []
+            total_pct = 0.0
+            for acct in largest[:limit]:
+                amt = _safe_float(acct.get("uiAmount") or acct.get("amount") or 0)
+                pct = (_safe_float(acct.get("uiAmount", 0)) / (supply / (10 ** int(acct.get("decimals", 0) or 0)) or 1) * 100) if supply else 0
+                # Prefer amount ratio when uiAmount missing
+                if supply and not acct.get("uiAmount"):
+                    raw = _safe_float(acct.get("amount", 0))
+                    pct = (raw / supply) * 100 if supply else 0
+                total_pct += pct
+                holders.append({
+                    "address": acct.get("address", ""),
+                    "balance": amt,
+                    "percentage": pct,
+                    "usd_value": 0.0,
+                })
+            risk = (
+                "critical" if total_pct >= 80 else
+                "high" if total_pct >= 50 else
+                "medium" if total_pct >= 30 else "low"
+            )
+            return {
+                "holders": holders,
+                "top10_concentration": min(total_pct, 100.0) / 100.0,
+                "concentration_risk": risk,
+                "source": "public_rpc",
+            }
+
+        supply = _public_rpc_supply(token_address) or 0
+        holders = []
+        top_sum = 0.0
+        for acct in accounts[:limit]:
+            raw = acct.get("amount", 0)
+            try:
+                raw_f = float(raw)
+            except (TypeError, ValueError):
+                raw_f = 0.0
+            top_sum += raw_f
+            pct = (raw_f / supply * 100) if supply else 0.0
+            holders.append({
+                "address": acct.get("owner") or acct.get("address") or "",
+                "balance": raw_f,
+                "percentage": pct,
+                "usd_value": 0.0,
+            })
+        total_pct = sum(h["percentage"] for h in holders[:10])
+        risk = (
+            "critical" if total_pct >= 80 else
+            "high" if total_pct >= 50 else
+            "medium" if total_pct >= 30 else "low"
+        )
+        return {
+            "holders": holders,
+            "top10_concentration": min(total_pct, 100.0) / 100.0,
+            "concentration_risk": risk,
+            "source": "helius",
+        }
+    except Exception as e:
+        logger.debug(f"Helius top holders fallback failed: {e}")
+        return {}
+
+
 def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
     """
     Get top holder data for a Solana token.
+
+    Priority after July 31 2026 sunset:
+      1. Moralis Data Feeds SQL (0 CU) when MORALIS_DATAFEEDS_DSN is set
+      2. Helius DAS / public RPC (0 Moralis CU)
+      3. Legacy Moralis REST only before cutover and if free fallbacks disabled
 
     Returns:
         {
@@ -240,117 +324,237 @@ def get_token_top_holders(token_address: str, limit: int = 10) -> dict:
             "concentration_risk": "low" | "medium" | "high" | "critical",
         }
     """
-    if not _available() or not token_address:
-        return {"holders": [], "top10_concentration": 0.0, "concentration_risk": "unknown"}
+    empty = {"holders": [], "top10_concentration": 0.0, "concentration_risk": "unknown", "source": "none"}
+    if not token_address:
+        return empty
 
     cache_key = f"holders_{token_address}_{limit}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
 
-    _rate_check()
+    # 1) Data Feeds (0 CU)
     try:
-        resp = get_session().get(
-            f"{BASE_URL}/token/{NETWORK}/{token_address}/top-holders",
-            params={"limit": limit},
-            headers=_headers(),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-
-        holders = raw.get("result", [])
-        total_pct = sum(_safe_float(h.get("percentageRelativeToTotalSupply", 0)) for h in holders[:10])
-
-        if total_pct >= 80:
-            risk = "critical"
-        elif total_pct >= 50:
-            risk = "high"
-        elif total_pct >= 30:
-            risk = "medium"
-        else:
-            risk = "low"
-
-        result = {
-            "holders": [
-                {
-                    "address": h.get("ownerAddress", ""),
-                    "balance": _safe_float(h.get("balance", 0)),
-                    "percentage": _safe_float(h.get("percentageRelativeToTotalSupply", 0)),
-                    "usd_value": _safe_float(h.get("usdValue", 0)),
-                }
-                for h in holders
-            ],
-            "top10_concentration": total_pct / 100.0,
-            "concentration_risk": risk,
-        }
-
-        _set_cache(cache_key, result)
-        return result
+        from data.providers import moralis_datafeeds as df
+        if df.available():
+            result = df.get_top_holders(token_address, limit=limit, chain="solana")
+            if result.get("holders"):
+                _set_cache(cache_key, result)
+                return result
     except Exception as e:
-        logger.warning(f"Moralis Solana top holders failed for {token_address}: {e}")
-        return {"holders": [], "top10_concentration": 0.0, "concentration_risk": "unknown"}
+        logger.debug(f"DataFeeds top holders skipped: {e}")
+
+    # 2) Free Helius / public RPC
+    prefer_free = getattr(settings, "MORALIS_PREFER_FREE_FALLBACKS", True)
+    helius = _holders_from_helius(token_address, limit=limit)
+    if helius.get("holders"):
+        _set_cache(cache_key, helius)
+        return helius
+
+    # 3) Legacy REST (blocked on/after 2026-07-31 via moralis_http)
+    if not prefer_free and _available():
+        try:
+            from data.providers.moralis_http import moralis_get, is_past_sunset
+            if not is_past_sunset():
+                raw = moralis_get(
+                    f"{BASE_URL}/token/{NETWORK}/{token_address}/top-holders",
+                    params={"limit": limit},
+                    endpoint_key="solana_top_holders",
+                    timeout=15,
+                    allow_sunset=True,
+                )
+                if raw:
+                    holders_raw = raw.get("result", []) if isinstance(raw, dict) else []
+                    total_pct = sum(
+                        _safe_float(h.get("percentageRelativeToTotalSupply", 0))
+                        for h in holders_raw[:10]
+                    )
+                    risk = (
+                        "critical" if total_pct >= 80 else
+                        "high" if total_pct >= 50 else
+                        "medium" if total_pct >= 30 else "low"
+                    )
+                    result = {
+                        "holders": [
+                            {
+                                "address": h.get("ownerAddress", h.get("owner_address", "")),
+                                "balance": _safe_float(h.get("balance", 0)),
+                                "percentage": _safe_float(h.get("percentageRelativeToTotalSupply", 0)),
+                                "usd_value": _safe_float(h.get("usdValue", h.get("usd_value", 0))),
+                            }
+                            for h in holders_raw
+                        ],
+                        "top10_concentration": total_pct / 100.0,
+                        "concentration_risk": risk,
+                        "source": "moralis_rest_legacy",
+                    }
+                    _set_cache(cache_key, result)
+                    return result
+        except Exception as e:
+            logger.warning(f"Moralis Solana top holders failed for {token_address}: {e}")
+
+    _set_cache(cache_key, empty)
+    return empty
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Pump.fun Graduated  (GET /token/{network}/exchange/pumpfun/graduated) — 25 CU
+# 6. Pump.fun Graduated
+#    REST GET /token/{network}/exchange/pumpfun/graduated — SUNSET July 31 2026
+#    Cascade: Data Feeds → DexScreener Solana profiles/boosts → legacy REST
 # ─────────────────────────────────────────────────────────────────────────────
+def _pumpfun_graduated_dexscreener(limit: int = 20) -> list[dict]:
+    """
+    Free DexScreener approximation for Solana launch discovery.
+    Not a perfect pump.fun graduated feed — uses newest Solana profiles/boosts
+    and pairs with pump-style mints (…pump suffix) when available.
+    """
+    tokens: list[dict] = []
+    seen: set[str] = set()
+    try:
+        from data.providers.dexscreener import get_latest_token_profiles, get_latest_boosts
+        profiles = get_latest_token_profiles() or []
+        try:
+            boosts = get_latest_boosts() or []
+        except Exception:
+            boosts = []
+
+        for item in list(profiles) + list(boosts):
+            if not isinstance(item, dict):
+                continue
+            if item.get("chainId") != "solana":
+                continue
+            addr = item.get("tokenAddress") or item.get("address") or ""
+            if not addr or addr in seen:
+                continue
+            seen.add(addr)
+            tokens.append({
+                "token_address": addr,
+                "name": item.get("description", "")[:40] or "",
+                "symbol": "",
+                "pair_address": "",
+                "price_usd": 0.0,
+                "liquidity_usd": 0.0,
+                "volume_24h": 0.0,
+                "graduated_at": item.get("updatedAt", ""),
+                "market_cap": 0.0,
+                "source": "dexscreener_solana_profiles",
+            })
+            if len(tokens) >= limit:
+                break
+
+        # Supplement with pump.fun search pairs if still thin
+        if len(tokens) < limit:
+            try:
+                from data.http_session import get_session as _gs
+                resp = _gs().get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": "pump"},
+                    timeout=12,
+                )
+                if resp.status_code == 200:
+                    pairs = resp.json().get("pairs") or []
+                    for p in pairs:
+                        if p.get("chainId") != "solana":
+                            continue
+                        base = p.get("baseToken") or {}
+                        addr = base.get("address") or ""
+                        if not addr or addr in seen:
+                            continue
+                        # Prefer pump-style mints or pump.fun dex
+                        dex = (p.get("dexId") or "").lower()
+                        if "pump" not in dex and not str(addr).endswith("pump"):
+                            continue
+                        seen.add(addr)
+                        liq = _safe_float((p.get("liquidity") or {}).get("usd", 0))
+                        tokens.append({
+                            "token_address": addr,
+                            "name": base.get("name", ""),
+                            "symbol": base.get("symbol", ""),
+                            "pair_address": p.get("pairAddress", ""),
+                            "price_usd": _safe_float(p.get("priceUsd", 0)),
+                            "liquidity_usd": liq,
+                            "volume_24h": _safe_float((p.get("volume") or {}).get("h24", 0)),
+                            "graduated_at": p.get("pairCreatedAt", ""),
+                            "market_cap": _safe_float(p.get("marketCap", 0)),
+                            "source": "dexscreener_pump_search",
+                        })
+                        if len(tokens) >= limit:
+                            break
+            except Exception as e:
+                logger.debug(f"DexScreener pump search fallback: {e}")
+    except Exception as e:
+        logger.debug(f"DexScreener graduated fallback failed: {e}")
+    return tokens[:limit]
+
+
 def get_pumpfun_graduated(limit: int = 20) -> list[dict]:
     """
-    Get recently graduated Pump.fun tokens (moved from bonding curve to Raydium).
+    Get recently graduated Pump.fun tokens (moved from bonding curve to DEX).
 
-    This is THE moment for early entry on Solana meme tokens.
-
-    Returns list of:
-        {
-            "token_address": str (mint),
-            "name": str,
-            "symbol": str,
-            "pair_address": str,
-            "price_usd": float,
-            "liquidity_usd": float,
-            "volume_24h": float,
-            "graduated_at": str (ISO timestamp),
-        }
+    After July 31 2026 REST sunset:
+      1. Data Feeds launchpad_events (migrated events) — 0 CU
+      2. DexScreener free Solana discovery approximation
+      3. Legacy Moralis REST only before cutover if free fallbacks disabled
     """
-    if not _available():
-        return []
-
     cache_key = f"pumpfun_graduated_{limit}"
     if _is_cached(cache_key):
         return _get_cache(cache_key)
 
-    _rate_check()
+    # 1) Data Feeds
     try:
-        resp = get_session().get(
-            f"{BASE_URL}/token/{NETWORK}/exchange/pumpfun/graduated",
-            params={"limit": limit},
-            headers=_headers(),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-
-        tokens = []
-        for t in raw.get("result", raw if isinstance(raw, list) else []):
-            tokens.append({
-                "token_address": t.get("tokenAddress", t.get("mint", "")),
-                "name": t.get("name", ""),
-                "symbol": t.get("symbol", ""),
-                "pair_address": t.get("pairAddress", ""),
-                "price_usd": float(t.get("priceUsd") or t.get("usdPrice") or 0),
-                "liquidity_usd": float(t.get("liquidityUsd") or 0),
-                "volume_24h": float(t.get("volume24h") or 0),
-                "graduated_at": t.get("graduatedAt", t.get("blockTimestamp", "")),
-                "market_cap": float(t.get("marketCap") or 0),
-            })
-
-        _set_cache(cache_key, tokens)
-        if tokens:
-            logger.info(f"🚀 Pump.fun graduated: {len(tokens)} new tokens found")
-        return tokens
+        from data.providers import moralis_datafeeds as df
+        if df.available():
+            tokens = df.get_pumpfun_graduated(limit=limit)
+            if tokens:
+                _set_cache(cache_key, tokens)
+                logger.info(f"🚀 Pump.fun graduated (DataFeeds): {len(tokens)}")
+                return tokens
     except Exception as e:
-        logger.warning(f"Moralis Pump.fun graduated fetch failed: {e}")
-        return []
+        logger.debug(f"DataFeeds pumpfun graduated skipped: {e}")
+
+    # 2) Free DexScreener
+    prefer_free = getattr(settings, "MORALIS_PREFER_FREE_FALLBACKS", True)
+    free = _pumpfun_graduated_dexscreener(limit=limit)
+    if free:
+        _set_cache(cache_key, free)
+        logger.info(f"🚀 Pump.fun graduated (DexScreener fallback): {len(free)}")
+        return free
+
+    # 3) Legacy REST pre-sunset
+    if not prefer_free and _available():
+        try:
+            from data.providers.moralis_http import moralis_get, is_past_sunset
+            if not is_past_sunset():
+                raw = moralis_get(
+                    f"{BASE_URL}/token/{NETWORK}/exchange/pumpfun/graduated",
+                    params={"limit": limit},
+                    endpoint_key="pumpfun_graduated",
+                    timeout=15,
+                    allow_sunset=True,
+                )
+                if raw:
+                    tokens = []
+                    for t in raw.get("result", raw if isinstance(raw, list) else []):
+                        tokens.append({
+                            "token_address": t.get("tokenAddress", t.get("mint", "")),
+                            "name": t.get("name", ""),
+                            "symbol": t.get("symbol", ""),
+                            "pair_address": t.get("pairAddress", ""),
+                            "price_usd": float(t.get("priceUsd") or t.get("usdPrice") or 0),
+                            "liquidity_usd": float(t.get("liquidityUsd") or 0),
+                            "volume_24h": float(t.get("volume24h") or 0),
+                            "graduated_at": t.get("graduatedAt", t.get("blockTimestamp", "")),
+                            "market_cap": float(t.get("marketCap") or 0),
+                            "source": "moralis_rest_legacy",
+                        })
+                    _set_cache(cache_key, tokens)
+                    if tokens:
+                        logger.info(f"🚀 Pump.fun graduated (legacy REST): {len(tokens)}")
+                    return tokens
+        except Exception as e:
+            logger.warning(f"Moralis Pump.fun graduated fetch failed: {e}")
+
+    _set_cache(cache_key, [])
+    return []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

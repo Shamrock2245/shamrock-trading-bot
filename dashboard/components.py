@@ -494,6 +494,191 @@ def render_zone_end():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Moralis CU Budget Widget
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fmt_cu(n) -> str:
+    """Human-readable CU counts (394M, 12.4K, etc.)."""
+    try:
+        v = float(n or 0)
+    except (TypeError, ValueError):
+        return "—"
+    abs_v = abs(v)
+    if abs_v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if abs_v >= 1_000:
+        return f"{v / 1_000:.1f}K"
+    return f"{v:,.0f}"
+
+
+def load_moralis_cu_status() -> dict:
+    """Load CU budget status from disk (bot snapshot) with safe defaults."""
+    try:
+        from core.moralis_cu_budget import load_status_from_disk
+        status = load_status_from_disk()
+        if isinstance(status, dict) and status:
+            return status
+    except Exception:
+        pass
+    return {
+        "monthly_budget": 0,
+        "total_consumed": 0,
+        "remaining_cu": 0,
+        "remaining_pct": 0.0,
+        "used_pct": 0.0,
+        "throttle_mode": "UNKNOWN",
+        "health": "unknown",
+        "within_budget": True,
+        "top_consumers": [],
+        "daily_consumed": 0,
+        "daily_allowance": 0,
+        "forecast_eom_consumption": 0,
+        "forecast_over_budget": False,
+        "blocked_calls": 0,
+        "days_remaining": 0,
+        "last_updated_iso": "",
+    }
+
+
+def render_moralis_cu_budget_widget(compact: bool = False):
+    """
+    Small Moralis CU budget widget for Command Center / System Health.
+
+    compact=True → single banner row (sidebar / CC).
+    compact=False → full card with progress, daily pace, top consumers.
+    """
+    s = load_moralis_cu_status()
+    mode = str(s.get("throttle_mode") or "UNKNOWN").upper()
+    health = str(s.get("health") or "unknown").lower()
+    used_pct = float(s.get("used_pct") or 0)
+    remaining_pct = float(s.get("remaining_pct") or max(0.0, 100.0 - used_pct))
+    within = bool(s.get("within_budget", True))
+    forecast_over = bool(s.get("forecast_over_budget", False))
+
+    # Colors by health
+    _palette = {
+        "healthy": ("#00D09C", "rgba(0,208,156,0.08)", "WITHIN BUDGET"),
+        "warning": ("#FFB84D", "rgba(255,184,77,0.10)", "PACING TIGHT"),
+        "critical": ("#FF8C42", "rgba(255,140,66,0.12)", "EMERGENCY THROTTLE"),
+        "exhausted": ("#FF4757", "rgba(255,71,87,0.12)", "BUDGET EXHAUSTED"),
+        "unknown": ("#8B949E", "rgba(139,148,158,0.08)", "NO DATA"),
+    }
+    if not within or health == "exhausted":
+        health = "exhausted"
+    elif forecast_over and health == "healthy":
+        health = "warning"
+    color, bg, badge = _palette.get(health, _palette["unknown"])
+
+    budget = s.get("monthly_budget", 0)
+    consumed = s.get("total_consumed", 0)
+    remaining = s.get("remaining_cu", 0)
+    daily_used = s.get("daily_consumed", 0)
+    daily_cap = s.get("daily_allowance", 0)
+    forecast = s.get("forecast_eom_consumption", 0)
+    blocked = s.get("blocked_calls", 0)
+    days_left = s.get("days_remaining", 0)
+    updated = str(s.get("last_updated_iso") or "")[:19].replace("T", " ")
+
+    # Progress bar width (0–100)
+    bar_w = max(0.0, min(100.0, used_pct))
+    daily_pct = 0.0
+    if daily_cap and float(daily_cap) > 0:
+        daily_pct = max(0.0, min(100.0, float(daily_used) / float(daily_cap) * 100))
+
+    if compact:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;'
+            f'background:{bg};border:1px solid {color}44;border-radius:12px;margin:8px 0;">'
+            f'<div style="font-size:1.1rem;">⚡</div>'
+            f'<div style="flex:1;min-width:0;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+            f'<span style="color:#E6EDF3;font-size:0.72rem;font-weight:700;">Moralis CU</span>'
+            f'<span style="color:{color};font-size:0.62rem;font-weight:800;letter-spacing:0.06em;">'
+            f'{badge}</span></div>'
+            f'<div style="margin-top:6px;height:5px;background:rgba(48,54,61,0.6);border-radius:4px;overflow:hidden;">'
+            f'<div style="width:{bar_w:.1f}%;height:100%;background:{color};border-radius:4px;"></div></div>'
+            f'<div style="display:flex;justify-content:space-between;margin-top:4px;">'
+            f'<span style="color:#8B949E;font-size:0.62rem;font-family:JetBrains Mono,monospace;">'
+            f'{_fmt_cu(consumed)} / {_fmt_cu(budget)}</span>'
+            f'<span style="color:{color};font-size:0.62rem;font-weight:700;">{mode}</span>'
+            f'</div></div></div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    # Full widget
+    top = s.get("top_consumers") or []
+    top_html = ""
+    if top:
+        rows = ""
+        for name, cu in top[:5]:
+            rows += (
+                f'<div style="display:flex;justify-content:space-between;padding:3px 0;'
+                f'border-bottom:1px solid rgba(48,54,61,0.25);">'
+                f'<span style="color:#8B949E;font-size:0.65rem;">{name}</span>'
+                f'<span style="color:#E6EDF3;font-size:0.65rem;font-family:JetBrains Mono,monospace;">'
+                f'{_fmt_cu(cu)}</span></div>'
+            )
+        top_html = (
+            f'<div style="margin-top:10px;">'
+            f'<div style="color:#484F58;font-size:0.55rem;font-weight:700;letter-spacing:0.1em;'
+            f'text-transform:uppercase;margin-bottom:4px;">Top consumers</div>{rows}</div>'
+        )
+
+    forecast_color = DANGER if forecast_over else "#8B949E"
+    st.markdown(
+        f'<div style="padding:14px 16px;background:rgba(13,17,23,0.65);'
+        f'border:1px solid {color}40;border-radius:14px;margin:6px 0 14px 0;">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'
+        f'<div style="display:flex;align-items:center;gap:8px;">'
+        f'<span style="font-size:1.15rem;">⚡</span>'
+        f'<div>'
+        f'<div style="color:#E6EDF3;font-size:0.85rem;font-weight:800;">Moralis CU Budget</div>'
+        f'<div style="color:#484F58;font-size:0.62rem;">Soft cap · auto-throttle · fail-closed</div>'
+        f'</div></div>'
+        f'<span style="background:{bg};color:{color};border:1px solid {color}55;'
+        f'border-radius:20px;padding:3px 10px;font-size:0.6rem;font-weight:800;'
+        f'letter-spacing:0.06em;">{badge} · {mode}</span>'
+        f'</div>'
+        # main progress
+        f'<div style="margin-top:12px;">'
+        f'<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
+        f'<span style="color:#8B949E;font-size:0.65rem;">Monthly used</span>'
+        f'<span style="color:#E6EDF3;font-size:0.7rem;font-weight:700;font-family:JetBrains Mono,monospace;">'
+        f'{used_pct:.1f}% · {_fmt_cu(consumed)} / {_fmt_cu(budget)}</span></div>'
+        f'<div style="height:8px;background:rgba(48,54,61,0.7);border-radius:6px;overflow:hidden;">'
+        f'<div style="width:{bar_w:.1f}%;height:100%;background:linear-gradient(90deg,{color},{color}cc);'
+        f'border-radius:6px;"></div></div></div>'
+        # KPI row
+        f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;">'
+        f'<div style="text-align:center;padding:8px 4px;background:rgba(22,27,34,0.6);border-radius:8px;">'
+        f'<div style="color:#484F58;font-size:0.52rem;font-weight:700;letter-spacing:0.08em;">REMAINING</div>'
+        f'<div style="color:{color};font-size:0.95rem;font-weight:800;font-family:JetBrains Mono,monospace;">'
+        f'{_fmt_cu(remaining)}</div></div>'
+        f'<div style="text-align:center;padding:8px 4px;background:rgba(22,27,34,0.6);border-radius:8px;">'
+        f'<div style="color:#484F58;font-size:0.52rem;font-weight:700;letter-spacing:0.08em;">TODAY</div>'
+        f'<div style="color:#E6EDF3;font-size:0.95rem;font-weight:800;font-family:JetBrains Mono,monospace;">'
+        f'{_fmt_cu(daily_used)}</div>'
+        f'<div style="color:#484F58;font-size:0.55rem;">cap {_fmt_cu(daily_cap)} · {daily_pct:.0f}%</div></div>'
+        f'<div style="text-align:center;padding:8px 4px;background:rgba(22,27,34,0.6);border-radius:8px;">'
+        f'<div style="color:#484F58;font-size:0.52rem;font-weight:700;letter-spacing:0.08em;">EOM FORECAST</div>'
+        f'<div style="color:{forecast_color};font-size:0.95rem;font-weight:800;font-family:JetBrains Mono,monospace;">'
+        f'{_fmt_cu(forecast)}</div></div>'
+        f'<div style="text-align:center;padding:8px 4px;background:rgba(22,27,34,0.6);border-radius:8px;">'
+        f'<div style="color:#484F58;font-size:0.52rem;font-weight:700;letter-spacing:0.08em;">BLOCKED</div>'
+        f'<div style="color:#E6EDF3;font-size:0.95rem;font-weight:800;font-family:JetBrains Mono,monospace;">'
+        f'{int(blocked or 0):,}</div>'
+        f'<div style="color:#484F58;font-size:0.55rem;">{int(days_left or 0)}d left</div></div>'
+        f'</div>'
+        f'{top_html}'
+        f'<div style="color:#484F58;font-size:0.55rem;margin-top:10px;text-align:right;">'
+        f'Updated {updated or "—"} UTC</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Wallet Management Cards
 # ─────────────────────────────────────────────────────────────────────────────
 

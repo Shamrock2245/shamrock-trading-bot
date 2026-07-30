@@ -299,12 +299,22 @@ def get_token_score_timeseries(token_address: str, chain: str, days: int = 7) ->
     """
     Get historical token score to detect safety trend.
     Returns: score_trend ('improving'|'stable'|'declining'), score_delta, latest_score
+
+    Solana Token Score timeseries sunsets July 31 2026 — neutral response, 0 CU.
     """
+    if str(chain).lower() == "solana":
+        return {"score_trend": "stable", "score_delta": 0.0, "latest_score": 50.0, "source": "solana_score_sunset"}
     if not _available(chain) or chain not in CHAIN_HEX:
         return {"score_trend": "stable", "score_delta": 0.0, "latest_score": 50.0}
     cache_key = f"score_ts_{chain}_{token_address.lower()}_{days}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
+    try:
+        from core.moralis_cu_budget import cu_budget
+        if not cu_budget.can_afford("token_score_historical"):
+            return {"score_trend": "stable", "score_delta": 0.0, "latest_score": 50.0}
+    except Exception:
+        pass
     _rate_check()
     try:
         resp = get_session().get(
@@ -313,6 +323,11 @@ def get_token_score_timeseries(token_address: str, chain: str, days: int = 7) ->
             headers=_headers(),
             timeout=8,
         )
+        try:
+            from data.providers.moralis_http import _parse_request_weight, _record_usage
+            _record_usage("token_score_historical", _parse_request_weight(resp) or 150)
+        except Exception:
+            pass
         if resp.status_code in (400, 404, 429):
             return {"score_trend": "stable", "score_delta": 0.0, "latest_score": 50.0}
         resp.raise_for_status()
@@ -483,63 +498,18 @@ def get_holder_stats(token_address: str, chain: str) -> dict:
 
 def get_holder_growth(token_address: str, chain: str, days: int = 7) -> dict:
     """
-    Get historical holder count to detect accumulation vs distribution.
-    Returns: holder_trend ('accumulating'|'stable'|'distributing'), growth_rate_pct
+    Historical holder growth.
+
+    EVM + Solana historical holder REST endpoints sunset July 31 2026.
+    Without Data Feeds historical_balances recipe return neutral (0 CU).
+    Current EVM holders/stats endpoints remain supported elsewhere.
     """
-    if not _available(chain) or chain not in CHAIN_HEX:
-        return {"holder_trend": "stable", "growth_rate_pct": 0.0, "holder_velocity": 0.0}
-    cache_key = f"holder_growth_{chain}_{token_address.lower()}_{days}"
-    if _is_cached(cache_key, SLOW_CACHE_TTL):
-        return _get_cache(cache_key)
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{BASE_URL}/erc20/{token_address}/holders/historical",
-            params={"chain": CHAIN_HEX[chain], "days": days},
-            headers=_headers(),
-            timeout=8,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0, "holder_velocity": 0.0}
-        resp.raise_for_status()
-        data = resp.json()
-        history = data.get("result", data) if isinstance(data, dict) else data
-        if not history or len(history) < 2:
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0, "holder_velocity": 0.0}
-
-        sorted_hist = sorted(history, key=lambda x: x.get("timestamp", ""))
-        oldest_count = _safe_int(sorted_hist[0].get("total_holders", 0))
-        latest_count = _safe_int(sorted_hist[-1].get("total_holders", 0))
-
-        if oldest_count == 0:
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0, "holder_velocity": 0.0}
-
-        growth_pct = ((latest_count - oldest_count) / oldest_count) * 100
-        daily_velocity = (latest_count - oldest_count) / max(days, 1)
-
-        if growth_pct >= 20:
-            trend = "accumulating"
-        elif growth_pct >= 5:
-            trend = "growing"
-        elif growth_pct <= -10:
-            trend = "distributing"
-        elif growth_pct <= -2:
-            trend = "declining"
-        else:
-            trend = "stable"
-
-        result = {
-            "holder_trend":     trend,
-            "growth_rate_pct":  round(growth_pct, 1),
-            "holder_velocity":  round(daily_velocity, 0),
-            "current_holders":  latest_count,
-            "holders_7d_ago":   oldest_count,
-        }
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Holder growth error {chain}/{token_address[:8]}: {e}")
-        return {"holder_trend": "stable", "growth_rate_pct": 0.0, "holder_velocity": 0.0}
+    return {
+        "holder_trend": "stable",
+        "growth_rate_pct": 0.0,
+        "holder_velocity": 0.0,
+        "source": "historical_holders_sunset",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1217,41 +1187,82 @@ def search_tokens(query: str, chain: str = None, limit: int = 10) -> list[dict]:
 def get_pumpfun_new_tokens(limit: int = 20) -> list[dict]:
     """
     Get newly created Pump.fun tokens (pre-bonding curve).
-    These are the earliest possible entry points on Solana.
+    REST sunsets July 31 2026 → Data Feeds launchpad created events, else [].
     """
-    if not MORALIS_API_KEY:
-        return []
     cache_key = f"pumpfun_new_{limit}"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
+
     try:
-        resp = get_session().get(
+        from data.providers import moralis_datafeeds as df
+        if df.available():
+            result = df.get_pumpfun_new(limit=limit)
+            if result:
+                _set_cache(cache_key, result)
+                logger.info(f"Pump.fun NEW (DataFeeds): {len(result)}")
+                return result
+    except Exception as e:
+        logger.debug(f"DataFeeds pumpfun new: {e}")
+
+    # Free DexScreener approximation (newest Solana profiles)
+    try:
+        from data.providers.moralis_solana import _pumpfun_graduated_dexscreener
+        free = _pumpfun_graduated_dexscreener(limit=limit)
+        if free:
+            result = [{
+                "address": t.get("token_address", ""),
+                "symbol": t.get("symbol", ""),
+                "name": t.get("name", ""),
+                "created_at": t.get("graduated_at", ""),
+                "market_cap": _safe_float(t.get("market_cap", 0)),
+                "bonding_pct": 0.0,
+                "volume_24h": _safe_float(t.get("volume_24h", 0)),
+                "source": "dexscreener_solana_newish",
+                "chain": "solana",
+            } for t in free]
+            _set_cache(cache_key, result)
+            logger.info(f"Pump.fun NEW (DexScreener approx): {len(result)}")
+            return result
+    except Exception as e:
+        logger.debug(f"DexScreener pumpfun new approx: {e}")
+
+    # Pre-sunset REST only if free fallbacks disabled
+    prefer_free = getattr(settings, "MORALIS_PREFER_FREE_FALLBACKS", True)
+    if prefer_free or not MORALIS_API_KEY:
+        _set_cache(cache_key, [])
+        return []
+
+    try:
+        from data.providers.moralis_http import moralis_get, is_past_sunset
+        if is_past_sunset():
+            _set_cache(cache_key, [])
+            return []
+        data = moralis_get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/exchange/pumpfun/new",
             params={"limit": limit},
-            headers=_headers(),
+            endpoint_key="pumpfun_new",
             timeout=8,
+            allow_sunset=True,
         )
-        if resp.status_code in (400, 404, 429):
+        if not data:
+            _set_cache(cache_key, [])
             return []
-        resp.raise_for_status()
-        data = resp.json()
         tokens = data.get("result", data) if isinstance(data, dict) else data
         result = []
         for t in (tokens or [])[:limit]:
             result.append({
-                "address":       t.get("token_address", t.get("mint", "")),
+                "address":       t.get("token_address", t.get("mint", t.get("tokenAddress", ""))),
                 "symbol":        t.get("token_symbol", t.get("symbol", "")),
                 "name":          t.get("token_name", t.get("name", "")),
-                "created_at":    t.get("created_at", ""),
-                "market_cap":    _safe_float(t.get("market_cap", 0)),
+                "created_at":    t.get("created_at", t.get("createdAt", "")),
+                "market_cap":    _safe_float(t.get("market_cap", t.get("marketCap", 0))),
                 "bonding_pct":   _safe_float(t.get("bonding_curve_progress", 0)),
                 "volume_24h":    _safe_float(t.get("volume_24h", 0)),
                 "source":        "pumpfun_new",
                 "chain":         "solana",
             })
         _set_cache(cache_key, result)
-        logger.info(f"Pump.fun NEW: {len(result)} tokens found")
+        logger.info(f"Pump.fun NEW (legacy REST): {len(result)} tokens found")
         return result
     except Exception as e:
         logger.debug(f"Pump.fun new tokens error: {e}")
@@ -1261,43 +1272,65 @@ def get_pumpfun_new_tokens(limit: int = 20) -> list[dict]:
 def get_pumpfun_bonding_tokens(limit: int = 20) -> list[dict]:
     """
     Get Pump.fun tokens currently in bonding phase (close to graduation).
-    These are the highest-momentum pre-graduation plays.
+    REST sunsets July 31 2026 → Data Feeds bonding status projection.
     """
-    if not MORALIS_API_KEY:
-        return []
     cache_key = f"pumpfun_bonding_{limit}"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
+
     try:
-        resp = get_session().get(
+        from data.providers import moralis_datafeeds as df
+        if df.available():
+            result = df.get_pumpfun_bonding(limit=limit)
+            if result:
+                _set_cache(cache_key, result)
+                logger.info(
+                    f"Pump.fun BONDING (DataFeeds): {len(result)}, "
+                    f"{sum(1 for t in result if t.get('near_graduation'))} near graduation"
+                )
+                return result
+    except Exception as e:
+        logger.debug(f"DataFeeds pumpfun bonding: {e}")
+
+    # Without Data Feeds we cannot know true bonding %. Do not invent signals.
+    # Pre-sunset REST only if free fallbacks disabled.
+    prefer_free = getattr(settings, "MORALIS_PREFER_FREE_FALLBACKS", True)
+    if prefer_free or not MORALIS_API_KEY:
+        _set_cache(cache_key, [])
+        return []
+
+    try:
+        from data.providers.moralis_http import moralis_get, is_past_sunset
+        if is_past_sunset():
+            _set_cache(cache_key, [])
+            return []
+        data = moralis_get(
             f"{SOL_BASE_URL}/token/{SOL_NETWORK}/exchange/pumpfun/bonding",
             params={"limit": limit},
-            headers=_headers(),
+            endpoint_key="pumpfun_bonding",
             timeout=8,
+            allow_sunset=True,
         )
-        if resp.status_code in (400, 404, 429):
+        if not data:
+            _set_cache(cache_key, [])
             return []
-        resp.raise_for_status()
-        data = resp.json()
         tokens = data.get("result", data) if isinstance(data, dict) else data
         result = []
         for t in (tokens or [])[:limit]:
-            bonding_pct = _safe_float(t.get("bonding_curve_progress", 0))
+            bonding_pct = _safe_float(t.get("bonding_curve_progress", t.get("bondingProgress", 0)))
             result.append({
-                "address":       t.get("token_address", t.get("mint", "")),
+                "address":       t.get("token_address", t.get("mint", t.get("tokenAddress", ""))),
                 "symbol":        t.get("token_symbol", t.get("symbol", "")),
                 "name":          t.get("token_name", t.get("name", "")),
                 "bonding_pct":   bonding_pct,
-                "market_cap":    _safe_float(t.get("market_cap", 0)),
+                "market_cap":    _safe_float(t.get("market_cap", t.get("marketCap", 0))),
                 "volume_24h":    _safe_float(t.get("volume_24h", 0)),
-                "near_graduation": bonding_pct >= 80,  # 80%+ = about to graduate
+                "near_graduation": bonding_pct >= 80,
                 "source":        "pumpfun_bonding",
                 "chain":         "solana",
             })
         _set_cache(cache_key, result)
-        logger.info(f"Pump.fun BONDING: {len(result)} tokens, "
-                    f"{sum(1 for t in result if t['near_graduation'])} near graduation")
+        logger.info(f"Pump.fun BONDING (legacy REST): {len(result)}")
         return result
     except Exception as e:
         logger.debug(f"Pump.fun bonding tokens error: {e}")
@@ -1306,136 +1339,73 @@ def get_pumpfun_bonding_tokens(limit: int = 20) -> list[dict]:
 
 def get_solana_holder_stats(token_address: str) -> dict:
     """
-    Get holder distribution statistics for a Solana token.
+    Holder distribution for a Solana token.
+    REST metrics sunsets July 31 2026 → Data Feeds / Helius concentration.
     """
-    if not MORALIS_API_KEY:
-        return {"total_holders": 0, "top10_pct": 0.0, "concentration_risk": "unknown"}
+    empty = {"total_holders": 0, "top10_pct": 0.0, "concentration_risk": "unknown"}
+    if not token_address:
+        return empty
     cache_key = f"sol_holder_stats_{token_address}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
+
+    # Data Feeds top holders → concentration
     try:
-        resp = get_session().get(
-            f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/stats",
-            headers=_headers(),
-            timeout=8,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {"total_holders": 0, "top10_pct": 0.0, "concentration_risk": "unknown"}
-        resp.raise_for_status()
-        data = resp.json()
-        total = _safe_int(data.get("total_holders", 0))
-        top10 = _safe_float(data.get("top_10_holders_percentage", 0))
-        top1 = _safe_float(data.get("top_1_holder_percentage", 0))
+        from data.providers import moralis_datafeeds as df
+        if df.available():
+            top = df.get_top_holders(token_address, limit=10, chain="solana")
+            if top.get("holders"):
+                top10 = float(top.get("top10_concentration", 0)) * 100
+                result = {
+                    "total_holders": len(top["holders"]),
+                    "top10_pct": round(top10, 1),
+                    "top1_pct": round(top["holders"][0].get("percentage", 0), 1) if top["holders"] else 0.0,
+                    "concentration_risk": top.get("concentration_risk", "unknown"),
+                    "holder_score": max(0.0, 100.0 - top10),
+                    "source": "datafeeds",
+                }
+                _set_cache(cache_key, result)
+                return result
+    except Exception:
+        pass
 
-        if top10 >= 80 or top1 >= 50:
-            risk = "critical"
-        elif top10 >= 60:
-            risk = "high"
-        elif top10 >= 40:
-            risk = "medium"
-        else:
-            risk = "low"
-
-        result = {
-            "total_holders":      total,
-            "top10_pct":          round(top10, 1),
-            "top1_pct":           round(top1, 1),
-            "concentration_risk": risk,
-            "holder_score":       max(0.0, 100.0 - top10),
-        }
-        _set_cache(cache_key, result)
-        return result
+    # Helius enrichment path (0 Moralis CU)
+    try:
+        from data.providers.moralis_solana import get_token_top_holders
+        top = get_token_top_holders(token_address, limit=10)
+        if top.get("holders"):
+            top10 = float(top.get("top10_concentration", 0)) * 100
+            result = {
+                "total_holders": len(top["holders"]),
+                "top10_pct": round(top10, 1),
+                "top1_pct": round(top["holders"][0].get("percentage", 0), 1) if top["holders"] else 0.0,
+                "concentration_risk": top.get("concentration_risk", "unknown"),
+                "holder_score": max(0.0, 100.0 - top10),
+                "source": top.get("source", "helius"),
+            }
+            _set_cache(cache_key, result)
+            return result
     except Exception as e:
-        logger.debug(f"Solana holder stats error {token_address[:8]}: {e}")
-        return {"total_holders": 0, "top10_pct": 0.0, "concentration_risk": "unknown"}
+        logger.debug(f"Solana holder stats fallback error {token_address[:8]}: {e}")
+
+    _set_cache(cache_key, empty)
+    return empty
 
 
 def get_solana_holder_growth(token_address: str, days: int = 7) -> dict:
     """
-    Get historical holder count for a Solana token.
+    Historical holder growth — REST sunsets July 31 2026.
+    Without Data Feeds historical_balances recipe, return neutral (no CU burn).
     """
-    if not MORALIS_API_KEY:
-        return {"holder_trend": "stable", "growth_rate_pct": 0.0}
-    cache_key = f"sol_holder_growth_{token_address}_{days}"
-    if _is_cached(cache_key, SLOW_CACHE_TTL):
-        return _get_cache(cache_key)
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/historical",
-            params={"days": days},
-            headers=_headers(),
-            timeout=8,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0}
-        resp.raise_for_status()
-        data = resp.json()
-        history = data.get("result", data) if isinstance(data, dict) else data
-        if not history or len(history) < 2:
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0}
-
-        sorted_hist = sorted(history, key=lambda x: x.get("timestamp", ""))
-        oldest = _safe_int(sorted_hist[0].get("total_holders", 0))
-        latest = _safe_int(sorted_hist[-1].get("total_holders", 0))
-
-        if oldest == 0:
-            return {"holder_trend": "stable", "growth_rate_pct": 0.0}
-
-        growth_pct = ((latest - oldest) / oldest) * 100
-        trend = "accumulating" if growth_pct >= 20 else ("growing" if growth_pct >= 5 else
-                ("distributing" if growth_pct <= -10 else "stable"))
-
-        result = {
-            "holder_trend":    trend,
-            "growth_rate_pct": round(growth_pct, 1),
-            "current_holders": latest,
-        }
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Solana holder growth error {token_address[:8]}: {e}")
-        return {"holder_trend": "stable", "growth_rate_pct": 0.0}
+    # Historical series is not available free; skip REST to save CU.
+    return {"holder_trend": "stable", "growth_rate_pct": 0.0, "source": "sunset_neutral"}
 
 
 def get_solana_score_timeseries(token_address: str, days: int = 7) -> dict:
     """
-    Get historical token score for a Solana token.
+    Solana Token Score is EVM-only after July 31 2026 — return neutral, 0 CU.
     """
-    if not MORALIS_API_KEY:
-        return {"score_trend": "stable", "score_delta": 0.0}
-    cache_key = f"sol_score_ts_{token_address}_{days}"
-    if _is_cached(cache_key, SLOW_CACHE_TTL):
-        return _get_cache(cache_key)
-    _rate_check()
-    try:
-        resp = get_session().get(
-            f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/score/historical",
-            params={"days": days},
-            headers=_headers(),
-            timeout=8,
-        )
-        if resp.status_code in (400, 404, 429):
-            return {"score_trend": "stable", "score_delta": 0.0}
-        resp.raise_for_status()
-        data = resp.json()
-        scores = data.get("result", data) if isinstance(data, dict) else data
-        if not scores or len(scores) < 2:
-            return {"score_trend": "stable", "score_delta": 0.0}
-
-        sorted_scores = sorted(scores, key=lambda x: x.get("timestamp", ""))
-        latest = _safe_float(sorted_scores[-1].get("score", 50))
-        oldest = _safe_float(sorted_scores[0].get("score", 50))
-        delta = latest - oldest
-        trend = "improving" if delta >= 5 else ("declining" if delta <= -5 else "stable")
-
-        result = {"score_trend": trend, "score_delta": round(delta, 1), "latest_score": round(latest, 1)}
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Solana score timeseries error {token_address[:8]}: {e}")
-        return {"score_trend": "stable", "score_delta": 0.0}
+    return {"score_trend": "stable", "score_delta": 0.0, "source": "solana_score_sunset"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2116,44 +2086,23 @@ def get_token_bonding_status(
     Check if a token is still in a bonding curve (pre-graduation).
     Returns bonding progress and graduation status.
 
-    Actionable signal:
-      - graduation_pct < 100 → token hasn't graduated to DEX yet (risky)
-      - bonding_status == "bonding" → actively in bonding curve
-      - bonding_status == "graduated" → safe to trade on DEX
-
-    Pro-only endpoint. Returns None if not on Pro plan.
+    Solana REST sunsets July 31 2026 → Data Feeds / moralis_money cascade.
     """
-    if not MORALIS_API_KEY:
-        return None
-    cache_key = f"bonding_{chain}_{token_address.lower()}"
-    if _is_cached(cache_key, FAST_CACHE_TTL):
-        return _get_cache(cache_key)
-    _rate_check()
+    # Delegate to money module cascade (Data Feeds → EVM REST, Solana free/DF)
     try:
-        if is_solana or chain == "solana":
-            url = f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/bonding-status"
-            params = {}
-        else:
-            hex_chain = CHAIN_HEX.get(chain, "0x1")
-            url = f"{BASE_URL}/tokens/{token_address}/bonding-status"
-            params = {"chain": hex_chain}
-
-        resp = get_session().get(url, params=params, headers=_headers(), timeout=8)
-        if resp.status_code in (400, 404, 429):
+        from data.providers.moralis_money import get_bonding_status as _money_bonding
+        raw = _money_bonding(token_address, chain if not is_solana else "solana")
+        if not raw:
             return None
-        resp.raise_for_status()
-        data = resp.json()
-
-        result = {
-            "bonding_status": data.get("status", data.get("bonding_status", "unknown")),
-            "graduation_pct": _safe_float(data.get("graduation", data.get("graduation_percent", 0))),
-            "exchange": data.get("exchange", ""),
-            "market_cap_usd": _safe_float(data.get("market_cap_usd", data.get("marketCap", 0))),
-            "is_graduated": data.get("status", "").lower() == "graduated"
-                            or _safe_float(data.get("graduation", 0)) >= 100,
+        return {
+            "bonding_status": "bonding" if raw.get("is_bonding") else (
+                "graduated" if raw.get("is_graduated") else raw.get("bonding_status", "unknown")
+            ),
+            "graduation_pct": _safe_float(raw.get("graduation_pct", 0)),
+            "exchange": raw.get("exchange", ""),
+            "market_cap_usd": _safe_float(raw.get("market_cap_usd", 0)),
+            "is_graduated": bool(raw.get("is_graduated") or not raw.get("is_bonding")),
         }
-        _set_cache(cache_key, result)
-        return result
     except Exception as e:
         logger.debug(f"Token bonding status error {token_address[:8]}/{chain}: {e}")
         return None
@@ -2450,76 +2399,13 @@ def get_historical_token_holders_v2(
     is_solana: bool = False,
 ) -> Optional[dict]:
     """
-    Get structured timeseries holder data with growth metrics.
-    Better than single-shot holder count — shows accumulation vs distribution.
+    Historical holder timeseries.
 
-    Returns:
-      - holder_trend: str ("accumulating", "distributing", "stable")
-      - holder_growth_7d_pct: float
-      - holder_growth_30d_pct: float
-      - current_holders: int
-      - data_points: int (number of timeseries entries)
+    REST endpoints for EVM + Solana historical holders sunset July 31 2026.
+    Return None so callers skip growth signals without burning CU.
+    Re-enable via Data Feeds historical_balances recipe when sink is live.
     """
-    if not MORALIS_API_KEY:
-        return None
-    cache_key = f"hist_holders_v2_{chain}_{token_address.lower()}"
-    if _is_cached(cache_key, SLOW_CACHE_TTL):
-        return _get_cache(cache_key)
-    _rate_check()
-    try:
-        if is_solana or chain == "solana":
-            url = f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/holders/historical"
-            params = {}
-        else:
-            hex_chain = CHAIN_HEX.get(chain, "0x1")
-            url = f"{BASE_URL}/erc20/{token_address}/holders/historical"
-            params = {"chain": hex_chain}
-
-        resp = get_session().get(url, params=params, headers=_headers(), timeout=10)
-        if resp.status_code in (400, 404, 429):
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        entries = data.get("result", data) if isinstance(data, dict) else data
-        if not isinstance(entries, list) or len(entries) < 2:
-            return None
-
-        # Sort by timestamp ascending
-        entries.sort(key=lambda x: x.get("timestamp", x.get("date", "")))
-        current = _safe_int(entries[-1].get("total_holders", entries[-1].get("count", 0)))
-        oldest = _safe_int(entries[0].get("total_holders", entries[0].get("count", 0)))
-
-        # 7-day lookback
-        seven_day_ago = None
-        if len(entries) >= 7:
-            seven_day_ago = _safe_int(entries[-7].get("total_holders", entries[-7].get("count", 0)))
-        growth_7d = ((current - seven_day_ago) / seven_day_ago * 100) if seven_day_ago and seven_day_ago > 0 else 0.0
-        growth_30d = ((current - oldest) / oldest * 100) if oldest > 0 else 0.0
-
-        # Trend classification
-        if growth_7d >= 10:
-            trend = "accumulating"
-        elif growth_7d <= -10:
-            trend = "distributing"
-        elif growth_7d >= 3:
-            trend = "growing"
-        elif growth_7d <= -3:
-            trend = "shrinking"
-        else:
-            trend = "stable"
-
-        result = {
-            "holder_trend": trend,
-            "holder_growth_7d_pct": round(growth_7d, 1),
-            "holder_growth_30d_pct": round(growth_30d, 1),
-            "current_holders": current,
-            "data_points": len(entries),
-        }
-        _set_cache(cache_key, result)
-        return result
-    except Exception as e:
-        logger.debug(f"Historical holders v2 error {token_address[:8]}/{chain}: {e}")
-        return None
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2533,51 +2419,36 @@ def get_solana_top_holders_detailed(
     limit: int = 20,
 ) -> Optional[dict]:
     """
-    Get detailed top holders for a Solana token (Pro endpoint).
-    Returns whale addresses with percentage of supply held.
+    Get detailed top holders for a Solana token.
 
-    Returns:
-      - top_10_pct: float (% of supply held by top 10)
-      - whale_count: int (holders with > 1% supply)
-      - top_holders: list of {address, percentage, usd_value}
-      - concentration_risk: str ("low", "medium", "high", "critical")
+    REST sunsets July 31 2026 — uses moralis_solana cascade
+    (Data Feeds → Helius → free RPC).
     """
-    if not MORALIS_API_KEY:
+    if not token_address:
         return None
-    cache_key = f"sol_top_holders_{token_address.lower()}"
+    cache_key = f"sol_top_holders_{token_address}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
-    _rate_check()
     try:
-        resp = get_session().get(
-            f"{SOL_BASE_URL}/token/{SOL_NETWORK}/{token_address}/top-holders",
-            params={"limit": limit},
-            headers=_headers(),
-            timeout=10,
-        )
-        if resp.status_code in (400, 404, 429):
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        holders = data.get("result", data) if isinstance(data, dict) else data
-        if not isinstance(holders, list):
+        from data.providers.moralis_solana import get_token_top_holders
+        data = get_token_top_holders(token_address, limit=limit)
+        holders = data.get("holders") or []
+        if not holders:
             return None
 
         top_holders = []
         total_top10_pct = 0.0
         whale_count = 0
         for i, h in enumerate(holders[:limit]):
-            pct = _safe_float(h.get("percentage_relative_to_total_supply",
-                                     h.get("percentage", h.get("share", 0))))
-            usd = _safe_float(h.get("usd_value", h.get("balance_usd", 0)))
-            addr = h.get("owner_address", h.get("address", ""))
+            pct = _safe_float(h.get("percentage", 0))
+            usd = _safe_float(h.get("usd_value", 0))
+            addr = h.get("address", "")
             top_holders.append({"address": addr, "percentage": round(pct, 2), "usd_value": round(usd, 2)})
             if i < 10:
                 total_top10_pct += pct
             if pct >= 1.0:
                 whale_count += 1
 
-        # Concentration risk
         if total_top10_pct >= 80:
             risk = "critical"
         elif total_top10_pct >= 50:
@@ -2592,6 +2463,7 @@ def get_solana_top_holders_detailed(
             "whale_count": whale_count,
             "top_holders": top_holders[:10],
             "concentration_risk": risk,
+            "source": data.get("source", "cascade"),
         }
         _set_cache(cache_key, result)
         return result
@@ -2697,8 +2569,12 @@ def get_token_score_instant(token_address: str, chain: str) -> Optional[dict]:
     """
     Get instant 0-100 safety score for a token.
     Returns: {score: int, price_usd, volume_24h, liquidity_usd, txn_count, ...}
+
+    Solana Token Score sunsets July 31 2026 — returns None (0 CU).
     """
     if not MORALIS_API_KEY:
+        return None
+    if str(chain).lower() == "solana":
         return None
     hex_chain = CHAIN_HEX.get(chain)
     if not hex_chain:
@@ -2706,6 +2582,12 @@ def get_token_score_instant(token_address: str, chain: str) -> Optional[dict]:
     cache_key = f"score_inst_{chain}_{token_address.lower()}"
     if _is_cached(cache_key, FAST_CACHE_TTL):
         return _get_cache(cache_key)
+    try:
+        from core.moralis_cu_budget import cu_budget
+        if not cu_budget.can_afford("token_score"):
+            return None
+    except Exception:
+        pass
     _rate_check()
     try:
         resp = get_session().get(
@@ -2714,6 +2596,11 @@ def get_token_score_instant(token_address: str, chain: str) -> Optional[dict]:
             headers=_headers(),
             timeout=6,
         )
+        try:
+            from data.providers.moralis_http import _parse_request_weight, _record_usage
+            _record_usage("token_score", _parse_request_weight(resp) or 100)
+        except Exception:
+            pass
         if resp.status_code in (400, 404, 429):
             return None
         resp.raise_for_status()

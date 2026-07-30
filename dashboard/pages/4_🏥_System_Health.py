@@ -19,6 +19,7 @@ from pathlib import Path
 from styles import PREMIUM_CSS, PLOTLY_LAYOUT, ACCENT, DANGER, WARNING, INFO
 from nav import render_nav
 from state import get_bot_status, get_scan_history, get_errors, get_pending_manual_commands, STATE_DIR
+from components import render_moralis_cu_budget_widget
 
 st.set_page_config(page_title="System Health | Shamrock", page_icon="🏥", layout="wide")
 st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
@@ -112,6 +113,10 @@ st.markdown(
     f'</div></div>',
     unsafe_allow_html=True,
 )
+
+# ── Moralis CU Budget ────────────────────────────────────────────────────────
+st.markdown("#### ⚡ Moralis CU Budget")
+render_moralis_cu_budget_widget(compact=False)
 
 # ── API Service Matrix ───────────────────────────────────────────────────────
 st.markdown("#### 📡 Service Matrix")

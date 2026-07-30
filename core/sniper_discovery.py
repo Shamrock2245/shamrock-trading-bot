@@ -333,14 +333,26 @@ def harvest_evm_candidates_from_gem(token_address: str, chain: str, limit: int =
 def harvest_solana_candidates_from_gem(token_address: str, limit: int = 20) -> list[str]:
     """
     Extract top holder wallet addresses from a Solana gem token.
-    Uses Moralis Solana token top-holders endpoint.
+
+    Uses moralis_solana.get_token_top_holders cascade:
+      Data Feeds (0 CU) → Helius/public RPC → legacy REST (pre-sunset only).
+    Avoids direct sunset REST calls that die July 31 2026.
     """
-    url = f"{SOL_BASE_URL}/token/mainnet/{token_address}/top-holders"
-    data = _get(url, params={"limit": limit})
-    if not data:
+    try:
+        from data.providers.moralis_solana import get_token_top_holders
+        data = get_token_top_holders(token_address, limit=limit)
+        holders = data.get("holders") or []
+        out = []
+        for h in holders:
+            addr = h.get("address") or h.get("owner_address") or ""
+            if addr:
+                out.append(addr)
+            if len(out) >= limit:
+                break
+        return out
+    except Exception as e:
+        logger.debug(f"SniperDiscovery Solana holders fallback: {e}")
         return []
-    result = data.get("result", []) if isinstance(data, dict) else []
-    return [h.get("owner_address", "") for h in result if h.get("owner_address")]
 
 
 def harvest_candidates_from_recent_gems(max_gems: int = 20) -> dict[str, list[str]]:

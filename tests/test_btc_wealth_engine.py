@@ -233,9 +233,13 @@ class TestMoralisCUBudget(unittest.TestCase):
         manager = self._make_manager()
         manager._state.throttle_mode = "EMERGENCY"
         manager._state.total_consumed = 90_000
+        manager._state.day_key = "2099-01-01"  # avoid daily-reset side effects in assertions
         
-        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000):
-            # Cheap call (5 CU) should be allowed
+        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
+             patch("core.moralis_cu_budget.SAFETY_BUFFER_PCT", 0.15), \
+             patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
+            # Cheap band (≤50 CU): EVM price / metadata allowed
+            self.assertTrue(manager.can_afford("token_metadata"))
             self.assertTrue(manager.can_afford("token_price"))
 
     def test_cannot_afford_expensive_in_emergency(self):
@@ -243,18 +247,53 @@ class TestMoralisCUBudget(unittest.TestCase):
         manager = self._make_manager()
         manager._state.throttle_mode = "EMERGENCY"
         manager._state.total_consumed = 90_000
+        manager._state.day_key = "2099-01-01"
         
-        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000):
-            # Expensive call (1000 CU) should be blocked
-            self.assertFalse(manager.can_afford("token_top_traders"))
+        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
+             patch("core.moralis_cu_budget.SAFETY_BUFFER_PCT", 0.15), \
+             patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
+            # Score (100 CU) and DeFi (5000 CU) blocked in EMERGENCY
+            self.assertFalse(manager.can_afford("token_score"))
+            self.assertFalse(manager.can_afford("wallet_defi_positions"))
+
+    def test_hard_stop_never_exceeds_monthly_budget(self):
+        """Even NORMAL mode cannot spend past remaining monthly CU."""
+        manager = self._make_manager()
+        manager._state.throttle_mode = "NORMAL"
+        manager._state.total_consumed = 99_980  # 20 CU left
+        manager._state.day_key = "2099-01-01"
+
+        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
+             patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
+            # token_price costs 50 > 20 remaining → blocked
+            self.assertFalse(manager.can_afford("token_price"))
+            # entity_categories costs 10 ≤ 20 → allowed
+            self.assertTrue(manager.can_afford("entity_categories"))
+
+    def test_exhausted_blocks_everything(self):
+        """EXHAUSTED / zero remaining blocks all paid REST."""
+        manager = self._make_manager()
+        manager._state.total_consumed = 100_000
+        manager._state.throttle_mode = "EXHAUSTED"
+        manager._state.day_key = "2099-01-01"
+
+        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
+             patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
+            self.assertFalse(manager.can_afford("token_metadata"))
+            self.assertFalse(manager.can_afford("token_price"))
+            self.assertFalse(manager.can_afford("wallet_defi_positions"))
 
     def test_cannot_afford_defi_in_conservative(self):
         """Test that DeFi calls (5000 CU) are blocked in CONSERVATIVE mode."""
         manager = self._make_manager()
         manager._state.throttle_mode = "CONSERVATIVE"
-        
-        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000):
-            # DeFi call (5000 CU) should be blocked
+        # ~76% used → remaining < 25% keeps CONSERVATIVE via _effective_mode
+        manager._state.total_consumed = 76_000
+        manager._state.day_key = "2099-01-01"
+
+        with patch("core.moralis_cu_budget.MONTHLY_CU_BUDGET", 100_000), \
+             patch("core.moralis_cu_budget.CONSERVATIVE_PCT", 0.25), \
+             patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
             self.assertFalse(manager.can_afford("wallet_defi_positions"))
 
     def test_get_remaining_budget(self):
@@ -303,28 +342,34 @@ class TestMoralisCUBudget(unittest.TestCase):
 
     def test_track_cu_decorator_skips_on_emergency(self):
         """Test that @track_cu decorator skips function call in EMERGENCY mode."""
-        from core.moralis_cu_budget import track_cu, cu_budget
+        from core.moralis_cu_budget import track_cu, cu_budget, MONTHLY_CU_BUDGET
         
         original_mode = cu_budget._state.throttle_mode
         original_consumed = cu_budget._state.total_consumed
+        original_day = cu_budget._state.day_key
         
         try:
+            # Force emergency band via remaining budget, not only stored mode
+            budget = MONTHLY_CU_BUDGET or 394_000_000
+            cu_budget._state.total_consumed = int(budget * 0.95)  # 5% left → EMERGENCY
             cu_budget._state.throttle_mode = "EMERGENCY"
-            cu_budget._state.total_consumed = 90_000
+            cu_budget._state.day_key = "2099-01-01"
             
             call_count = [0]
             
-            @track_cu("token_top_traders")  # 1000 CU — blocked in EMERGENCY
+            @track_cu("wallet_defi_positions")  # 5000 CU — blocked in EMERGENCY
             def expensive_call():
                 call_count[0] += 1
                 return "result"
             
-            result = expensive_call()
+            with patch("core.moralis_cu_budget._utc_day_key", return_value="2099-01-01"):
+                result = expensive_call()
             self.assertIsNone(result)
             self.assertEqual(call_count[0], 0)
         finally:
             cu_budget._state.throttle_mode = original_mode
             cu_budget._state.total_consumed = original_consumed
+            cu_budget._state.day_key = original_day
 
 
 # ─────────────────────────────────────────────────────────────────────────────

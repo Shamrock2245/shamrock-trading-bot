@@ -121,14 +121,29 @@ def get_token_score(token_address: str, chain: str) -> dict:
 
     try:
         chain_lower = chain.lower()
+        # Solana Token Score sunsets July 31 2026 (EVM-only thereafter)
         if chain_lower == "solana":
-            url = f"{SOLANA_API_BASE}/token/mainnet/{token_address}/score"
-        else:
-            hex_chain = _chain_to_hex(chain_lower)
-            url = f"{MORALIS_API_BASE}/erc20/{token_address}/score?chain={hex_chain}"
+            _set_cached_score(token_address, chain, {})
+            return {}
+
+        hex_chain = _chain_to_hex(chain_lower)
+        url = f"{MORALIS_API_BASE}/erc20/{token_address}/score?chain={hex_chain}"
+
+        try:
+            from core.moralis_cu_budget import cu_budget
+            if not cu_budget.can_afford("token_score"):
+                return {}
+        except Exception:
+            pass
 
         _rate_check()
         res = get_session().get(url, headers=_get_headers(), timeout=4)
+        try:
+            from data.providers.moralis_http import _parse_request_weight, _record_usage
+            w = _parse_request_weight(res) or 100
+            _record_usage("token_score", w)
+        except Exception:
+            pass
         if res.status_code == 200:
             result = res.json()
             _set_cached_score(token_address, chain, result)

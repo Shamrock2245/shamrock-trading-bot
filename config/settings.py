@@ -325,12 +325,26 @@ MORALIS_MARKET_METRICS_ENABLED = os.getenv("MORALIS_MARKET_METRICS_ENABLED", "tr
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis CU Budget Enforcer
 # ─────────────────────────────────────────────────────────────────────────────
-# Monthly CU budget for Moralis API calls.
-# Set this to your plan's monthly CU limit:
-#   Starter:    25,000 | Growth: 100,000 | Business: 500,000
-MORALIS_MONTHLY_CU_BUDGET = int(os.getenv("MORALIS_MONTHLY_CU_BUDGET", "500000000"))
-# Safety buffer — stop expensive calls at this % of budget remaining (0.15 = 15%)
-MORALIS_SAFETY_BUFFER_PCT = float(os.getenv("MORALIS_SAFETY_BUFFER_PCT", "0.15"))
+# Business plan allotment is ~500M CU/month. Soft-cap lower to leave headroom
+# for Streams/Nodes and overage protection (env override recommended).
+MORALIS_MONTHLY_CU_BUDGET = int(os.getenv("MORALIS_MONTHLY_CU_BUDGET", "394000000"))
+# Safety buffer — EMERGENCY throttle when remaining budget drops below this fraction
+MORALIS_SAFETY_BUFFER_PCT = float(os.getenv("MORALIS_SAFETY_BUFFER_PCT", "0.10"))
+# Max RPS for shared rate limiter (Business class ~80; 60 = 75% headroom)
+MORALIS_RPS_LIMIT = int(os.getenv("MORALIS_RPS_LIMIT", "60"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moralis Data Feeds (self-hosted sink → your Postgres/ClickHouse)
+# Replaces sunsetting Solana holders / pump.fun discovery REST (July 31 2026).
+# 0 CU when querying local DB. Requires Continuum sink + early access key.
+# ─────────────────────────────────────────────────────────────────────────────
+MORALIS_DATAFEEDS_ENABLED = os.getenv("MORALIS_DATAFEEDS_ENABLED", "false").lower() == "true"
+MORALIS_DATAFEEDS_DSN = os.getenv("MORALIS_DATAFEEDS_DSN", "")  # e.g. postgresql://sdf:pass@localhost:5544/sdf
+MORALIS_DF_TABLE_HOLDERS = os.getenv("MORALIS_DF_TABLE_HOLDERS", "token_holders")
+MORALIS_DF_TABLE_LAUNCHPAD = os.getenv("MORALIS_DF_TABLE_LAUNCHPAD", "launchpad_events")
+MORALIS_DF_TABLE_BONDING = os.getenv("MORALIS_DF_TABLE_BONDING", "token_bonding_status")
+# Prefer free fallbacks (Helius / DexScreener) over sunsetting REST even before cutover
+MORALIS_PREFER_FREE_FALLBACKS = os.getenv("MORALIS_PREFER_FREE_FALLBACKS", "true").lower() == "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BTC Wealth Retention Engine
