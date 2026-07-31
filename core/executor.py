@@ -540,9 +540,16 @@ class TradeExecutor:
     def _get_oneinch_quote(
         self, chain_id: int, token_in: str, token_out: str, amount_wei: int
     ) -> Optional[dict]:
-        """Get a swap quote from 1inch."""
+        """Get a swap quote from 1inch.
+
+        Returns the quote dict on success, or None on failure.
+        On HTTP 4xx (no route, bad token, insufficient liquidity) the detailed
+        reason is stored on ``self._last_oneinch_error`` for callers.
+        """
+        self._last_oneinch_error = ""
         if not settings.ONEINCH_API_KEY:
-            logger.warning("1inch API key not configured")
+            self._last_oneinch_error = "1inch API key not configured"
+            logger.warning(self._last_oneinch_error)
             return None
 
         url = f"{settings.ONEINCH_API_URL}/{chain_id}/quote"
@@ -555,10 +562,26 @@ class TradeExecutor:
         }
         try:
             resp = get_session().get(url, headers=headers, params=params, timeout=15)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                body = (resp.text or "")[:300]
+                self._last_oneinch_error = f"HTTP {resp.status_code}: {body}"
+                # 4xx = expected market/API outcomes (illiquid token, bad addr).
+                # Do NOT logger.error — that floods Sentry as high-priority issues
+                # (PYTHON-5, PYTHON-6B). Keep 5xx as error.
+                if 400 <= resp.status_code < 500:
+                    logger.warning(
+                        f"1inch quote rejected ({resp.status_code}) "
+                        f"chain={chain_id} dst={token_out[:12]}…: {body}"
+                    )
+                else:
+                    logger.error(
+                        f"1inch quote server error ({resp.status_code}): {body}"
+                    )
+                return None
             return resp.json()
         except Exception as e:
-            logger.error(f"1inch quote error: {e}")
+            self._last_oneinch_error = str(e)
+            logger.warning(f"1inch quote error: {e}")
             return None
 
     def _execute_via_oneinch(self, params: TradeParams) -> TradeResult:
@@ -583,6 +606,35 @@ class TradeExecutor:
                     gas_price_gwei=gas_gwei,
                 )
 
+            # Pre-check native balance when spending native ETH/BNB/etc.
+            # Prevents 1inch NOT_ENOUGH_BALANCE 400s (PYTHON-67/68) that were
+            # previously logged as high-priority Sentry errors.
+            _native_sentinels = {
+                "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "0x0000000000000000000000000000000000000000",
+            }
+            if params.token_in.lower() in _native_sentinels:
+                try:
+                    bal_wei = int(w3.eth.get_balance(params.wallet.address))
+                    # Leave headroom for gas (~0.003 ETH equivalent)
+                    gas_headroom_wei = int(0.003 * 1e18)
+                    spendable = max(0, bal_wei - gas_headroom_wei)
+                    if params.amount_in_wei > spendable:
+                        have = bal_wei / 1e18
+                        need = params.amount_in_wei / 1e18
+                        msg = (
+                            f"Insufficient native balance: need {need:.6f}, "
+                            f"have {have:.6f} (after gas reserve)"
+                        )
+                        logger.warning(f"1inch precheck: {msg} on {params.chain}")
+                        return TradeResult(
+                            success=False,
+                            error=msg,
+                            execution_path="1inch",
+                        )
+                except Exception as bal_err:
+                    logger.debug(f"1inch balance precheck skipped: {bal_err}")
+
             # Get quote
             quote = self._get_oneinch_quote(
                 chain_config.chain_id,
@@ -591,9 +643,10 @@ class TradeExecutor:
                 params.amount_in_wei,
             )
             if not quote:
+                detail = getattr(self, "_last_oneinch_error", "") or "unknown reason"
                 return TradeResult(
                     success=False,
-                    error="1inch quote failed",
+                    error=f"1inch quote failed: {detail}",
                     execution_path="1inch",
                 )
 
@@ -645,9 +698,18 @@ class TradeExecutor:
 
             resp = get_session().get(url, headers=headers, params=swap_params, timeout=20)
             if resp.status_code != 200:
+                body = (resp.text or "")[:200]
+                # 4xx = expected rejections (balance, liquidity). 5xx = server issue.
+                if 400 <= resp.status_code < 500:
+                    logger.warning(
+                        f"1inch swap rejected ({resp.status_code}) for "
+                        f"{params.token_out[:12]}…: {body}"
+                    )
+                else:
+                    logger.error(f"1inch swap server error ({resp.status_code}): {body}")
                 return TradeResult(
                     success=False,
-                    error=f"1inch swap error: {resp.text[:200]}",
+                    error=f"1inch swap error: {body}",
                     execution_path="1inch",
                 )
 

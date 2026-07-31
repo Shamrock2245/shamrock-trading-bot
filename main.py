@@ -3894,15 +3894,18 @@ async def run_bot_loop():
                                 trades_this_cycle += 1
                                 trades_this_session += 1
                                 notify_trade(
-                                    action="SWING_BUY",
-                                    symbol=sc.symbol,
+                                    action="BUY",
+                                    token_symbol=sc.symbol,
                                     chain=sc.chain,
-                                    amount=pos_size_usd,
-                                    price=decision.entry_price,
-                                    tx_hash=result.tx_hash,
+                                    amount_eth=pos_size_native,
+                                    score=float(decision.ta_composite or 0),
                                     mode=settings.MODE,
-                                    extra=f"🔄 SWING: {decision.reason} | "
-                                          f"TP1=+3% SL=-2.5%",
+                                    extra=(
+                                        f"🔄 SWING: {decision.reason} | "
+                                        f"TP1=+3% SL=-2.5% | "
+                                        f"${pos_size_usd:.2f} @ ${decision.entry_price:.6f} | "
+                                        f"tx: {result.tx_hash or 'N/A'}"
+                                    ),
                                 )
                                 logger.info(f"✅ Swing entry: {sc.symbol}/{sc.chain} | tx: {result.tx_hash}")
                                 # Adaptive mode: record swing trade open

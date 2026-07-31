@@ -70,13 +70,27 @@ def get_quote(
     }
     try:
         resp = get_session().get(url, headers=_headers(), params=params, timeout=15)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            body = (resp.text or "")[:200]
+            # 4xx = no route / illiquid / bad token — expected operational noise
+            if 400 <= resp.status_code < 500:
+                logger.warning(
+                    f"1inch quote rejected ({resp.status_code}): {body}"
+                )
+            else:
+                logger.error(
+                    f"1inch quote HTTP error {resp.status_code}: {body}"
+                )
+            return None
         return resp.json()
     except requests.HTTPError as e:
-        logger.error(f"1inch quote HTTP error {e.response.status_code}: {e.response.text[:200]}")
+        status = getattr(e.response, "status_code", 0) or 0
+        body = (getattr(e.response, "text", None) or "")[:200]
+        log_fn = logger.warning if 400 <= status < 500 else logger.error
+        log_fn(f"1inch quote HTTP error {status}: {body}")
         return None
     except Exception as e:
-        logger.error(f"1inch quote error: {e}")
+        logger.warning(f"1inch quote error: {e}")
         return None
 
 
@@ -119,13 +133,22 @@ def get_swap_data(
     }
     try:
         resp = get_session().get(url, headers=_headers(), params=params, timeout=20)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            body = (resp.text or "")[:300]
+            if 400 <= resp.status_code < 500:
+                logger.warning(f"1inch swap rejected ({resp.status_code}): {body}")
+            else:
+                logger.error(f"1inch swap HTTP error {resp.status_code}: {body}")
+            return None
         return resp.json()
     except requests.HTTPError as e:
-        logger.error(f"1inch swap HTTP error {e.response.status_code}: {e.response.text[:300]}")
+        status = getattr(e.response, "status_code", 0) or 0
+        body = (getattr(e.response, "text", None) or "")[:300]
+        log_fn = logger.warning if 400 <= status < 500 else logger.error
+        log_fn(f"1inch swap HTTP error {status}: {body}")
         return None
     except Exception as e:
-        logger.error(f"1inch swap data error: {e}")
+        logger.warning(f"1inch swap data error: {e}")
         return None
 
 

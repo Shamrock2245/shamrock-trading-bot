@@ -150,37 +150,44 @@ def get_bitcoin_price() -> Optional[dict]:
 
 def get_native_bitcoin_balance(address: str) -> Optional[float]:
     """
-    Fetch native Bitcoin balance using Moralis Universal API.
-    Supports raw BTC addresses and xpubs.
-    
+    Fetch native Bitcoin balance using Moralis Bitcoin address API.
+
+    NOTE: The EVM-style ``/{address}/balance?chain=bitcoin`` endpoint returns
+    HTTP 400 for bc1/xpub addresses (PYTHON-6A). Use the Bitcoin-specific path.
+
     CU Cost: 10
     """
-    if not _available():
+    if not _available() or not address:
         return None
-        
+
     cache_key = f"btc_balance_{address}"
     if _is_cached(cache_key, SLOW_CACHE_TTL):
         return _get_cache(cache_key)
-        
+
     _rate_check(10)
     try:
+        # Correct Bitcoin API path (also used by get_bitcoin_wallet_balance)
         resp = get_session().get(
-            f"{BASE_URL}/{address}/balance",
-            params={"chain": "bitcoin"},
+            f"{BASE_URL}/bitcoin/mainnet/address/{address}/balance",
             headers=_headers(),
             timeout=10,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            body = (resp.text or "")[:200]
+            # 4xx = unsupported address / API shape — not a code crash
+            log_fn = logger.warning if 400 <= resp.status_code < 500 else logger.error
+            log_fn(
+                f"Bitcoin balance fetch failed for {address[:16]}… "
+                f"({resp.status_code}): {body}"
+            )
+            return None
         data = resp.json()
-        
-        # Balance is returned as string in Satoshis or raw
-        balance_str = data.get("balance", "0")
-        balance_btc = float(balance_str) / 1e8  # Convert Satoshis to BTC
-        
+        # Same field parse as get_bitcoin_wallet_balance (BTC units)
+        balance_btc = _safe_float(data.get("balance"))
         _set_cache(cache_key, balance_btc)
         return balance_btc
     except Exception as e:
-        logger.error(f"Error fetching native Bitcoin balance for {address}: {e}")
+        logger.warning(f"Error fetching native Bitcoin balance for {address[:16]}…: {e}")
         return None
 
 

@@ -1508,7 +1508,9 @@ class HyperliquidExecutor:
                     return None
                 
                 # Retrieve exact position size from live user state or sum matching fills
-                live_szi = self._get_live_position_size(sym)
+                # Use _exchange_position_size (canonical live szi helper) — _get_live_position_size
+                # never existed and caused AttributeError (PYTHON-63) on every successful fill.
+                live_szi = self._exchange_position_size(sym)
                 if live_szi is not None and abs(live_szi) > 0:
                     fill_size = round(abs(live_szi), self._get_sz_decimals(sym))
                     fill_price = float(fills[0].get("px", price)) if fills else price
@@ -1961,9 +1963,11 @@ class HyperliquidExecutor:
                     pos.stop_loss_price = new_sl_price
                     pos.sl_order_id = new_oid
                     self._save_trailing_state()
+                    # old_sl can be None before first SL is set (PYTHON-64)
+                    old_sl_str = f"${old_sl:.4f}" if old_sl is not None else "None"
                     logger.info(
                         f"🔒 TRAILING STOP RATCHETED | {coin} | "
-                        f"old_sl=${old_sl:.4f} (oid={old_oid}) → "
+                        f"old_sl={old_sl_str} (oid={old_oid}) → "
                         f"new_sl=${new_sl_price:.4f} (oid={new_oid})"
                     )
                     return True

@@ -411,20 +411,80 @@ class MempoolAlphaSniper:
         else:
             try:
                 from core.executor import TradeExecutor, build_gem_snipe_params
+                from core.wallet_router import get_usdc_balance, get_native_balance
+
+                # Prefer USDC capital (same as gem path). Prior bug: always spent
+                # native ETH sized from USD, which caused 1inch NOT_ENOUGH_BALANCE
+                # when the wallet held USDC and only dust ETH for gas (PYTHON-67/68).
+                usdc_bal = 0.0
+                try:
+                    usdc_bal = float(get_usdc_balance(wallet.address, chain) or 0.0)
+                except Exception:
+                    usdc_bal = 0.0
+
+                use_usdc = usdc_bal >= MIN_COPY_USD
+                usdc_amount = 0.0
+                eth_amount = 0.0
+                if use_usdc:
+                    usdc_amount = min(scaled_usd, usdc_bal * 0.98)
+                    if usdc_amount < MIN_COPY_USD:
+                        logger.info(
+                            f"MempoolSniper: USDC too low after clamp "
+                            f"(${usdc_amount:.2f}) for {token_symbol} — skipping"
+                        )
+                        return
+                else:
+                    # Native path: hard-cap to live balance minus gas reserve
+                    gas_reserve = 0.015 if chain == "ethereum" else 0.005
+                    native_bal = 0.0
+                    try:
+                        native_bal = float(
+                            get_native_balance(wallet.address, chain) or 0.0
+                        )
+                    except Exception:
+                        native_bal = float(getattr(allocation, "native_balance", 0.0) or 0.0)
+                    available_native = max(0.0, native_bal - gas_reserve)
+                    eth_amount = min(scaled_native, available_native)
+                    if eth_amount * native_price < MIN_COPY_USD:
+                        logger.info(
+                            f"MempoolSniper: native balance too low for {token_symbol} "
+                            f"(have {native_bal:.6f}, need ~{scaled_native:.6f} after "
+                            f"{gas_reserve} gas reserve) — skipping"
+                        )
+                        return
+
                 executor = TradeExecutor()
                 params = build_gem_snipe_params(
                     wallet=wallet,
                     chain=chain,
                     token_address=token_address,
-                    eth_amount=scaled_native,
+                    eth_amount=eth_amount,
                     gem_score=wallet_score,
+                    use_usdc=use_usdc,
+                    usdc_amount=usdc_amount,
                 )
                 res = executor.execute_trade(params)
                 success = res.success
                 tx_hash = res.tx_hash or ""
                 if not success:
-                    logger.error(
-                        f"❌ MempoolSniper EVM execution failed for {token_symbol}: "
+                    # Expected operational outcomes (no liquidity, insufficient
+                    # balance, blacklisted) — warning only so Sentry high-priority
+                    # alerts stay reserved for real code bugs (PYTHON-6B/66/67/68).
+                    err = (res.error or "unknown").lower()
+                    _expected = (
+                        "quote failed" in err
+                        or "not enough" in err
+                        or "insufficient" in err
+                        or "no route" in err
+                        or "blacklisted" in err
+                        or "liquidity" in err
+                        or "cannot connect" in err
+                        or "gas too high" in err
+                    )
+                    log_fn = logger.warning if _expected else logger.error
+                    log_fn(
+                        f"{'⚠️' if _expected else '❌'} MempoolSniper EVM execution "
+                        f"{'skipped' if _expected else 'failed'} for {token_symbol}: "
                         f"{res.error}"
                     )
                     return
@@ -557,7 +617,10 @@ class MempoolAlphaSniper:
                     gem_score=wallet_score,
                 )
                 if not tx_hash:
-                    logger.error(f"❌ MempoolSniper Solana execution failed for {token_symbol}")
+                    # Operational miss (quote/RPC/liquidity) — not a code bug
+                    logger.warning(
+                        f"⚠️ MempoolSniper Solana execution skipped for {token_symbol}"
+                    )
                     return
                 logger.info(
                     f"✅ JITO BUNDLE LANDED! MempoolSniper: {token_symbol} "
