@@ -158,19 +158,50 @@ def _campaign_allows_promotion() -> bool:
     return True
 
 
+def _valid_campaign_start(value) -> bool:
+    """Reject mocks / garbage written by tests; require parseable ISO datetime."""
+    if value is None:
+        return False
+    if not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s or "MagicMock" in s or len(s) < 8:
+        return False
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.year >= 2020
+    except Exception:
+        return False
+
+
 def _load_or_init_campaign_state(*, start_iso: str, days: int) -> dict:
     """Create or load output/paper_tuning_campaign.json."""
     now = datetime.now(timezone.utc)
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 21
+    if days < 1 or days > 90:
+        days = 21
+
     if CAMPAIGN_STATE_FILE.exists():
         try:
             data = json.loads(CAMPAIGN_STATE_FILE.read_text(encoding="utf-8"))
-            if data.get("start_date"):
+            if _valid_campaign_start(data.get("start_date")):
+                # Keep start_date sticky; allow days update from env
+                try:
+                    data["days"] = int(data.get("days") or days) or days
+                except (TypeError, ValueError):
+                    data["days"] = days
+                if data.get("days", 0) < 1:
+                    data["days"] = days
                 return data
         except Exception:
             pass
 
-    if start_iso:
-        start_date = start_iso
+    start_date: str
+    if _valid_campaign_start(start_iso):
+        start_date = str(start_iso).strip()
         if "T" not in start_date:
             start_date = f"{start_date}T00:00:00+00:00"
     else:
