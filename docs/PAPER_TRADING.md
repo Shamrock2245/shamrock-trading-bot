@@ -13,7 +13,13 @@ Paper trading simulates all trade execution without touching real funds. The bot
 ## Configuration
 ```env
 MODE=paper
+PAPER_MODE_LOCKED=true
+PAPER_TUNING_CAMPAIGN_ENABLED=true
+PAPER_TUNING_CAMPAIGN_DAYS=21
 ```
+
+For the multi-week tuning campaign (auto-tuner + Optuna, no live unlock), see
+`docs/PAPER_TUNING_CAMPAIGN.md`. Hyperliquid no longer forces live when MODE=paper.
 
 ## What Paper Mode Does
 | Step | Paper Behavior | Live Behavior |

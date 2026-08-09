@@ -116,6 +116,15 @@ class HyperliquidExecutor:
     _GLOBAL_BALANCE_CACHE_TTL: float = 30.0  # seconds
     _global_balance_lock = threading.Lock()
 
+    # Signed / mutating SDK methods that MUST never run in paper mode
+    _PAPER_BLOCKED_FUNCS = frozenset({
+        "market_open", "market_close", "order", "bulk_orders", "cancel",
+        "cancel_by_cloid", "modify_order", "update_leverage", "update_isolated_margin",
+        "withdraw_from_bridge", "usd_transfer", "spot_transfer", "vault_usd_transfer",
+        "approve_agent", "approve_builder_fee", "set_referrer",
+        "_post_twap", "schedule_cancel",
+    })
+
     def __init__(self, sub_account_address: Optional[str] = None):
         self.enabled = settings.HYPERLIQUID_ENABLED
         self.wallet_address = settings.HYPERLIQUID_WALLET_ADDRESS
@@ -160,8 +169,17 @@ class HyperliquidExecutor:
         self._lock = threading.Lock()
         self._rate_limit_until: float = 0.0  # Timestamp until which we refuse signed requests (cumulative rate limit cooldown)
 
-        if self.enabled and self.wallet_address and self.private_key:
+        # Paper mode can run without keys (synthetic capital + mid prices when available)
+        if self.enabled and (self.is_paper or (self.wallet_address and self.private_key)):
             self._initialized = True
+
+    @property
+    def is_paper(self) -> bool:
+        """True when global MODE is paper — no real HL orders may be signed."""
+        try:
+            return settings.get_current_mode() != "live"
+        except Exception:
+            return os.getenv("MODE", "paper").lower() != "live"
 
     # ── Trade journal (output/trades.json) ─────────────────────────────────
     def _log_hl_trade(
@@ -217,8 +235,8 @@ class HyperliquidExecutor:
                 "entry_price": entry_price if entry_price is not None else price,
                 "pnl_usd": pnl_usd,
                 "pnl_pct": pnl_pct,
-                "is_paper": False,
-                "tx_hash": None,
+                "is_paper": self.is_paper,
+                "tx_hash": "PAPER_TX" if self.is_paper else None,
                 "signal_scores": {},
                 "gem_score": gem_score,
                 "entry_time": entry_time,
@@ -398,6 +416,21 @@ class HyperliquidExecutor:
     def _execute_api(self, func, *args, **kwargs):
         """Execute SDK call with exponential backoff for rate limits."""
         import time
+
+        # ── PAPER MODE HARD GUARD ──────────────────────────────────────────
+        # Block any mutating / signed exchange call. Read-only info.* is OK.
+        if self.is_paper:
+            fname = getattr(func, "__name__", "") or ""
+            # Bound methods: Exchange.market_open → __name__ "market_open"
+            if fname in self._PAPER_BLOCKED_FUNCS:
+                logger.warning(
+                    f"📄 PAPER MODE: blocked Hyperliquid signed call '{fname}' — no real order"
+                )
+                return {
+                    "status": "err",
+                    "response": f"PAPER_MODE_BLOCKED:{fname}",
+                    "paper": True,
+                }
 
         # Proactive cooldown: refuse signed requests while cumulative rate limit is active
         if time.time() < self._rate_limit_until:
@@ -863,6 +896,11 @@ class HyperliquidExecutor:
         """Check if executor is ready for trading. Initializes SDK on first call if needed."""
         if not self.enabled:
             return False
+        # Paper mode: ready with synthetic capital even if keys/SDK are missing
+        if self.is_paper:
+            if self._exchange is None and self.wallet_address and self.private_key:
+                self._initialize_sdk()  # best-effort for real mids / ticker list
+            return True
         if not self._initialized or self._exchange is None:
             self._initialize_sdk()
         return self.enabled and self._initialized and self._exchange is not None
@@ -885,8 +923,22 @@ class HyperliquidExecutor:
         Handles both Unified and Cross margin accounts.
         Unified accounts store funds in spot clearinghouse (spot_user_state),
         while Cross accounts use the regular user_state endpoint.
+
+        In paper mode returns synthetic equity from PAPER_WALLET_BALANCE_USD
+        so sizing works without touching the real HL account.
         """
         import time as _time
+        if self.is_paper:
+            paper_bal = float(getattr(settings, "PAPER_WALLET_BALANCE_USD", 1000.0) or 1000.0)
+            open_margin = sum(float(p.size_usd or 0) for p in self.positions.values())
+            equity = paper_bal + float(self.daily_pnl or 0.0)
+            withdrawable = max(0.0, equity - open_margin)
+            return {
+                "account_value": equity,
+                "total_margin_used": open_margin,
+                "withdrawable": withdrawable,
+                "mode": "paper",
+            }
         if not self.is_available():
             return {"error": "not initialized"}
 
@@ -958,23 +1010,25 @@ class HyperliquidExecutor:
         transient rate-limit hits.  If the refresh fails, returns the stale
         cached value instead of None so trailing-stop logic doesn't break.
         """
-        if not self.is_available():
+        # Paper may not have exchange; still try info or cache
+        if not self.is_paper and not self.is_available():
             return None
         try:
             sym = _normalize_symbol(symbol)
             now = time.monotonic()
-            
+
             with HyperliquidExecutor._global_mids_lock:
                 if now - HyperliquidExecutor._global_mids_cache_ts > HyperliquidExecutor._GLOBAL_MIDS_CACHE_TTL:
                     try:
-                        mids = self._execute_api(self._info.all_mids)
-                        if mids:
-                            HyperliquidExecutor._global_mids_cache = mids
-                            HyperliquidExecutor._global_mids_cache_ts = now
+                        if self._info is not None:
+                            mids = self._execute_api(self._info.all_mids)
+                            if mids:
+                                HyperliquidExecutor._global_mids_cache = mids
+                                HyperliquidExecutor._global_mids_cache_ts = now
                     except Exception as refresh_err:
                         # Rate-limit or transient failure — use stale cache, don't crash
                         logger.warning(f"Hyperliquid mids refresh failed (using stale cache): {refresh_err}")
-            
+
             return float(HyperliquidExecutor._global_mids_cache.get(sym, 0)) or None
         except Exception as e:
             logger.warning(f"Hyperliquid price fetch for {symbol}: {e}")
@@ -1045,6 +1099,10 @@ class HyperliquidExecutor:
         # Partial close path (Winning TP1 front-load)
         if size_pct is not None and 0 < float(size_pct) < 100:
             return self._close_position_partial(sym, float(size_pct))
+
+        # ── PAPER MODE: mark-to-mid simulation, never market_close ──────
+        if self.is_paper:
+            return self._paper_close_position(sym, size_pct=None)
 
         with self._lock:
             pos = self.positions.get(sym)
@@ -1153,6 +1211,9 @@ class HyperliquidExecutor:
 
     def _close_position_partial(self, sym: str, size_pct: float) -> Optional[dict]:
         """Close a fraction of an open position (Winning TP1). Leaves remainder open."""
+        if self.is_paper:
+            return self._paper_close_position(sym, size_pct=size_pct)
+
         with self._lock:
             pos = self.positions.get(sym)
             if not pos:
@@ -1275,6 +1336,232 @@ class HyperliquidExecutor:
     # Internal
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _paper_mid_price(self, sym: str) -> Optional[float]:
+        """Best-effort mid for paper fills (public mids or last known cache)."""
+        px = self.get_price(sym)
+        if px and px > 0:
+            return float(px)
+        with HyperliquidExecutor._global_mids_lock:
+            cached = HyperliquidExecutor._global_mids_cache.get(sym)
+            if cached:
+                try:
+                    return float(cached)
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    def _paper_open_position(
+        self,
+        sym: str,
+        side: str,
+        actual_size_usd: float,
+        lev: int,
+        gem_score: float,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
+    ) -> Optional[dict]:
+        """Simulate an HL open without signing any order."""
+        fill_price = self._paper_mid_price(sym)
+        if not fill_price or fill_price <= 0:
+            # Deterministic synthetic mid so paper tuning can still accumulate
+            # samples when public mids are unavailable (offline / rate limit).
+            fill_price = 100.0
+            logger.warning(
+                f"📄 PAPER: no mid for {sym} — using synthetic ${fill_price:.2f}"
+            )
+
+        notional = actual_size_usd * lev
+        coin_size = notional / fill_price
+        try:
+            coin_size = round(coin_size, self._get_sz_decimals(sym) if self._info else 4)
+        except Exception:
+            coin_size = round(coin_size, 4)
+        if coin_size <= 0:
+            return None
+
+        sl_price, tp_price, tpsl_source = self._resolve_tpsl_prices(
+            side=side,
+            fill_price=fill_price,
+            stop_loss_pct=self.stop_loss_pct,
+            take_profit_pct=self.take_profit_pct,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+        )
+        rr = self._rr_ratio(side, fill_price, sl_price, tp_price)
+        if rr < self.min_rr_ratio:
+            logger.info(
+                f"📄 PAPER: {sym} R/R={rr:.2f}x < {self.min_rr_ratio}x — skip "
+                f"(source={tpsl_source})"
+            )
+            return None
+
+        pos_side = "long" if side == "buy" else "short"
+        with self._lock:
+            if sym in self.positions:
+                logger.info(f"📄 PAPER: already positioned in {sym} — skip")
+                return None
+            pos = HLPosition(
+                coin=sym,
+                side=pos_side,
+                entry_price=fill_price,
+                size=coin_size,
+                size_usd=actual_size_usd,
+                leverage=lev,
+                stop_loss_price=sl_price,
+                take_profit_price=tp_price,
+                highest_price=fill_price,
+                lowest_price=fill_price,
+                sl_order_id=None,
+                tp_order_id=None,
+            )
+            self.positions[sym] = pos
+            self._save_trailing_state()
+
+        self._log_hl_trade(
+            action="BUY" if side == "buy" else "SELL_SHORT",
+            coin=sym,
+            side=pos_side,
+            price=fill_price,
+            quantity=coin_size,
+            value_usd=notional,
+            entry_price=fill_price,
+            reason="paper_open",
+            gem_score=gem_score,
+            leverage=lev,
+            stop_loss=sl_price,
+            take_profit=tp_price,
+        )
+        logger.info(
+            f"📄 PAPER Hyperliquid OPEN {pos_side.upper()} {sym} | "
+            f"margin=${actual_size_usd:.2f} × {lev}x = ${notional:.2f} | "
+            f"size={coin_size} @ ${fill_price:.4f} | score={gem_score:.0f}"
+        )
+        return {
+            "coin": sym,
+            "side": pos_side,
+            "entry_price": fill_price,
+            "size": coin_size,
+            "size_usd": actual_size_usd,
+            "leverage": lev,
+            "stop_loss": sl_price,
+            "take_profit": tp_price,
+            "paper": True,
+            "tx_hash": "PAPER_TX",
+        }
+
+    def _paper_close_position(
+        self,
+        sym: str,
+        size_pct: Optional[float] = None,
+    ) -> Optional[dict]:
+        """Simulate close (full or partial) at mid — no real market_close."""
+        with self._lock:
+            pos = self.positions.get(sym)
+            if not pos:
+                logger.warning(f"📄 PAPER: no open position for {sym}")
+                return None
+
+            close_price = self._paper_mid_price(sym) or pos.entry_price
+            partial = size_pct is not None and 0 < float(size_pct) < 100
+            if partial:
+                close_sz = pos.size * (float(size_pct) / 100.0)
+                remain = pos.size - close_sz
+                if remain <= 0 or close_sz <= 0:
+                    partial = False
+            else:
+                close_sz = pos.size
+                remain = 0.0
+
+            if not partial:
+                pnl = self._calc_pnl(pos, float(close_price))
+                self.daily_pnl += pnl
+                self._feed_daily_goal(pnl, source="paper_hl_perps")
+                entry_px = pos.entry_price
+                pnl_pct = None
+                if entry_px and close_price:
+                    if pos.side == "long":
+                        pnl_pct = (float(close_price) - entry_px) / entry_px * 100
+                    else:
+                        pnl_pct = (entry_px - float(close_price)) / entry_px * 100
+                entry_time = (
+                    pos.opened_at.isoformat()
+                    if getattr(pos, "opened_at", None)
+                    else None
+                )
+                _mfe, _mae = self._calc_mfe_mae(pos)
+                del self.positions[sym]
+                self._save_trailing_state()
+                self._log_hl_trade(
+                    action="SELL",
+                    coin=sym,
+                    side=pos.side,
+                    price=float(close_price),
+                    quantity=pos.size,
+                    value_usd=float(close_price) * pos.size,
+                    entry_price=entry_px,
+                    pnl_usd=pnl,
+                    pnl_pct=pnl_pct,
+                    reason="paper_close",
+                    leverage=pos.leverage,
+                    stop_loss=pos.stop_loss_price,
+                    take_profit=pos.take_profit_price,
+                    entry_time=entry_time,
+                    mfe_pct=_mfe,
+                    mae_pct=_mae,
+                )
+                self._inject_scanner_cooldown(sym, loss=(pnl < 0))
+                logger.info(
+                    f"📄 PAPER CLOSE {sym} | entry=${pos.entry_price:.4f} → "
+                    f"exit=${close_price} | PnL=${pnl:+.2f}"
+                )
+                return {
+                    "coin": sym,
+                    "close_price": close_price,
+                    "pnl": pnl,
+                    "paper": True,
+                    "tx_hash": "PAPER_TX",
+                }
+
+            # Partial
+            frac = close_sz / pos.size if pos.size else 0.0
+            full_pnl = self._calc_pnl(pos, float(close_price))
+            pnl = full_pnl * frac
+            self.daily_pnl += pnl
+            self._feed_daily_goal(pnl, source="paper_hl_perps_tp1")
+            pos.size = remain
+            pos.size_usd = pos.size_usd * (1.0 - frac) if pos.size_usd else pos.size_usd
+            pos.tp1_hit = True
+            pos.trailing_stop_active = True
+            self._save_trailing_state()
+            self._log_hl_trade(
+                action="SELL",
+                coin=sym,
+                side=pos.side,
+                price=float(close_price),
+                quantity=close_sz,
+                value_usd=float(close_price) * close_sz,
+                entry_price=pos.entry_price,
+                pnl_usd=pnl,
+                reason="paper_tp1_partial",
+                leverage=pos.leverage,
+                stop_loss=pos.stop_loss_price,
+                take_profit=pos.take_profit_price,
+            )
+            logger.info(
+                f"📄 PAPER TP1 PARTIAL {sym} | {size_pct:.0f}% @ ${close_price} | "
+                f"PnL≈${pnl:+.2f} | remain={remain:.6f}"
+            )
+            return {
+                "coin": sym,
+                "close_price": close_price,
+                "pnl": pnl,
+                "partial": True,
+                "size_pct": size_pct,
+                "remain_size": remain,
+                "paper": True,
+                "tx_hash": "PAPER_TX",
+            }
+
     def _open_position(
         self,
         symbol: str,
@@ -1293,9 +1580,17 @@ class HyperliquidExecutor:
         sym = _normalize_symbol(symbol)
 
         # ── Pre-flight Checks ──────────────────────────────────────────────
-        if not self.has_perp(sym):
+        # In paper mode allow unknown tickers if the ticker cache is still empty
+        # (SDK not fully warm); once cache is populated, enforce the real list.
+        with _HL_TICKER_LOCK:
+            tickers_loaded = len(_HL_PERP_TICKERS) > 0
+        if tickers_loaded and not self.has_perp(sym):
             logger.debug(f"Hyperliquid: {sym} has no perp listing — skip")
             return None
+        if not tickers_loaded and not self.is_paper:
+            if not self.has_perp(sym):
+                logger.debug(f"Hyperliquid: {sym} has no perp listing — skip")
+                return None
 
         # ── CAPITAL PROTECTION: gem score gate ─────────────────────────
         if gem_score < self.min_gem_score:
@@ -1325,6 +1620,32 @@ class HyperliquidExecutor:
         # ── CAPITAL PROTECTION: cap position size ──────────────────────
         actual_size_usd = min(size_usd, self.max_position_usd)
         lev = leverage or self.default_leverage
+
+        # ── PAPER MODE: simulate fill, never call market_open ──────────
+        if self.is_paper:
+            # Apply the same size caps as live, then paper-fill
+            if lev > 0 and actual_size_usd * lev > self.max_notional_usd:
+                actual_size_usd = round(self.max_notional_usd / lev, 2)
+            bal = self.get_balance()
+            withdrawable = float(bal.get("withdrawable", 0) or 0)
+            account_value = float(bal.get("account_value", 0) or 0)
+            if withdrawable < actual_size_usd:
+                logger.warning(
+                    f"📄 PAPER: insufficient synthetic margin — need ${actual_size_usd:.2f}, "
+                    f"available ${withdrawable:.2f}"
+                )
+                return None
+            if account_value > 0:
+                max_margin = round(account_value * self.max_margin_equity_pct, 2)
+                if actual_size_usd > max_margin:
+                    actual_size_usd = max_margin
+                if actual_size_usd < 5.0:
+                    return None
+            return self._paper_open_position(
+                sym, side, actual_size_usd, lev, gem_score,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+            )
 
         # Hard notional cap: margin × leverage must stay under max_notional_usd
         if lev > 0 and actual_size_usd * lev > self.max_notional_usd:

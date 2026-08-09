@@ -33,9 +33,28 @@ XGBOOST_INTERVAL_SECONDS = 3600  # 1 hour
 OPTUNA_INTERVAL_SECONDS = 3600  # 1 hour
 
 def main():
+    mode = getattr(settings, "MODE", os.getenv("MODE", "paper"))
+    paper_locked = getattr(settings, "PAPER_MODE_LOCKED", True)
+    campaign = getattr(settings, "PAPER_TUNING_CAMPAIGN_ENABLED", True)
+    campaign_days = getattr(settings, "PAPER_TUNING_CAMPAIGN_DAYS", 21)
+
     logger.info("🤖 Auto-Tuning Service Started.")
+    logger.info(
+        f"Mode={mode} | PAPER_MODE_LOCKED={paper_locked} | "
+        f"campaign={campaign} ({campaign_days}d) — tuning never places live orders"
+    )
     logger.info(f"XGBoost Interval: {XGBOOST_INTERVAL_SECONDS}s")
     logger.info(f"Optuna Interval: {OPTUNA_INTERVAL_SECONDS}s")
+
+    # Ensure campaign state file exists (starts the 2–3 week clock)
+    try:
+        from core.paper_to_live_promoter import _load_or_init_campaign_state
+        _load_or_init_campaign_state(
+            start_iso=getattr(settings, "PAPER_TUNING_CAMPAIGN_START", "") or "",
+            days=int(campaign_days),
+        )
+    except Exception as e:
+        logger.debug(f"Campaign state init skipped: {e}")
 
     last_xgb_run = 0
     last_optuna_run = 0

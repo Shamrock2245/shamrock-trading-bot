@@ -444,8 +444,18 @@ DAILY_GOAL_CATCH_UP_HOUR_UTC = int(os.getenv("DAILY_GOAL_CATCH_UP_HOUR_UTC", "18
 # ─────────────────────────────────────────────────────────────────────────────
 # Paper profit threshold (USD in 24h) to trigger live mode promotion
 LIVE_PROMOTION_THRESHOLD_USD = float(os.getenv("LIVE_PROMOTION_THRESHOLD_USD", "500.0"))
-# Set to "true" to permanently lock paper mode (prevents auto-promotion)
-PAPER_MODE_LOCKED = os.getenv("PAPER_MODE_LOCKED", "false").lower() == "true"
+# Set to "true" to permanently lock paper mode (prevents auto-promotion).
+# Default TRUE during multi-week paper tuning campaigns — flip to false only
+# after promotion criteria in docs/PAPER_TUNING_CAMPAIGN.md are met.
+PAPER_MODE_LOCKED = os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true"
+# Multi-week paper tuning campaign (auto-tuner + self-improving agent only)
+PAPER_TUNING_CAMPAIGN_ENABLED = os.getenv("PAPER_TUNING_CAMPAIGN_ENABLED", "true").lower() == "true"
+PAPER_TUNING_CAMPAIGN_DAYS = int(os.getenv("PAPER_TUNING_CAMPAIGN_DAYS", "21"))  # 3 weeks default
+PAPER_TUNING_CAMPAIGN_START = os.getenv("PAPER_TUNING_CAMPAIGN_START", "")  # ISO date YYYY-MM-DD; empty = today on first boot
+# Minimum paper metrics before anyone may unlock live (enforced by promoter)
+PAPER_PROMOTE_MIN_TRADES = int(os.getenv("PAPER_PROMOTE_MIN_TRADES", "50"))
+PAPER_PROMOTE_MIN_WIN_RATE = float(os.getenv("PAPER_PROMOTE_MIN_WIN_RATE", "0.50"))
+PAPER_PROMOTE_MIN_PROFIT_FACTOR = float(os.getenv("PAPER_PROMOTE_MIN_PROFIT_FACTOR", "1.30"))
 
 CIRCUIT_BREAKER_PERCENT = float(os.getenv("CIRCUIT_BREAKER_PERCENT", "15.0"))
 DAILY_LOSS_LIMIT_ETH = float(os.getenv("DAILY_LOSS_LIMIT_ETH", "0.5"))

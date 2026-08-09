@@ -63,12 +63,181 @@ GAS_MINIMUMS: dict[str, float] = {
 }
 
 PROMOTION_RECORD_FILE = Path("output/live_promotion.json")
+CAMPAIGN_STATE_FILE = Path("output/paper_tuning_campaign.json")
 ENV_FILE = Path(".env")
 
 # Chains we require gas on before going live
 REQUIRED_GAS_CHAINS: list[str] = ["base", "arbitrum", "polygon", "bsc"]
 # Ethereum is optional (expensive) — warn but don't block
 OPTIONAL_GAS_CHAINS: list[str] = ["ethereum", "solana"]
+
+
+def _campaign_allows_promotion() -> bool:
+    """
+    Multi-week paper tuning gate.
+
+    When PAPER_TUNING_CAMPAIGN_ENABLED=true (default), refuse auto-promotion
+    until:
+      1. Campaign duration (PAPER_TUNING_CAMPAIGN_DAYS, default 21) has elapsed
+      2. Optional metric floors (trades / win rate / PF) are met if trade journal exists
+
+    Always returns True when the campaign flag is off (legacy single-day promote).
+    """
+    try:
+        from config import settings
+    except Exception:
+        settings = None
+
+    campaign_on = True
+    if settings is not None:
+        campaign_on = bool(getattr(settings, "PAPER_TUNING_CAMPAIGN_ENABLED", True))
+    else:
+        campaign_on = os.getenv("PAPER_TUNING_CAMPAIGN_ENABLED", "true").lower() == "true"
+
+    if not campaign_on:
+        return True
+
+    days = 21
+    start_iso = ""
+    if settings is not None:
+        days = int(getattr(settings, "PAPER_TUNING_CAMPAIGN_DAYS", 21) or 21)
+        start_iso = str(getattr(settings, "PAPER_TUNING_CAMPAIGN_START", "") or "")
+    else:
+        days = int(os.getenv("PAPER_TUNING_CAMPAIGN_DAYS", "21"))
+        start_iso = os.getenv("PAPER_TUNING_CAMPAIGN_START", "")
+
+    # Persist / load campaign start so restarts don't reset the clock
+    state = _load_or_init_campaign_state(start_iso=start_iso, days=days)
+    start_dt = datetime.fromisoformat(state["start_date"].replace("Z", "+00:00"))
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    elapsed_days = (datetime.now(timezone.utc) - start_dt).total_seconds() / 86400.0
+    if elapsed_days < float(days):
+        remaining = max(0.0, float(days) - elapsed_days)
+        logger.info(
+            f"📄 Paper tuning campaign active — day {elapsed_days:.1f}/{days} "
+            f"({remaining:.1f}d remaining). Auto-promote blocked."
+        )
+        return False
+
+    # Soft metric floors (do not hard-fail if journal missing — duration is primary)
+    min_trades = int(getattr(settings, "PAPER_PROMOTE_MIN_TRADES", 50) if settings else 50)
+    min_wr = float(getattr(settings, "PAPER_PROMOTE_MIN_WIN_RATE", 0.50) if settings else 0.50)
+    min_pf = float(
+        getattr(settings, "PAPER_PROMOTE_MIN_PROFIT_FACTOR", 1.30) if settings else 1.30
+    )
+    metrics = _paper_journal_metrics()
+    if metrics is None:
+        logger.warning(
+            "📄 Campaign duration met but no paper trade journal found — "
+            "refusing auto-promote until metrics exist"
+        )
+        return False
+
+    if metrics["closed_trades"] < min_trades:
+        logger.info(
+            f"📄 Campaign day gate passed but only {metrics['closed_trades']} closed "
+            f"paper trades < {min_trades} required — promote blocked"
+        )
+        return False
+    if metrics["win_rate"] < min_wr:
+        logger.info(
+            f"📄 Paper win rate {metrics['win_rate']:.1%} < {min_wr:.0%} — promote blocked"
+        )
+        return False
+    if metrics["profit_factor"] < min_pf:
+        logger.info(
+            f"📄 Paper profit factor {metrics['profit_factor']:.2f} < {min_pf:.2f} — promote blocked"
+        )
+        return False
+
+    logger.info(
+        f"✅ Paper campaign gates passed: {metrics['closed_trades']} trades, "
+        f"WR={metrics['win_rate']:.1%}, PF={metrics['profit_factor']:.2f}"
+    )
+    return True
+
+
+def _load_or_init_campaign_state(*, start_iso: str, days: int) -> dict:
+    """Create or load output/paper_tuning_campaign.json."""
+    now = datetime.now(timezone.utc)
+    if CAMPAIGN_STATE_FILE.exists():
+        try:
+            data = json.loads(CAMPAIGN_STATE_FILE.read_text(encoding="utf-8"))
+            if data.get("start_date"):
+                return data
+        except Exception:
+            pass
+
+    if start_iso:
+        start_date = start_iso
+        if "T" not in start_date:
+            start_date = f"{start_date}T00:00:00+00:00"
+    else:
+        start_date = now.isoformat()
+
+    state = {
+        "start_date": start_date,
+        "days": days,
+        "mode": "paper",
+        "paper_mode_locked": True,
+        "created_at": now.isoformat(),
+        "goal": "Tune parameters in paper for 2–3 weeks before any live unlock",
+    }
+    try:
+        CAMPAIGN_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CAMPAIGN_STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        tmp.replace(CAMPAIGN_STATE_FILE)
+    except Exception as e:
+        logger.debug(f"Campaign state write failed: {e}")
+    return state
+
+
+def _paper_journal_metrics() -> Optional[dict]:
+    """Compute basic closed-trade metrics from trades.json (paper rows preferred)."""
+    candidates = [
+        Path(os.getenv("TRADES_FILE", "output/trades.json")),
+        Path("output/trades.json"),
+        Path("/app/output/trades.json"),
+    ]
+    trades: list = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8") or "[]")
+            if isinstance(raw, list) and raw:
+                trades = raw
+                break
+        except Exception:
+            continue
+    if not trades:
+        return None
+
+    # Prefer paper-tagged rows; fall back to all SELL closes with pnl
+    paper = [t for t in trades if t.get("is_paper") is True]
+    pool = paper if paper else trades
+    closes = [
+        t for t in pool
+        if str(t.get("action", "")).upper() in ("SELL", "CLOSE", "SELL_SHORT")
+        and t.get("pnl_usd") is not None
+    ]
+    if not closes:
+        return None
+
+    wins = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) > 0]
+    losses = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) < 0]
+    gross_win = sum(wins) if wins else 0.0
+    gross_loss = abs(sum(losses)) if losses else 0.0
+    pf = (gross_win / gross_loss) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
+    wr = (len(wins) / len(closes)) if closes else 0.0
+    return {
+        "closed_trades": len(closes),
+        "win_rate": wr,
+        "profit_factor": pf,
+        "net_pnl": sum(float(t["pnl_usd"]) for t in closes),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,8 +276,17 @@ def check_and_promote(today_profit_usd: float) -> bool:
     if settings.IS_LIVE:
         return False
 
-    # Manual lock — respect it
-    if os.getenv("PAPER_MODE_LOCKED", "false").lower() == "true":
+    # Manual lock — prefer live env (default true during paper tuning campaigns)
+    if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
+        logger.info(
+            "📄 PAPER_MODE_LOCKED=true — auto-promotion disabled "
+            f"(today paper PnL ${today_profit_usd:.2f}). "
+            "See docs/PAPER_TUNING_CAMPAIGN.md"
+        )
+        return False
+
+    # Multi-week campaign gate: never auto-promote before campaign end
+    if not _campaign_allows_promotion():
         return False
 
     # Not yet at threshold

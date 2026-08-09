@@ -1829,25 +1829,45 @@ async def run_bot_loop():
         try:
             from core.hl_perps_scanner import HLPerpsScanner
             from core.hyperliquid_executor import HyperliquidExecutor
-            # FORCE LIVE MODE FOR HYPERLIQUID EXECUTOR (OVERRIDING PAPER MODE)
-            # The user explicitly wants this running live with the 147-150 account balance
-            import os
-            os.environ["MODE"] = "live"
-            
+            # Respect global MODE. Never force live — paper tuning must not
+            # place real Hyperliquid orders (see PAPER_MODE_LOCKED campaign).
+            from config import settings as _hl_settings
+            _hl_mode = _hl_settings.get_current_mode()
+            _hl_is_paper = _hl_mode != "live"
+            if _hl_is_paper:
+                logger.info(
+                    "📄 HL Perps PAPER mode — real orders disabled "
+                    f"(MODE={_hl_mode}, PAPER_MODE_LOCKED={getattr(_hl_settings, 'PAPER_MODE_LOCKED', False)})"
+                )
+            else:
+                logger.warning(
+                    "🔴 HL Perps LIVE mode — real funds at risk "
+                    f"(MODE={_hl_mode})"
+                )
+
             _hl_exec = HyperliquidExecutor()
-            if not _hl_exec._initialized:
+            if not _hl_exec._initialized and not _hl_is_paper:
                 logger.warning("HL Perps: executor failed to init — running in signal-only mode")
                 _hl_exec = None
+            elif not _hl_exec._initialized and _hl_is_paper:
+                # Paper can still simulate if SDK later inits; mark ready for paper fills
+                logger.warning(
+                    "HL Perps: SDK not fully initialized — paper sim will use mids when available"
+                )
+                _trailing_exec_ref.append(_hl_exec)
             else:
                 logger.info(
-                    f"✅ HL Perps LIVE executor ready | "
-                    f"wallet={_hl_exec.wallet_address[:10]}... | "
-                    f"leverage={_hl_exec.default_leverage}x"
+                    f"✅ HL Perps {'PAPER' if _hl_is_paper else 'LIVE'} executor ready | "
+                    f"wallet={(_hl_exec.wallet_address or 'n/a')[:10]}... | "
+                    f"leverage={_hl_exec.default_leverage}x | is_paper={_hl_exec.is_paper}"
                 )
                 # Register for trailing monitor
                 _trailing_exec_ref.append(_hl_exec)
             _hl_scanner = HLPerpsScanner(hl_executor=_hl_exec)
-            logger.info("✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | 29-indicator + HL scoring | LIVE execution")
+            logger.info(
+                f"✅ HL Perps Scanner initialized — 230 coins | 2-min cycles | "
+                f"29-indicator + HL scoring | {'PAPER' if _hl_is_paper else 'LIVE'} execution"
+            )
         except Exception as _hl_init_err:
             logger.error(f"HL Perps Scanner init failed: {_hl_init_err}")
             return
@@ -1873,7 +1893,7 @@ async def run_bot_loop():
     _hl_perps_thread.start()
     logger.info(
         "✅ HL Perps Scanner daemon started — "
-        "scanning 230 perps every 2 min | 29-indicator + Fib gate | LIVE execution"
+        "scanning 230 perps every 2 min | 29-indicator + Fib gate | respects MODE (paper/live)"
     )
 
     _hl_trailing_thread = threading.Thread(

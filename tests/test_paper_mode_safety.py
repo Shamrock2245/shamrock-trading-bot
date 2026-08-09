@@ -410,5 +410,87 @@ class TestPositionMonitorPaperFlag(unittest.TestCase):
             os.environ.pop("MODE", None)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Test: Hyperliquid executor never signs in paper mode
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestHyperliquidPaperMode(unittest.TestCase):
+    """HL open/close must simulate and never call market_open/market_close in paper."""
+
+    def test_paper_open_and_close_no_exchange_calls(self):
+        os.environ["MODE"] = "paper"
+        os.environ["PAPER_MODE_LOCKED"] = "true"
+        os.environ["HYPERLIQUID_ENABLED"] = "true"
+        os.environ["PAPER_WALLET_BALANCE_USD"] = "10000"
+        try:
+            from core.hyperliquid_executor import HyperliquidExecutor, HLPosition
+
+            ex = HyperliquidExecutor()
+            self.assertTrue(ex.is_paper)
+            self.assertTrue(ex.is_available())
+
+            # Seed a mid so paper fill uses a realistic price
+            HyperliquidExecutor._global_mids_cache["BTC"] = "50000"
+            HyperliquidExecutor._global_mids_cache_ts = time.time()
+
+            # Bypass gem score / empty ticker issues by temporarily allowing BTC
+            import core.hyperliquid_executor as hl_mod
+            with hl_mod._HL_TICKER_LOCK:
+                hl_mod._HL_PERP_TICKERS.add("BTC")
+
+            mock_exchange = MagicMock()
+            ex._exchange = mock_exchange
+            ex._initialized = True
+            ex.min_gem_score = 0
+            ex.min_rr_ratio = 0.5
+
+            result = ex.open_long("BTC", size_usd=50.0, leverage=2, gem_score=80)
+            self.assertIsNotNone(result, "paper open should return a fill dict")
+            self.assertTrue(result.get("paper") or result.get("tx_hash") == "PAPER_TX")
+            mock_exchange.market_open.assert_not_called()
+            mock_exchange.update_leverage.assert_not_called()
+
+            close = ex.close_position("BTC")
+            self.assertIsNotNone(close)
+            self.assertTrue(close.get("paper") or close.get("tx_hash") == "PAPER_TX")
+            mock_exchange.market_close.assert_not_called()
+        finally:
+            os.environ["MODE"] = "paper"
+            for k in ("PAPER_MODE_LOCKED", "HYPERLIQUID_ENABLED", "PAPER_WALLET_BALANCE_USD"):
+                os.environ.pop(k, None)
+
+    def test_execute_api_blocks_signed_calls_in_paper(self):
+        os.environ["MODE"] = "paper"
+        try:
+            from core.hyperliquid_executor import HyperliquidExecutor
+
+            ex = HyperliquidExecutor()
+            called = MagicMock(name="market_open")
+            called.__name__ = "market_open"
+            out = ex._execute_api(called, "BTC", True, 1.0)
+            self.assertEqual(out.get("status"), "err")
+            self.assertIn("PAPER_MODE_BLOCKED", str(out.get("response", "")))
+            called.assert_not_called()
+        finally:
+            os.environ.pop("MODE", None)
+
+
+class TestPaperModeLockedPromoter(unittest.TestCase):
+    """Auto-promote must refuse while PAPER_MODE_LOCKED=true."""
+
+    def test_locked_never_promotes(self):
+        os.environ["MODE"] = "paper"
+        os.environ["PAPER_MODE_LOCKED"] = "true"
+        try:
+            # Reload settings attribute path via env
+            from core.paper_to_live_promoter import check_and_promote
+
+            promoted = check_and_promote(today_profit_usd=99999.0)
+            self.assertFalse(promoted, "must not auto-promote when PAPER_MODE_LOCKED")
+        finally:
+            os.environ.pop("PAPER_MODE_LOCKED", None)
+            os.environ.pop("MODE", None)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

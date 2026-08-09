@@ -45,11 +45,13 @@ signed_tx = VersionedTransaction.populate(tx.message, [sig])  # ✅ WORKS
 
 ---
 
-## Key Configuration (Hetzner — LIVE)
+## Key Configuration (Paper Tuning Campaign — 2–3 weeks)
 
 | Setting | Value |
 |---------|-------|
-| MODE | live |
+| MODE | **paper** (locked) |
+| PAPER_MODE_LOCKED | **true** — no auto live promote |
+| PAPER_TUNING_CAMPAIGN_DAYS | **21** |
 | ACTIVE_CHAINS | solana, base, bsc, avalanche |
 | MIN_GEM_SCORE | 55 (global) / 82 (nuclear profile) |
 | EXPRESS_LANE_SCORE | 82 (conservative) / 90 (nuclear) |
@@ -57,6 +59,10 @@ signed_tx = VersionedTransaction.populate(tx.message, [sig])  # ✅ WORKS
 | Offensive Guardrails | All 12 enabled |
 | Pyramid Scaling | 3-tier (+30%/+100%/+300%) |
 | Regime Filter | EXPANSION / NORMAL / CHOP (pseudo-ADX) |
+| HL Perps | **Respects MODE** (no force-live override) |
+| Auto-tuner / Optuna | Enabled — params only, paper journal |
+
+See `docs/PAPER_TUNING_CAMPAIGN.md`.
 
 ---
 

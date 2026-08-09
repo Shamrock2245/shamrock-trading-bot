@@ -12,8 +12,10 @@ Usage:
 import os
 import sys
 
-# Force paper mode
+# Force paper mode + lock auto-promotion for the tuning campaign
 os.environ["MODE"] = "paper"
+os.environ.setdefault("PAPER_MODE_LOCKED", "true")
+os.environ.setdefault("PAPER_TUNING_CAMPAIGN_ENABLED", "true")
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,5 +24,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import main
 
 if __name__ == "__main__":
-    print("☘️  Starting Shamrock Paper Trader (MODE=paper)")
+    print("☘️  Starting Shamrock Paper Trader (MODE=paper, PAPER_MODE_LOCKED=true)")
+    print("    Tuning campaign: real orders disabled — auto-tuner + Optuna may apply params.")
     main()
