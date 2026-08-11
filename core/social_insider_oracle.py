@@ -318,9 +318,49 @@ class SocialInsiderOracle:
             for ca in pruned_tokens:
                 del self.registry[ca]
 
-        if pruned_tokens:
-            logger.info(f"🧹 Pruned {len(pruned_tokens)} inactive tokens from Social Oracle registry")
+    def detect_wallet_cluster_accumulation(
+        self,
+        contract_address: str,
+        recent_buyers: list[str],
+    ) -> dict:
+        """
+        Cluster analysis: checks if 3+ known insider/alpha/cabal wallets accumulated
+        the contract within a tight window.
+        Returns a dict: {'cluster_detected': bool, 'insider_count': int, 'score_boost': float}
+        """
+        if not recent_buyers:
+            return {"cluster_detected": False, "insider_count": 0, "score_boost": 0.0}
+
+        buyers_set = {b.lower() for b in recent_buyers if isinstance(b, str)}
+        insiders = buyers_set.intersection(self.known_kols)
+
+        insider_count = len(insiders)
+        if insider_count >= 3:
+            logger.info(
+                f"🔥 INSIDER CLUSTER DETECTED for {contract_address[:8]}... "
+                f"({insider_count} cabal/KOL wallets accumulated)"
+            )
+            return {
+                "cluster_detected": True,
+                "insider_count": insider_count,
+                "score_boost": 25.0,  # Bumps composite gem score to fast-track entry
+            }
+        elif insider_count == 2:
+            return {
+                "cluster_detected": False,
+                "insider_count": 2,
+                "score_boost": 10.0,
+            }
+        return {"cluster_detected": False, "insider_count": insider_count, "score_boost": 0.0}
 
 
-# Global shared instance
-oracle = SocialInsiderOracle()
+# Global singleton instance
+_oracle_instance: Optional[SocialInsiderOracle] = None
+
+
+def get_social_insider_oracle() -> SocialInsiderOracle:
+    """Get or initialize global SocialInsiderOracle singleton."""
+    global _oracle_instance
+    if _oracle_instance is None:
+        _oracle_instance = SocialInsiderOracle()
+    return _oracle_instance

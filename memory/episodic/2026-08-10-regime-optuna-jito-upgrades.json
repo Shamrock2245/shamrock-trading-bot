@@ -1,0 +1,31 @@
+{
+  "episode_id": "ep-2026-08-10-001",
+  "date": "2026-08-10",
+  "category": "auto_tuning",
+  "task": "Multi-Profile Regime-Aware Optuna Auto-Tuning & Solana Jito Execution Upgrade",
+  "outcome": "success",
+  "summary": "Implemented 5 high-leverage quantitative upgrades to complete 100% hands-off auto-tuning and latency-racing execution. Split Optuna optimization into 3 regime profiles (Trending, Choppy, Nuke), enabled Jito bundle latency-racing across regional endpoints, integrated ATR volatility trailing stops, enabled MTF trend alignment gates, added insider wallet cluster accumulation detection, and registered background daemon threads in main.py.",
+  "key_insights": {
+    "what_went_well": [
+      "Multi-profile Optuna studies optimize parameters for specific market regimes, preventing single-parameter compromise",
+      "ThreadPoolExecutor latency-racing across regional Jito endpoints ensures lowest-latency slot inclusion",
+      "Registering Self-Improving Agent and LLM Auto-Tuner in main.py ensures 100% hands-off execution"
+    ],
+    "what_went_wrong": [
+      "Optuna dry run without PYTHONPATH failed to resolve relative settings import"
+    ],
+    "root_cause": "CLI module execution requires PYTHONPATH=. or module import flag"
+  },
+  "files_modified": [
+    "data/models.py",
+    "scanner/gem_scanner.py",
+    "ml/optuna_optimizer.py",
+    "core/regime_filter.py",
+    "core/mev_protection.py",
+    "core/position_monitor.py",
+    "config/settings.py",
+    "strategies/mtf_confirmer.py",
+    "core/social_insider_oracle.py",
+    "main.py"
+  ]
+}

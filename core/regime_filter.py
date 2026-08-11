@@ -385,6 +385,14 @@ def get_regime(force_refresh: bool = False) -> RegimeState:
     )
     _regime_cache = state
     logger.info(f"Regime: {details}")
+
+    # Trigger dynamic Optuna parameter switch for the new regime
+    try:
+        from ml.optuna_optimizer import apply_regime_params
+        apply_regime_params(state.regime.value)
+    except Exception as _e:
+        logger.debug(f"Could not apply regime Optuna params: {_e}")
+
     return state
 
 

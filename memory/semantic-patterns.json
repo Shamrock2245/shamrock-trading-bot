@@ -559,6 +559,24 @@
       ],
       "source_episode": "ep-2026-06-22-hyperliquid-wallet-auth",
       "evolution_marker": "2026-06-22 | CRITICAL | Bot opened trades on main wallet but couldn't close them because the API wallet key in .env was unapproved"
+    },
+    {
+      "id": "auto-001",
+      "category": "auto_tuning",
+      "name": "multi_profile_regime_aware_optuna_tuning",
+      "priority": "critical",
+      "confidence": 0.98,
+      "applications": 1,
+      "description": "Single-profile parameter optimization creates a compromise parameter set that over-trades in chop and exits early in trends. Optuna auto-tuning MUST maintain regime-specific parameter profiles (Trending, Choppy, Nuke) and dynamically swap active environment parameters when market regimes transition.",
+      "rule": "Maintain 3 Optuna parameter profiles (trending, choppy, nuke) in output/optuna_best_params.json and invoke apply_regime_params(regime.value) whenever core/regime_filter.py detects a regime shift. Ensure all 5 auto-tuner background daemons (Optuna 12h, XGBoost 6h, Self-Improving 24h, LLM Auto-Tuner 30m, RL Sizer 24h) are registered in main.py.",
+      "anti_pattern": "Using a single global parameter set across all market regimes or relying on manual CLI runs for auto-tuning.",
+      "files": [
+        "ml/optuna_optimizer.py",
+        "core/regime_filter.py",
+        "main.py"
+      ],
+      "source_episode": "ep-2026-08-10-001",
+      "evolution_marker": "2026-08-10 | CRITICAL | Multi-profile regime Optuna auto-tuning and background daemon suite implemented"
     }
   ]
 }

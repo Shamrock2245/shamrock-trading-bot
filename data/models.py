@@ -60,6 +60,7 @@ class GemCandidate:
     gem_score: float = 0.0          # 0–100 composite score
     safety_passed: bool = False
     is_safe: bool = False
+    regime: str = ""                # Market regime at discovery time ("Trending" | "Choppy" | "Nuke")
 
     # Timeframe Awareness
     target_timeframe: str = "15m"         # Primary execution timeframe

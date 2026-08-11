@@ -517,7 +517,7 @@ TA_ENABLED = os.getenv("TA_ENABLED", "true").lower() == "true"
 # TUNED 2026-06-10: Enabled — ATR-based sizing reduces position in ultra-high vol,
 # increases in smooth trends. Prevents oversized bets in choppy meme coin markets.
 VOLATILITY_SIZING_ENABLED = os.getenv("VOLATILITY_SIZING_ENABLED", "true").lower() == "true"
-MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true"
+MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "true").lower() == "true"
 
 # ── MTF Strategy Engine (Multi-Timeframe Horizon Assignment) ─────────────────────
 # Enabled by default — assigns 1H/4H/12H/5D profile to every qualified gem

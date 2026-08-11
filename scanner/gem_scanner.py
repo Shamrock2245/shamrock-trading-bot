@@ -2525,7 +2525,12 @@ class GemScanner:
             "safety_score": getattr(candidate, "contract_score", 0.0),
             "momentum_score": getattr(candidate, "tvl_score", 0.0),
             "fib_score": getattr(candidate, "smart_money_score", 0.0),
-        }
+        # Attach active market regime at discovery time
+        try:
+            from core.regime_filter import get_market_regime
+            candidate.regime = get_market_regime().regime.value
+        except Exception:
+            candidate.regime = ""
 
         return candidate
 

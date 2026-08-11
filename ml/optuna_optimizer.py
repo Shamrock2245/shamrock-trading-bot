@@ -266,6 +266,94 @@ def _apply_params_to_env(params: dict) -> None:
     # Optuna's optimized weights are stored in output/optuna_best_params.json for reference.
 
 
+REGIME_DEFAULTS: dict[str, dict[str, float]] = {
+    "trending": {
+        "min_gem_score": 58.0,
+        "express_lane_score": 75.0,
+        "tp1_mult": 2.2,
+        "tp1_sell_pct": 0.35,
+        "tp2_mult": 4.5,
+        "tp2_sell_pct": 0.35,
+        "tp3_mult": 10.0,
+        "stop_loss_pct": 14.0,
+        "hard_stop_pct": 22.0,
+        "pre_tp1_trailing_pct": 20.0,
+        "fast_fail_hours": 3.0,
+        "fast_fail_down_pct": 12.0,
+        "max_position_pct": 8.0,
+        "god_mode_kelly_mult": 3.0,
+        "time_exit_hours": 18.0,
+    },
+    "choppy": {
+        "min_gem_score": 74.0,
+        "express_lane_score": 85.0,
+        "tp1_mult": 1.35,
+        "tp1_sell_pct": 0.50,
+        "tp2_mult": 2.0,
+        "tp2_sell_pct": 0.35,
+        "tp3_mult": 3.5,
+        "stop_loss_pct": 8.0,
+        "hard_stop_pct": 12.0,
+        "pre_tp1_trailing_pct": 10.0,
+        "fast_fail_hours": 1.0,
+        "fast_fail_down_pct": 7.0,
+        "max_position_pct": 5.0,
+        "god_mode_kelly_mult": 1.8,
+        "time_exit_hours": 6.0,
+    },
+    "nuke": {
+        "min_gem_score": 85.0,
+        "express_lane_score": 92.0,
+        "tp1_mult": 1.2,
+        "tp1_sell_pct": 0.60,
+        "tp2_mult": 1.5,
+        "tp2_sell_pct": 0.40,
+        "tp3_mult": 2.0,
+        "stop_loss_pct": 4.0,
+        "hard_stop_pct": 6.0,
+        "pre_tp1_trailing_pct": 5.0,
+        "fast_fail_hours": 0.5,
+        "fast_fail_down_pct": 5.0,
+        "max_position_pct": 2.0,
+        "god_mode_kelly_mult": 1.0,
+        "time_exit_hours": 3.0,
+    },
+}
+
+
+def apply_regime_params(regime_name: str) -> dict:
+    """
+    Load parameters for regime_name ('trending' | 'choppy' | 'nuke') and apply to environment.
+    Falls back to REGIME_DEFAULTS if optuna_best_params.json has not yet generated that profile.
+    """
+    norm = str(regime_name or "trending").lower().strip()
+    if norm not in REGIME_DEFAULTS:
+        if "chop" in norm:
+            norm = "choppy"
+        elif "nuke" in norm or "risk" in norm:
+            norm = "nuke"
+        else:
+            norm = "trending"
+
+    target_params = dict(REGIME_DEFAULTS.get(norm, REGIME_DEFAULTS["trending"]))
+
+    if BEST_PARAMS_PATH.exists():
+        try:
+            with open(BEST_PARAMS_PATH, "r") as f:
+                data = json.load(f)
+            regime_profiles = data.get("regime_profiles", {})
+            if norm in regime_profiles and isinstance(regime_profiles[norm], dict):
+                target_params.update(regime_profiles[norm])
+            elif "best_params" in data:
+                target_params.update(data["best_params"])
+        except Exception as e:
+            logger.debug(f"Failed reading BEST_PARAMS_PATH for regime {norm}: {e}")
+
+    _apply_params_to_env(target_params)
+    logger.info(f"🧠 Optuna: Applied regime-specific parameters for regime '{norm.upper()}' ✅")
+    return target_params
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Slack Notification
 # ─────────────────────────────────────────────────────────────────────────────
@@ -464,11 +552,50 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
         best_params, current_params, max_change
     )
 
-    # ── Auto-apply ───────────────────────────────────────────────────
+    # ── Auto-apply active regime profile ──────────────────────────────
+    regime_profiles = {}
+    for r_name, r_defaults in REGIME_DEFAULTS.items():
+        r_params = dict(r_defaults)
+        for k, v in safe_params.items():
+            if k in r_params:
+                # Apply regime-specific bounds to safe_params
+                if r_name == "choppy":
+                    if k == "min_gem_score":
+                        r_params[k] = max(72.0, v * 1.1)
+                    elif k == "stop_loss_pct":
+                        r_params[k] = min(8.0, v * 0.7)
+                    elif k == "tp1_mult":
+                        r_params[k] = min(1.5, v)
+                    else:
+                        r_params[k] = v
+                elif r_name == "nuke":
+                    if k == "min_gem_score":
+                        r_params[k] = max(85.0, v * 1.25)
+                    elif k == "hard_stop_pct":
+                        r_params[k] = min(5.0, v * 0.4)
+                    elif k == "max_position_pct":
+                        r_params[k] = min(3.0, v * 0.4)
+                    else:
+                        r_params[k] = v
+                else:  # trending
+                    if k == "min_gem_score":
+                        r_params[k] = min(62.0, v * 0.9)
+                    elif k == "tp1_mult":
+                        r_params[k] = max(2.0, v * 1.2)
+                    else:
+                        r_params[k] = v
+        regime_profiles[r_name] = r_params
+
+    active_regime = "trending"
+    try:
+        from core.regime_filter import get_regime
+        active_regime = get_regime().regime.value.lower()
+    except Exception:
+        pass
+
     auto_apply = getattr(settings, "OPTUNA_AUTO_APPLY", True)
     if auto_apply:
-        _apply_params_to_env(safe_params)
-        logger.info("🧠 Optuna: Parameters auto-applied to environment ✅")
+        apply_regime_params(active_regime)
 
     # ── Save results ─────────────────────────────────────────────────
     result_data = {
@@ -479,6 +606,8 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
         "trade_count": len(trades),
         "walk_forward_pass": walk_forward_ok,
         "auto_applied": auto_apply,
+        "active_regime": active_regime,
+        "regime_profiles": regime_profiles,
         "clipped_count": len(clipped_list),
         "best_params": safe_params,
         "raw_params": best_params,
@@ -489,7 +618,7 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
         BEST_PARAMS_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(BEST_PARAMS_PATH, "w") as f:
             json.dump(result_data, f, indent=2)
-        logger.info(f"🧠 Optuna: Results saved to {BEST_PARAMS_PATH}")
+        logger.info(f"🧠 Optuna: Results saved to {BEST_PARAMS_PATH} (active regime: '{active_regime.upper()}')")
     except Exception as e:
         logger.error(f"Optuna: Failed to save results: {e}")
 

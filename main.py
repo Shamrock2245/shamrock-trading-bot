@@ -2054,6 +2054,47 @@ async def run_bot_loop():
         "optimizes ALL trading parameters every 12h via Bayesian optimization (Sharpe ↑ + Drawdown ↓)"
     )
 
+    # ── Self-Improving AI Agent: background audit daemon (24h) ───────────────────────────
+    def _self_improving_daemon():
+        """Background thread: runs OpenAlice closed-loop self-improving audit every 24h."""
+        import time as _time
+        _time.sleep(180)  # Wait 3 minutes after boot
+        while True:
+            try:
+                from core.self_improving_agent import SelfImprovingAgent
+                agent = SelfImprovingAgent()
+                agent.run_audit_cycle(force=False)
+            except Exception as _sia_err:
+                logger.warning(f"Self-Improving Agent daemon cycle error: {_sia_err}")
+            _time.sleep(3600)  # Check every hour (enforces 24h interval internally)
+
+    _sia_thread = threading.Thread(target=_self_improving_daemon, daemon=True, name="self-improving-agent")
+    _sia_thread.start()
+    logger.info(
+        "✅ Self-Improving AI Agent daemon started — "
+        "runs OpenAlice post-mortem trade audits & dynamic blacklists every 24h"
+    )
+
+    # ── LLM Trailing Stop Auto-Tuner: background daemon (30m) ────────────────────────────
+    def _llm_autotuner_daemon():
+        """Background thread: runs LLM trailing stop auto-tuner every 30m."""
+        import time as _time
+        _time.sleep(60)  # Wait 1 minute after boot
+        while True:
+            try:
+                from core.llm_auto_tuner import run_auto_tuner_cycle
+                run_auto_tuner_cycle(force=False)
+            except Exception as _lat_err:
+                logger.warning(f"LLM Auto-Tuner daemon cycle error: {_lat_err}")
+            _time.sleep(600)  # Check every 10 mins (enforces 30m interval internally)
+
+    _lat_thread = threading.Thread(target=_llm_autotuner_daemon, daemon=True, name="llm-autotuner")
+    _lat_thread.start()
+    logger.info(
+        "✅ LLM Trailing Stop Auto-Tuner daemon started — "
+        "evaluates active gem positions & tightens stops every 30m"
+    )
+
     # ── Check for Base USDC deployment plan ─────────────────────────────────────────────────────────────────────────────────────
     try:
         if os.path.exists("reports/base_deploy_plan.json"):

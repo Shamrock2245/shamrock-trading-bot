@@ -466,36 +466,38 @@ def submit_jito_bundle(
         except Exception as e:
             logger.debug(f"Jito auth signing failed (proceeding without auth): {e}")
 
-    # Try all regional Jito endpoints in order — EU server uses Amsterdam/Frankfurt first
-    last_error = "No endpoints tried"
-    for jito_url in JITO_BLOCK_ENGINE_URLS:
+    # Latency race all regional Jito endpoints concurrently — EU server gets fastest response
+    import concurrent.futures
+
+    def _post_to_jito_endpoint(jito_url: str) -> Optional[JitoResult]:
         try:
-            resp = get_session().post(jito_url, json=payload, headers=headers, timeout=15)
+            resp = get_session().post(jito_url, json=payload, headers=headers, timeout=10)
             resp.raise_for_status()
             result = resp.json()
             if "error" in result:
                 err = result["error"]
                 err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                # BlockEngineNotAvailable / bundle already processed are non-fatal
                 if any(x in err_msg for x in ["already processed", "bundle dropped", "AlreadyProcessed"]):
                     logger.warning(f"Jito ({jito_url.split('/')[2]}): {err_msg} — may have landed")
                     return JitoResult(success=True, bundle_id="jito_may_have_landed", tip_lamports=tip_lamports)
-                logger.warning(f"Jito ({jito_url.split('/')[2]}) error: {err_msg} — trying next endpoint")
-                last_error = err_msg
-                continue
+                logger.debug(f"Jito ({jito_url.split('/')[2]}) error: {err_msg}")
+                return None
             bundle_id = result.get("result", "")
             logger.info(f"✅ Jito bundle submitted via {jito_url.split('/')[2]}: {bundle_id} | tip={tip_lamports:,} lamports")
             return JitoResult(success=True, bundle_id=bundle_id, tip_lamports=tip_lamports)
-        except requests.exceptions.HTTPError as e:
-            logger.warning(f"Jito HTTP {e.response.status_code} on {jito_url.split('/')[2]} — trying next")
-            last_error = str(e)
-            continue
         except Exception as e:
-            logger.warning(f"Jito error on {jito_url.split('/')[2]}: {e} — trying next")
-            last_error = str(e)
-            continue
-    logger.error(f"All Jito endpoints failed. Last error: {last_error}")
-    return JitoResult(success=False, error=f"All Jito endpoints failed: {last_error}")
+            logger.debug(f"Jito endpoint {jito_url.split('/')[2]} error: {e}")
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(JITO_BLOCK_ENGINE_URLS)) as executor:
+        futures = [executor.submit(_post_to_jito_endpoint, url) for url in JITO_BLOCK_ENGINE_URLS]
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            if res and res.success:
+                return res
+
+    logger.error("All Jito endpoints failed or timed out.")
+    return JitoResult(success=False, error="All Jito endpoints failed or timed out.")
 
 
 def _build_jito_tip_tx_b64(

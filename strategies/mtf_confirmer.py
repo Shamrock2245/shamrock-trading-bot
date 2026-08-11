@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────────────────────────────────────
-MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "false").lower() == "true"
+MTF_CONFIRM_ENABLED = os.getenv("MTF_CONFIRM_ENABLED", "true").lower() == "true"
 
 # GeckoTerminal API base
 _GT_BASE = "https://api.geckoterminal.com/api/v2"

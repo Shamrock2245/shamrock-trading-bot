@@ -508,6 +508,15 @@ def _execute_promotion(today_profit_usd: float, checks: dict) -> None:
     except Exception as e:
         logger.warning(f"Telegram alert failed: {e}")
 
+    # ── Step 5b: Send Email alert ───────────────────────────────────────────
+    try:
+        from notifications.email_notifier import notify_live_readiness
+        notify_live_readiness(today_profit_usd, checks, recipient="admin@shamrockbailbonds.biz")
+        notifications_sent.append("email")
+        logger.info("✅ Email promotion alert sent to admin@shamrockbailbonds.biz")
+    except Exception as e:
+        logger.warning(f"Email promotion alert failed: {e}")
+
     # ── Step 6: Save promotion record ─────────────────────────────────────
     record = PromotionRecord(
         promoted_at=promoted_at,
@@ -575,6 +584,17 @@ def _send_blocked_alert(today_profit_usd: float, checks: dict) -> None:
         )
     except Exception as e:
         logger.debug(f"Telegram blocked alert failed: {e}")
+
+    try:
+        from notifications.email_notifier import send_email_alert
+        blocker_text = "\n".join(f"• {b}" for b in blockers)
+        send_email_alert(
+            subject=f"⚠️ [ACTION REQUIRED] Live Promotion Blocked — ${today_profit_usd:.2f} PnL Hit",
+            body_text=f"Paper profit ${today_profit_usd:.2f} hit threshold but promotion was blocked:\n\nBlockers:\n{blocker_text}\n\nPlease check wallet gas balances & private keys.",
+            recipient="admin@shamrockbailbonds.biz",
+        )
+    except Exception as e:
+        logger.debug(f"Email blocked alert failed: {e}")
 
 
 def _update_env_file(key: str, value: str) -> bool:

@@ -883,6 +883,17 @@ def evaluate_position(pos: dict, current_price: float,
                 if gain_mult >= float(mult_threshold):
                     effective_trail = tight_pct
 
+        # Apply volatility/ATR adjustment if price metrics exist
+        high_24h = float(pos.get("high_24h", 0) or 0)
+        low_24h = float(pos.get("low_24h", 0) or 0)
+        atr_val = float(pos.get("atr_14", 0) or 0)
+        if current_price > 0 and (atr_val > 0 or (high_24h > low_24h > 0)):
+            vol_ratio = (atr_val / current_price) if atr_val > 0 else ((high_24h - low_24h) / current_price)
+            if vol_ratio > 0.15:
+                effective_trail = min(28.0, effective_trail * 1.30)
+            elif 0 < vol_ratio < 0.04:
+                effective_trail = max(4.0, effective_trail * 0.75)
+
         trailing_stop_price = highest_price * (1 - effective_trail / 100)
         if current_price <= trailing_stop_price:
             drop_from_high = ((current_price - highest_price) / highest_price) * 100
