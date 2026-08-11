@@ -202,7 +202,8 @@ except ImportError:
 
 # ── Social Insider Oracle (ECC Skill: sentiment-insider-oracle) ───────────────
 try:
-    from core.social_insider_oracle import oracle as _social_oracle, SocialMention as _SocialMention
+    from core.social_insider_oracle import get_social_insider_oracle, SocialMention as _SocialMention
+    _social_oracle = get_social_insider_oracle()
     _SOCIAL_ORACLE_AVAILABLE = True
 except ImportError:
     _SOCIAL_ORACLE_AVAILABLE = False
@@ -2525,6 +2526,8 @@ class GemScanner:
             "safety_score": getattr(candidate, "contract_score", 0.0),
             "momentum_score": getattr(candidate, "tvl_score", 0.0),
             "fib_score": getattr(candidate, "smart_money_score", 0.0),
+        }
+
         # Attach active market regime at discovery time
         try:
             from core.regime_filter import get_market_regime

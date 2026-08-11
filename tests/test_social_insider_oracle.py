@@ -64,15 +64,17 @@ class TestOracleImport:
 
     def test_module_imports(self):
         """core.social_insider_oracle must import without errors."""
-        from core.social_insider_oracle import SocialInsiderOracle, SocialMention, OracleMetrics, oracle
-        assert SocialInsiderOracle is not None
+        from core.social_insider_oracle import SocialInsiderOracle, SocialMention, OracleMetrics, get_social_insider_oracle
+        oracle = get_social_insider_oracle()
+        assert oracle is not None
         assert SocialMention is not None
         assert OracleMetrics is not None
         assert oracle is not None
 
     def test_oracle_singleton_exists(self):
         """The module-level oracle singleton must be a SocialInsiderOracle instance."""
-        from core.social_insider_oracle import oracle, SocialInsiderOracle
+        from core.social_insider_oracle import get_social_insider_oracle, SocialInsiderOracle
+        oracle = get_social_insider_oracle()
         assert isinstance(oracle, SocialInsiderOracle)
 
     def test_oracle_has_required_methods(self):
