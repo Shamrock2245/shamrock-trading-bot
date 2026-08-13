@@ -321,6 +321,10 @@ class AppState(rx.State):
     # ── Actions ───────────────────────────────────────────────────────────────
     def go_live(self, confirmation: str):
         """Trigger the Go Live sequence."""
+        if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
+            self.is_live = False
+            self.bot_mode = "paper"
+            return
         if confirmation == "CONFIRM_LIVE":
             DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
             override_file = DASHBOARD_DIR / "live_mode_override.json"

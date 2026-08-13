@@ -124,6 +124,9 @@ class MoralisStreamsManager:
 
     def start(self) -> None:
         """Initialize all streams and start health monitoring."""
+        if not getattr(settings, "MORALIS_ENABLED", False):
+            logger.warning("MoralisStreamsManager: MORALIS_ENABLED=false — not starting (CU kill switch)")
+            return
         if not self.api_key:
             logger.warning("MoralisStreamsManager: MORALIS_API_KEY not set — skipping")
             return

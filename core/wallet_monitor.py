@@ -90,7 +90,8 @@ IGNORED_ADDRESSES = {
 }
 
 # Moralis API key (required for EVM wallet monitoring)
-MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") or os.getenv("MORALIS_API_KEY", "")
+# Never fall back to raw env when the global kill switch is off.
+MORALIS_API_KEY = getattr(settings, "MORALIS_API_KEY", "") if getattr(settings, "MORALIS_ENABLED", False) else ""
 HELIUS_API_KEY = getattr(settings, "BUNDLE_HELIUS_API_KEY", "") or os.getenv("HELIUS_API_KEY", "")
 
 # ── VIP Copy Wallets (100% win rate — aggressive auto-copy) ──────────────────

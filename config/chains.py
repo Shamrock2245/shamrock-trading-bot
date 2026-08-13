@@ -64,8 +64,7 @@ class ChainConfig:
 
 CHAINS: dict[str, ChainConfig] = {
 
-    # RPC: prefer Moralis Nodes dual-site via .env (site1=primary, site2=fallback).
-    # See admin.moralis.com/nodes and .env.example. Defaults remain public RPCs.
+    # RPC: public endpoints only. Do not point .env at moralis-nodes.com.
     "ethereum": ChainConfig(
         name="Ethereum",
         chain_id=1,

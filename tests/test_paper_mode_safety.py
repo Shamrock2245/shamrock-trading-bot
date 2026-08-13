@@ -175,6 +175,7 @@ class TestSettingsIsPaperDynamic(unittest.TestCase):
 
     def test_is_paper_false_when_mode_live(self):
         os.environ["MODE"] = "live"
+        os.environ["PAPER_MODE_LOCKED"] = "false"
         try:
             from config import settings
             self.assertFalse(settings.IS_PAPER,
@@ -183,6 +184,19 @@ class TestSettingsIsPaperDynamic(unittest.TestCase):
                             "settings.IS_LIVE should be True when MODE=live")
         finally:
             os.environ.pop("MODE", None)
+            os.environ.pop("PAPER_MODE_LOCKED", None)
+
+    def test_locked_forces_paper_even_if_mode_live(self):
+        os.environ["MODE"] = "live"
+        os.environ["PAPER_MODE_LOCKED"] = "true"
+        try:
+            from config import settings
+            self.assertEqual(settings.get_current_mode(), "paper")
+            self.assertTrue(settings.IS_PAPER)
+            self.assertFalse(settings.IS_LIVE)
+        finally:
+            os.environ.pop("MODE", None)
+            os.environ.pop("PAPER_MODE_LOCKED", None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

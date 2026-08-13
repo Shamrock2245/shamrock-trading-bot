@@ -155,7 +155,34 @@ jobs:
               grep -q '^PROFIT_LOCK_LOSS_TIMEOUT_HOURS=' .env && sed -i 's/^PROFIT_LOCK_LOSS_TIMEOUT_HOURS=.*/PROFIT_LOCK_LOSS_TIMEOUT_HOURS=4.0/' .env || echo 'PROFIT_LOCK_LOSS_TIMEOUT_HOURS=4.0' >> .env
               # HF Moralis scanner is a stub — keep disabled until real API is wired
               grep -q '^HF_MORALIS_SCANNER_ENABLED=' .env && sed -i 's/^HF_MORALIS_SCANNER_ENABLED=.*/HF_MORALIS_SCANNER_ENABLED=false/' .env || echo 'HF_MORALIS_SCANNER_ENABLED=false' >> .env
-              echo "✅ .env patched with v32 Let Winners Breathe values"
+              # 2026-08-13: paper-only — no live fills until lock is cleared.
+              grep -q '^MODE=' .env && sed -i 's/^MODE=.*/MODE=paper/' .env || echo 'MODE=paper' >> .env
+              grep -q '^PAPER_MODE_LOCKED=' .env && sed -i 's/^PAPER_MODE_LOCKED=.*/PAPER_MODE_LOCKED=true/' .env || echo 'PAPER_MODE_LOCKED=true' >> .env
+              grep -q '^PAPER_TUNING_CAMPAIGN_ENABLED=' .env && sed -i 's/^PAPER_TUNING_CAMPAIGN_ENABLED=.*/PAPER_TUNING_CAMPAIGN_ENABLED=true/' .env || echo 'PAPER_TUNING_CAMPAIGN_ENABLED=true' >> .env
+              # 2026-08-13: HARD KILL Moralis after $75 extra CU overage in one day.
+              # Do not revert. Nodes, Streams, and REST stay off.
+              grep -q '^MORALIS_ENABLED=' .env && sed -i 's/^MORALIS_ENABLED=.*/MORALIS_ENABLED=false/' .env || echo 'MORALIS_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_ENABLED=.*/MORALIS_STREAMS_ENABLED=false/' .env || echo 'MORALIS_STREAMS_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_AUTO_SYNC=' .env && sed -i 's/^MORALIS_STREAMS_AUTO_SYNC=.*/MORALIS_STREAMS_AUTO_SYNC=false/' .env || echo 'MORALIS_STREAMS_AUTO_SYNC=false' >> .env
+              grep -q '^MORALIS_STREAMS_WHALE_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_WHALE_ENABLED=.*/MORALIS_STREAMS_WHALE_ENABLED=false/' .env || echo 'MORALIS_STREAMS_WHALE_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_LIQUIDITY_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_LIQUIDITY_ENABLED=.*/MORALIS_STREAMS_LIQUIDITY_ENABLED=false/' .env || echo 'MORALIS_STREAMS_LIQUIDITY_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED=.*/MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED=false/' .env || echo 'MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_SOLANA_ALPHA_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_SOLANA_ALPHA_ENABLED=.*/MORALIS_STREAMS_SOLANA_ALPHA_ENABLED=false/' .env || echo 'MORALIS_STREAMS_SOLANA_ALPHA_ENABLED=false' >> .env
+              grep -q '^MORALIS_STREAMS_BTC_WHALE_ENABLED=' .env && sed -i 's/^MORALIS_STREAMS_BTC_WHALE_ENABLED=.*/MORALIS_STREAMS_BTC_WHALE_ENABLED=false/' .env || echo 'MORALIS_STREAMS_BTC_WHALE_ENABLED=false' >> .env
+              grep -q '^MORALIS_DEFI_ENABLED=' .env && sed -i 's/^MORALIS_DEFI_ENABLED=.*/MORALIS_DEFI_ENABLED=false/' .env || echo 'MORALIS_DEFI_ENABLED=false' >> .env
+              grep -q '^MORALIS_MARKET_METRICS_ENABLED=' .env && sed -i 's/^MORALIS_MARKET_METRICS_ENABLED=.*/MORALIS_MARKET_METRICS_ENABLED=false/' .env || echo 'MORALIS_MARKET_METRICS_ENABLED=false' >> .env
+              grep -q '^BTC_WEALTH_PRICE_SOURCE=' .env && sed -i 's/^BTC_WEALTH_PRICE_SOURCE=.*/BTC_WEALTH_PRICE_SOURCE=coingecko/' .env || echo 'BTC_WEALTH_PRICE_SOURCE=coingecko' >> .env
+              sed -i 's|^ETH_RPC_URL=.*|ETH_RPC_URL=https://ethereum.publicnode.com|' .env
+              sed -i 's|^ETH_RPC_FALLBACK=.*|ETH_RPC_FALLBACK=https://eth.llamarpc.com|' .env
+              sed -i 's|^BASE_RPC_URL=.*|BASE_RPC_URL=https://mainnet.base.org|' .env
+              sed -i 's|^BASE_RPC_FALLBACK=.*|BASE_RPC_FALLBACK=https://base.publicnode.com|' .env
+              sed -i 's|^ARB_RPC_URL=.*|ARB_RPC_URL=https://arb1.arbitrum.io/rpc|' .env
+              sed -i 's|^ARB_RPC_FALLBACK=.*|ARB_RPC_FALLBACK=https://arbitrum.publicnode.com|' .env
+              sed -i 's|^BSC_RPC_URL=.*|BSC_RPC_URL=https://bsc-dataseed.binance.org|' .env
+              sed -i 's|^BSC_RPC_FALLBACK=.*|BSC_RPC_FALLBACK=https://bsc.publicnode.com|' .env
+              sed -i 's|^AVAX_RPC_URL=.*|AVAX_RPC_URL=https://api.avax.network/ext/bc/C/rpc|' .env
+              sed -i 's|^AVAX_RPC_FALLBACK=.*|AVAX_RPC_FALLBACK=https://avalanche-c-chain-rpc.publicnode.com|' .env
+              echo "✅ .env patched with v32 Let Winners Breathe values + Moralis kill"
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"
             fi

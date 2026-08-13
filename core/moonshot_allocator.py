@@ -238,7 +238,8 @@ def discover_moonshot_candidates(chain: str) -> list[MoonshotCandidate]:
         logger.debug(f"DexScreener boost scan error: {e}")
 
     # === Source 2: Moralis Pro trending tokens ===
-    moralis_key = os.getenv("MORALIS_API_KEY", "")
+    from config import settings as _ms
+    moralis_key = getattr(_ms, "MORALIS_API_KEY", "") if getattr(_ms, "MORALIS_ENABLED", False) else ""
     if moralis_key:
         chain_map = {
             "ethereum": "0x1", "base": "0x2105", "bsc": "0x38",

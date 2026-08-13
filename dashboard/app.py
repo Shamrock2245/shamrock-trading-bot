@@ -84,6 +84,9 @@ def confirm_go_live():
     confirm_phrase = st.text_input("Type 'CONFIRM_LIVE' to unlock live trading:")
     
     if st.button("Unlock and Switch to Live", use_container_width=True):
+        if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
+            st.error("PAPER_MODE_LOCKED=true — live trading is disabled.")
+            return
         if confirm_phrase == "CONFIRM_LIVE":
             # Write JSON override
             import json as _json

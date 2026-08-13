@@ -16,10 +16,16 @@ load_dotenv()
 # Trading Mode
 # ─────────────────────────────────────────────────────────────────────────────
 def get_current_mode() -> str:
-    """Read the real-time mode override file, with safe fallbacks."""
+    """Read the real-time mode override file, with safe fallbacks.
+
+    PAPER_MODE_LOCKED=true (default) always wins — dashboard override and
+    MODE=live cannot spend real funds until the lock is explicitly cleared.
+    """
     import json
     from pathlib import Path
     import os
+    if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
+        return "paper"
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     override_path = PROJECT_ROOT / "data" / "dashboard" / "live_mode_override.json"
     if override_path.exists():
@@ -102,7 +108,11 @@ HYPERLIQUID_MEV_SUBACCOUNT = os.getenv("HYPERLIQUID_MEV_SUBACCOUNT", "")
 # ─────────────────────────────────────────────────────────────────────────────
 CMC_API_KEY = os.getenv("CMC_API_KEY", "")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
-MORALIS_API_KEY = os.getenv("MORALIS_API_KEY", "")
+# HARD KILL 2026-08-13: Moralis burned $75 extra CUs in one day (nodes + streams + REST).
+# Default OFF. Do not flip this without a daily CU cap and public RPCs.
+MORALIS_ENABLED = os.getenv("MORALIS_ENABLED", "false").lower() == "true"
+_MORALIS_API_KEY_CONFIGURED = os.getenv("MORALIS_API_KEY", "")
+MORALIS_API_KEY = _MORALIS_API_KEY_CONFIGURED if MORALIS_ENABLED else ""
 # Workspace identity (admin.moralis.com/settings/workspace)
 MORALIS_WORKSPACE_NAME = os.getenv("MORALIS_WORKSPACE_NAME", "")
 MORALIS_WORKSPACE_ID = os.getenv("MORALIS_WORKSPACE_ID", "")
@@ -258,7 +268,11 @@ COPYTRADE_DELAY_REDUCTION_START_SECONDS = int(os.getenv("COPYTRADE_DELAY_REDUCTI
 
 # Moralis Streams webhook ingestion (push-based low-latency detection)
 # Secret = Workspace → Stream Settings → Secret Key (x-signature verification)
-MORALIS_STREAMS_ENABLED = os.getenv("MORALIS_STREAMS_ENABLED", "true").lower() == "true"
+# HARD KILL 2026-08-13: streams default OFF. Health loop must never auto-resume them.
+MORALIS_STREAMS_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_ENABLED", "false").lower() == "true"
+)
 MORALIS_STREAMS_HOST = os.getenv("MORALIS_STREAMS_HOST", "0.0.0.0")
 MORALIS_STREAMS_PORT = int(os.getenv("MORALIS_STREAMS_PORT", "8787"))
 MORALIS_STREAMS_WEBHOOK_SECRET = os.getenv("MORALIS_STREAMS_WEBHOOK_SECRET", "")
@@ -270,18 +284,30 @@ MORALIS_STREAM_ID_SOLANA_ALPHA = os.getenv("MORALIS_STREAM_ID_SOLANA_ALPHA", "")
 MORALIS_STREAM_ID_SOLANA_DISCOVERY = os.getenv("MORALIS_STREAM_ID_SOLANA_DISCOVERY", "")
 
 # Streams Manager — auto-creates and syncs streams on Moralis
-MORALIS_STREAMS_AUTO_SYNC = os.getenv("MORALIS_STREAMS_AUTO_SYNC", "true").lower() == "true"
+MORALIS_STREAMS_AUTO_SYNC = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_AUTO_SYNC", "false").lower() == "true"
+)
 MORALIS_STREAMS_HEALTH_INTERVAL = int(os.getenv("MORALIS_STREAMS_HEALTH_INTERVAL", "300"))  # 5 min
 
 # Whale detection stream — requires Moralis Business plan (allAddresses=true)
-MORALIS_STREAMS_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "true").lower() == "true"
+MORALIS_STREAMS_WHALE_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_WHALE_ENABLED", "false").lower() == "true"
+)
 MORALIS_STREAMS_WHALE_MIN_USD = float(os.getenv("MORALIS_STREAMS_WHALE_MIN_USD", "15000"))  # $15K+ transfers
 
 # Liquidity event stream — monitors DEX factory contracts for new pools
-MORALIS_STREAMS_LIQUIDITY_ENABLED = os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "true").lower() == "true"
+MORALIS_STREAMS_LIQUIDITY_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_LIQUIDITY_ENABLED", "false").lower() == "true"
+)
 
 # Solana Zero-Latency Discovery Stream — monitors Pump.fun & Raydium
-MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED = os.getenv("MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED", "true").lower() == "true"
+MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_SOLANA_DISCOVERY_ENABLED", "false").lower() == "true"
+)
 PUMP_FUN_PROGRAM_ID = os.getenv("PUMP_FUN_PROGRAM_ID", "6EF8rrecthR5Dkzon8Nwu78hRvfC11xTKE1dJ94U2X13")
 RAYDIUM_AMM_PROGRAM_ID = os.getenv("RAYDIUM_AMM_PROGRAM_ID", "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8")
 
@@ -289,7 +315,10 @@ RAYDIUM_AMM_PROGRAM_ID = os.getenv("RAYDIUM_AMM_PROGRAM_ID", "675kPX9MHTjS2zt1qf
 MORALIS_STREAMS_FALLBACK_POLL_INTERVAL = int(os.getenv("MORALIS_STREAMS_FALLBACK_POLL_INTERVAL", "120"))  # 2 min
 
 # Solana alpha wallet copy-trade stream
-MORALIS_STREAMS_SOLANA_ALPHA_ENABLED = os.getenv("MORALIS_STREAMS_SOLANA_ALPHA_ENABLED", "true").lower() == "true"
+MORALIS_STREAMS_SOLANA_ALPHA_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_SOLANA_ALPHA_ENABLED", "false").lower() == "true"
+)
 SOLANA_SMART_MONEY_WALLETS = [w.strip() for w in os.getenv("SOLANA_SMART_MONEY_WALLETS", "").split(",") if w.strip()]
 # Solana alpha wallets — verified Pump.fun/Raydium snipers (seeded 2026-04-04)
 # .env ALPHA_WALLETS_SOLANA always takes priority over this hardcoded seed.
@@ -307,20 +336,29 @@ ALPHA_WALLETS_SOLANA: list[str] = list(dict.fromkeys([
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis Bitcoin Whale Watch Stream
 # ─────────────────────────────────────────────────────────────────────────────
-MORALIS_STREAMS_BTC_WHALE_ENABLED = os.getenv("MORALIS_STREAMS_BTC_WHALE_ENABLED", "true").lower() == "true"
+MORALIS_STREAMS_BTC_WHALE_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_STREAMS_BTC_WHALE_ENABLED", "false").lower() == "true"
+)
 MORALIS_BTC_WHALE_MIN_BTC = float(os.getenv("MORALIS_BTC_WHALE_MIN_BTC", "10.0"))  # Min BTC in tx to flag
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis DeFi API
 # ─────────────────────────────────────────────────────────────────────────────
-MORALIS_DEFI_ENABLED = os.getenv("MORALIS_DEFI_ENABLED", "true").lower() == "true"
+MORALIS_DEFI_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_DEFI_ENABLED", "false").lower() == "true"
+)
 # DeFi positions are expensive (5000 CU) — only check for tokens with base_score >= this
 MORALIS_DEFI_MIN_BASE_SCORE = float(os.getenv("MORALIS_DEFI_MIN_BASE_SCORE", "40.0"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis Market Metrics API
 # ─────────────────────────────────────────────────────────────────────────────
-MORALIS_MARKET_METRICS_ENABLED = os.getenv("MORALIS_MARKET_METRICS_ENABLED", "true").lower() == "true"
+MORALIS_MARKET_METRICS_ENABLED = (
+    MORALIS_ENABLED
+    and os.getenv("MORALIS_MARKET_METRICS_ENABLED", "false").lower() == "true"
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Moralis CU Budget Enforcer
@@ -356,7 +394,7 @@ BTC_WEALTH_MIN_SWEEP_USD = float(os.getenv("BTC_WEALTH_MIN_SWEEP_USD", "50.0"))
 # % of realized profit to convert to BTC (0.0–1.0)
 BTC_WEALTH_SWEEP_PCT = float(os.getenv("BTC_WEALTH_SWEEP_PCT", "0.30"))  # 30% of profits
 # BTC price source: 'moralis' | 'coingecko' | 'coinpaprika'
-BTC_WEALTH_PRICE_SOURCE = os.getenv("BTC_WEALTH_PRICE_SOURCE", "moralis")
+BTC_WEALTH_PRICE_SOURCE = os.getenv("BTC_WEALTH_PRICE_SOURCE", "coingecko")
 # BTC cold wallet address for sweep destination (Wallet C)
 BTC_WEALTH_COLD_WALLET = os.getenv("BTC_WEALTH_COLD_WALLET", "0x32a71a0b8f10f263cd5d3fd8802fd9683ae6c860")
 # Native Bitcoin cold wallet address or xpub (for Business Tier Moralis integration)
@@ -873,7 +911,12 @@ def validate_settings() -> list[str]:
     if not CMC_API_KEY:
         warnings_list.append("CMC_API_KEY not set — CoinMarketCap data unavailable")
 
-    if not MORALIS_API_KEY:
+    if not MORALIS_ENABLED:
+        warnings_list.append(
+            "MORALIS_ENABLED=false — Moralis REST, Streams, and Nodes are hard-disabled "
+            "(2026-08-13 CU overage kill). Enrichment falls back to DexScreener/Helius/GoPlus."
+        )
+    elif not MORALIS_API_KEY:
         warnings_list.append(
             "MORALIS_API_KEY not set — Moralis enrichment (~27% of gem score) unavailable. "
             "Gem quality will be severely degraded. Set MORALIS_API_KEY in your .env or server environment."
@@ -912,8 +955,8 @@ def probe_api_keys() -> dict[str, bool]:
     import requests as _req
     results = {}
 
-    # Moralis
-    if MORALIS_API_KEY:
+    # Moralis — never probe when disabled (probes still consume CUs)
+    if MORALIS_ENABLED and MORALIS_API_KEY:
         try:
             # dateToBlock is the lightest Moralis v2.2 call (1 CU) and validates the key.
             # Note: block/latest is NOT a valid path and returns 400.
@@ -925,6 +968,8 @@ def probe_api_keys() -> dict[str, bool]:
             results["moralis"] = _r.status_code == 200
         except Exception:
             results["moralis"] = False
+    else:
+        results["moralis"] = False
 
     # Helius (Solana RPC)
     if HELIUS_API_KEY:

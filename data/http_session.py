@@ -13,19 +13,39 @@ Usage:
     resp = get_session().get(url, timeout=15)
 """
 
+import os
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 _session: requests.Session | None = None
 
+_MORALIS_HOST_MARKERS = (
+    "moralis.io",
+    "moralis-streams.com",
+    "moralis-nodes.com",
+)
+
+
+def _moralis_url_blocked(url: object) -> bool:
+    """Refuse Moralis hosts unless MORALIS_ENABLED=true. Fail closed."""
+    if os.getenv("MORALIS_ENABLED", "false").lower() == "true":
+        return False
+    url_l = str(url or "").lower()
+    return any(marker in url_l for marker in _MORALIS_HOST_MARKERS)
+
 
 class TimeoutSession(requests.Session):
-    def request(self, *args, **kwargs):
+    def request(self, method, url, *args, **kwargs):
+        if _moralis_url_blocked(url):
+            raise requests.exceptions.RequestException(
+                "Moralis disabled (MORALIS_ENABLED=false) — blocked request to "
+                f"{url}"
+            )
         if 'timeout' not in kwargs:
             kwargs['timeout'] = 15.0  # Global default timeout to prevent hangs
         try:
-            return super().request(*args, **kwargs)
+            return super().request(method, url, *args, **kwargs)
         except requests.exceptions.RequestException as e:
             # Catch timeouts and other request exceptions and raise them clearly, 
             # or we could return a dummy response. But since callers expect a response, 

@@ -117,8 +117,14 @@ def resolve_hl_token(symbol: str, use_search: bool = True) -> Optional[dict]:
             "address": static["address"],
             "source": "static",
         }
-    elif use_search and os.getenv("MORALIS_API_KEY"):
-        result = _search_moralis(sym)
+    elif use_search:
+        try:
+            from config import settings as _ms
+            _moralis_ok = bool(getattr(_ms, "MORALIS_ENABLED", False) and getattr(_ms, "MORALIS_API_KEY", ""))
+        except Exception:
+            _moralis_ok = False
+        if _moralis_ok:
+            result = _search_moralis(sym)
 
     _RESOLVE_CACHE[sym] = (now, result)
     return result

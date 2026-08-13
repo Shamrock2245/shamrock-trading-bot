@@ -88,6 +88,9 @@ def _headers() -> dict[str, str]:
 
 
 def available() -> bool:
+    """False unless the global Moralis kill switch is explicitly enabled."""
+    if not getattr(settings, "MORALIS_ENABLED", False):
+        return False
     return bool(MORALIS_API_KEY)
 
 

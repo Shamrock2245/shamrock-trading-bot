@@ -59,12 +59,14 @@ from data.providers.moralis_rate_limiter import rate_check as _rate_check
 
 
 def _get_api_key() -> str:
-    """Load Moralis API key."""
+    """Load Moralis API key. Empty when the global kill switch is off."""
     try:
         from config import settings
+        if not getattr(settings, "MORALIS_ENABLED", False):
+            return ""
         return getattr(settings, "MORALIS_API_KEY", "") or ""
     except ImportError:
-        return os.getenv("MORALIS_API_KEY", "")
+        return ""
 
 
 def _headers() -> dict:

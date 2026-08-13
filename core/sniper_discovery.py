@@ -52,10 +52,10 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     from config import settings
-    MORALIS_API_KEY: str = getattr(settings, "MORALIS_API_KEY", "")
+    MORALIS_API_KEY: str = getattr(settings, "MORALIS_API_KEY", "") if getattr(settings, "MORALIS_ENABLED", False) else ""
     ACTIVE_CHAINS: list[str] = getattr(settings, "ACTIVE_CHAINS", ["ethereum", "base", "bsc", "solana"])
 except Exception:
-    MORALIS_API_KEY = os.getenv("MORALIS_API_KEY", "")
+    MORALIS_API_KEY = ""
     ACTIVE_CHAINS = ["ethereum", "base", "bsc", "solana"]
 
 BASE_URL = "https://deep-index.moralis.io/api/v2.2"

@@ -37,6 +37,8 @@ class HighFrequencyMoralisScanner:
             self.enabled = env_raw.strip().lower() in ("1", "true", "yes", "on")
         else:
             self.enabled = bool(getattr(settings, "HF_MORALIS_SCANNER_ENABLED", False))
+        if not getattr(settings, "MORALIS_ENABLED", False):
+            self.enabled = False
         self.interval = int(
             os.getenv("HF_SCANNER_INTERVAL", getattr(settings, "HF_SCANNER_INTERVAL", 300))
         )
