@@ -15,6 +15,7 @@ Data sources (cascading):
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -339,6 +340,7 @@ def get_regime(force_refresh: bool = False) -> RegimeState:
         )
         _regime_cache = state
         logger.info(f"Regime: {details}")
+        _maybe_swap_regime_params(state)
         return state
 
     # Fallback to DexScreener if Binance is down
@@ -386,14 +388,32 @@ def get_regime(force_refresh: bool = False) -> RegimeState:
     _regime_cache = state
     logger.info(f"Regime: {details}")
 
-    # Trigger dynamic Optuna parameter switch for the new regime
+    _maybe_swap_regime_params(state)
+    return state
+
+
+_last_applied_regime: Optional[str] = None
+
+
+def _maybe_swap_regime_params(state: RegimeState) -> None:
+    """Swap Optuna profile only when the classified regime actually changes."""
+    global _last_applied_regime
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    name = state.regime.value
+    if _last_applied_regime == name:
+        return
     try:
         from ml.optuna_optimizer import apply_regime_params
-        apply_regime_params(state.regime.value)
+        applied = apply_regime_params(name)
+        if applied:
+            _last_applied_regime = name
+        elif _last_applied_regime is None:
+            # Remember the regime even if no trustworthy params exist yet,
+            # so we retry on the next *change* rather than every 5 minutes.
+            _last_applied_regime = name
     except Exception as _e:
         logger.debug(f"Could not apply regime Optuna params: {_e}")
-
-    return state
 
 
 def get_sizing_multiplier(regime: Regime, profile_name: str = "conservative") -> float:

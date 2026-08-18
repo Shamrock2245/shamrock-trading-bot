@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 
 def _reload_scanner(monkeypatch, **env):
+    env.setdefault("HL_PERPS_UNIVERSE", "full")
+    env.setdefault("HL_PERPS_EXPECTANCY_GATE_ENABLED", "false")
     for k, v in env.items():
         if v is None:
             monkeypatch.delenv(k, raising=False)
@@ -24,6 +26,8 @@ def test_hard_ban_defaults_include_kaito_ape(monkeypatch):
     assert "KAITO" in sc.HL_PERPS_HARD_BAN_COINS
     assert "APE" in sc.HL_PERPS_HARD_BAN_COINS
     assert "GRASS" in sc.HL_PERPS_HARD_BAN_COINS
+    assert "SOL" in sc.HL_PERPS_HARD_BAN_COINS
+    assert "TRB" in sc.HL_PERPS_HARD_BAN_COINS
     # AAVE is soft-toxic only (net winner in v31) — not hard-banned by default
     assert "AAVE" not in sc.HL_PERPS_HARD_BAN_COINS
     assert "AAVE" in sc.HL_PERPS_TOXIC_COINS
@@ -126,9 +130,9 @@ def _gmx_signal():
 
 
 def test_daily_open_cap_default(monkeypatch):
-    # v40: 24 → 10 quality trades/day max
+    # Quality over spray: 6 quality trades/day max
     sc = _reload_scanner(monkeypatch, HL_PERPS_MAX_OPENS_PER_DAY=None)
-    assert sc.HL_PERPS_MAX_OPENS_PER_DAY == 10
+    assert sc.HL_PERPS_MAX_OPENS_PER_DAY == 6
 
 
 def test_daily_open_cap_blocks_after_limit(monkeypatch):
@@ -354,3 +358,81 @@ def test_regime_gate_blocks_long_in_nuke(monkeypatch):
     with patch("core.regime_filter.get_regime", return_value=nuke_state):
         assert scanner._execute_signal(_gmx_signal()) is False
     scanner.hl_executor.open_long.assert_not_called()
+
+
+def test_min_rr_and_allowlist_defaults(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_MIN_RR=None,
+        HL_PERPS_UNIVERSE=None,
+        HL_PERPS_ALLOWLIST=None,
+    )
+    assert sc.HL_PERPS_MIN_RR == 1.5
+    assert sc.HL_PERPS_UNIVERSE == "allowlist"
+    assert "AAVE" in sc.HL_PERPS_ALLOWLIST
+    assert "MON" in sc.HL_PERPS_ALLOWLIST
+    assert "SOL" not in sc.HL_PERPS_ALLOWLIST
+    assert "TRB" not in sc.HL_PERPS_ALLOWLIST
+
+
+def test_allowlist_blocks_off_list_coin(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_UNIVERSE="allowlist",
+        HL_PERPS_ALLOWLIST="AAVE,MON",
+        HL_PERPS_TOXIC_COINS="",
+        HL_PERPS_EXPECTANCY_GATE_ENABLED="false",
+        WINNING_ENTRY_FILTER_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+        HL_PERPS_LONG_ONLY="true",
+    )
+    scanner = _make_ready_scanner(sc)
+    assert scanner._execute_signal(_gmx_signal()) is False
+    scanner.hl_executor.open_long.assert_not_called()
+    sig = _gmx_signal()
+    sig.coin = "MON"
+    assert scanner._execute_signal(sig) is True
+
+
+def test_expectancy_gate_blocks_negative_pf(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_UNIVERSE="full",
+        HL_PERPS_EXPECTANCY_GATE_ENABLED="true",
+        HL_PERPS_AUTOBAN_MIN_TRADES="5",
+        HL_PERPS_AUTOBAN_PF_THRESHOLD="0.85",
+        WINNING_ENTRY_FILTER_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+        HL_PERPS_LONG_ONLY="true",
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner._coin_perf = {
+        "GMX": {
+            "wins": 2,
+            "losses": 6,
+            "gross_profit": 4.0,
+            "gross_loss": 20.0,
+            "pnl_usd": -16.0,
+        }
+    }
+    assert scanner.coin_fails_expectancy("GMX") is True
+    assert scanner._execute_signal(_gmx_signal()) is False
+    scanner.hl_executor.open_long.assert_not_called()
+
+
+def test_pf_autoban_catches_high_wr_loser(monkeypatch):
+    """SOL-class: 45% WR still loses money — must ban on PF, not just WR."""
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_AUTOBAN_ENABLED="true",
+        HL_PERPS_AUTOBAN_MIN_TRADES="5",
+        HL_PERPS_AUTOBAN_WR_THRESHOLD="0.32",
+        HL_PERPS_AUTOBAN_PF_THRESHOLD="0.85",
+    )
+    scanner = _make_ready_scanner(sc)
+    # 3 wins / 4 losses = 43% WR (above WR threshold) but PF = 3/20 = 0.15
+    for _ in range(3):
+        scanner.record_trade_outcome("SOLX", won=True, pnl_usd=1.0)
+    for _ in range(4):
+        scanner.record_trade_outcome("SOLX", won=False, pnl_usd=-5.0)
+    assert "SOLX" in scanner._autoban_until

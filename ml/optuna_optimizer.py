@@ -231,39 +231,32 @@ def _apply_safety_guardrails(
 # Parameter Application
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _apply_params_to_env(params: dict) -> None:
+def _apply_params_to_env(params: dict, source: str = "optuna") -> dict:
     """
-    Apply optimized parameters by setting environment variables.
-    These override the defaults in config/settings.py on next import.
+    Apply optimized parameters to the live process.
+
+    settings.py is import-time — os.environ writes alone are a no-op for the
+    running bot. runtime_params mutates settings + wallet profiles + env and
+    persists an overlay the bot process can reload.
     """
-    env_map = {
-        "min_gem_score": "MIN_GEM_SCORE",
-        "express_lane_score": "EXPRESS_LANE_SCORE",
-        "tp1_mult": "TAKE_PROFIT_TP1_MULT",
-        "tp1_sell_pct": "TAKE_PROFIT_TP1_SELL_PCT",
-        "tp2_mult": "TAKE_PROFIT_TP2_MULT",
-        "tp2_sell_pct": "TAKE_PROFIT_TP2_SELL_PCT",
-        "tp3_mult": "TAKE_PROFIT_TP3_MULT",
-        "stop_loss_pct": "STOP_LOSS_PERCENT",
-        "hard_stop_pct": "HARD_STOP_LOSS_PERCENT",
-        "pre_tp1_trailing_pct": "PRE_TP1_TRAILING_STOP_PCT",
-        "max_position_pct": "MAX_POSITION_SIZE_PERCENT",
-        "god_mode_kelly_mult": "GOD_MODE_KELLY_MULTIPLIER",
-    }
+    from core.runtime_params import apply_params
 
-    applied = []
-    for param_key, env_key in env_map.items():
-        if param_key in params:
-            os.environ[env_key] = str(params[param_key])
-            applied.append(f"{env_key}={params[param_key]}")
-
+    applied = apply_params(params, source=source, persist=True)
     if applied:
-        logger.info(f"Optuna: Applied {len(applied)} params to env: {', '.join(applied[:5])}...")
+        preview = ", ".join(f"{k}={v}" for k, v in list(applied.items())[:5])
+        logger.info(f"Optuna: Applied {len(applied)} live params: {preview}...")
+    return applied
 
-    # NOTE: Scoring weights (w_volume, w_holder, etc.) are NOT written to dynamic_weights.json
-    # to avoid race condition with XGBoost weight_optimizer (which writes every 6h).
-    # XGBoost has 12-feature granularity vs Optuna's 5 categories — let it own that file.
-    # Optuna's optimized weights are stored in output/optuna_best_params.json for reference.
+
+def params_are_trustworthy(data: dict) -> bool:
+    """Reject dry-run / underpowered Optuna dumps before they hit live settings."""
+    if not isinstance(data, dict):
+        return False
+    if data.get("walk_forward_pass"):
+        return True
+    n_trials = int(data.get("n_trials") or 0)
+    trade_count = int(data.get("trade_count") or 0)
+    return n_trials >= 50 and trade_count >= 30
 
 
 REGIME_DEFAULTS: dict[str, dict[str, float]] = {
@@ -335,21 +328,38 @@ def apply_regime_params(regime_name: str) -> dict:
         else:
             norm = "trending"
 
-    target_params = dict(REGIME_DEFAULTS.get(norm, REGIME_DEFAULTS["trending"]))
+    target_params: dict = {}
+    data: dict = {}
 
     if BEST_PARAMS_PATH.exists():
         try:
             with open(BEST_PARAMS_PATH, "r") as f:
                 data = json.load(f)
-            regime_profiles = data.get("regime_profiles", {})
-            if norm in regime_profiles and isinstance(regime_profiles[norm], dict):
-                target_params.update(regime_profiles[norm])
-            elif "best_params" in data:
-                target_params.update(data["best_params"])
         except Exception as e:
             logger.debug(f"Failed reading BEST_PARAMS_PATH for regime {norm}: {e}")
+            data = {}
 
-    _apply_params_to_env(target_params)
+    if data and not params_are_trustworthy(data):
+        logger.info(
+            f"🧠 Optuna: skip regime apply for '{norm}' — params not trustworthy "
+            f"(trials={data.get('n_trials')}, trades={data.get('trade_count')}, "
+            f"wf={data.get('walk_forward_pass')})"
+        )
+        return {}
+
+    if data:
+        regime_profiles = data.get("regime_profiles", {})
+        if norm in regime_profiles and isinstance(regime_profiles[norm], dict):
+            target_params = dict(regime_profiles[norm])
+        elif isinstance(data.get("best_params"), dict):
+            target_params = dict(data["best_params"])
+
+    if not target_params:
+        # Cold start: do not force REGIME_DEFAULTS over current production knobs.
+        logger.info(f"🧠 Optuna: no saved profile for '{norm}' — leaving current params in place")
+        return {}
+
+    _apply_params_to_env(target_params, source=f"optuna-regime:{norm}")
     logger.info(f"🧠 Optuna: Applied regime-specific parameters for regime '{norm.upper()}' ✅")
     return target_params
 
@@ -410,6 +420,23 @@ def _notify_slack(
 # Main Optimization Cycle
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _last_run_timestamp() -> float:
+    """In-memory first, then generated_at on disk so bot + service share the interval."""
+    if _last_run_time > 0:
+        return _last_run_time
+    if not BEST_PARAMS_PATH.exists():
+        return 0.0
+    try:
+        with open(BEST_PARAMS_PATH, "r") as f:
+            data = json.load(f)
+        generated = data.get("generated_at")
+        if generated:
+            return datetime.fromisoformat(str(generated).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        pass
+    return 0.0
+
+
 def run_optuna_cycle(force: bool = False) -> Optional[dict]:
     """
     Full Optuna optimization cycle:
@@ -432,9 +459,10 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
     if not getattr(settings, "OPTUNA_ENABLED", True):
         return None
 
-    # Check interval
+    # Check interval (shared across bot daemon + standalone service via the result file)
     interval_hours = getattr(settings, "OPTUNA_INTERVAL_HOURS", 12)
-    if not force and (time.time() - _last_run_time) < (interval_hours * 3600):
+    last_ts = _last_run_timestamp()
+    if not force and last_ts > 0 and (time.time() - last_ts) < (interval_hours * 3600):
         return None
 
     try:
@@ -455,7 +483,9 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
         logger.info(
             f"Optuna: Insufficient trades ({len(trades)} < {min_trades}) — skipping optimization"
         )
-        _last_run_time = time.time()
+        # Retry in 1h, not the full 12h interval — we want to start as soon as
+        # the paper campaign has enough closes.
+        _last_run_time = time.time() - (interval_hours * 3600) + 3600
         return None
 
     logger.info(
@@ -495,8 +525,9 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
     )
 
     elapsed = time.time() - t0
+    completed_trials = len(study.trials)
     logger.info(
-        f"🧠 Optuna: Completed {n_trials} trials in {elapsed:.1f}s "
+        f"🧠 Optuna: Completed {completed_trials}/{n_trials} trials in {elapsed:.1f}s "
         f"({len(study.best_trials)} Pareto-optimal)"
     )
 
@@ -594,13 +625,12 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
         pass
 
     auto_apply = getattr(settings, "OPTUNA_AUTO_APPLY", True)
-    if auto_apply:
-        apply_regime_params(active_regime)
 
-    # ── Save results ─────────────────────────────────────────────────
+    # ── Save results FIRST so apply_regime_params reads this cycle, not the last ─
     result_data = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "n_trials": n_trials,
+        "n_trials": completed_trials,
+        "requested_trials": n_trials,
         "best_sharpe": best_sharpe,
         "best_drawdown_pct": best_dd,
         "trade_count": len(trades),
@@ -622,6 +652,12 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
     except Exception as e:
         logger.error(f"Optuna: Failed to save results: {e}")
 
+    if auto_apply:
+        # Fresh cycle: apply the in-memory profile directly (trust this run,
+        # even if walk-forward was marginal — guardrails already tightened).
+        live = regime_profiles.get(active_regime) or safe_params
+        _apply_params_to_env(live, source=f"optuna-cycle:{active_regime}")
+
     # ── Slack notification ───────────────────────────────────────────
     _notify_slack(
         best_params=safe_params,
@@ -638,10 +674,42 @@ def run_optuna_cycle(force: bool = False) -> Optional[dict]:
     return safe_params
 
 
+_optuna_file_mtime: float = 0.0
+
+
+def maybe_reload_regime_params(force: bool = False) -> dict:
+    """
+    If the standalone auto-tuner service wrote a newer optuna_best_params.json,
+    re-apply the profile for the current market regime.
+    """
+    global _optuna_file_mtime
+    if not BEST_PARAMS_PATH.exists():
+        return {}
+    try:
+        mtime = BEST_PARAMS_PATH.stat().st_mtime
+    except OSError:
+        return {}
+    if not force and mtime <= _optuna_file_mtime:
+        return {}
+    try:
+        from core.regime_filter import get_regime
+        regime_name = get_regime().regime.value
+    except Exception:
+        regime_name = "trending"
+    applied = apply_regime_params(regime_name)
+    _optuna_file_mtime = mtime
+    return applied
+
+
 def get_optimizer_status() -> dict:
     """Return current optimizer status for dashboard display."""
     from ml.paper_backtest import load_trades
-    trades = load_trades(14)
+    try:
+        from config import settings as _s
+        lookback = int(getattr(_s, "OPTUNA_LOOKBACK_DAYS", 60))
+    except Exception:
+        lookback = 60
+    trades = load_trades(lookback)
 
     status = {
         "trades_available": len(trades),

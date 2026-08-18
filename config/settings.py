@@ -245,6 +245,11 @@ OPTUNA_LOOKBACK_DAYS = int(os.getenv("OPTUNA_LOOKBACK_DAYS", "60"))          # T
 SELF_IMPROVEMENT_ENABLED = os.getenv("SELF_IMPROVEMENT_ENABLED", "true").lower() == "true"
 SELF_IMPROVEMENT_INTERVAL_SECONDS = float(os.getenv("SELF_IMPROVEMENT_INTERVAL_SECONDS", "86400"))  # 24 hours
 SELF_IMPROVEMENT_AUDIT_FILE = os.getenv("SELF_IMPROVEMENT_AUDIT_FILE", "output/self_improving_audit.json")
+# Live-mutable knobs written by the self-improving agent / runtime overlay.
+# WinningRiskConfig and WinningEntryFilter also read these via env.
+MIN_VOLUME_USD = float(os.getenv("MIN_VOLUME_USD", "500000"))
+FAST_BREAK_EVEN_PCT = float(os.getenv("FAST_BREAK_EVEN_PCT", "2.5"))
+RUNTIME_PARAMS_FILE = os.getenv("RUNTIME_PARAMS_FILE", "output/runtime_params.json")
 
 # ── Upgrade 4: Wallet Monitor (Copy-Trading Daemon) ──────────────────────────
 WALLET_MONITOR_ENABLED = os.getenv("WALLET_MONITOR_ENABLED", "true").lower() == "true"

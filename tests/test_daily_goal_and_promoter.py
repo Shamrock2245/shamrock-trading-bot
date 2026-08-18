@@ -148,6 +148,10 @@ class TestDailyGoalEngine:
                 mock_datetime.now.return_value = mock_dt
                 engine._update_strategy_mode()
         assert engine.strategy_mode == "catch_up"
+        overrides = engine.get_hl_perps_config_overrides()
+        # Catch-up must NOT lower the entry bar — that is how losing days spray.
+        assert overrides["exec_score_delta"] >= 0
+        assert overrides["size_multiplier"] <= 1.0
 
     def test_tier_advance_after_5_consecutive_hits(self, tmp_path):
         """Tier advances from 0 to 1 after 5 consecutive $500+ days."""

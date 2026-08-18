@@ -397,6 +397,18 @@ class SelfImprovingAgent:
         rationale = update.get("rationale", "No rationale provided.")
         logger.info(f"📝 TaG COMMIT (Self-Improving Agent): {rationale}")
 
+        new_params = update.get("new_params") or {}
+        if new_params:
+            try:
+                from core.runtime_params import apply_params
+                applied = apply_params(new_params, source="self-improving-agent")
+                if applied:
+                    logger.info(
+                        f"Self-Improving Agent: applied live params {applied}"
+                    )
+            except Exception as e:
+                logger.warning(f"Self-Improving Agent: live param apply failed: {e}")
+
         blacklist_candidates = update.get("blacklist_candidates", [])
         if blacklist_candidates:
             try:
@@ -456,6 +468,9 @@ class SelfImprovingAgent:
         except Exception as e:
             logger.error(f"Self-Improving Agent: Performance audit failed: {e}", exc_info=True)
             return None
+
+    # Alias used by the main.py daemon (historical name).
+    run_audit_cycle = run_self_audit
 
 
 # Global instance

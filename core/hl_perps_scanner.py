@@ -157,14 +157,14 @@ HL_PERPS_EMERGENCY_COOLDOWN_MIN: int = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOW
 # Hard notional cap (margin × leverage). CSV40: ≥$500 notional = −$279 on 10 trades.
 HL_PERPS_MAX_NOTIONAL_USD: float = float(os.getenv("HL_PERPS_MAX_NOTIONAL_USD", "350.0"))
 # Minimum R/R at signal generation (executor re-checks post-fill)
-HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
+HL_PERPS_MIN_RR: float = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
 # Live short WR ~17% / PF 0.55 — long-only until short edge proven.
 HL_PERPS_LONG_ONLY: bool = os.getenv("HL_PERPS_LONG_ONLY", "true").lower() == "true"
 
 # ── Hard ban (trade_history 42): NEVER open these — confirmed multi-trade losers ──
 _HARD_BAN_RAW = os.getenv(
     "HL_PERPS_HARD_BAN_COINS",
-    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI",
+    "KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX",
 )
 HL_PERPS_HARD_BAN_COINS: set[str] = {
     c.strip().upper() for c in _HARD_BAN_RAW.split(",") if c.strip()
@@ -182,7 +182,7 @@ HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS"
 # v40: 1 best setup per cycle.
 HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "1"))
 # Daily churn hard stop. Target 4–10 quality trades/day, not 60.
-HL_PERPS_MAX_OPENS_PER_DAY: int = int(os.getenv("HL_PERPS_MAX_OPENS_PER_DAY", "10"))
+HL_PERPS_MAX_OPENS_PER_DAY: int = int(os.getenv("HL_PERPS_MAX_OPENS_PER_DAY", "6"))
 # v32: per-coin edge sizing — scale size by realized per-coin expectancy from
 # hl_coin_perf.json (already persisted for autoban). Proven winners get up to
 # EDGE_SIZE_MAX, chronic underperformers get EDGE_SIZE_MIN. Neutral → 1.0.
@@ -250,8 +250,21 @@ WINNING_ENTRY_FILTER_ENABLED: bool = os.getenv(
 # State persists to data/dashboard/hl_coin_perf.json so bans survive restarts.
 HL_PERPS_AUTOBAN_ENABLED: bool = os.getenv("HL_PERPS_AUTOBAN_ENABLED", "true").lower() == "true"
 HL_PERPS_AUTOBAN_MIN_TRADES: int = int(os.getenv("HL_PERPS_AUTOBAN_MIN_TRADES", "5"))  # Min trades before ban eligible
-HL_PERPS_AUTOBAN_WR_THRESHOLD: float = float(os.getenv("HL_PERPS_AUTOBAN_WR_THRESHOLD", "0.30"))  # Ban if WR < 30%
-HL_PERPS_AUTOBAN_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_HOURS", "48.0"))  # Ban duration in hours
+HL_PERPS_AUTOBAN_WR_THRESHOLD: float = float(os.getenv("HL_PERPS_AUTOBAN_WR_THRESHOLD", "0.32"))  # Ban if WR < 32%
+# SOL was 45% WR / PF 0.12 — WR-only autoban never caught it. Ban on profit factor too.
+HL_PERPS_AUTOBAN_PF_THRESHOLD: float = float(os.getenv("HL_PERPS_AUTOBAN_PF_THRESHOLD", "0.85"))
+HL_PERPS_AUTOBAN_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_HOURS", "168.0"))  # 7 days
+HL_PERPS_EXPECTANCY_GATE_ENABLED: bool = os.getenv(
+    "HL_PERPS_EXPECTANCY_GATE_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+# Pairlist: default allowlist of names that actually made money (or are BTC).
+# `full` restores the 230-coin spray that produced TRB/GRASS.
+HL_PERPS_UNIVERSE: str = os.getenv("HL_PERPS_UNIVERSE", "allowlist").strip().lower()
+_ALLOW_RAW = os.getenv(
+    "HL_PERPS_ALLOWLIST",
+    "BTC,AAVE,MON,DYDX,VVV,XMR,TNSR,VIRTUAL,BANANA,RESOLV,LTC,JUP,PUMP,AERO,INJ,LINK,SKY,SYRUP",
+)
+HL_PERPS_ALLOWLIST: set[str] = {c.strip().upper() for c in _ALLOW_RAW.split(",") if c.strip()}
 
 # Profit withdrawal automation
 HL_PERPS_BASE_CAPITAL: float = float(os.getenv("HL_PERPS_BASE_CAPITAL", "150.0"))
@@ -680,6 +693,7 @@ class HLPerpsScanner:
         # coin → unix timestamp when the ban expires
         self._autoban_until: dict[str, float] = {}
         self._load_coin_perf()
+        self._seed_expectancy_from_ledger()
 
         # ── API Rate-Limit Protection ─────────────────────────────────────────
         # Cache meta() responses for 30s to stay well under HL's 1200 weight/min limit.
@@ -963,7 +977,7 @@ class HLPerpsScanner:
 
         return False
 
-    def record_trade_outcome(self, coin: str, won: bool) -> None:
+    def record_trade_outcome(self, coin: str, won: bool, pnl_usd: float = 0.0) -> None:
         """
         Record a closed trade outcome for a coin and auto-ban it if its
         rolling win rate falls below the threshold.
@@ -997,22 +1011,30 @@ class HLPerpsScanner:
         perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": time.time()})
         if won:
             perf["wins"] += 1
+            if pnl_usd > 0:
+                perf["gross_profit"] = float(perf.get("gross_profit") or 0.0) + pnl_usd
         else:
             perf["losses"] += 1
+            loss_amt = abs(pnl_usd) if pnl_usd else 1.0
+            perf["gross_loss"] = float(perf.get("gross_loss") or 0.0) + loss_amt
+        perf["pnl_usd"] = float(perf.get("pnl_usd") or 0.0) + float(pnl_usd or 0.0)
         perf["last_updated"] = time.time()
         total = perf["wins"] + perf["losses"]
         wr = perf["wins"] / total if total > 0 else 1.0
-        # Evaluate ban eligibility
-        if (
-            total >= HL_PERPS_AUTOBAN_MIN_TRADES
-            and wr < HL_PERPS_AUTOBAN_WR_THRESHOLD
-            and coin not in self._autoban_until
-        ):
+        gp = float(perf.get("gross_profit") or 0.0)
+        gl = float(perf.get("gross_loss") or 0.0)
+        pf = (gp / gl) if gl > 0 else (9.9 if gp > 0 else 0.0)
+        # Evaluate ban eligibility — WR *or* profit factor (SOL was 45% WR / PF 0.12)
+        should_ban = total >= HL_PERPS_AUTOBAN_MIN_TRADES and (
+            wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
+        )
+        if should_ban and coin not in self._autoban_until:
             ban_expires = time.time() + HL_PERPS_AUTOBAN_HOURS * 3600
             self._autoban_until[coin] = ban_expires
             logger.warning(
                 f"🚫 [AUTO-BAN] {coin} auto-banned for {HL_PERPS_AUTOBAN_HOURS:.0f}h "
-                f"| trades={total} | WR={wr*100:.0f}% < {HL_PERPS_AUTOBAN_WR_THRESHOLD*100:.0f}% threshold"
+                f"| trades={total} | WR={wr*100:.0f}% PF={pf:.2f} "
+                f"(wr<{HL_PERPS_AUTOBAN_WR_THRESHOLD*100:.0f}% or pf<{HL_PERPS_AUTOBAN_PF_THRESHOLD:.2f})"
             )
         self._save_coin_perf()
 
@@ -1040,6 +1062,98 @@ class HLPerpsScanner:
                 )
         except Exception as e:
             logger.warning(f"[AUTO-BAN] Failed to load coin perf state: {e}")
+
+    def _seed_expectancy_from_ledger(self) -> None:
+        """Load hl_paired_trades.json and ban coins with proven negative expectancy."""
+        if os.environ.get("PYTEST_CURRENT_TEST") and os.getenv("HL_PERPS_SEED_LEDGER_IN_TESTS") != "true":
+            return
+        if not HL_PERPS_AUTOBAN_ENABLED and not HL_PERPS_EXPECTANCY_GATE_ENABLED:
+            return
+        for candidate in (
+            os.getenv("HL_PAIRED_TRADES_FILE", "output/hl_paired_trades.json"),
+            "/app/output/hl_paired_trades.json",
+        ):
+            path = Path(candidate)
+            if path.exists() and path.stat().st_size > 2:
+                break
+        else:
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.debug(f"[EXPECTANCY] ledger read failed: {e}")
+            return
+        if isinstance(raw, dict):
+            raw = raw.get("trades") or raw.get("paired") or []
+        if not isinstance(raw, list) or not raw:
+            return
+
+        stats: dict[str, dict] = {}
+        for t in raw:
+            coin = str(t.get("coin") or t.get("token_symbol") or "").upper()
+            if not coin:
+                continue
+            try:
+                pnl = float(t.get("pnl_usd") or t.get("closedPnl") or t.get("realized_pnl") or 0.0)
+            except (TypeError, ValueError):
+                pnl = 0.0
+            row = stats.setdefault(coin, {"wins": 0, "losses": 0, "gp": 0.0, "gl": 0.0, "pnl": 0.0})
+            row["pnl"] += pnl
+            if pnl > 0:
+                row["wins"] += 1
+                row["gp"] += pnl
+            elif pnl < 0:
+                row["losses"] += 1
+                row["gl"] += abs(pnl)
+
+        now = time.time()
+        seeded = 0
+        for coin, row in stats.items():
+            perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": now})
+            # Prefer the exchange ledger when it has a larger sample.
+            if row["wins"] + row["losses"] >= int(perf.get("wins", 0)) + int(perf.get("losses", 0)):
+                perf["wins"] = row["wins"]
+                perf["losses"] = row["losses"]
+                perf["gross_profit"] = row["gp"]
+                perf["gross_loss"] = row["gl"]
+                perf["pnl_usd"] = row["pnl"]
+                perf["last_updated"] = now
+            total = row["wins"] + row["losses"]
+            if total < HL_PERPS_AUTOBAN_MIN_TRADES:
+                continue
+            wr = row["wins"] / total if total else 1.0
+            pf = (row["gp"] / row["gl"]) if row["gl"] > 0 else (9.9 if row["gp"] > 0 else 0.0)
+            if wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD:
+                expires = now + HL_PERPS_AUTOBAN_HOURS * 3600
+                prev = self._autoban_until.get(coin, 0.0)
+                if expires > prev:
+                    self._autoban_until[coin] = expires
+                    seeded += 1
+                    logger.warning(
+                        f"🚫 [LEDGER-BAN] {coin} n={total} WR={wr*100:.0f}% PF={pf:.2f} "
+                        f"pnl=${row['pnl']:.2f} — banned {HL_PERPS_AUTOBAN_HOURS:.0f}h"
+                    )
+        if seeded:
+            self._save_coin_perf()
+            logger.info(f"[EXPECTANCY] seeded {seeded} ledger bans from {path}")
+
+    def coin_fails_expectancy(self, coin: str) -> bool:
+        """True when the coin has enough history to prove it loses money."""
+        if not HL_PERPS_EXPECTANCY_GATE_ENABLED:
+            return False
+        perf = self._coin_perf.get(str(coin).upper())
+        if not perf:
+            return False
+        wins = int(perf.get("wins") or 0)
+        losses = int(perf.get("losses") or 0)
+        total = wins + losses
+        if total < HL_PERPS_AUTOBAN_MIN_TRADES:
+            return False
+        wr = wins / total if total else 1.0
+        gp = float(perf.get("gross_profit") or 0.0)
+        gl = float(perf.get("gross_loss") or 0.0)
+        pf = (gp / gl) if gl > 0 else (9.9 if gp > 0 else 0.0)
+        return wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
 
     def _save_coin_perf(self) -> None:
         """Persist coin performance stats and active bans to disk."""
@@ -1872,6 +1986,16 @@ class HLPerpsScanner:
             )
             return False
 
+        if HL_PERPS_UNIVERSE == "allowlist" and HL_PERPS_ALLOWLIST and coin_u not in HL_PERPS_ALLOWLIST:
+            logger.info(f"[HL-PERPS] {signal.coin} not on profit allowlist — skip")
+            return False
+
+        if self.coin_fails_expectancy(coin_u):
+            logger.info(
+                f"[HL-PERPS] {signal.coin} blocked — negative expectancy on ledger"
+            )
+            return False
+
         # Soft toxic: higher score bar only (repeat losers / noisy names)
         exec_floor = float(freq["exec_score"])
         if coin_u in HL_PERPS_TOXIC_COINS and coin_u not in HL_PERPS_HARD_BAN_COINS:
@@ -2142,19 +2266,19 @@ class HLPerpsScanner:
         # Fetch all funding rates in one call (efficiency)
         funding_rates = self._get_all_funding_rates()
 
-        # Build scan list: ALL perps from HL universe (not just watchlist)
-        # This dramatically expands opportunity surface from 41 to 230+ coins.
-        # Watchlist coins are scanned first (priority), then all remaining perps.
-        # Discovery coins are ranked by cross-sectional momentum (OpenAlice pattern):
-        # absolute 24h price change × log-volume ensures the most active movers
-        # are scanned first, maximising signal quality within the 100-coin cap.
+        # Pairlist discipline: default allowlist of names that made money.
+        # `HL_PERPS_UNIVERSE=full` restores the 230-coin spray (how TRB/GRASS got in).
         watchlist_set = set(HL_PERPS_WATCHLIST)
-        scan_list = list(HL_PERPS_WATCHLIST)
-        all_perps = set(funding_rates.keys())
-        remaining = [c for c in sorted(all_perps) if c not in watchlist_set]
-        # Rank discovery coins by momentum before appending
-        remaining = self._rank_coins_by_momentum(remaining)
-        scan_list.extend(remaining)
+        if HL_PERPS_UNIVERSE == "allowlist" and HL_PERPS_ALLOWLIST:
+            allow = {c for c in HL_PERPS_ALLOWLIST if c not in HL_PERPS_HARD_BAN_COINS}
+            scan_list = [c for c in HL_PERPS_WATCHLIST if c in allow]
+            scan_list.extend([c for c in sorted(allow) if c not in set(scan_list)])
+        else:
+            scan_list = list(HL_PERPS_WATCHLIST)
+            all_perps = set(funding_rates.keys())
+            remaining = [c for c in sorted(all_perps) if c not in watchlist_set]
+            remaining = self._rank_coins_by_momentum(remaining)
+            scan_list.extend(remaining)
 
         signals: list[PerpSignal] = []
         scanned = 0

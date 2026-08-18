@@ -152,9 +152,9 @@ class HyperliquidExecutor:
         # Max fraction of account equity used as margin on a single trade.
         self.max_margin_equity_pct = float(os.getenv("HL_PERPS_MAX_MARGIN_EQUITY_PCT", "0.15"))
         # Minimum reward/risk after fill when structure SL/TP is provided.
-        # MUST match scanner HL_PERPS_MIN_RR (default 1.2). Mismatch caused 49 rapid
+        # MUST match scanner HL_PERPS_MIN_RR (default 1.5). Mismatch caused 49 rapid
         # closes (5-6s): scanner approved R/R=1.1-1.4, executor rejected at 1.5 → market_close.
-        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.2"))
+        self.min_rr_ratio = float(os.getenv("HL_PERPS_MIN_RR", "1.5"))
         # Emergency-close cooldown injected into scanner (minutes).
         # MUST match scanner HL_PERPS_EMERGENCY_COOLDOWN_MIN (default 60).
         self.emergency_cooldown_min = int(os.getenv("HL_PERPS_EMERGENCY_COOLDOWN_MIN", "60"))

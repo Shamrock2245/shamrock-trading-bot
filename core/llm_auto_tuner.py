@@ -122,7 +122,11 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     model = get_openai_model()
     client = get_openai_client()
     if not client:
-        return []
+        logger.info(
+            f"🧠 Auto-Tuner: no OPENAI_API_KEY — using deterministic trailing-stop rules "
+            f"(model={model})"
+        )
+        return _deterministic_trailing_commands(positions, daily_pnl, target_pnl)
     if not positions:
         logger.info(f"🧠 Auto-Tuner skipped: no positions found in positions.json (model={model})")
         return []
@@ -220,6 +224,63 @@ def generate_tuning_commands(positions: List[Dict[str, Any]], daily_pnl: float, 
     except Exception as e:
         logger.error(f"🧠 Auto-Tuner API error with model={model}: {e}")
         return []
+
+
+def _deterministic_trailing_commands(
+    positions: List[Dict[str, Any]],
+    daily_pnl: float,
+    target_pnl: float,
+) -> List[Dict[str, Any]]:
+    """
+    Rule-based trailing-stop tighten when the LLM is unavailable.
+
+    Mirrors the prompt rules: lock gains as the daily target is approached,
+    and tighten on large unrealized winners. Never loosens a trail.
+    """
+    open_positions = [p for p in positions if _is_open_gem_position(p)]
+    if not open_positions:
+        return []
+
+    proximity = (daily_pnl / target_pnl) if target_pnl > 0 else 0.0
+    commands: List[Dict[str, Any]] = []
+
+    for p in open_positions:
+        token = p.get("token_symbol")
+        if not token:
+            continue
+        entry = float(p.get("entry_price", 0) or 0)
+        current = float(p.get("current_price", entry) or entry)
+        gain_pct = ((current - entry) / entry) * 100 if entry > 0 else 0.0
+        current_trail = float(p.get("trailing_stop_pct", 5.0) or 5.0)
+
+        new_trail = current_trail
+        rationale = ""
+        if proximity >= 0.90:
+            new_trail = min(current_trail, max(2.0, current_trail * 0.50))
+            rationale = (
+                f"Daily PnL ${daily_pnl:.0f} is {proximity:.0%} of ${target_pnl:.0f} target "
+                f"— tighten trail to lock the day."
+            )
+        elif proximity >= 0.70:
+            new_trail = min(current_trail, max(2.5, current_trail * 0.70))
+            rationale = (
+                f"Approaching daily target ({proximity:.0%}) — moderately tighten trail."
+            )
+        elif gain_pct >= 40.0:
+            new_trail = min(current_trail, max(3.0, current_trail * 0.60))
+            rationale = f"{token} is +{gain_pct:.1f}% — tighten trail on a large winner."
+        elif gain_pct >= 20.0:
+            new_trail = min(current_trail, max(4.0, current_trail * 0.80))
+            rationale = f"{token} is +{gain_pct:.1f}% — slightly tighten trail."
+
+        if new_trail < current_trail - 0.05:
+            commands.append({
+                "token": token,
+                "action": "update_trailing_stop",
+                "new_trailing_stop_pct": round(new_trail, 2),
+                "rationale": rationale,
+            })
+    return commands
 
 
 # ─────────────────────────────────────────────────────────────────────────────

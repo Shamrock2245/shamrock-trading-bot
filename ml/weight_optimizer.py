@@ -71,7 +71,9 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 LOOKBACK_DAYS = int(os.getenv("ML_LOOKBACK_DAYS", "7"))
 MIN_TRADES_REQUIRED = int(os.getenv("ML_MIN_TRADES", "20"))
-WIN_THRESHOLD_PCT = float(os.getenv("ML_WIN_THRESHOLD_PCT", "15.0"))  # >15% = win
+# Any realized profit is a win. 15% was labeled against a 2% TP1 book, so
+# every trade was a "loss" and XGBoost emitted all-zero importances.
+WIN_THRESHOLD_PCT = float(os.getenv("ML_WIN_THRESHOLD_PCT", "0.0"))
 RETRAIN_INTERVAL_HOURS = float(os.getenv("ML_RETRAIN_INTERVAL_HOURS", "6.0"))
 
 # Paths
@@ -212,15 +214,17 @@ def train_weight_model(trades: list[dict]) -> Optional[dict]:
     # Build feature matrix and labels
     X_rows = []
     y_labels = []
+    pnl_vals = []
 
     for trade in trades:
         features = _extract_features(trade)
         if features is None:
             continue
-        pnl_pct = float(trade.get("pnl_pct", 0))
+        pnl_pct = float(trade.get("pnl_pct", 0) or 0)
         label = 1 if pnl_pct >= WIN_THRESHOLD_PCT else 0
         X_rows.append([features[col] for col in FEATURE_COLS])
         y_labels.append(label)
+        pnl_vals.append(pnl_pct)
 
     if len(X_rows) < MIN_TRADES_REQUIRED:
         logger.info(
@@ -234,7 +238,26 @@ def train_weight_model(trades: list[dict]) -> Optional[dict]:
 
     win_count = int(y.sum())
     loss_count = len(y) - win_count
-    win_rate = win_count / len(y)
+
+    # If the configured threshold produced a single class, fall back to pnl>0
+    # so the model can actually separate winners from losers.
+    if (win_count == 0 or loss_count == 0) and WIN_THRESHOLD_PCT > 0:
+        logger.info(
+            f"ML: single-class labels at threshold {WIN_THRESHOLD_PCT:g}% "
+            f"— relabeling as pnl_pct > 0"
+        )
+        y = np.array([1 if p > 0 else 0 for p in pnl_vals], dtype=np.int32)
+        win_count = int(y.sum())
+        loss_count = len(y) - win_count
+
+    win_rate = win_count / len(y) if len(y) else 0.0
+
+    if win_count == 0 or loss_count == 0:
+        logger.warning(
+            f"ML: still single-class after relabel (wins={win_count}, losses={loss_count}) "
+            f"— using static weights"
+        )
+        return None
 
     logger.info(
         f"ML: Training on {len(X_rows)} trades | "

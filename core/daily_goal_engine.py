@@ -383,14 +383,13 @@ class DailyGoalEngine:
             cfg["loss_cooldown_min"] = 10
             cfg["max_positions"] = None  # use full configured slots
         elif mode == "catch_up":
-            # v32 (trade_history 34): catch-up stays mildly more active but never
-            # sprays — the old -5 delta + size boost on losing days produced 67
-            # opens on 7/22 at 22.5% WR with fees ~4x the gross edge (anti-Kelly).
-            cfg["exec_score_delta"] = -2.0
-            cfg["reentry_cooldown_min"] = 8
-            cfg["loss_cooldown_min"] = 10
-            cfg["max_positions"] = None  # use full configured slots
-            # v32: no urgency-based size boost — size scales with equity, not FOMO
+            # Behind a $500/day fantasy target is NOT an edge. Lowering the bar
+            # to "catch up" is how 7/22 printed 67 opens at 22.5% WR.
+            # Raise quality, shrink book, never size up.
+            cfg["exec_score_delta"] = 3.0
+            cfg["reentry_cooldown_min"] = 12
+            cfg["loss_cooldown_min"] = 15
+            cfg["max_positions"] = 4
             cfg["size_multiplier"] = min(cfg["size_multiplier"], 1.0)
         elif behind_pace:
             # v32 INVERSION: behind pace means today's signals are NOT working.

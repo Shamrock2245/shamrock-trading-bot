@@ -164,7 +164,7 @@ BANNER = """
 # coinbase arb, cross-DEX arb).  Gem sniping and swing trading are disabled.
 # Toggle via STRATEGY_LOCK_ACTIVE env var (default: true = locked).
 # ─────────────────────────────────────────────────────────────────────────────
-STRATEGY_LOCK_ACTIVE = os.getenv('STRATEGY_LOCK_ACTIVE', 'false').lower() == 'true'
+STRATEGY_LOCK_ACTIVE = os.getenv('STRATEGY_LOCK_ACTIVE', 'true').lower() == 'true'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2041,7 +2041,10 @@ async def run_bot_loop():
         _time.sleep(300)  # Wait 5 min for bot to fully initialize + collect first trades
         while True:
             try:
-                from ml.optuna_optimizer import run_optuna_cycle
+                from ml.optuna_optimizer import run_optuna_cycle, maybe_reload_regime_params
+                from core.runtime_params import reload_overlay_if_newer
+                reload_overlay_if_newer()
+                maybe_reload_regime_params()
                 run_optuna_cycle(force=False)
             except Exception as _optuna_err:
                 logger.warning(f"Optuna tuner daemon cycle error: {_optuna_err}")
@@ -2094,6 +2097,19 @@ async def run_bot_loop():
         "✅ LLM Trailing Stop Auto-Tuner daemon started — "
         "evaluates active gem positions & tightens stops every 30m"
     )
+
+    # ── Hydrate last auto-tune overlay so a restart keeps the live knobs ──────
+    try:
+        from core.runtime_params import reload_overlay_if_newer
+        from ml.optuna_optimizer import maybe_reload_regime_params
+        applied = reload_overlay_if_newer(force=True)
+        regime_applied = maybe_reload_regime_params(force=True)
+        logger.info(
+            f"✅ Runtime param overlay loaded "
+            f"(overlay={len(applied)} keys, regime={len(regime_applied)} keys)"
+        )
+    except Exception as _rp_err:
+        logger.warning(f"Runtime param overlay load skipped: {_rp_err}")
 
     # ── Check for Base USDC deployment plan ─────────────────────────────────────────────────────────────────────────────────────
     try:

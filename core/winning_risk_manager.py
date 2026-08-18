@@ -126,7 +126,7 @@ def default_config() -> WinningRiskConfig:
         min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 45.0),
         min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.5),
         # v40: cut hope trades faster (CSV multi-hour losers = main $ leak)
-        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.5),
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.0),
         toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
         toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
         toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),

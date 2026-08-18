@@ -110,13 +110,22 @@ def test_apply_correction_and_audit_persistence(tmp_path, monkeypatch):
         "rationale": "Unit test commitment."
     }
     
-    with patch("core.hl_scanner_winning_tuning.winning_entry_filter.update_blacklist") as mock_blacklist:
+    with patch("core.hl_scanner_winning_tuning.winning_entry_filter.update_blacklist") as mock_blacklist, \
+         patch("core.runtime_params.apply_params", return_value={"MIN_VOLUME_USD": 1500000}) as mock_apply:
         agent.apply_correction(update)
         mock_blacklist.assert_called_once_with("KAITO_TEST", sl_count=3)
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args[0][0]["VOLUME_FLOOR_USD"] == 1500000
 
     assert audit_file.exists()
     content = json.loads(audit_file.read_text())
     assert content["update"]["rationale"] == "Unit test commitment."
+
+
+def test_run_audit_cycle_alias_exists():
+    agent = SelfImprovingAgent()
+    assert callable(agent.run_audit_cycle)
+    assert agent.run_audit_cycle.__func__ is agent.run_self_audit.__func__
 
 
 def test_cooldown_lock(tmp_trades_file, tmp_path, monkeypatch):
