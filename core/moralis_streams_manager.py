@@ -204,18 +204,27 @@ class MoralisStreamsManager:
     def sync_active_positions(self, positions_list: list[dict]) -> None:
         """
         Dynamically monitor open positions to catch developer rugs or massive whale dumps.
+        Only syncs EVM positions to the EVM active positions stream (Solana uses RPC/Jito).
         """
         self._ensure_active_positions_stream()
         stream_id = self._managed_streams.get(TAG_ACTIVE_POSITIONS)
         if not stream_id:
             return
 
-        addresses = [p.get("token_address") for p in positions_list if p.get("token_address")]
-        if not addresses:
+        # Only pass valid 42-char 0x EVM hex addresses to EVM stream
+        evm_addresses = [
+            p["token_address"].strip().lower()
+            for p in positions_list
+            if p.get("token_address")
+            and isinstance(p.get("token_address"), str)
+            and p.get("token_address", "").strip().startswith("0x")
+            and len(p.get("token_address", "").strip()) == 42
+        ]
+        if not evm_addresses:
             return
             
-        self._replace_addresses(stream_id, addresses)
-        logger.info(f"MoralisStreamsManager: Synced {len(addresses)} active positions to stream {stream_id}")
+        self._replace_addresses(stream_id, evm_addresses, network="evm")
+        logger.info(f"MoralisStreamsManager: Synced {len(evm_addresses)} active EVM positions to stream {stream_id}")
 
     def get_status(self) -> dict[str, Any]:
         """Return current status for dashboard display."""
@@ -629,25 +638,35 @@ class MoralisStreamsManager:
         """Replace all addresses on a stream. Per Moralis docs: use PATCH."""
         if not addresses:
             return True
+        # Sanitize based on network
+        if network == "evm":
+            clean_addrs = [a.strip().lower() for a in addresses if isinstance(a, str) and a.strip().startswith("0x") and len(a.strip()) == 42]
+        else:
+            # Solana / Bitcoin: Preserve exact base58 casing
+            clean_addrs = [a.strip() for a in addresses if isinstance(a, str) and len(a.strip()) >= 30]
+
+        if not clean_addrs:
+            return True
+
         try:
             # CRITICAL: Moralis docs specify PATCH for replacing addresses, not POST
             resp = get_session().patch(
                 f"{BASE_URL}/streams/{network}/{stream_id}/address",
                 headers=self._headers,
-                json={"address": addresses},
+                json={"address": clean_addrs},
                 timeout=30,
             )
             if resp.status_code in (200, 201):
-                logger.debug(f"MoralisStreamsManager: Replaced {len(addresses)} addresses on stream {stream_id}")
+                logger.debug(f"MoralisStreamsManager: Replaced {len(clean_addrs)} addresses on stream {stream_id}")
                 return True
             else:
-                logger.error(
+                logger.warning(
                     f"MoralisStreamsManager: Failed to replace addresses on {stream_id}: "
                     f"{resp.status_code} {resp.text[:200]}"
                 )
                 return False
         except Exception as e:
-            logger.error(f"MoralisStreamsManager: Error replacing addresses: {e}")
+            logger.warning(f"MoralisStreamsManager: Error replacing addresses: {e}")
             return False
 
     def _update_stream_status(self, stream_id: str, status: str, network: str = "evm") -> bool:

@@ -87,10 +87,10 @@ def _send_1inch_tx(w3: Web3, account: Account, tx_data: dict, chain_id: int) -> 
             "value": int(tx_data.get("value", 0)),
         }
         estimated_gas = w3.eth.estimate_gas(raw_tx)
-        gas_limit = int(estimated_gas * 1.3)
+        gas_limit = max(int(estimated_gas * 1.4), 600_000)
     except Exception as e:
         logger.debug(f"Gas estimation failed: {e}. Using fallback gas limit.")
-        gas_limit = int(tx_data.get("gas", 500_000))
+        gas_limit = max(int(tx_data.get("gas") or 1_500_000), 1_500_000)
 
     transaction = {
         "from": account.address,
@@ -98,7 +98,7 @@ def _send_1inch_tx(w3: Web3, account: Account, tx_data: dict, chain_id: int) -> 
         "data": tx_data["data"],
         "value": int(tx_data.get("value", 0)),
         "gas": gas_limit,
-        "gasPrice": int(gas_price * 1.1),
+        "gasPrice": int(gas_price * 1.2),
         "nonce": nonce,
         "chainId": chain_id,
     }
@@ -109,7 +109,7 @@ def _send_1inch_tx(w3: Web3, account: Account, tx_data: dict, chain_id: int) -> 
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=90)
         return receipt.status == 1
     except Exception as e:
-        logger.error(f"Transaction failed: {e}")
+        logger.warning(f"Auto-gas transaction failed: {e}")
         return False
 
 def swap_usdc_to_eth(
@@ -123,7 +123,7 @@ def swap_usdc_to_eth(
     """Execute a USDC → ETH swap (Auto-Gas) via 1inch on the specified chain."""
     api_key = settings.ONEINCH_API_KEY
     if not api_key:
-        logger.error("Cannot provision: ONEINCH_API_KEY not set")
+        logger.warning("Cannot provision: ONEINCH_API_KEY not set")
         return False
 
     usdc_addr = USDC_ADDRESSES.get(chain_name)
@@ -146,11 +146,11 @@ def swap_usdc_to_eth(
             approve_params = {"tokenAddress": usdc_addr, "amount": str(amount_wei)}
             approve_tx = get_session().get(approve_url, headers=headers, params=approve_params, timeout=10).json()
             if not _send_1inch_tx(w3, account, approve_tx, chain_id):
-                logger.error(f"❌ PROVISION: USDC Approval failed on {chain_name}")
+                logger.warning(f"⚠️ PROVISION: USDC Approval failed on {chain_name}")
                 return False
             time.sleep(3) # Wait for RPC to catch up
     except Exception as e:
-        logger.error(f"Failed to handle approval: {e}")
+        logger.warning(f"Failed to handle approval on {chain_name}: {e}")
         return False
 
     # 2. Swap
@@ -160,14 +160,14 @@ def swap_usdc_to_eth(
         "dst": NATIVE_TOKEN,
         "amount": str(amount_wei),
         "from": wallet_address,
-        "slippage": "1",
+        "slippage": "2.5",
         "disableEstimate": "true",
     }
     
     try:
         swap_resp = get_session().get(url, headers=headers, params=params, timeout=20)
         if swap_resp.status_code != 200:
-            logger.error(f"1inch swap API error ({swap_resp.status_code}): {swap_resp.text[:200]}")
+            logger.warning(f"1inch swap API error ({swap_resp.status_code}): {swap_resp.text[:200]}")
             return False
         swap_data = swap_resp.json().get("tx")
         if not swap_data or "to" not in swap_data:
@@ -177,10 +177,10 @@ def swap_usdc_to_eth(
             logger.info(f"✅ AUTO-GAS: Swapped {amount_usdc:.2f} USDC → ETH on {chain_name}")
             return True
         else:
-            logger.error(f"❌ AUTO-GAS: Swap reverted on {chain_name}")
+            logger.warning(f"⚠️ AUTO-GAS: Swap reverted on {chain_name}")
             return False
     except Exception as e:
-        logger.error(f"Auto-gas swap failed on {chain_name}: {e}")
+        logger.warning(f"Auto-gas swap failed on {chain_name}: {e}")
         return False
 
 def swap_eth_to_usdc(

@@ -74,7 +74,7 @@ def get_latest_token_profiles() -> list[dict]:
         data = _get("/token-profiles/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener latest profiles error: {e}")
+        logger.warning(f"DexScreener latest profiles error: {e}")
         return []
 
 
@@ -88,7 +88,7 @@ def get_latest_community_takeovers() -> list[dict]:
         data = _get("/community-takeovers/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener community takeovers error: {e}")
+        logger.warning(f"DexScreener community takeovers error: {e}")
         return []
 
 
@@ -102,7 +102,7 @@ def get_latest_ads() -> list[dict]:
         data = _get("/ads/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener ads error: {e}")
+        logger.warning(f"DexScreener ads error: {e}")
         return []
 
 
@@ -115,7 +115,7 @@ def get_latest_boosts() -> list[dict]:
         data = _get("/token-boosts/latest/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener latest boosts error: {e}")
+        logger.warning(f"DexScreener latest boosts error: {e}")
         return []
 
 
@@ -128,7 +128,7 @@ def get_top_boosts() -> list[dict]:
         data = _get("/token-boosts/top/v1")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener top boosts error: {e}")
+        logger.warning(f"DexScreener top boosts error: {e}")
         return []
 
 
@@ -141,7 +141,7 @@ def search_pairs(query: str) -> list[dict]:
         data = _get("/latest/dex/search", params={"q": query})
         return data.get("pairs", [])
     except Exception as e:
-        logger.error(f"DexScreener search error for '{query}': {e}")
+        logger.warning(f"DexScreener search error for '{query}': {e}")
         return []
 
 
@@ -154,7 +154,7 @@ def get_token_pairs(token_address: str) -> list[dict]:
         data = _get(f"/latest/dex/tokens/{token_address}")
         return data.get("pairs", [])
     except Exception as e:
-        logger.error(f"DexScreener token pairs error for {token_address}: {e}")
+        logger.warning(f"DexScreener token pairs error for {token_address}: {e}")
         return []
 
 
@@ -168,7 +168,7 @@ def get_pair_data(chain_id: str, pair_address: str) -> Optional[dict]:
         pairs = data.get("pairs", [])
         return pairs[0] if pairs else None
     except Exception as e:
-        logger.error(f"DexScreener pair data error: {e}")
+        logger.warning(f"DexScreener pair data error: {e}")
         return None
 
 
@@ -182,7 +182,7 @@ def get_token_orders(chain_id: str, token_address: str) -> list[dict]:
         data = _get(f"/orders/v1/{chain_id}/{token_address}")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener orders error for {token_address}: {e}")
+        logger.warning(f"DexScreener orders error for {token_address}: {e}")
         return []
 
 
@@ -196,7 +196,7 @@ def get_token_pools_by_chain(chain_id: str, token_address: str) -> list[dict]:
         data = _get(f"/token-pairs/v1/{chain_id}/{token_address}")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener token pools error for {chain_id}/{token_address}: {e}")
+        logger.warning(f"DexScreener token pools error for {chain_id}/{token_address}: {e}")
         return []
 
 
@@ -211,7 +211,7 @@ def get_tokens_by_chain(chain_id: str, token_addresses: list[str]) -> list[dict]
         data = _get(f"/tokens/v1/{chain_id}/{addr_str}")
         return data if isinstance(data, list) else []
     except Exception as e:
-        logger.error(f"DexScreener batch token lookup error for {chain_id}: {e}")
+        logger.warning(f"DexScreener batch token lookup error for {chain_id}: {e}")
         return []
 
 

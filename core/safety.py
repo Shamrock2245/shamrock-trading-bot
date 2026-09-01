@@ -741,7 +741,7 @@ def check_token_safety(token_address: str, chain: str) -> SafetyResult:
             )
             return stale
 
-        logger.error(
+        logger.warning(
             f"🚨 ALL safety providers failed for {token_address} — "
             f"blocking trade (fail-closed policy)"
         )

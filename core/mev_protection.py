@@ -496,7 +496,7 @@ def submit_jito_bundle(
             if res and res.success:
                 return res
 
-    logger.error("All Jito endpoints failed or timed out.")
+    logger.warning("All Jito endpoints failed or timed out — falling back to standard RPC.")
     return JitoResult(success=False, error="All Jito endpoints failed or timed out.")
 
 

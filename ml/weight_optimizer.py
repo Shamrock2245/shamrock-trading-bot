@@ -145,28 +145,39 @@ def load_trades(lookback_days: int = LOOKBACK_DAYS) -> list[dict]:
         logger.warning("trades.json is not a list — skipping ML training")
         return []
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-    recent_sells = []
-
-    for trade in all_trades:
-        # Only use SELL records — they have the final PnL
-        if trade.get("action", "").upper() != "SELL":
-            continue
-        # Parse timestamp
-        try:
-            ts_str = trade.get("timestamp", "")
-            if ts_str:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                if ts < cutoff:
+    def _collect_sells(since_cutoff: Optional[datetime]) -> list[dict]:
+        sells = []
+        for trade in all_trades:
+            if trade.get("action", "").upper() != "SELL":
+                continue
+            if trade.get("pnl_pct") is None:
+                continue
+            if since_cutoff is not None:
+                try:
+                    ts_str = trade.get("timestamp", "")
+                    if ts_str:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        if ts < since_cutoff:
+                            continue
+                except Exception:
                     continue
-        except Exception:
-            continue
-        # Must have pnl_pct for labeling
-        if trade.get("pnl_pct") is None:
-            continue
-        recent_sells.append(trade)
+            sells.append(trade)
+        return sells
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    recent_sells = _collect_sells(cutoff)
+
+    # If recent trades < minimum required, expand lookback to use all available closed trades
+    if len(recent_sells) < MIN_TRADES_REQUIRED:
+        all_sells = _collect_sells(None)
+        if len(all_sells) >= MIN_TRADES_REQUIRED:
+            logger.info(
+                f"ML: Expanding lookback from {lookback_days}d ({len(recent_sells)} trades) "
+                f"to full history ({len(all_sells)} trades) for sufficient training samples"
+            )
+            return all_sells
 
     logger.info(f"ML: Loaded {len(recent_sells)} closed trades from last {lookback_days} days")
     return recent_sells

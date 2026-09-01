@@ -1402,17 +1402,20 @@ class LiquidationHunter:
 
             except (websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.ConnectionClosedError,
-                    websockets.exceptions.ConnectionClosedOK) as e:
-                # Normal TCP drop / server-side close — NOT a code bug, downgrade to warning
-                # to suppress Sentry high-priority alerts for "no close frame received or sent"
+                    websockets.exceptions.ConnectionClosedOK,
+                    websockets.exceptions.InvalidStatusCode,
+                    websockets.exceptions.InvalidHandshake,
+                    OSError,
+                    TimeoutError) as e:
+                # Normal TCP drop / server-side close / 502 Bad Gateway — NOT a code bug, log warning
                 logger.warning(
-                    f"LiquidationHunter: HL WS connection closed ({e}). "
+                    f"LiquidationHunter: HL WS connection closed/rejected ({e}). "
                     f"Reconnecting in {_backoff}s..."
                 )
                 await asyncio.sleep(_backoff)
                 _backoff = min(_backoff * 2, _MAX_BACKOFF)
             except Exception as e:
-                logger.error(f"LiquidationHunter: HL WS error: {e}. Reconnecting in {_backoff}s...")
+                logger.warning(f"LiquidationHunter: HL WS error: {e}. Reconnecting in {_backoff}s...")
                 await asyncio.sleep(_backoff)
                 _backoff = min(_backoff * 2, _MAX_BACKOFF)
 

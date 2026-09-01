@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # These are the tokens that have perpetual futures on Hyperliquid
 # ─────────────────────────────────────────────────────────────────────────────
 _HL_PERP_TICKERS: set[str] = set()
+_HL_CANONICAL_NAMES: dict[str, str] = {}
 _HL_TICKER_LOCK = threading.Lock()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,12 +52,15 @@ _HL_TICKER_LOCK = threading.Lock()
 # These are downgraded from logger.error → logger.warning to suppress Sentry noise.
 # ─────────────────────────────────────────────────────────────────────────────
 _HL_EXPECTED_REJECTIONS = (
-    # Price deviation / liquidity rejections
+    # Price deviation / invalid price / liquidity rejections
     "Order price cannot be more than 95% away from the reference price",
     "Order could not immediately match against any resting orders",
     "Order could not be placed",
     "Insufficient liquidity",
     "Market order could not be filled",
+    "Order has invalid price",
+    "invalid price",
+    "Trigger price cannot be",
     # Position / margin rejections
     "Reduce only order would increase position",
     "Post only order would have immediately matched",
@@ -472,7 +476,17 @@ class HyperliquidExecutor:
                     logger.warning(f"Hyperliquid API rate limit hit, sleeping {sleep_time}s... (Attempt {attempt}/{max_retries})")
                     time.sleep(sleep_time)
                 else:
-                    raise
+                    err_lower = err_msg
+                    is_server_err = any(k in err_lower for k in ("502", "503", "504", "servererror", "<html>", "bad gateway", "connection error"))
+                    if is_server_err:
+                        if attempt == max_retries:
+                            logger.warning(f"⚠️ Hyperliquid API server/gateway error after {max_retries} attempts: {e}")
+                            return {"status": "err", "response": f"Hyperliquid server/gateway error: {e}"}
+                        sleep_time = 2 ** attempt
+                        logger.warning(f"⚠️ Hyperliquid API server error ({e}), sleeping {sleep_time}s... (Attempt {attempt}/{max_retries})")
+                        time.sleep(sleep_time)
+                    else:
+                        raise
 
     def _initialize_sdk(self) -> None:
         """Initialize Hyperliquid SDK clients with retry for transient failures."""
@@ -554,19 +568,22 @@ class HyperliquidExecutor:
 
     def _refresh_perp_tickers(self) -> None:
         """Load all available perp tickers from Hyperliquid."""
-        global _HL_PERP_TICKERS
+        global _HL_PERP_TICKERS, _HL_CANONICAL_NAMES
         if _HL_PERP_TICKERS:
             return  # Already loaded globally
         try:
             meta = self._execute_api(self._info.meta)
             tickers = set()
+            canonical = {}
             for asset in meta.get("universe", []):
                 name = asset.get("name", "")
                 if name:
                     tickers.add(name.upper())
+                    canonical[name.upper()] = name
 
             with _HL_TICKER_LOCK:
                 _HL_PERP_TICKERS = tickers
+                _HL_CANONICAL_NAMES = canonical
 
             logger.info(f"Hyperliquid: {len(tickers)} perp tickers loaded")
         except Exception as e:
@@ -2000,11 +2017,12 @@ class HyperliquidExecutor:
         try:
             is_buy = entry_side != "buy"  # Close side is opposite of entry
 
-            # Round prices to 5 significant figures & size to szDecimals
-            sl_price = float(f"{sl_price:.5g}")
-            tp_price = float(f"{tp_price:.5g}")
-
             sz_decimals = self._get_sz_decimals(coin)
+
+            # Round prices strictly to Hyperliquid tick size & 5 significant figures
+            sl_price = _format_hl_price(coin, sl_price, sz_decimals)
+            tp_price = _format_hl_price(coin, tp_price, sz_decimals)
+
             size = round(abs(size), sz_decimals)
             if sz_decimals == 0:
                 size = int(size)
@@ -2012,20 +2030,20 @@ class HyperliquidExecutor:
             sl_slippage = 0.50
             tp_slippage = 0.01
             if is_buy:
-                sl_limit_px = float(f"{sl_price * (1 + sl_slippage):.5g}")
-                tp_limit_px = float(f"{tp_price * (1 + tp_slippage):.5g}")
+                sl_limit_px = _format_hl_price(coin, sl_price * (1 + sl_slippage), sz_decimals)
+                tp_limit_px = _format_hl_price(coin, tp_price * (1 + tp_slippage), sz_decimals)
             else:
-                sl_limit_px = float(f"{sl_price * (1 - sl_slippage):.5g}")
-                tp_limit_px = float(f"{tp_price * (1 - tp_slippage):.5g}")
+                sl_limit_px = _format_hl_price(coin, sl_price * (1 - sl_slippage), sz_decimals)
+                tp_limit_px = _format_hl_price(coin, tp_price * (1 - tp_slippage), sz_decimals)
 
             _SL_MAX_ATTEMPTS = 3
             sl_ok = False
             for _sl_attempt in range(1, _SL_MAX_ATTEMPTS + 1):
                 _attempt_slippage = sl_slippage if _sl_attempt == 1 else 0.10
                 if is_buy:
-                    _attempt_limit_px = float(f"{sl_price * (1 + _attempt_slippage):.5g}")
+                    _attempt_limit_px = _format_hl_price(coin, sl_price * (1 + _attempt_slippage), sz_decimals)
                 else:
-                    _attempt_limit_px = float(f"{sl_price * (1 - _attempt_slippage):.5g}")
+                    _attempt_limit_px = _format_hl_price(coin, sl_price * (1 - _attempt_slippage), sz_decimals)
 
                 sl_result = self._execute_api(
                     self._exchange.order,
@@ -2045,21 +2063,20 @@ class HyperliquidExecutor:
                             if "error" in status_obj:
                                 err_txt = str(status_obj["error"])
                                 err_lower = err_txt.lower()
-                                if any(kw in err_lower for kw in ["95%", "reference price", "trigger", "deviation", "order price"]):
+                                if any(kw in err_lower for kw in ["95%", "reference price", "trigger", "deviation", "order price", "invalid price", "price"]):
                                     logger.warning(
                                         f"Hyperliquid SL attempt {_sl_attempt}/{_SL_MAX_ATTEMPTS} "
-                                        f"rejected (price deviation) for {coin}: {err_txt} "
-                                        f"— retrying with tighter limit_px"
+                                        f"rejected ({err_txt}) for {coin} — retrying with tighter limit_px"
                                     )
                                     sl_ok = False
                                 else:
-                                    logger.error(f"Hyperliquid SL placement rejected by exchange: {err_txt}")
+                                    logger.warning(f"Hyperliquid SL placement rejected by exchange: {err_txt}")
                                     sl_ok = False
                             else:
                                 raw_oid = status_obj.get("resting", {}).get("oid") or status_obj.get("filled", {}).get("oid") or status_obj.get("oid")
                                 sl_order_id = int(raw_oid) if raw_oid is not None else 999999
                     except Exception as e:
-                        logger.error(f"Error parsing Hyperliquid SL response: {e}")
+                        logger.warning(f"Error parsing Hyperliquid SL response: {e}")
                         sl_ok = False
 
                 if sl_ok:
@@ -2078,7 +2095,7 @@ class HyperliquidExecutor:
                     )
                     time.sleep(_backoff)
                 else:
-                    logger.error(
+                    logger.warning(
                         f"Hyperliquid SL placement FAILED for {coin} after "
                         f"{_SL_MAX_ATTEMPTS} attempts — RED TEAM GUARD will close position"
                     )
@@ -2100,12 +2117,13 @@ class HyperliquidExecutor:
                     if statuses and isinstance(statuses[0], dict):
                         status_obj = statuses[0]
                         if "error" in status_obj:
-                            logger.error(f"Hyperliquid TP placement rejected by exchange: {status_obj['error']}")
+                            err_txt = str(status_obj["error"])
+                            logger.warning(f"Hyperliquid TP placement rejected by exchange ({coin}): {err_txt}")
                             tp_ok = False
                         else:
                             tp_order_id = status_obj.get("resting", {}).get("oid")
                 except Exception as e:
-                    logger.error(f"Error parsing Hyperliquid TP response: {e}")
+                    logger.warning(f"Error parsing Hyperliquid TP response: {e}")
 
             if sl_ok and tp_ok:
                 logger.info(
@@ -2227,24 +2245,37 @@ class HyperliquidExecutor:
             old_sl = pos.stop_loss_price
             old_oid = pos.sl_order_id
 
+            sz_decimals = self._get_sz_decimals(coin)
+            new_sl_price = _format_hl_price(coin, new_sl_price, sz_decimals)
+
+            # In paper mode, update trailing stop locally without sending exchange order
+            if self.is_paper:
+                pos.stop_loss_price = new_sl_price
+                pos.sl_order_id = -1
+                self._save_trailing_state()
+                old_sl_str = f"${old_sl:.4f}" if old_sl is not None else "None"
+                logger.info(
+                    f"📄 [PAPER] 🔒 TRAILING STOP RATCHETED | {coin} | "
+                    f"old_sl={old_sl_str} → new_sl=${new_sl_price:.4f}"
+                )
+                return True
+
             # Determine close side (opposite of entry)
             entry_side = "buy" if pos.side == "long" else "sell"
-            # SL slippage MUST be extremely wide (50%) to guarantee a fill during flash crashes
+            # SL slippage MUST be wide to guarantee fill
             sl_slippage = 0.50
             is_close_buy = pos.side == "short"  # Closing a short = buy
             
-            new_sl_price = float(f"{new_sl_price:.5g}")
-            
             if is_close_buy:
-                sl_limit_px = float(f"{new_sl_price * (1 + sl_slippage):.5g}")
+                sl_limit_px = _format_hl_price(coin, new_sl_price * (1 + sl_slippage), sz_decimals)
             else:
-                sl_limit_px = float(f"{new_sl_price * (1 - sl_slippage):.5g}")
+                sl_limit_px = _format_hl_price(coin, new_sl_price * (1 - sl_slippage), sz_decimals)
 
             try:
                 # RED TEAM FIX: Market trigger ensures trailing SL fills in flash crashes
                 order_type = {"trigger": {"isMarket": True, "triggerPx": new_sl_price, "tpsl": "sl"}}
                 
-                if old_oid is not None:
+                if old_oid is not None and old_oid > 0:
                     # Modify existing order directly
                     sl_result = self._execute_api(
                         self._exchange.modify_order,
@@ -2268,6 +2299,12 @@ class HyperliquidExecutor:
                         reduce_only=True,
                     )
                 
+                if isinstance(sl_result, dict) and sl_result.get("paper"):
+                    pos.stop_loss_price = new_sl_price
+                    pos.sl_order_id = -1
+                    self._save_trailing_state()
+                    return True
+
                 sl_ok = sl_result and sl_result.get("status") == "ok"
                 new_oid: Optional[int] = None
                 if sl_ok:
@@ -2284,7 +2321,6 @@ class HyperliquidExecutor:
                     pos.stop_loss_price = new_sl_price
                     pos.sl_order_id = new_oid
                     self._save_trailing_state()
-                    # old_sl can be None before first SL is set (PYTHON-64)
                     old_sl_str = f"${old_sl:.4f}" if old_sl is not None else "None"
                     logger.info(
                         f"🔒 TRAILING STOP RATCHETED | {coin} | "
@@ -2294,24 +2330,17 @@ class HyperliquidExecutor:
                     return True
                 else:
                     # Placement failed — restore old SL state so position isn't orphaned
-                    # The old SL order may still be live on-chain if cancel also failed
                     pos.stop_loss_price = old_sl
                     pos.sl_order_id = old_oid
                     err_msg = str(sl_result.get("response", "")) if isinstance(sl_result, dict) else str(sl_result)
-                    if "Too many" in err_msg or "rate" in err_msg.lower():
-                        logger.warning(
-                            f"⚠️ Hyperliquid: rate limited placing trailing SL for {coin} — will retry next cycle"
-                        )
-                    else:
-                        logger.error(
-                            f"❌ Hyperliquid: failed to place new trailing SL for {coin}: {sl_result}"
-                        )
+                    logger.warning(
+                        f"⚠️ Hyperliquid: could not place trailing SL for {coin}: {err_msg} — will retry next cycle"
+                    )
                     return False
 
             except Exception as e:
-                logger.error(
-                    f"❌ Hyperliquid: exception in update_trailing_stop for {coin}: {e}",
-                    exc_info=True,
+                logger.warning(
+                    f"⚠️ Hyperliquid: exception in update_trailing_stop for {coin}: {e}"
                 )
                 return False
 
@@ -2394,11 +2423,23 @@ class HyperliquidExecutor:
         Withdraw USDC from the Hyperliquid L2 bridge to an L1 Arbitrum address.
         Fee is flat $1 USDC.
         """
+        if self.is_paper:
+            logger.info(f"📄 [PAPER] Simulated withdrawal of ${amount_usd:.2f} to {destination_address}")
+            return True
+
         if not self._initialized or not self._exchange:
-            logger.error("Hyperliquid: Cannot withdraw — not initialized")
+            logger.warning("Hyperliquid: Cannot withdraw — not initialized")
             return False
         
         try:
+            balance_info = self.get_balance()
+            withdrawable = float(balance_info.get("withdrawable", 0.0) or 0.0)
+            if withdrawable < amount_usd:
+                logger.warning(
+                    f"⚠️ Hyperliquid: Cannot withdraw ${amount_usd:.2f} — only ${withdrawable:.2f} withdrawable"
+                )
+                return False
+
             logger.info(f"🏦 Hyperliquid: Initiating withdrawal of ${amount_usd:.2f} to {destination_address}")
             result = self._exchange.withdraw_from_bridge(amount_usd, destination_address)
             
@@ -2407,11 +2448,11 @@ class HyperliquidExecutor:
                 logger.info(f"✅ Hyperliquid: Successfully withdrew ${amount_usd:.2f} to {destination_address}")
                 return True
             else:
-                logger.error(f"❌ Hyperliquid: Withdrawal failed. SDK returned: {result}")
+                logger.warning(f"⚠️ Hyperliquid: Withdrawal failed. SDK returned: {result}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Hyperliquid: Exception during withdrawal of ${amount_usd:.2f}: {e}", exc_info=True)
+            logger.warning(f"⚠️ Hyperliquid: Exception during withdrawal of ${amount_usd:.2f}: {e}")
             return False
 
     def get_status(self) -> dict:
@@ -2447,13 +2488,59 @@ class HyperliquidExecutor:
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _format_hl_price(coin: str, price: float, sz_decimals: Optional[int] = None) -> float:
+    """
+    Format and round price to comply strictly with Hyperliquid exchange rules:
+      1. Maximum 5 significant figures.
+      2. Maximum decimal places: max(0, 6 - sz_decimals).
+      3. For large prices >= 100,000, must be an integer.
+      4. Avoid floating point serialization artifacts and scientific notation.
+    """
+    if price <= 0:
+        return price
+    
+    # 1. Round to 5 significant figures
+    sig_fig_str = f"{price:.5g}"
+    val = float(sig_fig_str)
+    
+    # 2. Maximum decimal places based on sz_decimals
+    if sz_decimals is not None:
+        max_decimals = max(0, 6 - int(sz_decimals))
+    elif val >= 10000:
+        max_decimals = 1
+    elif val >= 1000:
+        max_decimals = 2
+    elif val >= 100:
+        max_decimals = 3
+    elif val >= 1:
+        max_decimals = 4
+    elif val >= 0.01:
+        max_decimals = 5
+    else:
+        max_decimals = 6
+
+    if val >= 100000:
+        return float(round(val))
+    
+    # Round to max allowed decimal places
+    rounded = round(val, max_decimals)
+    if max_decimals == 0:
+        return float(int(rounded))
+    
+    # Format with exact decimals without exponential notation
+    fmt = f"{rounded:.{max_decimals}f}".rstrip("0").rstrip(".")
+    return float(fmt) if fmt else rounded
+
+
 def _normalize_symbol(symbol: str) -> str:
     """
     Normalize token symbol for Hyperliquid matching.
     
     On-chain tokens often have different names than their HL perp tickers.
+    Preserves exact exchange ticker casing (e.g. kSHIB, kPEPE, kBONK).
     """
-    sym = symbol.upper().strip()
+    sym = symbol.strip()
+    sym_upper = sym.upper()
     # Common mappings: on-chain name → Hyperliquid perp name
     MAPPINGS = {
         "WETH": "ETH",
@@ -2466,7 +2553,17 @@ def _normalize_symbol(symbol: str) -> str:
         "WSTETH": "ETH",
         "RETH": "ETH",
         "CBETH": "ETH",
-        "SHIB": "SHIB",
-        "1000PEPE": "PEPE",
+        "SHIB": "kSHIB",
+        "1000PEPE": "kPEPE",
+        "PEPE": "kPEPE",
+        "BONK": "kBONK",
+        "FLOKI": "kFLOKI",
     }
-    return MAPPINGS.get(sym, sym)
+    mapped = MAPPINGS.get(sym_upper, sym_upper)
+    # Return canonical exchange casing (e.g. "kSHIB", "kPEPE", "BTC") if known
+    with _HL_TICKER_LOCK:
+        if mapped in _HL_CANONICAL_NAMES:
+            return _HL_CANONICAL_NAMES[mapped]
+        if sym_upper in _HL_CANONICAL_NAMES:
+            return _HL_CANONICAL_NAMES[sym_upper]
+    return mapped

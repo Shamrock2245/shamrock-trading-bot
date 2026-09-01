@@ -55,7 +55,7 @@ def execute_sweep() -> bool:
         logger.error("🛑 WALLET_ADDRESS_C not set in environment! Cannot sweep profits.")
         return False
         
-    mode = getattr(settings, "MODE", "paper").lower()
+    mode = os.getenv("MODE", getattr(settings, "MODE", "paper")).lower()
     if mode != "live" and mode != "prod":
         logger.warning(f"⚠️ Cannot sweep profits in {mode} mode. Must be 'live'.")
         return False
