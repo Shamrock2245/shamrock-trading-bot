@@ -12,20 +12,21 @@ import streamlit as st
 # Page registry: (label, emoji, url_path)
 # Organized into logical groups with None as group separator
 PAGES = [
-    # ── Trading ──────────────────────────────────────────────────
+    # ── Trading ──────────────────────────────
     ("Command Center", "☘️", "/"),
     ("Scanner", "🔍", "/Gem_Scanner"),
     ("Gem Advisor", "🧠", "/Gem_Advisor"),
     ("Positions", "💰", "/Positions"),
     ("HL Engine", "💸", "/Hyperliquid_Engine"),
+    ("Predator Floor", "🎮", "/Predator_Floor"),
     None,  # ── group divider ──
-    # ── Intelligence ─────────────────────────────────────────────
+    # ── Intelligence ───────────────────────────
     ("Analytics", "📊", "/Analytics"),
     ("Alpha", "🤝", "/Alpha_Wallets"),
     ("Sniper", "🎯", "/Sniper_Wallets"),
     ("Paper P&L", "📈", "/Paper_PnL"),
     None,  # ── group divider ──
-    # ── System ───────────────────────────────────────────────────
+    # ── System ─────────────────────────────
     ("Wallets", "👛", "/Wallet_Overview"),
     ("Paycheck", "🏦", "/Paycheck_Wallet"),
     ("Health", "🏥", "/System_Health"),
@@ -34,7 +35,6 @@ PAGES = [
 # CSS for the nav bar — injected once per page
 _NAV_CSS = """
 <style>
-/* ── Persistent Top Nav ──────────────────────────────────────────────────── */
 .shamrock-nav {
     display: flex;
     align-items: center;
@@ -101,7 +101,6 @@ _NAV_CSS = """
     color: #00D09C;
     font-weight: 700;
 }
-/* Active page bottom accent bar */
 .shamrock-nav a.nav-link.active::after {
     content: '';
     position: absolute;
@@ -117,7 +116,6 @@ _NAV_CSS = """
     line-height: 1;
 }
 
-/* ── Group Divider ─────────────────────────────────────────────────── */
 .nav-group-sep {
     width: 1px;
     height: 18px;
@@ -126,7 +124,6 @@ _NAV_CSS = """
     flex-shrink: 0;
 }
 
-/* ── Live Pulse ────────────────────────────────────────────────────── */
 .nav-live-dot {
     width: 6px; height: 6px;
     background: #00D09C;
@@ -145,16 +142,10 @@ _NAV_CSS = """
 
 
 def render_nav(current_page: str = ""):
-    """Render the persistent top navigation bar with grouped pages.
-    
-    Args:
-        current_page: The label of the currently active page (e.g. "Analytics").
-                      Used to highlight the active nav link.
-    """
+    """Render the persistent top navigation bar with grouped pages."""
     links_html = ""
     for item in PAGES:
         if item is None:
-            # Group separator
             links_html += '<div class="nav-group-sep"></div>'
             continue
 
