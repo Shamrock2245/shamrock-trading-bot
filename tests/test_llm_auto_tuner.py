@@ -79,16 +79,31 @@ def test_generate_commands_falls_back_without_api_key(monkeypatch):
 
 
 def test_run_hl_paper_tuner_proposes_params_in_paper_mode(tmp_path, monkeypatch):
+    """Deterministic: mock paper metrics so CI (no trades.json) still proposes."""
     from core.llm_auto_tuner import run_hl_paper_tuner
 
     proposal_file = tmp_path / "proposals.json"
     monkeypatch.setenv("HL_TUNER_PROPOSALS_FILE", str(proposal_file))
     monkeypatch.setenv("MODE", "paper")
     monkeypatch.setenv("PAPER_MODE_LOCKED", "true")
+    monkeypatch.setenv("RUNTIME_PARAMS_FILE", str(tmp_path / "runtime_params.json"))
+
+    fake_metrics = {
+        "closed_trades": 12,
+        "win_rate": 0.45,
+        "profit_factor": 1.10,
+        "mfe_capture_ratio_pct": 35.0,
+    }
+    monkeypatch.setattr("core.predator_v1.get_paper_metrics", lambda: fake_metrics)
+    monkeypatch.setattr(
+        "core.runtime_params.apply_params",
+        lambda params, source="test": {"applied": list(params.keys()), "source": source},
+    )
 
     res = run_hl_paper_tuner(force=True)
     assert res is not None
     assert res["mode"] == "paper"
     assert "proposed_params" in res
+    assert res["closed_trades"] == 12
     assert proposal_file.exists()
 
