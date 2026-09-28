@@ -653,6 +653,10 @@ def get_all_alpha_wallets() -> list:
     return merged
 
 
+def get_predator_state() -> dict:
+    """Read Predator v1 snapshot written by core/predator_v1.py."""
+    return _read_json("predator_v1.json", {})
+
 def get_hl_scanner_state() -> dict:
     """Read the latest Hyperliquid scanner state."""
     return _read_json("hl_perps_state.json", {})

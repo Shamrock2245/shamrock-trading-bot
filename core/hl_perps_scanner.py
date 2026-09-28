@@ -1904,13 +1904,16 @@ class HLPerpsScanner:
 
         # v33: regime gate (OpenAlice right-side trading). Shorts only when the
         # tape is actually bearish (NUKE); longs stand down during NUKE; CHOPPY
-        # halves size further down. Fail-open on regime fetch errors.
+        # halves size further down UNLESS Predator v1 is on (then CHOP = skip).
+        # Fail-open on regime fetch errors for the legacy gate.
         regime_size_mult = 1.0
+        regime_name = None
         if HL_PERPS_REGIME_GATE_ENABLED:
             try:
                 from core.regime_filter import get_regime, Regime
                 _rs = get_regime()  # cached 5min
                 if _rs is not None:
+                    regime_name = getattr(_rs.regime, "value", str(_rs.regime))
                     if signal.direction == "short" and _rs.regime != Regime.NUKE:
                         logger.info(
                             f"[HL-PERPS] {signal.coin} SHORT blocked — regime "
@@ -1927,6 +1930,60 @@ class HLPerpsScanner:
                         regime_size_mult = 0.5
             except Exception as _rg_err:
                 logger.debug(f"[HL-PERPS] regime gate skipped ({_rg_err})")
+
+        # Predator v1 — expansion-only. Flag off = no-op (legacy half-size stays).
+        # FAIL-CLOSED when enabled: any import / evaluation error skips the entry.
+        _pred_on = False
+        _pv1 = None
+        try:
+            from core import predator_v1 as _pv1
+            _pred_on = _pv1.enabled()
+        except Exception as _pred_imp_err:
+            if os.getenv("PREDATOR_V1_ENABLED", "false").strip().lower() in (
+                "1", "true", "yes", "on"
+            ):
+                logger.error(
+                    f"[PREDATOR] {signal.coin} blocked — gate unavailable "
+                    f"({_pred_imp_err}); fail-closed"
+                )
+                return False
+        if _pred_on:
+            if regime_name is None:
+                try:
+                    from core.regime_filter import get_regime
+                    _prs = get_regime()
+                    if _prs is not None:
+                        regime_name = getattr(
+                            _prs.regime, "value", str(_prs.regime)
+                        )
+                except Exception as _pe:
+                    # regime_name stays None -> evaluate_entry rejects regime_unknown
+                    logger.debug(f"[PREDATOR] regime fetch failed ({_pe})")
+            try:
+                _rn = (regime_name or "").strip().upper()
+                if _rn in ("CHOPPY", "CHOP", "RANGE", "DEAD"):
+                    logger.info(
+                        f"[PREDATOR] {signal.coin} blocked — regime_chop "
+                        f"(no half-size under Predator v1)"
+                    )
+                    return False
+                _verdict = _pv1.evaluate_entry(
+                    signal.coin,
+                    signal.direction,
+                    regime_name,
+                    opens_today=self.opens_today,
+                )
+            except Exception as _pred_err:
+                logger.error(
+                    f"[PREDATOR] {signal.coin} blocked — gate error "
+                    f"({_pred_err}); fail-closed"
+                )
+                return False
+            if not _verdict.allow:
+                logger.info(
+                    f"[PREDATOR] {signal.coin} blocked — {_verdict.reason}"
+                )
+                return False
 
         coin_u = signal.coin.upper()
 
