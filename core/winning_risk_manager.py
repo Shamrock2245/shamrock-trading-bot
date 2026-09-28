@@ -57,17 +57,17 @@ def _env_int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class WinningRiskConfig:
     enabled: bool = True
-    # Fast break-even (v4.5 tuned: 2.5% to avoid micro-wick stopouts)
-    be_pct: float = 2.5
-    be_buffer_pct: float = 0.10
-    # TP1 front-load (v4.5: 30% — keep 70% of the runner)
-    tp1_profit_pct: float = 3.5
-    tp1_size_pct: float = 30.0
-    # Trail (after TP1 or once trail activates)
-    trail_activate_pct: float = 3.5
-    trail_distance_pct: float = 2.0
-    # Dynamic profit-tiered trail ladder
-    trail_ladder: str = "3:1.5,6:2.0,10:3.0"
+    # Fast break-even: +0.75% locks SL to entry + buffer
+    be_pct: float = 0.75
+    be_buffer_pct: float = 0.05
+    # TP1 front-load: partial close 40% at +2%
+    tp1_profit_pct: float = 2.0
+    tp1_size_pct: float = 40.0
+    # Trail (after TP1 or once trail activates at +2%)
+    trail_activate_pct: float = 2.0
+    trail_distance_pct: float = 1.25
+    # Dynamic profit-tiered trail ladder (2:1.25, 4:1.75, 8:2.5)
+    trail_ladder: str = "2:1.25,4:1.75,8:2.5"
     # 45-min rule: still red after 45m → tighten SL to −1.5%
     min_rule_minutes: float = 45.0
     min_rule_sl_pct: float = -1.5  # tighten SL to −1.5% from entry
@@ -116,17 +116,18 @@ def default_config() -> WinningRiskConfig:
     """Fresh config from current env (tests can monkeypatch env)."""
     return WinningRiskConfig(
         enabled=_env_bool("WINNING_RISK_MANAGER_ENABLED", True),
-        be_pct=_env_float("FAST_BREAK_EVEN_PCT", 2.5),
-        be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.10),
-        tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 3.5),
-        tp1_size_pct=_env_float("TP1_SIZE_PCT", 30.0),
-        trail_activate_pct=_env_float("PROFIT_LOCK_TRAIL_ACTIVATE_PCT", 3.5),  # trail arms at same level
-        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 2.0),
-        trail_ladder=os.getenv("TRAIL_LADDER", "3:1.5,6:2.0,10:3.0"),
+        be_pct=_env_float("FAST_BREAK_EVEN_PCT", 0.75),
+        be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05),
+        tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 2.0),
+        tp1_size_pct=_env_float("TP1_SIZE_PCT", 40.0),
+        trail_activate_pct=_env_float(
+            "PROFIT_LOCK_TRAIL_ACTIVATE_PCT", _env_float("TP1_PROFIT_PCT", 2.0)
+        ),
+        trail_distance_pct=_env_float("TRAILING_STOP_PCT", 1.25),
+        trail_ladder=os.getenv("TRAIL_LADDER", "2:1.25,4:1.75,8:2.5"),
         min_rule_minutes=_env_float("MIN_RULE_TIME_MINUTES", 45.0),
         min_rule_sl_pct=_env_float("MIN_RULE_SL_OFFSET", -1.5),
-        # v40: cut hope trades faster (CSV multi-hour losers = main $ leak)
-        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.0),
+        loss_timeout_hours=_env_float("WINNING_LOSS_TIMEOUT_HOURS", 2.5),
         toxic_zone_enabled=_env_bool("TOXIC_ZONE_RESTRICTION", True),
         toxic_zone_start=_env_int("TOXIC_ZONE_START", 8),
         toxic_zone_end=_env_int("TOXIC_ZONE_END", 14),

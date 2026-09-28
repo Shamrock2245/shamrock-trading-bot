@@ -110,13 +110,13 @@ jobs:
             if [ -f .env ]; then
               # 2026-07-29: Un-choked profitability settings (SL precision fix + un-banned majors + 24/7 ET liquidity)
               sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=58/' .env
-              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.1/' .env
-              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=false/' .env
+              sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.5/' .env
+              sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=true/' .env
               sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
               sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
-              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=6/' .env
-              sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=6/' .env || echo 'HL_PERPS_MAX_POSITIONS=6' >> .env
+              sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=4/' .env
+              sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=4/' .env || echo 'HL_PERPS_MAX_POSITIONS=4' >> .env
               # Full hard-ban list — keep in lockstep with core/hl_perps_scanner.py + core/predator_v1.py
               grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX' >> .env
               # 2026-09-28: Predator v1 expansion-only gate — PAPER ONLY (paper lock below stays true)
@@ -128,14 +128,14 @@ jobs:
               grep -q '^PREDATOR_MAX_OPENS_PER_DAY=' .env && sed -i 's/^PREDATOR_MAX_OPENS_PER_DAY=.*/PREDATOR_MAX_OPENS_PER_DAY=6/' .env || echo 'PREDATOR_MAX_OPENS_PER_DAY=6' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
-              grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=2/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=2' >> .env
-              grep -q '^HL_PERPS_MAX_OPENS_PER_DAY=' .env && sed -i 's/^HL_PERPS_MAX_OPENS_PER_DAY=.*/HL_PERPS_MAX_OPENS_PER_DAY=24/' .env || echo 'HL_PERPS_MAX_OPENS_PER_DAY=24' >> .env
+              grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=1/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=1' >> .env
+              grep -q '^HL_PERPS_MAX_OPENS_PER_DAY=' .env && sed -i 's/^HL_PERPS_MAX_OPENS_PER_DAY=.*/HL_PERPS_MAX_OPENS_PER_DAY=6/' .env || echo 'HL_PERPS_MAX_OPENS_PER_DAY=6' >> .env
               grep -q '^HL_PERPS_EDGE_SIZING_ENABLED=' .env && sed -i 's/^HL_PERPS_EDGE_SIZING_ENABLED=.*/HL_PERPS_EDGE_SIZING_ENABLED=true/' .env || echo 'HL_PERPS_EDGE_SIZING_ENABLED=true' >> .env
               grep -q '^HL_PERPS_BLOCKED_HOURS_ET=' .env && sed -i 's/^HL_PERPS_BLOCKED_HOURS_ET=.*/HL_PERPS_BLOCKED_HOURS_ET=/' .env || echo 'HL_PERPS_BLOCKED_HOURS_ET=' >> .env
-              grep -q '^HL_PERPS_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HL_PERPS_MAX_TOTAL_EXPOSURE=.*/HL_PERPS_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HL_PERPS_MAX_TOTAL_EXPOSURE=5000' >> .env
+              grep -q '^HL_PERPS_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HL_PERPS_MAX_TOTAL_EXPOSURE=.*/HL_PERPS_MAX_TOTAL_EXPOSURE=1400/' .env || echo 'HL_PERPS_MAX_TOTAL_EXPOSURE=1400' >> .env
               # Executor gates MUST match scanner — stale 65 / 2500 caused zero fills after 2026-07-17 deploy
               grep -q '^HYPERLIQUID_MIN_GEM_SCORE=' .env && sed -i 's/^HYPERLIQUID_MIN_GEM_SCORE=.*/HYPERLIQUID_MIN_GEM_SCORE=55/' .env || echo 'HYPERLIQUID_MIN_GEM_SCORE=55' >> .env
-              grep -q '^HYPERLIQUID_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HYPERLIQUID_MAX_TOTAL_EXPOSURE=.*/HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000/' .env || echo 'HYPERLIQUID_MAX_TOTAL_EXPOSURE=5000' >> .env
+              grep -q '^HYPERLIQUID_MAX_TOTAL_EXPOSURE=' .env && sed -i 's/^HYPERLIQUID_MAX_TOTAL_EXPOSURE=.*/HYPERLIQUID_MAX_TOTAL_EXPOSURE=1400/' .env || echo 'HYPERLIQUID_MAX_TOTAL_EXPOSURE=1400' >> .env
               # Force free-tier mini-class OpenAI model while leaving the server-side secret key untouched.
               grep -q '^OPENAI_MODEL=' .env && sed -i 's/^OPENAI_MODEL=.*/OPENAI_MODEL=gpt-5-mini/' .env || echo 'OPENAI_MODEL=gpt-5-mini' >> .env
               # Force-correct auto-blacklist vars (append if missing, replace if exists)

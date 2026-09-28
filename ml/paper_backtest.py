@@ -112,9 +112,11 @@ def load_trades(lookback_days: int = 30) -> list[dict]:
             continue
 
         try:
-            ts_str = t.get("timestamp", "")
+            ts_str = t.get("timestamp", "") or t.get("close_time", "") or t.get("closed_at", "")
             if ts_str:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                ts = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
                 if ts < cutoff:
                     continue
         except Exception:

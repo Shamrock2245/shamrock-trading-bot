@@ -286,6 +286,25 @@ def test_three_file_rule_predator_vars():
     assert _csv(env["HL_PERPS_HARD_BAN_COINS"]) == _csv(pv1._DEFAULT_HARD_BAN)
 
 
+def test_three_file_rule_hl_risk_vars():
+    env = _env_example()
+    ci = _ci_sets()
+    for key in (
+        "HL_PERPS_LONG_ONLY",
+        "HL_PERPS_MIN_RR",
+        "HL_PERPS_MAX_NEW_PER_SCAN",
+        "HL_PERPS_MAX_OPENS_PER_DAY",
+        "HL_PERPS_MAX_POSITIONS",
+        "HYPERLIQUID_MAX_POSITIONS",
+        "HL_PERPS_MAX_TOTAL_EXPOSURE",
+        "HYPERLIQUID_MAX_TOTAL_EXPOSURE",
+    ):
+        assert key in env, f"{key} missing from .env.example"
+        assert key in ci, f"{key} missing from CI deploy sed block"
+        assert env[key] == ci[key], f"{key}: .env.example={env[key]!r} ci={ci[key]!r}"
+
+
+
 def test_predator_defaults_match_scanner_defaults(monkeypatch):
     import core.predator_v1 as pv1
 
@@ -306,3 +325,67 @@ def test_ci_deploy_keeps_paper_lock_and_moralis_off():
     assert "MODE=live" not in ci_text
     assert "PAPER_MODE_LOCKED=false" not in ci_text
     assert "MORALIS_ENABLED=true" not in ci_text
+
+
+def test_get_max_allowed_leverage_matches_predator(monkeypatch):
+    sc = _reload_scanner(
+        monkeypatch, HL_PERPS_ALLOWLIST=None, HL_PERPS_HARD_BAN_COINS=None
+    )
+    scanner = sc.HLPerpsScanner.__new__(sc.HLPerpsScanner)
+    scanner.HL_PERPS_ALLOWLIST = sc.HL_PERPS_ALLOWLIST
+    scanner.HL_PERPS_HARD_BAN_COINS = sc.HL_PERPS_HARD_BAN_COINS
+    scanner._coin_perf = {}
+
+    # Hard-banned bleeders capped at 1x
+    for bleeder in ("FARTCOIN", "TRB", "GRASS", "ONDO", "MET", "EIGEN"):
+        assert scanner.get_max_allowed_leverage(bleeder, 15) == 1
+
+    # Allowlist printers get full requested leverage
+    for printer in ("DYDX", "JUP", "LINK", "BTC", "AAVE", "VVV", "MON", "TNSR"):
+        assert scanner.get_max_allowed_leverage(printer, 15) == 15
+        assert scanner.get_max_allowed_leverage(printer, 10) == 10
+
+    # Underperforming live token (<35% WR) capped at 3x
+    scanner._coin_perf["RANDOM"] = {"wins": 1, "losses": 3}
+    assert scanner.get_max_allowed_leverage("RANDOM", 10) == 3
+
+
+def test_predator_snapshot_and_deny_telemetry(monkeypatch):
+    import core.predator_v1 as pv1
+
+    monkeypatch.setenv("PREDATOR_V1_ENABLED", "true")
+    # Reset stats
+    pv1._EVAL_STATS = {"evaluations": 0, "allowed": 0, "denied": 0, "reasons": {}}
+
+    # Rejected entry
+    v_block = pv1.evaluate_entry("FARTCOIN", "long", "EXPANSION", persist=False)
+    assert not v_block.allow
+    assert v_block.reason == "hard_banned"
+
+    # Allowed entry
+    v_allow = pv1.evaluate_entry("AAVE", "long", "EXPANSION", persist=False)
+    assert v_allow.allow
+    assert v_allow.reason == "expansion_clear"
+
+    stats = pv1.get_deny_stats()
+    assert stats["evaluations"] == 2
+    assert stats["allowed"] == 1
+    assert stats["denied"] == 1
+    assert stats["deny_rate_pct"] == 50.0
+    assert stats["reasons"]["hard_banned"] == 1
+
+    paper = pv1.get_paper_metrics()
+    assert "closed_trades" in paper
+    assert "win_rate" in paper
+    assert "profit_factor" in paper
+    assert "gates" in paper
+    assert paper["gates"]["min_trades"] == 50
+    assert paper["gates"]["min_wr"] == 0.50
+    assert paper["gates"]["min_pf"] == 1.30
+
+    snap = pv1.snapshot_payload(v_allow, v_block)
+    assert "deny_stats" in snap
+    assert "paper_metrics" in snap
+    assert snap["deny_stats"]["denied"] == 1
+
+

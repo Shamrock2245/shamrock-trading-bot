@@ -104,6 +104,33 @@ blocked = pred.get("last_block") or {}
 st.write(f"Last call: {last.get('coin') or '—'} · {last.get('reason') or '—'}")
 st.write(f"Last hammer: {blocked.get('coin') or '—'} · {blocked.get('reason') or 'quiet'}")
 
+# ── Paper Campaign Promotion Progress (Gate: >=50 closes, WR>=50%, PF>=1.30) ──
+pm = pred.get("paper_metrics") or {}
+if pm:
+    st.markdown("### 🎯 Paper Promote Gate Progress (≥50 closes, WR ≥50%, PF ≥1.30)")
+    pg1, pg2, pg3, pg4 = st.columns(4)
+    closes_cnt = pm.get("closed_trades", 0)
+    wr_val = pm.get("win_rate", 0.0) * 100.0
+    pf_val = pm.get("profit_factor", 0.0)
+    mfe_cap = pm.get("mfe_capture_ratio_pct")
+
+    pg1.metric("Paper Closes", f"{closes_cnt} / 50", f"{'✅ Ready' if closes_cnt >= 50 else f'{50 - closes_cnt} to go'}")
+    pg2.metric("Paper Win Rate", f"{wr_val:.1f}%", f"{'✅ Passed' if wr_val >= 50.0 else 'Under 50%'}")
+    pg3.metric("Profit Factor", f"{pf_val:.2f}", f"{'✅ Passed' if pf_val >= 1.30 else 'Under 1.30'}")
+    pg4.metric("MFE Capture Rate", f"{mfe_cap:.1f}%" if mfe_cap is not None else "—", "Realized / Peak MFE")
+
+# ── Predator Sniper Deny Telemetry ──────────────────────────────────────────
+deny = pred.get("deny_stats") or {}
+if deny and deny.get("evaluations", 0) > 0:
+    st.markdown("### 🛡️ Predator Guard Telemetry")
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Evaluations", f"{deny.get('evaluations', 0)}")
+    d2.metric("Denied Entries", f"{deny.get('denied', 0)}", f"{deny.get('deny_rate_pct', 0):.1f}% rate")
+    d3.metric("Allowed Entries", f"{deny.get('allowed', 0)}")
+    reasons = deny.get("reasons") or {}
+    if reasons:
+        st.caption("Deny breakdown: " + " · ".join(f"**{k}**: {v}" for k, v in sorted(reasons.items(), key=lambda x: -x[1])))
+
 # Paper lock banner — Predator never unlocks live.
 if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
     st.info("PAPER_MODE_LOCKED=true — Predator v1 is running in paper only.")

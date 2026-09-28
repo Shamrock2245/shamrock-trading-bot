@@ -230,8 +230,17 @@ class SelfImprovingAgent:
         def _avg(lst):
             return round(sum(lst) / len(lst), 3) if lst else None
         if mfe_wins or mfe_losses:
+            avg_mfe_win = _avg(mfe_wins)
+            win_pcts = [float(t.get("pnl_pct", 0.0) or 0.0) for t in trades if float(t.get("closedPnl", t.get("pnl_usd", 0.0)) or 0.0) > 0]
+            avg_realized_win_pct = round(sum(win_pcts) / len(win_pcts), 3) if win_pcts else None
+            mfe_capture_ratio = None
+            if avg_mfe_win and avg_mfe_win > 0 and avg_realized_win_pct is not None:
+                mfe_capture_ratio = round((avg_realized_win_pct / avg_mfe_win) * 100.0, 1)
+
             metrics["excursion"] = {
-                "avg_mfe_winners_pct": _avg(mfe_wins),
+                "avg_mfe_winners_pct": avg_mfe_win,
+                "avg_realized_winner_pct": avg_realized_win_pct,
+                "mfe_capture_ratio_pct": mfe_capture_ratio,
                 "avg_mfe_losers_pct": _avg(mfe_losses),   # >1% here = losers that WERE winners → trail/BE too slow
                 "avg_mae_winners_pct": _avg(mae_wins),    # how deep winners dip → SL must sit below this
                 "avg_mae_losers_pct": _avg(mae_losses),
@@ -373,9 +382,10 @@ class SelfImprovingAgent:
         repeat_losers = failure_data.get("repeat_losers", [])
 
         if failure_data.get("small_loss_count", 0) >= 5:
-            new_params["VOLUME_FLOOR_USD"] = 1500000
+            new_params["MIN_VOLUME_USD"] = 1500000
         if failure_data.get("hope_trade_count", 0) >= 3:
             new_params["FAST_BREAK_EVEN_PCT"] = 0.5
+            new_params["WINNING_LOSS_TIMEOUT_HOURS"] = 2.0
 
         rationale = "Deterministic Fallback Audit: "
         parts = []

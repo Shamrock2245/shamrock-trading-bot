@@ -365,6 +365,107 @@ def run_auto_tuner_cycle(force: bool = False) -> None:
         save_positions(positions)
         logger.info("💾 Auto-Tuner: Saved updated positions to disk.")
 
+    # Run Hyperliquid Paper Autotuner
+    try:
+        run_hl_paper_tuner(force=force)
+    except Exception as exc:
+        logger.debug(f"HL paper tuner failed: {exc}")
+
+
+def run_hl_paper_tuner(force: bool = False) -> Optional[dict]:
+    """
+    Hyperliquid Paper Auto-Tuning Engine.
+    Ingests closed paper trades from output/trades.json via core.predator_v1.get_paper_metrics(),
+    evaluates WR, PF, and MFE capture ratio, and generates tuned parameter proposals.
+
+    STANDING RULES ENFORCED:
+    - PAPER ONLY. Never write live exchange stops or live .env.
+    - Propose -> PR / runtime overlay for paper evaluation.
+    """
+    try:
+        from core.predator_v1 import get_paper_metrics
+        pm = get_paper_metrics()
+    except Exception as e:
+        logger.debug(f"HL paper metrics unavailable: {e}")
+        return None
+
+    if not pm or pm.get("closed_trades", 0) < 3:
+        logger.info(f"🧠 HL Paper Tuner: Insufficient closed trades ({pm.get('closed_trades', 0)} < 3)")
+        return None
+
+    closed = pm.get("closed_trades", 0)
+    wr = pm.get("win_rate", 0.0)
+    pf = pm.get("profit_factor", 0.0)
+    mfe_cap = pm.get("mfe_capture_ratio_pct")
+
+    proposals: dict[str, Any] = {}
+    rationales: list[str] = []
+
+    # 1. Win rate tune: if WR < 50%, raise execution score threshold
+    if wr < 0.50:
+        proposals["HL_PERPS_EXEC_SCORE"] = 62.0
+        proposals["FAST_BREAK_EVEN_PCT"] = 0.75
+        rationales.append(f"Paper WR {wr:.1%} < 50% target -> tighten score to 62.0 and BE to 0.75%")
+    elif wr >= 0.60:
+        rationales.append(f"Paper WR {wr:.1%} is strong")
+
+    # 2. MFE capture tune: if runners give back moves (MFE capture < 40%)
+    if mfe_cap is not None and mfe_cap < 40.0:
+        proposals["TRAILING_STOP_PCT"] = 1.0
+        proposals["TP1_PROFIT_PCT"] = 2.0
+        proposals["TP1_SIZE_PCT"] = 40.0
+        rationales.append(f"MFE capture {mfe_cap:.1f}% < 40% -> tighten trailing stop to 1.0% and lock TP1 at 2.0%")
+
+    # 3. Profit factor guard
+    if pf < 1.30:
+        proposals["WINNING_LOSS_TIMEOUT_HOURS"] = 2.0
+        rationales.append(f"Profit factor {pf:.2f} < 1.30 target -> cut losing hold timeout to 2.0h")
+
+    if not proposals:
+        proposals["FAST_BREAK_EVEN_PCT"] = 0.75
+        proposals["TP1_PROFIT_PCT"] = 2.0
+        proposals["TRAILING_STOP_PCT"] = 1.25
+        rationales.append("Maintain baseline v32 Let Winners Breathe parameters in paper")
+
+    payload = {
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "mode": "paper",
+        "closed_trades": closed,
+        "win_rate": wr,
+        "profit_factor": pf,
+        "mfe_capture_ratio_pct": mfe_cap,
+        "proposed_params": proposals,
+        "rationale": " | ".join(rationales),
+    }
+
+    # Persist proposal file
+    prop_path = Path(os.getenv("HL_TUNER_PROPOSALS_FILE", "output/llm_tuning_proposals.json"))
+    try:
+        prop_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = prop_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        tmp.replace(prop_path)
+        logger.info(f"📝 HL Paper Tuner Proposal saved: {payload['rationale']}")
+    except Exception as e:
+        logger.debug(f"Failed to save HL tuner proposals: {e}")
+
+    # Safety check: ONLY apply in paper mode, never in live
+    mode = os.getenv("MODE", "paper").lower()
+    paper_locked = os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true"
+    if mode == "paper" and paper_locked:
+        try:
+            from core.runtime_params import apply_params
+            apply_params(proposals, source="llm_paper_tuner")
+            logger.info(f"✅ Applied paper tuning parameters to runtime overlay: {proposals}")
+        except Exception as e:
+            logger.debug(f"Runtime param overlay failed: {e}")
+    else:
+        logger.info("🛡️ Live mode active: skipping automated param overlay (PR / human approval required)")
+
+    return payload
+
+
 if __name__ == "__main__":
     run_auto_tuner_cycle(force=True)
+
 

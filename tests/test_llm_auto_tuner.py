@@ -76,3 +76,19 @@ def test_generate_commands_falls_back_without_api_key(monkeypatch):
     cmds = generate_tuning_commands(positions, daily_pnl=460.0, target_pnl=500.0)
     assert cmds
     assert cmds[0]["token"] == "WIF"
+
+
+def test_run_hl_paper_tuner_proposes_params_in_paper_mode(tmp_path, monkeypatch):
+    from core.llm_auto_tuner import run_hl_paper_tuner
+
+    proposal_file = tmp_path / "proposals.json"
+    monkeypatch.setenv("HL_TUNER_PROPOSALS_FILE", str(proposal_file))
+    monkeypatch.setenv("MODE", "paper")
+    monkeypatch.setenv("PAPER_MODE_LOCKED", "true")
+
+    res = run_hl_paper_tuner(force=True)
+    assert res is not None
+    assert res["mode"] == "paper"
+    assert "proposed_params" in res
+    assert proposal_file.exists()
+

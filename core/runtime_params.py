@@ -68,11 +68,36 @@ PARAM_TO_SETTING: dict[str, str] = {
     "VOLUME_FLOOR_USD": "MIN_VOLUME_USD",
     "MIN_VOLUME_USD": "MIN_VOLUME_USD",
     "FAST_BREAK_EVEN_PCT": "FAST_BREAK_EVEN_PCT",
+    "fast_break_even_pct": "FAST_BREAK_EVEN_PCT",
+    "FAST_BREAK_EVEN_SL_OFFSET": "FAST_BREAK_EVEN_SL_OFFSET",
+    "fast_break_even_sl_offset": "FAST_BREAK_EVEN_SL_OFFSET",
+    "TP1_PROFIT_PCT": "TP1_PROFIT_PCT",
+    "tp1_profit_pct": "TP1_PROFIT_PCT",
+    "TP1_SIZE_PCT": "TP1_SIZE_PCT",
+    "tp1_size_pct": "TP1_SIZE_PCT",
+    "TRAILING_STOP_PCT": "TRAILING_STOP_PCT",
+    "trailing_stop_pct": "TRAILING_STOP_PCT",
+    "TRAIL_LADDER": "TRAIL_LADDER",
+    "trail_ladder": "TRAIL_LADDER",
+    "WINNING_LOSS_TIMEOUT_HOURS": "WINNING_LOSS_TIMEOUT_HOURS",
+    "winning_loss_timeout_hours": "WINNING_LOSS_TIMEOUT_HOURS",
+    "HL_PERPS_EXEC_SCORE": "HL_PERPS_EXEC_SCORE",
+    "hl_perps_exec_score": "HL_PERPS_EXEC_SCORE",
+    "HL_PERPS_MIN_RR": "HL_PERPS_MIN_RR",
+    "hl_perps_min_rr": "HL_PERPS_MIN_RR",
+    "HL_PERPS_MAX_POSITIONS": "HL_PERPS_MAX_POSITIONS",
+    "hl_perps_max_positions": "HL_PERPS_MAX_POSITIONS",
+    "HL_PERPS_MAX_NOTIONAL_USD": "HL_PERPS_MAX_NOTIONAL_USD",
+    "hl_perps_max_notional_usd": "HL_PERPS_MAX_NOTIONAL_USD",
+    "HL_PERPS_MAX_TOTAL_EXPOSURE": "HL_PERPS_MAX_TOTAL_EXPOSURE",
+    "hl_perps_max_total_exposure": "HL_PERPS_MAX_TOTAL_EXPOSURE",
 }
 
 # Settings that also need a duplicate env/attr write
 SETTING_ALIASES: dict[str, tuple[str, ...]] = {
     "FAST_FAIL_HOURS": ("FAST_FAIL_STALL_HOURS",),
+    "HL_PERPS_MAX_POSITIONS": ("HYPERLIQUID_MAX_POSITIONS",),
+    "HL_PERPS_MAX_TOTAL_EXPOSURE": ("HYPERLIQUID_MAX_TOTAL_EXPOSURE",),
 }
 
 BOUNDS: dict[str, tuple[float, float]] = {
@@ -94,7 +119,17 @@ BOUNDS: dict[str, tuple[float, float]] = {
     "GOD_MODE_KELLY_MULTIPLIER": (1.0, 4.0),
     "TIME_EXIT_HOURS": (2.0, 48.0),
     "MIN_VOLUME_USD": (100_000.0, 5_000_000.0),
-    "FAST_BREAK_EVEN_PCT": (0.25, 5.0),
+    "FAST_BREAK_EVEN_PCT": (0.25, 3.0),
+    "FAST_BREAK_EVEN_SL_OFFSET": (0.01, 0.50),
+    "TP1_PROFIT_PCT": (1.0, 6.0),
+    "TP1_SIZE_PCT": (10.0, 70.0),
+    "TRAILING_STOP_PCT": (0.5, 4.0),
+    "WINNING_LOSS_TIMEOUT_HOURS": (1.0, 8.0),
+    "HL_PERPS_EXEC_SCORE": (45.0, 85.0),
+    "HL_PERPS_MIN_RR": (1.0, 3.0),
+    "HL_PERPS_MAX_POSITIONS": (1.0, 10.0),
+    "HL_PERPS_MAX_NOTIONAL_USD": (100.0, 1000.0),
+    "HL_PERPS_MAX_TOTAL_EXPOSURE": (500.0, 5000.0),
 }
 
 # Tuner key → StrategyProfile field

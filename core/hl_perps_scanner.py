@@ -1222,16 +1222,31 @@ class HLPerpsScanner:
 
     def get_max_allowed_leverage(self, coin: str, requested_leverage: int) -> int:
         """Pre-trade safety gate: cap max leverage based on backtest edge & live win rate.
-        High leverage (10x-15x) requires proven edge (WR >= 40% or backtested PF > 1.2).
-        Underperforming tokens (WR < 35% or negative backtest PnL) are capped at 3x max.
+        High leverage (10x-15x) requires proven edge (allowlist or WR >= 50% / positive net).
+        Underperforming tokens (hard ban or WR < 35% or negative PnL) are capped at 1x-3x max.
         """
         coin_u = coin.upper()
-        # High-edge backtested whitelist (PF > 1.2 in multi-regime 14d/30d backtests)
-        backtest_high_edge = {"KBONK", "FARTCOIN", "ATOM", "ONDO", "LDO", "BCH", "AAVE", "OP", "STX", "DOGE", "DOT"}
-        # High-loss backtested blacklist (consistently negative backtest PnL)
-        backtest_low_edge = {"AVAX", "APT", "ARB", "DYDX", "KPEPE", "JUP", "TRUMP", "NEAR", "LINK", "XRP", "BTC", "ETH"}
+        # High-edge allowlist & proven printers from hl_fills book
+        backtest_high_edge = {
+            "BTC", "AAVE", "MON", "DYDX", "VVV", "XMR", "TNSR", "VIRTUAL",
+            "BANANA", "RESOLV", "LTC", "JUP", "PUMP", "AERO", "INJ", "LINK",
+            "SKY", "SYRUP", "KBONK", "ATOM", "BCH", "OP", "STX", "DOGE", "DOT",
+        } | getattr(self, "HL_PERPS_ALLOWLIST", set())
+        # High-loss blacklist & confirmed bleeders from hl_fills book + hard ban list
+        backtest_low_edge = {
+            "TRB", "GRASS", "SOL", "MET", "EIGEN", "MORPHO", "FARTCOIN", "ONDO",
+            "HMSTR", "LIT", "HYPE", "BRETT", "POPCAT", "MEME", "JTO", "ENA",
+            "ZEC", "ETH", "BSV", "CRV", "PENDLE", "UNI", "ACE", "ADA", "STABLE",
+            "SUI", "LDO", "ETHFI", "TRX", "AVAX", "APT", "ARB", "KPEPE", "TRUMP",
+            "NEAR", "XRP", "APE", "HEMI", "KAITO",
+        } | getattr(self, "HL_PERPS_HARD_BAN_COINS", set())
 
-        if coin_u in backtest_low_edge:
+        # Hard-banned bleeders get minimal leverage (capped at 1x)
+        if coin_u in getattr(self, "HL_PERPS_HARD_BAN_COINS", set()):
+            logger.info(f"[{coin_u}] 🛡️ Leverage capped at 1x: token is hard-banned bleeder")
+            return min(requested_leverage, 1)
+
+        if coin_u in backtest_low_edge and coin_u not in backtest_high_edge:
             logger.info(f"[{coin_u}] 🛡️ Leverage capped at 3x: low backtest edge / negative PnL")
             return min(requested_leverage, 3)
 

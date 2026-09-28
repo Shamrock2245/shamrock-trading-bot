@@ -160,6 +160,9 @@ def evaluate_entry(
     if cap > 0 and opens_today >= cap:
         return _reject(coin_u, direction_u, regime, hour, "daily_open_cap", persist)
 
+    _EVAL_STATS["evaluations"] += 1
+    _EVAL_STATS["allowed"] += 1
+
     verdict = PredatorVerdict(
         allow=True,
         reason="expansion_clear",
@@ -173,6 +176,108 @@ def evaluate_entry(
     return verdict
 
 
+_EVAL_STATS: dict = {"evaluations": 0, "allowed": 0, "denied": 0, "reasons": {}}
+
+
+def get_deny_stats() -> dict:
+    total = _EVAL_STATS["evaluations"]
+    denied = _EVAL_STATS["denied"]
+    rate = round((denied / total * 100.0), 1) if total > 0 else 0.0
+    return {
+        "evaluations": total,
+        "allowed": _EVAL_STATS["allowed"],
+        "denied": denied,
+        "deny_rate_pct": rate,
+        "reasons": dict(_EVAL_STATS["reasons"]),
+    }
+
+
+def get_paper_metrics() -> dict:
+    candidates = [
+        Path(os.getenv("TRADES_FILE", "output/trades.json")),
+        Path("output/trades.json"),
+        Path("/app/output/trades.json"),
+    ]
+    trades: list = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8") or "[]")
+            if isinstance(raw, list) and raw:
+                trades = raw
+                break
+        except Exception:
+            continue
+
+    paper = [t for t in trades if t.get("is_paper") is True]
+    pool = paper if paper else trades
+    closes = [
+        t for t in pool
+        if str(t.get("action", "")).upper() in ("SELL", "CLOSE", "SELL_SHORT")
+        and t.get("pnl_usd") is not None
+    ]
+    if not closes:
+        return {
+            "closed_trades": 0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "net_pnl": 0.0,
+            "avg_mfe_winners_pct": None,
+            "avg_realized_winner_pct": None,
+            "mfe_capture_ratio_pct": None,
+            "gates": {
+                "min_trades": 50,
+                "min_wr": 0.50,
+                "min_pf": 1.30,
+                "trades_ok": False,
+                "wr_ok": False,
+                "pf_ok": False,
+                "ready": False,
+            },
+        }
+
+    wins = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) > 0]
+    losses = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) < 0]
+    gross_win = sum(wins) if wins else 0.0
+    gross_loss = abs(sum(losses)) if losses else 0.0
+    pf = round((gross_win / gross_loss), 2) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
+    wr = round((len(wins) / len(closes)), 3) if closes else 0.0
+    net_pnl = round(sum(float(t["pnl_usd"]) for t in closes), 2)
+
+    # MFE capture ratio (how much of favorable peak move was locked in)
+    mfe_vals = [float(t["mfe_pct"]) for t in closes if t.get("mfe_pct") is not None and float(t["pnl_usd"]) > 0]
+    win_pcts = [float(t.get("pnl_pct", 0.0) or 0.0) for t in closes if float(t["pnl_usd"]) > 0]
+    avg_mfe = (sum(mfe_vals) / len(mfe_vals)) if mfe_vals else None
+    avg_win_pct = (sum(win_pcts) / len(win_pcts)) if win_pcts else None
+    mfe_capture_ratio = None
+    if avg_mfe and avg_mfe > 0 and avg_win_pct is not None:
+        mfe_capture_ratio = round((avg_win_pct / avg_mfe) * 100.0, 1)
+
+    trades_ok = len(closes) >= 50
+    wr_ok = wr >= 0.50
+    pf_ok = pf >= 1.30
+
+    return {
+        "closed_trades": len(closes),
+        "win_rate": wr,
+        "profit_factor": pf,
+        "net_pnl": net_pnl,
+        "avg_mfe_winners_pct": round(avg_mfe, 2) if avg_mfe else None,
+        "avg_realized_winner_pct": round(avg_win_pct, 2) if avg_win_pct else None,
+        "mfe_capture_ratio_pct": mfe_capture_ratio,
+        "gates": {
+            "min_trades": 50,
+            "min_wr": 0.50,
+            "min_pf": 1.30,
+            "trades_ok": trades_ok,
+            "wr_ok": wr_ok,
+            "pf_ok": pf_ok,
+            "ready": trades_ok and wr_ok and pf_ok,
+        },
+    }
+
+
 def _reject(
     coin: str,
     direction: str,
@@ -181,6 +286,10 @@ def _reject(
     reason: str,
     persist: bool,
 ) -> PredatorVerdict:
+    _EVAL_STATS["evaluations"] += 1
+    _EVAL_STATS["denied"] += 1
+    _EVAL_STATS["reasons"][reason] = _EVAL_STATS["reasons"].get(reason, 0) + 1
+
     verdict = PredatorVerdict(
         allow=False,
         reason=reason,
@@ -205,6 +314,8 @@ def snapshot_payload(last: PredatorVerdict, last_block: Optional[PredatorVerdict
         "hard_ban": sorted(hard_ban()),
         "last": asdict(last),
         "last_block": asdict(last_block) if last_block else None,
+        "deny_stats": get_deny_stats(),
+        "paper_metrics": get_paper_metrics(),
         "updated_at": datetime.now(_ET).isoformat(),
     }
 
