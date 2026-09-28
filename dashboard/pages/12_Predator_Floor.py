@@ -103,4 +103,25 @@ c4.metric("Open risk slots", f"{len(positions)}")
 blocked = pred.get("last_block") or {}
 st.write(f"Last call: {last.get('coin') or '—'} · {last.get('reason') or '—'}")
 st.write(f"Last hammer: {blocked.get('coin') or '—'} · {blocked.get('reason') or 'quiet'}")
-"}, {
+
+# Paper lock banner — Predator never unlocks live.
+if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":
+    st.info("PAPER_MODE_LOCKED=true — Predator v1 is running in paper only.")
+
+h1, h2 = st.columns(2)
+with h1:
+    st.markdown("**Allowlist (hunt)**")
+    st.write(", ".join(pred.get("allowlist") or []) or "—")
+with h2:
+    st.markdown("**Ban hammer**")
+    st.write(", ".join(pred.get("hard_ban") or []) or "—")
+
+st.markdown("**Last 20 sprites**")
+sprites = []
+for t in recent:
+    try:
+        pnl = float(t.get("pnl") or t.get("pnl_usd") or t.get("realized_pnl") or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    sprites.append("\U0001F7E9" if pnl > 0 else ("\U0001F7E5" if pnl < 0 else "\u2B1C"))
+st.write(" ".join(sprites) or "—")
