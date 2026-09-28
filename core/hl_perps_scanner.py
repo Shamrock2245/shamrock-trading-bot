@@ -985,6 +985,19 @@ class HLPerpsScanner:
         Called by hyperliquid_executor._inject_scanner_cooldown() after every close.
         """
         coin = coin.upper()
+        # HotStreakAmplifier — allowlist-path closes only; never bypasses Predator.
+        try:
+            from core.hot_streak import get_amplifier
+            from core.predator_v1 import allowlist as _pred_allow
+            _on_al = coin in _pred_allow()
+            get_amplifier().record_close(
+                won=bool(won),
+                pnl_usd=float(pnl_usd or 0.0),
+                coin=coin,
+                on_allowlist=_on_al,
+            )
+        except Exception as _hs_rec_err:
+            logger.debug(f"[HOT-STREAK] record_close skipped: {_hs_rec_err}")
         # v33: feed the global StoplossGuard + repeat-loser day-block regardless
         # of autoban being enabled — these are separate freqtrade-style protections.
         if won:
@@ -2190,26 +2203,47 @@ class HLPerpsScanner:
         except Exception as _edge_err:
             logger.debug(f"[HL-PERPS] Edge sizing error (neutral): {_edge_err}")
 
-        # ── v41: hot-streak boost (OpenAlice momentum) — ramp size DURING a coin's
-        # winning streak, not after the day ends. Still bounded by the max
-        # position margin and the notional cap re-check below.
+        # ── HotStreakAmplifier (asymmetric upside) — AFTER Predator allow only.
+        # Denied entries never reach here. Caps: max lev / max position / max notional.
+        # Legacy per-coin HL_PERPS_HOT_STREAK_* remains as fallback when flag is off.
         try:
-            streak = self._win_streak.get(coin_u, 0)
-            if (
-                HL_PERPS_HOT_STREAK_WINS > 0
-                and streak >= HL_PERPS_HOT_STREAK_WINS
-                and HL_PERPS_HOT_STREAK_MULT > 1.0
-            ):
-                boosted = round(size_usd * HL_PERPS_HOT_STREAK_MULT, 2)
-                boosted = min(boosted, HL_PERPS_MAX_POSITION_USD)
+            from core.hot_streak import get_amplifier
+            _amp = get_amplifier()
+            if _amp.enabled():
+                try:
+                    _amp.update_open_equity(float(getattr(self, "daily_pnl", 0.0) or 0.0))
+                except Exception:
+                    pass
                 _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
-                boosted = min(boosted, round(HL_PERPS_MAX_NOTIONAL_USD / _lev_now, 2))
-                if boosted > size_usd:
-                    logger.info(
-                        f"[HL-PERPS] {signal.coin} \U0001f525 hot streak ({streak} wins) "
-                        f"×{HL_PERPS_HOT_STREAK_MULT}: ${size_usd:.2f} → ${boosted:.2f}"
-                    )
-                    size_usd = boosted
+                _max_lev = self.get_max_allowed_leverage(coin_u, max(_lev_now, 15))
+                new_size, new_lev, _hs_mult = _amp.amplify(
+                    size_usd,
+                    _lev_now,
+                    max_leverage=_max_lev,
+                    max_notional=HL_PERPS_MAX_NOTIONAL_USD,
+                    max_position_usd=HL_PERPS_MAX_POSITION_USD,
+                    predator_allowed=True,
+                )
+                if _hs_mult > 1.0:
+                    size_usd = new_size
+                    signal.leverage = new_lev
+            else:
+                streak = self._win_streak.get(coin_u, 0)
+                if (
+                    HL_PERPS_HOT_STREAK_WINS > 0
+                    and streak >= HL_PERPS_HOT_STREAK_WINS
+                    and HL_PERPS_HOT_STREAK_MULT > 1.0
+                ):
+                    boosted = round(size_usd * HL_PERPS_HOT_STREAK_MULT, 2)
+                    boosted = min(boosted, HL_PERPS_MAX_POSITION_USD)
+                    _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
+                    boosted = min(boosted, round(HL_PERPS_MAX_NOTIONAL_USD / _lev_now, 2))
+                    if boosted > size_usd:
+                        logger.info(
+                            f"[HL-PERPS] {signal.coin} hot streak ({streak} wins) "
+                            f"×{HL_PERPS_HOT_STREAK_MULT}: ${size_usd:.2f} → ${boosted:.2f}"
+                        )
+                        size_usd = boosted
         except Exception as _hs_err:
             logger.debug(f"[HL-PERPS] Hot-streak sizing error (neutral): {_hs_err}")
 
