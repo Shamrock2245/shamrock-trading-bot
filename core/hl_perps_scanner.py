@@ -1932,19 +1932,34 @@ class HLPerpsScanner:
                 logger.debug(f"[HL-PERPS] regime gate skipped ({_rg_err})")
 
         # Predator v1 — expansion-only. Flag off = no-op (legacy half-size stays).
+        # FAIL-CLOSED when enabled: any import / evaluation error skips the entry.
+        _pred_on = False
+        _pv1 = None
         try:
-            from core import predator_v1
-            if predator_v1.enabled():
-                if regime_name is None:
-                    try:
-                        from core.regime_filter import get_regime
-                        _prs = get_regime()
-                        if _prs is not None:
-                            regime_name = getattr(
-                                _prs.regime, "value", str(_prs.regime)
-                            )
-                    except Exception as _pe:
-                        logger.debug(f"[PREDATOR] regime fetch skipped ({_pe})")
+            from core import predator_v1 as _pv1
+            _pred_on = _pv1.enabled()
+        except Exception as _pred_imp_err:
+            if os.getenv("PREDATOR_V1_ENABLED", "false").strip().lower() in (
+                "1", "true", "yes", "on"
+            ):
+                logger.error(
+                    f"[PREDATOR] {signal.coin} blocked — gate unavailable "
+                    f"({_pred_imp_err}); fail-closed"
+                )
+                return False
+        if _pred_on:
+            if regime_name is None:
+                try:
+                    from core.regime_filter import get_regime
+                    _prs = get_regime()
+                    if _prs is not None:
+                        regime_name = getattr(
+                            _prs.regime, "value", str(_prs.regime)
+                        )
+                except Exception as _pe:
+                    # regime_name stays None -> evaluate_entry rejects regime_unknown
+                    logger.debug(f"[PREDATOR] regime fetch failed ({_pe})")
+            try:
                 _rn = (regime_name or "").strip().upper()
                 if _rn in ("CHOPPY", "CHOP", "RANGE", "DEAD"):
                     logger.info(
@@ -1952,19 +1967,23 @@ class HLPerpsScanner:
                         f"(no half-size under Predator v1)"
                     )
                     return False
-                _verdict = predator_v1.evaluate_entry(
+                _verdict = _pv1.evaluate_entry(
                     signal.coin,
                     signal.direction,
                     regime_name,
                     opens_today=self.opens_today,
                 )
-                if not _verdict.allow:
-                    logger.info(
-                        f"[PREDATOR] {signal.coin} blocked — {_verdict.reason}"
-                    )
-                    return False
-        except Exception as _pred_err:
-            logger.debug(f"[PREDATOR] gate skipped ({_pred_err})")
+            except Exception as _pred_err:
+                logger.error(
+                    f"[PREDATOR] {signal.coin} blocked — gate error "
+                    f"({_pred_err}); fail-closed"
+                )
+                return False
+            if not _verdict.allow:
+                logger.info(
+                    f"[PREDATOR] {signal.coin} blocked — {_verdict.reason}"
+                )
+                return False
 
         coin_u = signal.coin.upper()
 
