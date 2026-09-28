@@ -18,6 +18,12 @@ from state import (
 )
 
 try:
+    from state import get_hot_streak_state
+except ImportError:
+    def get_hot_streak_state():
+        return {}
+
+try:
     from state import get_predator_state
 except ImportError:
     def get_predator_state():
@@ -130,6 +136,22 @@ if deny and deny.get("evaluations", 0) > 0:
     reasons = deny.get("reasons") or {}
     if reasons:
         st.caption("Deny breakdown: " + " · ".join(f"**{k}**: {v}" for k, v in sorted(reasons.items(), key=lambda x: -x[1])))
+
+# ── Hot Streak Amplifier (upside only; never bypasses Predator) ─────────────
+hs = get_hot_streak_state() or {}
+if hs:
+    st.markdown("### 🔥 Hot Streak Amplifier")
+    hsa, hsb, hsc, hsd = st.columns(4)
+    armed = bool(hs.get("armed"))
+    hsa.metric("Status", "ARMED" if armed else "IDLE", hs.get("disarm_reason") or ("hot" if armed else "waiting"))
+    hsb.metric("Win streak", f"{hs.get('consecutive_wins', 0)}")
+    hsc.metric("Size/Lev mult", f"{float(hs.get('multiplier', 1.0) or 1.0):.2f}×")
+    hsd.metric("Day net", f"${float(hs.get('day_net_pnl', 0.0) or 0.0):+,.2f}")
+    st.caption(
+        "Arms after consecutive allowlist closed wins. Instant disarm on loss / "
+        "day net < 0 / drawdown from day peak. Never bypasses hard-ban, chop, "
+        "toxic hours, daily open cap, or PAPER_MODE_LOCKED."
+    )
 
 # Paper lock banner — Predator never unlocks live.
 if os.getenv("PAPER_MODE_LOCKED", "true").lower() == "true":

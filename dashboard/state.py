@@ -668,3 +668,16 @@ def get_hl_trailing_state() -> dict:
 def get_funding_farms() -> dict:
     """Read the active delta-neutral funding farms."""
     return _read_json("funding_farms.json", {})
+
+
+def get_hot_streak_state() -> dict:
+    """Read HotStreakAmplifier snapshot (data/dashboard/hot_streak.json)."""
+    data = _read_json("hot_streak.json", {})
+    if data:
+        return data
+    try:
+        from core.hot_streak import get_hot_streak_state as _live
+        return _live()
+    except Exception:
+        return {}
+

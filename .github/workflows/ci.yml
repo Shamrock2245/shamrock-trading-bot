@@ -165,6 +165,11 @@ jobs:
               grep -q '^HF_MORALIS_SCANNER_ENABLED=' .env && sed -i 's/^HF_MORALIS_SCANNER_ENABLED=.*/HF_MORALIS_SCANNER_ENABLED=false/' .env || echo 'HF_MORALIS_SCANNER_ENABLED=false' >> .env
               # 2026-08-13: paper-only — no live fills until lock is cleared.
               grep -q '^MODE=' .env && sed -i 's/^MODE=.*/MODE=paper/' .env || echo 'MODE=paper' >> .env
+              grep -q '^HOT_STREAK_ENABLED=' .env && sed -i 's/^HOT_STREAK_ENABLED=.*/HOT_STREAK_ENABLED=true/' .env || echo 'HOT_STREAK_ENABLED=true' >> .env
+              grep -q '^HOT_STREAK_MIN_WINS=' .env && sed -i 's/^HOT_STREAK_MIN_WINS=.*/HOT_STREAK_MIN_WINS=3/' .env || echo 'HOT_STREAK_MIN_WINS=3' >> .env
+              grep -q '^HOT_STREAK_MULT_LADDER=' .env && sed -i 's/^HOT_STREAK_MULT_LADDER=.*/HOT_STREAK_MULT_LADDER=3:1.25,5:1.5,7:1.75/' .env || echo 'HOT_STREAK_MULT_LADDER=3:1.25,5:1.5,7:1.75' >> .env
+              grep -q '^HOT_STREAK_MAX_MULT=' .env && sed -i 's/^HOT_STREAK_MAX_MULT=.*/HOT_STREAK_MAX_MULT=2.0/' .env || echo 'HOT_STREAK_MAX_MULT=2.0' >> .env
+              grep -q '^HOT_STREAK_DISARM_DD_PCT=' .env && sed -i 's/^HOT_STREAK_DISARM_DD_PCT=.*/HOT_STREAK_DISARM_DD_PCT=3.0/' .env || echo 'HOT_STREAK_DISARM_DD_PCT=3.0' >> .env
               grep -q '^PAPER_MODE_LOCKED=' .env && sed -i 's/^PAPER_MODE_LOCKED=.*/PAPER_MODE_LOCKED=true/' .env || echo 'PAPER_MODE_LOCKED=true' >> .env
               grep -q '^PAPER_TUNING_CAMPAIGN_ENABLED=' .env && sed -i 's/^PAPER_TUNING_CAMPAIGN_ENABLED=.*/PAPER_TUNING_CAMPAIGN_ENABLED=true/' .env || echo 'PAPER_TUNING_CAMPAIGN_ENABLED=true' >> .env
               # 2026-08-13: HARD KILL Moralis after $75 extra CU overage in one day.
