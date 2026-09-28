@@ -117,7 +117,15 @@ jobs:
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=6/' .env
               sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=6/' .env || echo 'HL_PERPS_MAX_POSITIONS=6' >> .env
-              grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=GRASS,TRB,HMSTR,FARTCOIN/' .env || echo 'HL_PERPS_HARD_BAN_COINS=GRASS,TRB,HMSTR,FARTCOIN' >> .env
+              # Full hard-ban list — keep in lockstep with core/hl_perps_scanner.py + core/predator_v1.py
+              grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX' >> .env
+              # 2026-09-28: Predator v1 expansion-only gate — PAPER ONLY (paper lock below stays true)
+              grep -q '^HL_PERPS_ALLOWLIST=' .env && sed -i 's/^HL_PERPS_ALLOWLIST=.*/HL_PERPS_ALLOWLIST=BTC,AAVE,MON,DYDX,VVV,XMR,TNSR,VIRTUAL,BANANA,RESOLV,LTC,JUP,PUMP,AERO,INJ,LINK,SKY,SYRUP/' .env || echo 'HL_PERPS_ALLOWLIST=BTC,AAVE,MON,DYDX,VVV,XMR,TNSR,VIRTUAL,BANANA,RESOLV,LTC,JUP,PUMP,AERO,INJ,LINK,SKY,SYRUP' >> .env
+              grep -q '^PREDATOR_V1_ENABLED=' .env && sed -i 's/^PREDATOR_V1_ENABLED=.*/PREDATOR_V1_ENABLED=true/' .env || echo 'PREDATOR_V1_ENABLED=true' >> .env
+              grep -q '^PREDATOR_EXPANSION_ONLY=' .env && sed -i 's/^PREDATOR_EXPANSION_ONLY=.*/PREDATOR_EXPANSION_ONLY=true/' .env || echo 'PREDATOR_EXPANSION_ONLY=true' >> .env
+              grep -q '^PREDATOR_BLOCK_TOXIC_HOURS=' .env && sed -i 's/^PREDATOR_BLOCK_TOXIC_HOURS=.*/PREDATOR_BLOCK_TOXIC_HOURS=true/' .env || echo 'PREDATOR_BLOCK_TOXIC_HOURS=true' >> .env
+              grep -q '^PREDATOR_TOXIC_HOURS_ET=' .env && sed -i 's/^PREDATOR_TOXIC_HOURS_ET=.*/PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13/' .env || echo 'PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13' >> .env
+              grep -q '^PREDATOR_MAX_OPENS_PER_DAY=' .env && sed -i 's/^PREDATOR_MAX_OPENS_PER_DAY=.*/PREDATOR_MAX_OPENS_PER_DAY=6/' .env || echo 'PREDATOR_MAX_OPENS_PER_DAY=6' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
               grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=2/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=2' >> .env
@@ -182,7 +190,7 @@ jobs:
               sed -i 's|^BSC_RPC_FALLBACK=.*|BSC_RPC_FALLBACK=https://bsc.publicnode.com|' .env
               sed -i 's|^AVAX_RPC_URL=.*|AVAX_RPC_URL=https://api.avax.network/ext/bc/C/rpc|' .env
               sed -i 's|^AVAX_RPC_FALLBACK=.*|AVAX_RPC_FALLBACK=https://avalanche-c-chain-rpc.publicnode.com|' .env
-              echo "✅ .env patched with v32 Let Winners Breathe values + Moralis kill"
+              echo "✅ .env patched with v32 Let Winners Breathe values + Predator v1 (paper) + Moralis kill"
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"
             fi
