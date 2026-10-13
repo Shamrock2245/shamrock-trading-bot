@@ -2379,6 +2379,12 @@ class HLPerpsScanner:
             allow = {c for c in HL_PERPS_ALLOWLIST if c not in HL_PERPS_HARD_BAN_COINS}
             scan_list = [c for c in HL_PERPS_WATCHLIST if c in allow]
             scan_list.extend([c for c in sorted(allow) if c not in set(scan_list)])
+            # Alpha discovery: reorder only (never adds coins). Predator still gates every entry.
+            try:
+                from core.alpha_discovery import priority_order as _disc_order
+                scan_list = _disc_order(scan_list)
+            except Exception as _disc_err:
+                logger.debug(f"discovery priority skipped: {_disc_err}")
         else:
             scan_list = list(HL_PERPS_WATCHLIST)
             all_perps = set(funding_rates.keys())
