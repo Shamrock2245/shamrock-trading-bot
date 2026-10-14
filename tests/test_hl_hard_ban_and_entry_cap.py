@@ -413,6 +413,7 @@ def test_expectancy_gate_blocks_negative_pf(monkeypatch):
             "gross_profit": 4.0,
             "gross_loss": 20.0,
             "pnl_usd": -16.0,
+            "last_updated": __import__("time").time(),  # fresh verdict (stale ones expire)
         }
     }
     assert scanner.coin_fails_expectancy("GMX") is True
