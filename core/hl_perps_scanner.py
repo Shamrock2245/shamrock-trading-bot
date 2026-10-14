@@ -1838,7 +1838,9 @@ class HLPerpsScanner:
             )
             return None
 
-        if rr < MIN_RR_RATIO:
+        # Geometry repair builds TP at exactly min_rr; rounding to 6dp can land
+        # a hair below (e.g. 1.4999x) and wrongly reject a repaired signal.
+        if rr < MIN_RR_RATIO - 0.01:
             logger.info(
                 f"[HL-PERPS] {coin} {direction.upper()} R/R={rr:.1f}x < {MIN_RR_RATIO}x — "
                 f"rejected (score={score:.0f}, fib={fib_zone})"
