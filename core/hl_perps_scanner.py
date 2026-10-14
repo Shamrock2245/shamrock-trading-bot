@@ -257,6 +257,10 @@ HL_PERPS_AUTOBAN_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_HOURS", "168.0
 HL_PERPS_EXPECTANCY_GATE_ENABLED: bool = os.getenv(
     "HL_PERPS_EXPECTANCY_GATE_ENABLED", "true"
 ).lower() in ("1", "true", "yes", "on")
+# Expectancy verdicts older than this stop blocking. Without an expiry the gate
+# deadlocks: a blocked coin never trades, so its stats never refresh (Sep 2026:
+# 16/18 allowlist coins blocked for 3 weeks, zero paper opens). 0 = never expire.
+HL_PERPS_EXPECTANCY_STALE_HOURS: float = float(os.getenv("HL_PERPS_EXPECTANCY_STALE_HOURS", "168.0"))
 # Pairlist: default allowlist of names that actually made money (or are BTC).
 # `full` restores the 230-coin spray that produced TRB/GRASS.
 HL_PERPS_UNIVERSE: str = os.getenv("HL_PERPS_UNIVERSE", "allowlist").strip().lower()
@@ -1162,11 +1166,24 @@ class HLPerpsScanner:
         total = wins + losses
         if total < HL_PERPS_AUTOBAN_MIN_TRADES:
             return False
+        if HL_PERPS_EXPECTANCY_STALE_HOURS > 0:
+            try:
+                age_h = (time.time() - float(perf.get("last_updated") or 0.0)) / 3600.0
+            except (TypeError, ValueError):
+                age_h = float("inf")
+            if age_h > HL_PERPS_EXPECTANCY_STALE_HOURS:
+                return False  # stale verdict — let the coin re-prove itself
         wr = wins / total if total else 1.0
+        if wr < HL_PERPS_AUTOBAN_WR_THRESHOLD:
+            return True
         gp = float(perf.get("gross_profit") or 0.0)
         gl = float(perf.get("gross_loss") or 0.0)
-        pf = (gp / gl) if gl > 0 else (9.9 if gp > 0 else 0.0)
-        return wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
+        if gp <= 0 and gl <= 0:
+            # Legacy rows carry win/loss counts but no $ PnL. Treating that as
+            # PF=0 blocked every coin with >=5 trades (even 6W/6L). WR only.
+            return False
+        pf = (gp / gl) if gl > 0 else 9.9
+        return pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
 
     def _save_coin_perf(self) -> None:
         """Persist coin performance stats and active bans to disk."""
