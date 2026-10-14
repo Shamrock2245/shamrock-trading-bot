@@ -126,6 +126,12 @@ jobs:
               grep -q '^PREDATOR_BLOCK_TOXIC_HOURS=' .env && sed -i 's/^PREDATOR_BLOCK_TOXIC_HOURS=.*/PREDATOR_BLOCK_TOXIC_HOURS=true/' .env || echo 'PREDATOR_BLOCK_TOXIC_HOURS=true' >> .env
               grep -q '^PREDATOR_TOXIC_HOURS_ET=' .env && sed -i 's/^PREDATOR_TOXIC_HOURS_ET=.*/PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13/' .env || echo 'PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13' >> .env
               grep -q '^PREDATOR_MAX_OPENS_PER_DAY=' .env && sed -i 's/^PREDATOR_MAX_OPENS_PER_DAY=.*/PREDATOR_MAX_OPENS_PER_DAY=6/' .env || echo 'PREDATOR_MAX_OPENS_PER_DAY=6' >> .env
+              grep -q '^DISCOVERY_ENABLED=' .env && sed -i 's/^DISCOVERY_ENABLED=.*/DISCOVERY_ENABLED=true/' .env || echo 'DISCOVERY_ENABLED=true' >> .env
+              grep -q '^DISCOVERY_FEED_SCANNER=' .env && sed -i 's/^DISCOVERY_FEED_SCANNER=.*/DISCOVERY_FEED_SCANNER=true/' .env || echo 'DISCOVERY_FEED_SCANNER=true' >> .env
+              grep -q '^DISCOVERY_INTERVAL_SEC=' .env && sed -i 's/^DISCOVERY_INTERVAL_SEC=.*/DISCOVERY_INTERVAL_SEC=900/' .env || echo 'DISCOVERY_INTERVAL_SEC=900' >> .env
+              grep -q '^DISCOVERY_TOP_N=' .env && sed -i 's/^DISCOVERY_TOP_N=.*/DISCOVERY_TOP_N=25/' .env || echo 'DISCOVERY_TOP_N=25' >> .env
+              grep -q '^DISCOVERY_MIN_DAY_VOLUME_USD=' .env && sed -i 's/^DISCOVERY_MIN_DAY_VOLUME_USD=.*/DISCOVERY_MIN_DAY_VOLUME_USD=5000000/' .env || echo 'DISCOVERY_MIN_DAY_VOLUME_USD=5000000' >> .env
+              grep -q '^DISCOVERY_MAX_ABS_FUNDING=' .env && sed -i 's/^DISCOVERY_MAX_ABS_FUNDING=.*/DISCOVERY_MAX_ABS_FUNDING=0.0005/' .env || echo 'DISCOVERY_MAX_ABS_FUNDING=0.0005' >> .env
               sed -i 's/^HL_PERPS_TOXIC_COINS=.*/HL_PERPS_TOXIC_COINS=AAVE/' .env
               grep -q '^HL_PERPS_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_TOXIC_SCORE_BONUS=.*/HL_PERPS_TOXIC_SCORE_BONUS=20/' .env || echo 'HL_PERPS_TOXIC_SCORE_BONUS=20' >> .env
               grep -q '^HL_PERPS_MAX_NEW_PER_SCAN=' .env && sed -i 's/^HL_PERPS_MAX_NEW_PER_SCAN=.*/HL_PERPS_MAX_NEW_PER_SCAN=1/' .env || echo 'HL_PERPS_MAX_NEW_PER_SCAN=1' >> .env

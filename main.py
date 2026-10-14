@@ -1888,6 +1888,15 @@ async def run_bot_loop():
                 logger.warning(f"HL Perps Scanner cycle error: {_hl_cycle_err}")
             _time.sleep(120)
 
+    # ── Alpha discovery worker: ranks all HL perps -> data/dashboard/discovery.json ──
+    # Paper-safe: never opens positions; only reorders the allowlisted scan list.
+    try:
+        from core.alpha_discovery import start_worker as _start_discovery
+        _start_discovery()
+        logger.info("✅ Alpha discovery worker started (discovery.json)")
+    except Exception as _disc_start_err:
+        logger.warning(f"Alpha discovery worker failed to start: {_disc_start_err}")
+
     # Now that _hl_perps_daemon_with_trailing_ref is fully defined, start the HL perps thread
     _hl_perps_thread = threading.Thread(target=_hl_perps_daemon_with_trailing_ref, daemon=True, name="hl-perps-scanner")
     _hl_perps_thread.start()
