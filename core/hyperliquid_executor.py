@@ -206,6 +206,7 @@ class HyperliquidExecutor:
         entry_time: Optional[str] = None,
         mfe_pct: Optional[float] = None,
         mae_pct: Optional[float] = None,
+        regime: Optional[str] = None,
     ) -> None:
         """Append a Hyperliquid fill to output/trades.json for analytics.
 
@@ -251,6 +252,7 @@ class HyperliquidExecutor:
                 "take_profit": take_profit,
                 "mfe_pct": mfe_pct,
                 "mae_pct": mae_pct,
+                "regime": regime,
             }
             trades.append(record)
             # Keep journal bounded
@@ -1059,6 +1061,7 @@ class HyperliquidExecutor:
         gem_score: float = 0,
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
+        regime: Optional[str] = None,
     ) -> Optional[dict]:
         """
         Open a leveraged long position on Hyperliquid.
@@ -1070,6 +1073,7 @@ class HyperliquidExecutor:
             gem_score: Signal strength (for logging)
             stop_loss_price: Optional structure/Fib SL from scanner (preferred over fixed %)
             take_profit_price: Optional structure/Fib TP from scanner
+            regime: Optional regime tag (e.g. chop_half) for trades.json
             
         Returns:
             Fill info dict or None on failure
@@ -1078,6 +1082,7 @@ class HyperliquidExecutor:
             symbol, "buy", size_usd, leverage, gem_score,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            regime=regime,
         )
 
     def open_short(
@@ -1088,12 +1093,14 @@ class HyperliquidExecutor:
         gem_score: float = 0,
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
+        regime: Optional[str] = None,
     ) -> Optional[dict]:
         """Open a leveraged short position."""
         return self._open_position(
             symbol, "sell", size_usd, leverage, gem_score,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            regime=regime,
         )
 
     def close_position(
@@ -1376,6 +1383,7 @@ class HyperliquidExecutor:
         gem_score: float,
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
+        regime: Optional[str] = None,
     ) -> Optional[dict]:
         """Simulate an HL open without signing any order."""
         fill_price = self._paper_mid_price(sym)
@@ -1434,6 +1442,7 @@ class HyperliquidExecutor:
             self.positions[sym] = pos
             self._save_trailing_state()
 
+        _open_reason = "paper_open_chop_half" if regime == "chop_half" else "paper_open"
         self._log_hl_trade(
             action="BUY" if side == "buy" else "SELL_SHORT",
             coin=sym,
@@ -1442,11 +1451,12 @@ class HyperliquidExecutor:
             quantity=coin_size,
             value_usd=notional,
             entry_price=fill_price,
-            reason="paper_open",
+            reason=_open_reason,
             gem_score=gem_score,
             leverage=lev,
             stop_loss=sl_price,
             take_profit=tp_price,
+            regime=regime,
         )
         logger.info(
             f"📄 PAPER Hyperliquid OPEN {pos_side.upper()} {sym} | "
@@ -1588,6 +1598,7 @@ class HyperliquidExecutor:
         gem_score: float,
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
+        regime: Optional[str] = None,
     ) -> Optional[dict]:
         """Core position opening logic with all safety checks."""
         if not self.is_available():
@@ -1662,6 +1673,7 @@ class HyperliquidExecutor:
                 sym, side, actual_size_usd, lev, gem_score,
                 stop_loss_price=stop_loss_price,
                 take_profit_price=take_profit_price,
+                regime=regime,
             )
 
         # Hard notional cap: margin × leverage must stay under max_notional_usd
@@ -1983,6 +1995,7 @@ class HyperliquidExecutor:
                     stop_loss=sl_price,
                     take_profit=tp_price,
                     entry_time=pos.opened_at.isoformat(),
+                    regime=regime,
                 )
 
                 return {
