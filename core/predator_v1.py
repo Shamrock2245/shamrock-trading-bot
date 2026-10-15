@@ -6,7 +6,9 @@ This is the sniper layer the 29-indicator blender never was.
 Rules (all must pass when PREDATOR_V1_ENABLED=true):
   1. Coin is on the profit allowlist (HL_PERPS_ALLOWLIST).
   2. Coin is not hard-banned (HL_PERPS_HARD_BAN_COINS).
-  3. Regime is EXPANSION/TRENDING. CHOP and NUKE are skips, not half-size.
+  3. Regime is EXPANSION/TRENDING. CHOP is a skip in live;
+     in paper with PREDATOR_PAPER_CHOP_HALF_SIZE=true, CHOP/RANGE is
+     allowed at 0.5× size and tagged regime=chop_half (never above 0.5×).
   4. Toxic hours (default 08–13 ET) are skips.
   5. Daily open cap — no spray days.
 
@@ -40,7 +42,7 @@ _DEFAULT_HARD_BAN = (
     "LDO,ETHFI,SOL,TRX"
 )
 
-_CHOP_NAMES = {"CHOPPY", "CHOP", "RANGE", "DEAD"}
+_CHOP_NAMES = {"CHOPPY", "CHOP", "RANGE", "RANGING", "DEAD"}
 _NUKE_NAMES = {"NUKE", "CRASH", "BEAR"}
 _EXPANSION_NAMES = {"TRENDING", "EXPANSION", "TREND", "BULL", "NORMAL"}
 
@@ -51,6 +53,15 @@ def _flag(name: str, default: str = "true") -> bool:
 
 def enabled() -> bool:
     return _flag("PREDATOR_V1_ENABLED", "false")
+
+
+def paper_chop_half_size_enabled() -> bool:
+    """Paper-only: allow CHOP/RANGE entries at 0.5×. Live always blocks chop."""
+    return _flag("PREDATOR_PAPER_CHOP_HALF_SIZE", "true")
+
+
+def is_paper_mode() -> bool:
+    return os.getenv("MODE", "paper").strip().lower() != "live"
 
 
 def _csv_set(env_name: str, default: str) -> set[str]:
@@ -143,14 +154,19 @@ def evaluate_entry(
     if coin_u not in allowlist():
         return _reject(coin_u, direction_u, regime, hour, "not_on_allowlist", persist)
 
+    chop_half = False
     if _flag("PREDATOR_EXPANSION_ONLY", "true"):
         if regime in _CHOP_NAMES:
-            return _reject(coin_u, direction_u, regime, hour, "regime_chop", persist)
-        if regime in _NUKE_NAMES and direction_u == "long":
+            # Live (or flag off): chop is a hard skip. Paper + flag: half-size only.
+            if paper_chop_half_size_enabled() and is_paper_mode():
+                chop_half = True
+            else:
+                return _reject(coin_u, direction_u, regime, hour, "regime_chop", persist)
+        elif regime in _NUKE_NAMES and direction_u == "long":
             return _reject(coin_u, direction_u, regime, hour, "regime_nuke_long", persist)
-        if regime == "UNKNOWN":
+        elif regime == "UNKNOWN":
             return _reject(coin_u, direction_u, regime, hour, "regime_unknown", persist)
-        if regime not in _EXPANSION_NAMES and regime not in _NUKE_NAMES:
+        elif regime not in _EXPANSION_NAMES and regime not in _NUKE_NAMES:
             return _reject(coin_u, direction_u, regime, hour, f"regime_{regime.lower()}", persist)
 
     if _flag("PREDATOR_BLOCK_TOXIC_HOURS", "true") and hour in toxic_hours_et():
@@ -163,14 +179,25 @@ def evaluate_entry(
     _EVAL_STATS["evaluations"] += 1
     _EVAL_STATS["allowed"] += 1
 
-    verdict = PredatorVerdict(
-        allow=True,
-        reason="expansion_clear",
-        regime=regime,
-        hour_et=hour,
-        coin=coin_u,
-        direction=direction_u,
-    )
+    if chop_half:
+        verdict = PredatorVerdict(
+            allow=True,
+            reason="regime_chop_half",
+            regime=regime,
+            hour_et=hour,
+            coin=coin_u,
+            direction=direction_u,
+            extra={"size_mult": 0.5, "regime_tag": "chop_half"},
+        )
+    else:
+        verdict = PredatorVerdict(
+            allow=True,
+            reason="expansion_clear",
+            regime=regime,
+            hour_et=hour,
+            coin=coin_u,
+            direction=direction_u,
+        )
     if persist:
         _write_snapshot(verdict, last_block=None)
     return verdict
@@ -307,6 +334,7 @@ def snapshot_payload(last: PredatorVerdict, last_block: Optional[PredatorVerdict
     return {
         "enabled": enabled(),
         "expansion_only": _flag("PREDATOR_EXPANSION_ONLY", "true"),
+        "paper_chop_half_size": paper_chop_half_size_enabled(),
         "block_toxic_hours": _flag("PREDATOR_BLOCK_TOXIC_HOURS", "true"),
         "toxic_hours_et": sorted(toxic_hours_et()),
         "max_opens_per_day": max_opens_per_day(),

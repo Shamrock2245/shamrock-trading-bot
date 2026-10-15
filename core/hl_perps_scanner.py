@@ -1955,6 +1955,7 @@ class HLPerpsScanner:
         # Fail-open on regime fetch errors for the legacy gate.
         regime_size_mult = 1.0
         regime_name = None
+        chop_half_entry = False
         if HL_PERPS_REGIME_GATE_ENABLED:
             try:
                 from core.regime_filter import get_regime, Regime
@@ -2007,13 +2008,6 @@ class HLPerpsScanner:
                     # regime_name stays None -> evaluate_entry rejects regime_unknown
                     logger.debug(f"[PREDATOR] regime fetch failed ({_pe})")
             try:
-                _rn = (regime_name or "").strip().upper()
-                if _rn in ("CHOPPY", "CHOP", "RANGE", "DEAD"):
-                    logger.info(
-                        f"[PREDATOR] {signal.coin} blocked — regime_chop "
-                        f"(no half-size under Predator v1)"
-                    )
-                    return False
                 _verdict = _pv1.evaluate_entry(
                     signal.coin,
                     signal.direction,
@@ -2031,6 +2025,19 @@ class HLPerpsScanner:
                     f"[PREDATOR] {signal.coin} blocked — {_verdict.reason}"
                 )
                 return False
+            # Paper-only chop half-size: Predator allows at 0.5× and tags chop_half.
+            # Live never reaches here for chop (evaluate_entry rejects regime_chop).
+            _extra = getattr(_verdict, "extra", None) or {}
+            if (
+                _verdict.reason == "regime_chop_half"
+                or _extra.get("regime_tag") == "chop_half"
+            ):
+                regime_size_mult = float(_extra.get("size_mult") or 0.5)
+                chop_half_entry = True
+                logger.info(
+                    f"[PREDATOR] {signal.coin} paper chop half-size ×{regime_size_mult} "
+                    f"(regime={_verdict.regime})"
+                )
 
         coin_u = signal.coin.upper()
 
@@ -2224,45 +2231,51 @@ class HLPerpsScanner:
 
         # ── HotStreakAmplifier (asymmetric upside) — AFTER Predator allow only.
         # Denied entries never reach here. Caps: max lev / max position / max notional.
+        # Chop half-size entries are EXCLUDED — never inflate above 0.5×.
         # Legacy per-coin HL_PERPS_HOT_STREAK_* remains as fallback when flag is off.
         try:
-            from core.hot_streak import get_amplifier
-            _amp = get_amplifier()
-            if _amp.enabled():
-                try:
-                    _amp.update_open_equity(float(getattr(self, "daily_pnl", 0.0) or 0.0))
-                except Exception:
-                    pass
-                _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
-                _max_lev = self.get_max_allowed_leverage(coin_u, max(_lev_now, 15))
-                new_size, new_lev, _hs_mult = _amp.amplify(
-                    size_usd,
-                    _lev_now,
-                    max_leverage=_max_lev,
-                    max_notional=HL_PERPS_MAX_NOTIONAL_USD,
-                    max_position_usd=HL_PERPS_MAX_POSITION_USD,
-                    predator_allowed=True,
+            if chop_half_entry:
+                logger.info(
+                    f"[HOT-STREAK] {signal.coin} amplify skipped — chop_half capped at 0.5×"
                 )
-                if _hs_mult > 1.0:
-                    size_usd = new_size
-                    signal.leverage = new_lev
             else:
-                streak = self._win_streak.get(coin_u, 0)
-                if (
-                    HL_PERPS_HOT_STREAK_WINS > 0
-                    and streak >= HL_PERPS_HOT_STREAK_WINS
-                    and HL_PERPS_HOT_STREAK_MULT > 1.0
-                ):
-                    boosted = round(size_usd * HL_PERPS_HOT_STREAK_MULT, 2)
-                    boosted = min(boosted, HL_PERPS_MAX_POSITION_USD)
+                from core.hot_streak import get_amplifier
+                _amp = get_amplifier()
+                if _amp.enabled():
+                    try:
+                        _amp.update_open_equity(float(getattr(self, "daily_pnl", 0.0) or 0.0))
+                    except Exception:
+                        pass
                     _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
-                    boosted = min(boosted, round(HL_PERPS_MAX_NOTIONAL_USD / _lev_now, 2))
-                    if boosted > size_usd:
-                        logger.info(
-                            f"[HL-PERPS] {signal.coin} hot streak ({streak} wins) "
-                            f"×{HL_PERPS_HOT_STREAK_MULT}: ${size_usd:.2f} → ${boosted:.2f}"
-                        )
-                        size_usd = boosted
+                    _max_lev = self.get_max_allowed_leverage(coin_u, max(_lev_now, 15))
+                    new_size, new_lev, _hs_mult = _amp.amplify(
+                        size_usd,
+                        _lev_now,
+                        max_leverage=_max_lev,
+                        max_notional=HL_PERPS_MAX_NOTIONAL_USD,
+                        max_position_usd=HL_PERPS_MAX_POSITION_USD,
+                        predator_allowed=True,
+                    )
+                    if _hs_mult > 1.0:
+                        size_usd = new_size
+                        signal.leverage = new_lev
+                else:
+                    streak = self._win_streak.get(coin_u, 0)
+                    if (
+                        HL_PERPS_HOT_STREAK_WINS > 0
+                        and streak >= HL_PERPS_HOT_STREAK_WINS
+                        and HL_PERPS_HOT_STREAK_MULT > 1.0
+                    ):
+                        boosted = round(size_usd * HL_PERPS_HOT_STREAK_MULT, 2)
+                        boosted = min(boosted, HL_PERPS_MAX_POSITION_USD)
+                        _lev_now = max(1, int(signal.leverage or HL_PERPS_LEVERAGE))
+                        boosted = min(boosted, round(HL_PERPS_MAX_NOTIONAL_USD / _lev_now, 2))
+                        if boosted > size_usd:
+                            logger.info(
+                                f"[HL-PERPS] {signal.coin} hot streak ({streak} wins) "
+                                f"×{HL_PERPS_HOT_STREAK_MULT}: ${size_usd:.2f} → ${boosted:.2f}"
+                            )
+                            size_usd = boosted
         except Exception as _hs_err:
             logger.debug(f"[HL-PERPS] Hot-streak sizing error (neutral): {_hs_err}")
 
@@ -2274,6 +2287,7 @@ class HLPerpsScanner:
                 gem_score=signal.score,
                 stop_loss_price=signal.stop_loss_price,
                 take_profit_price=signal.take_profit_price,
+                regime="chop_half" if chop_half_entry else None,
             )
             if signal.direction == "long":
                 result = self.hl_executor.open_long(**open_kwargs)

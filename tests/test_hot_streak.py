@@ -219,7 +219,9 @@ def test_predator_gates_still_independent(monkeypatch):
     monkeypatch.setenv("PREDATOR_EXPANSION_ONLY", "true")
     monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
     monkeypatch.setenv("HOT_STREAK_ENABLED", "true")
-    # Chop still denied even if streak would be hot
+    monkeypatch.setenv("PREDATOR_PAPER_CHOP_HALF_SIZE", "true")
+    # Live: chop still denied even if streak would be hot
+    monkeypatch.setenv("MODE", "live")
     v = evaluate_entry(
         "AAVE", "long", "Choppy",
         now=datetime(2026, 7, 21, 3, 0, tzinfo=ET),
@@ -227,6 +229,17 @@ def test_predator_gates_still_independent(monkeypatch):
     )
     assert v.allow is False
     assert v.reason == "regime_chop"
+    # Paper: chop half-size allowed, but amplify must not apply (tested in predator suite)
+    monkeypatch.setenv("MODE", "paper")
+    monkeypatch.setenv("PREDATOR_BLOCK_TOXIC_HOURS", "false")
+    v_paper = evaluate_entry(
+        "AAVE", "long", "Choppy",
+        now=datetime(2026, 7, 21, 3, 0, tzinfo=ET),
+        persist=False,
+    )
+    assert v_paper.allow is True
+    assert v_paper.reason == "regime_chop_half"
+    assert v_paper.extra.get("size_mult") == 0.5
     # Hard ban still denied
     v2 = evaluate_entry(
         "TRB", "long", "Trending",

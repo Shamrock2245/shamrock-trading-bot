@@ -41,11 +41,38 @@ def test_allowlist_miss(monkeypatch):
     assert v.reason == "not_on_allowlist"
 
 
-def test_chop_is_a_skip_not_a_half_size(monkeypatch):
+def test_chop_blocked_in_live_mode(monkeypatch):
     monkeypatch.setenv("PREDATOR_V1_ENABLED", "true")
     monkeypatch.setenv("PREDATOR_EXPANSION_ONLY", "true")
+    monkeypatch.setenv("PREDATOR_PAPER_CHOP_HALF_SIZE", "true")
+    monkeypatch.setenv("MODE", "live")
     monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
     v = evaluate_entry("AAVE", "long", "Choppy", now=_noon_et(), persist=False)
+    assert v.allow is False
+    assert v.reason == "regime_chop"
+
+
+def test_paper_chop_half_size_allowed(monkeypatch):
+    monkeypatch.setenv("PREDATOR_V1_ENABLED", "true")
+    monkeypatch.setenv("PREDATOR_EXPANSION_ONLY", "true")
+    monkeypatch.setenv("PREDATOR_PAPER_CHOP_HALF_SIZE", "true")
+    monkeypatch.setenv("PREDATOR_BLOCK_TOXIC_HOURS", "false")
+    monkeypatch.setenv("MODE", "paper")
+    monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
+    v = evaluate_entry("AAVE", "long", "Choppy", now=_noon_et(), persist=False)
+    assert v.allow is True
+    assert v.reason == "regime_chop_half"
+    assert v.extra.get("size_mult") == 0.5
+    assert v.extra.get("regime_tag") == "chop_half"
+
+
+def test_paper_chop_half_disabled_still_blocks(monkeypatch):
+    monkeypatch.setenv("PREDATOR_V1_ENABLED", "true")
+    monkeypatch.setenv("PREDATOR_EXPANSION_ONLY", "true")
+    monkeypatch.setenv("PREDATOR_PAPER_CHOP_HALF_SIZE", "false")
+    monkeypatch.setenv("MODE", "paper")
+    monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
+    v = evaluate_entry("AAVE", "long", "Ranging", now=_noon_et(), persist=False)
     assert v.allow is False
     assert v.reason == "regime_chop"
 
@@ -174,12 +201,66 @@ def test_scanner_predator_allows_trending_allowlisted(monkeypatch, _no_snapshot)
     scanner.hl_executor.open_long.assert_called_once()
 
 
-def test_scanner_predator_blocks_chop(monkeypatch, _no_snapshot):
-    sc = _reload_scanner(monkeypatch, PREDATOR_V1_ENABLED="true")
+def test_scanner_predator_blocks_chop_in_live(monkeypatch, _no_snapshot):
+    sc = _reload_scanner(
+        monkeypatch, PREDATOR_V1_ENABLED="true", MODE="live",
+        PREDATOR_PAPER_CHOP_HALF_SIZE="true",
+        HL_PERPS_REGIME_GATE_ENABLED="true",
+    )
     _patch_regime(monkeypatch, "CHOPPY")
     scanner = _ready_scanner(sc)
     assert scanner._execute_signal(_gmx_signal()) is False
     scanner.hl_executor.open_long.assert_not_called()
+
+
+def test_scanner_predator_paper_chop_half_size(monkeypatch, _no_snapshot):
+    sc = _reload_scanner(
+        monkeypatch,
+        PREDATOR_V1_ENABLED="true",
+        MODE="paper",
+        PREDATOR_PAPER_CHOP_HALF_SIZE="true",
+        HL_PERPS_REGIME_GATE_ENABLED="true",
+        HOT_STREAK_ENABLED="false",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+    )
+    _patch_regime(monkeypatch, "CHOPPY")
+    scanner = _ready_scanner(sc)
+    sig = _gmx_signal()  # position_size_usd=150
+    assert scanner._execute_signal(sig) is True
+    scanner.hl_executor.open_long.assert_called_once()
+    kwargs = scanner.hl_executor.open_long.call_args.kwargs
+    # Half of 150 = 75 (regime_size_mult=0.5)
+    assert kwargs["size_usd"] == 75.0
+    assert kwargs.get("regime") == "chop_half"
+
+
+def test_scanner_hot_streak_does_not_inflate_chop_half(monkeypatch, _no_snapshot, tmp_path):
+    """Armed hot streak must not push chop_half above 0.5×."""
+    from core.hot_streak import reset_amplifier_for_tests
+
+    monkeypatch.setenv("HOT_STREAK_ENABLED", "true")
+    monkeypatch.setenv("HOT_STREAK_MIN_WINS", "3")
+    amp = reset_amplifier_for_tests(tmp_path / "hot_streak.json")
+    for _ in range(5):
+        amp.record_close(True, pnl_usd=10.0, coin="GMX", on_allowlist=True)
+    assert amp.get_multiplier() >= 1.5
+
+    sc = _reload_scanner(
+        monkeypatch,
+        PREDATOR_V1_ENABLED="true",
+        MODE="paper",
+        PREDATOR_PAPER_CHOP_HALF_SIZE="true",
+        HL_PERPS_REGIME_GATE_ENABLED="true",
+        HOT_STREAK_ENABLED="true",
+        HL_PERPS_EDGE_SIZING_ENABLED="false",
+    )
+    _patch_regime(monkeypatch, "CHOPPY")
+    scanner = _ready_scanner(sc)
+    sig = _gmx_signal()
+    assert scanner._execute_signal(sig) is True
+    kwargs = scanner.hl_executor.open_long.call_args.kwargs
+    assert kwargs["size_usd"] == 75.0  # still exactly half, not 75*1.5
+    assert kwargs.get("regime") == "chop_half"
 
 
 def test_scanner_predator_blocks_off_allowlist(monkeypatch, _no_snapshot):
@@ -272,6 +353,7 @@ def test_three_file_rule_predator_vars():
     for key in (
         "PREDATOR_V1_ENABLED",
         "PREDATOR_EXPANSION_ONLY",
+        "PREDATOR_PAPER_CHOP_HALF_SIZE",
         "PREDATOR_BLOCK_TOXIC_HOURS",
         "PREDATOR_TOXIC_HOURS_ET",
         "PREDATOR_MAX_OPENS_PER_DAY",
