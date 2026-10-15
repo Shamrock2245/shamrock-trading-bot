@@ -243,6 +243,7 @@ def get_paper_metrics() -> dict:
         t for t in pool
         if str(t.get("action", "")).upper() in ("SELL", "CLOSE", "SELL_SHORT")
         and t.get("pnl_usd") is not None
+        and not t.get("exclude_from_metrics")
     ]
     if not closes:
         return {

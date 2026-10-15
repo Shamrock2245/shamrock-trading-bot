@@ -37,6 +37,14 @@ _TRAILING_STATE_FILE = (
     / "hl_trailing_state.json"
 )
 
+# Paper positions live on the mounted output volume so container restarts
+# (CI redeploys) resume managing them instead of orphaning the opens.
+_PAPER_POSITIONS_FILE = Path(
+    os.getenv("HL_PAPER_POSITIONS_FILE", "output/hl_paper_positions.json")
+)
+ORPHAN_REASON = "restart_orphan"
+_ORPHAN_LOOKBACK_DAYS = 14
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -646,8 +654,156 @@ class HyperliquidExecutor:
             with self._lock:
                 _do()
 
+    # ── Paper position persistence ─────────────────────────────────────────
+    def _save_paper_positions(self) -> None:
+        if not self.is_paper:
+            return
+        try:
+            _PAPER_POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            out = {}
+            for coin, pos in self.positions.items():
+                out[coin] = {
+                    "side": pos.side,
+                    "entry_price": pos.entry_price,
+                    "size": pos.size,
+                    "size_usd": pos.size_usd,
+                    "leverage": pos.leverage,
+                    "stop_loss_price": pos.stop_loss_price,
+                    "take_profit_price": pos.take_profit_price,
+                    "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
+                    "highest_price": pos.highest_price,
+                    "lowest_price": None if pos.lowest_price == float("inf") else pos.lowest_price,
+                    "trailing_stop_active": pos.trailing_stop_active,
+                    "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
+                }
+            tmp = _PAPER_POSITIONS_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(out, indent=2))
+            tmp.replace(_PAPER_POSITIONS_FILE)
+        except Exception as e:
+            logger.warning(f"📄 PAPER: failed to persist positions: {e}")
+
+    def _restore_paper_positions(self) -> int:
+        """Load persisted paper positions into self.positions. Returns count."""
+        if not _PAPER_POSITIONS_FILE.exists():
+            return 0
+        try:
+            raw = json.loads(_PAPER_POSITIONS_FILE.read_text() or "{}")
+        except Exception as e:
+            logger.warning(f"📄 PAPER: failed to read persisted positions: {e}")
+            return 0
+        n = 0
+        for coin, d in (raw or {}).items():
+            try:
+                entry = float(d["entry_price"])
+                opened = d.get("opened_at")
+                pos = HLPosition(
+                    coin=coin,
+                    side=d.get("side", "long"),
+                    entry_price=entry,
+                    size=float(d["size"]),
+                    size_usd=float(d["size_usd"]),
+                    leverage=int(d.get("leverage") or self.default_leverage),
+                    stop_loss_price=d.get("stop_loss_price"),
+                    take_profit_price=d.get("take_profit_price"),
+                    highest_price=float(d.get("highest_price") or entry),
+                    lowest_price=float(d.get("lowest_price") or entry),
+                    trailing_stop_active=bool(d.get("trailing_stop_active", False)),
+                    tp1_hit=bool(d.get("tp1_hit", False)),
+                )
+                if opened:
+                    pos.opened_at = datetime.fromisoformat(opened)
+                self.positions[coin] = pos
+                n += 1
+            except Exception as e:
+                logger.warning(f"📄 PAPER: skip bad persisted position {coin}: {e}")
+        return n
+
+    def _reconcile_paper_orphans(self) -> int:
+        """Tag paper HL opens that have no close and no live paper position.
+
+        These were opened before positions were persisted and lost on restart.
+        They get a SELL record with reason=restart_orphan and pnl_usd=None so
+        they are visibly closed in the journal but EXCLUDED from gate metrics
+        (an unmanaged mark-to-market exit is not a strategy outcome).
+        """
+        try:
+            path = Path(os.getenv("TRADES_FILE", "output/trades.json"))
+            if not path.exists():
+                return 0
+            trades = json.loads(path.read_text(encoding="utf-8") or "[]")
+            if not isinstance(trades, list):
+                return 0
+            cutoff = datetime.now(timezone.utc).timestamp() - _ORPHAN_LOOKBACK_DAYS * 86400
+            open_by_coin: dict = {}
+            for i, tr in enumerate(trades):
+                if tr.get("chain") != "hyperliquid" or tr.get("is_paper") is not True:
+                    continue
+                coin = tr.get("token_symbol")
+                act = str(tr.get("action", "")).upper()
+                reason = str(tr.get("reason", ""))
+                if reason.startswith("paper_open"):
+                    open_by_coin[coin] = i
+                elif act in ("SELL", "CLOSE", "BUY_TO_COVER") and "tp1_partial" not in reason:
+                    open_by_coin.pop(coin, None)
+            added = 0
+            for coin, idx in open_by_coin.items():
+                if coin in self.positions:
+                    continue
+                o = trades[idx]
+                try:
+                    ts = datetime.fromisoformat(o["timestamp"]).timestamp()
+                except Exception:
+                    continue
+                if ts < cutoff:
+                    continue
+                mark = None
+                try:
+                    mark = self._paper_mid_price(coin)
+                except Exception:
+                    mark = None
+                px = float(mark or o.get("price_usd") or 0.0)
+                rec = dict(o)
+                rec.update({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "action": "SELL",
+                    "reason": ORPHAN_REASON,
+                    "price_usd": px,
+                    "value_usd": px * float(o.get("quantity") or 0),
+                    "pnl_usd": None,
+                    "pnl_pct": None,
+                    "entry_time": o.get("timestamp"),
+                    "exclude_from_metrics": True,
+                })
+                trades.append(rec)
+                added += 1
+                logger.warning(
+                    f"📄 PAPER: {coin} open from {o.get('timestamp')} orphaned by restart — "
+                    f"closed as {ORPHAN_REASON} @ ${px:.4f} (excluded from gate metrics)"
+                )
+            if added:
+                path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
+            return added
+        except Exception as e:
+            logger.warning(f"📄 PAPER: orphan reconcile failed: {e}")
+            return 0
+
+    def _sync_paper_positions(self) -> None:
+        """Paper mode: the exchange wallet is not the source of truth — disk is."""
+        with self._lock:
+            if not self.positions:
+                n = self._restore_paper_positions()
+                if n:
+                    logger.info(f"📄 PAPER: restored {n} persisted positions: {sorted(self.positions)}")
+            if not getattr(HyperliquidExecutor, "_orphans_reconciled", False):
+                HyperliquidExecutor._orphans_reconciled = True
+                self._reconcile_paper_orphans()
+            logger.info(f"📄 PAPER: managing {len(self.positions)} open paper positions")
+
     def _sync_positions(self) -> None:
         """Sync open positions from Hyperliquid account state."""
+        if self.is_paper:
+            self._sync_paper_positions()
+            return
         try:
             state = self._execute_api(self._info.user_state, self.wallet_address)
             positions = state.get("assetPositions", [])
@@ -2184,6 +2340,7 @@ class HyperliquidExecutor:
             _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to save trailing state: {e}")
+        self._save_paper_positions()
 
     def _load_trailing_state(self) -> None:
         """Merge persisted trailing state back into freshly-synced HLPosition objects.
