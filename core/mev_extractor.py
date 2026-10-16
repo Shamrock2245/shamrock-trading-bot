@@ -130,6 +130,11 @@ SLIPPAGE_THRESHOLD_PCT: float = float(os.getenv("MEV_SLIPPAGE_THRESHOLD_PCT", "2
 
 # Feature flags
 SANDWICH_ENABLED: bool = os.getenv("MEV_SANDWICH_ENABLED", "true").lower() == "true"
+# Base mempool watcher (WebSocket pending-tx subscription). Default OFF: without
+# BASE_WS_RPC_URL it exits immediately and the supervisor restarted it every ~25s.
+SANDWICH_BASE_MEMPOOL_ENABLED: bool = (
+    os.getenv("MEV_SANDWICH_BASE_MEMPOOL_ENABLED", "false").lower() == "true"
+)
 LIQUIDATION_ENABLED: bool = os.getenv("MEV_LIQUIDATION_ENABLED", "true").lower() == "true"
 
 # Jito tip accounts (one is selected at random per bundle to reduce contention)
@@ -2096,7 +2101,7 @@ class MEVExtractorEngine:
 
         # Map of task name → coroutine factory
         _task_registry: dict = {}
-        if SANDWICH_ENABLED:
+        if SANDWICH_ENABLED and SANDWICH_BASE_MEMPOOL_ENABLED:
             _task_registry["sandwich_base_mempool"] = self.sandwich_bot.monitor_base_mempool
         if LIQUIDATION_ENABLED:
             if HYPERLIQUID_ENABLED:

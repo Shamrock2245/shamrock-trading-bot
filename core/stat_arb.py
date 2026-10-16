@@ -188,9 +188,9 @@ class StatArbEngine:
         with self._hl_executor_lock:
             if self._hl_executor is None:
                 try:
-                    from core.hyperliquid_executor import HyperliquidExecutor
+                    from core.hyperliquid_executor import get_shared_executor
                     from config import settings
-                    self._hl_executor = HyperliquidExecutor(sub_account_address=getattr(settings, "HYPERLIQUID_STATARB_SUBACCOUNT", ""))
+                    self._hl_executor = get_shared_executor(sub_account_address=getattr(settings, "HYPERLIQUID_STATARB_SUBACCOUNT", ""))
                 except Exception as e:
                     logger.warning("StatArb: Hyperliquid executor init failed: %s", e)
                     return None
