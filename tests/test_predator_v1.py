@@ -440,12 +440,12 @@ def test_predator_snapshot_and_deny_telemetry(monkeypatch):
     pv1._EVAL_STATS = {"evaluations": 0, "allowed": 0, "denied": 0, "reasons": {}}
 
     # Rejected entry
-    v_block = pv1.evaluate_entry("FARTCOIN", "long", "EXPANSION", persist=False)
+    v_block = pv1.evaluate_entry("FARTCOIN", "long", "EXPANSION", now=_noon_et(), persist=False)
     assert not v_block.allow
     assert v_block.reason == "hard_banned"
 
     # Allowed entry
-    v_allow = pv1.evaluate_entry("AAVE", "long", "EXPANSION", persist=False)
+    v_allow = pv1.evaluate_entry("AAVE", "long", "EXPANSION", now=_noon_et(), persist=False)
     assert v_allow.allow
     assert v_allow.reason == "expansion_clear"
 

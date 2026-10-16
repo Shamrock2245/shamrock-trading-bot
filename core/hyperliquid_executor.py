@@ -43,6 +43,47 @@ _PAPER_POSITIONS_FILE = Path(
     os.getenv("HL_PAPER_POSITIONS_FILE", "output/hl_paper_positions.json")
 )
 ORPHAN_REASON = "restart_orphan"
+
+# One lock for every read-modify-write of the shared journal / paper-state
+# files, so concurrent threads (scanner, monitor, stat-arb) can't clobber them.
+_FILE_WRITE_LOCK = threading.RLock()
+
+# Shared executors, one per account (main wallet = ""). Building several
+# instances for the same account made them overwrite each other's paper state.
+_SHARED_EXECUTORS: dict = {}
+_SHARED_EXECUTORS_LOCK = threading.Lock()
+
+
+def get_shared_executor(sub_account_address: Optional[str] = None) -> "HyperliquidExecutor":
+    """Return the process-wide HyperliquidExecutor for this account.
+
+    Instances that failed to initialise in live mode are not cached, so
+    callers that retry init still get a fresh attempt.
+    """
+    key = (sub_account_address or "").strip().lower()
+    with _SHARED_EXECUTORS_LOCK:
+        inst = _SHARED_EXECUTORS.get(key)
+        if inst is not None:
+            return inst
+        inst = HyperliquidExecutor(sub_account_address=sub_account_address or None)
+        if getattr(inst, "_initialized", False) or getattr(inst, "is_paper", False):
+            _SHARED_EXECUTORS[key] = inst
+        return inst
+
+
+def _journal_to_ledger(record: dict) -> None:
+    """Mirror a Hyperliquid journal record into the immutable trade ledger.
+
+    Records flagged exclude_from_metrics (restart orphans) are never mirrored,
+    so they can't be counted twice or move the ledger's running P&L.
+    """
+    if record.get("exclude_from_metrics"):
+        return
+    try:
+        from core.position_monitor import _append_to_ledger
+        _append_to_ledger(record)
+    except Exception as e:  # never let ledger I/O break trading
+        logger.warning(f"Hyperliquid: failed to mirror trade to ledger: {e}")
 _ORPHAN_LOOKBACK_DAYS = 14
 
 logger = logging.getLogger(__name__)
@@ -226,47 +267,49 @@ class HyperliquidExecutor:
         try:
             trades_path = Path(os.getenv("TRADES_FILE", "output/trades.json"))
             trades_path.parent.mkdir(parents=True, exist_ok=True)
-            trades: list = []
-            if trades_path.exists():
-                try:
-                    raw = json.loads(trades_path.read_text(encoding="utf-8") or "[]")
-                    if isinstance(raw, list):
-                        trades = raw
-                except Exception:
-                    trades = []
-            record = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "token_address": f"hl:{coin}",
-                "token_symbol": coin,
-                "chain": "hyperliquid",
-                "wallet": "hyperliquid",
-                "action": action,
-                "reason": reason,
-                "quantity": quantity,
-                "price_usd": price,
-                "value_usd": value_usd,
-                "entry_price": entry_price if entry_price is not None else price,
-                "pnl_usd": pnl_usd,
-                "pnl_pct": pnl_pct,
-                "is_paper": self.is_paper,
-                "tx_hash": "PAPER_TX" if self.is_paper else None,
-                "signal_scores": {},
-                "gem_score": gem_score,
-                "entry_time": entry_time,
-                "strategy_profile": "hl_perps",
-                "side": side,
-                "leverage": leverage,
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "mfe_pct": mfe_pct,
-                "mae_pct": mae_pct,
-                "regime": regime,
-            }
-            trades.append(record)
-            # Keep journal bounded
-            if len(trades) > 5000:
-                trades = trades[-5000:]
-            trades_path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
+            with _FILE_WRITE_LOCK:
+                trades: list = []
+                if trades_path.exists():
+                    try:
+                        raw = json.loads(trades_path.read_text(encoding="utf-8") or "[]")
+                        if isinstance(raw, list):
+                            trades = raw
+                    except Exception:
+                        trades = []
+                record = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "token_address": f"hl:{coin}",
+                    "token_symbol": coin,
+                    "chain": "hyperliquid",
+                    "wallet": "hyperliquid",
+                    "action": action,
+                    "reason": reason,
+                    "quantity": quantity,
+                    "price_usd": price,
+                    "value_usd": value_usd,
+                    "entry_price": entry_price if entry_price is not None else price,
+                    "pnl_usd": pnl_usd,
+                    "pnl_pct": pnl_pct,
+                    "is_paper": self.is_paper,
+                    "tx_hash": "PAPER_TX" if self.is_paper else None,
+                    "signal_scores": {},
+                    "gem_score": gem_score,
+                    "entry_time": entry_time,
+                    "strategy_profile": "hl_perps",
+                    "side": side,
+                    "leverage": leverage,
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "mfe_pct": mfe_pct,
+                    "mae_pct": mae_pct,
+                    "regime": regime,
+                }
+                trades.append(record)
+                # Keep journal bounded
+                if len(trades) > 5000:
+                    trades = trades[-5000:]
+                trades_path.write_text(json.dumps(trades, indent=2), encoding="utf-8")
+            _journal_to_ledger(record)
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to journal trade for {coin}: {e}")
 
@@ -655,11 +698,21 @@ class HyperliquidExecutor:
                 _do()
 
     # ── Paper position persistence ─────────────────────────────────────────
+    @property
+    def _paper_positions_file(self) -> Path:
+        """Per-account paper state file (sub-accounts get their own)."""
+        sub = (getattr(self, "sub_account_address", None) or "").strip().lower()
+        if not sub:
+            return _PAPER_POSITIONS_FILE
+        return _PAPER_POSITIONS_FILE.with_name(
+            f"{_PAPER_POSITIONS_FILE.stem}_{sub[-8:]}{_PAPER_POSITIONS_FILE.suffix}"
+        )
+
     def _save_paper_positions(self) -> None:
         if not self.is_paper:
             return
         try:
-            _PAPER_POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._paper_positions_file.parent.mkdir(parents=True, exist_ok=True)
             out = {}
             for coin, pos in self.positions.items():
                 out[coin] = {
@@ -676,18 +729,20 @@ class HyperliquidExecutor:
                     "trailing_stop_active": pos.trailing_stop_active,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
                 }
-            tmp = _PAPER_POSITIONS_FILE.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(out, indent=2))
-            tmp.replace(_PAPER_POSITIONS_FILE)
+            path = self._paper_positions_file
+            with _FILE_WRITE_LOCK:
+                tmp = path.with_suffix(f".json.{os.getpid()}.tmp")
+                tmp.write_text(json.dumps(out, indent=2))
+                tmp.replace(path)
         except Exception as e:
             logger.warning(f"📄 PAPER: failed to persist positions: {e}")
 
     def _restore_paper_positions(self) -> int:
         """Load persisted paper positions into self.positions. Returns count."""
-        if not _PAPER_POSITIONS_FILE.exists():
+        if not self._paper_positions_file.exists():
             return 0
         try:
-            raw = json.loads(_PAPER_POSITIONS_FILE.read_text() or "{}")
+            raw = json.loads(self._paper_positions_file.read_text() or "{}")
         except Exception as e:
             logger.warning(f"📄 PAPER: failed to read persisted positions: {e}")
             return 0
@@ -719,6 +774,11 @@ class HyperliquidExecutor:
         return n
 
     def _reconcile_paper_orphans(self) -> int:
+        """Locked wrapper — see _reconcile_paper_orphans_unlocked."""
+        with _FILE_WRITE_LOCK:
+            return self._reconcile_paper_orphans_unlocked()
+
+    def _reconcile_paper_orphans_unlocked(self) -> int:
         """Tag paper HL opens that have no close and no live paper position.
 
         These were opened before positions were persisted and lost on restart.

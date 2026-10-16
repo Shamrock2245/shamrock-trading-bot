@@ -13,6 +13,8 @@ def _exec(monkeypatch, tmp_path):
     monkeypatch.setenv("TRADES_FILE", str(tmp_path / "trades.json"))
     monkeypatch.setattr(hx, "_PAPER_POSITIONS_FILE", tmp_path / "hl_paper_positions.json")
     monkeypatch.setattr(hx, "_TRAILING_STATE_FILE", tmp_path / "trail.json")
+    import core.position_monitor as pm
+    monkeypatch.setattr(pm, "TRADE_LEDGER_FILE", tmp_path / "trade_ledger.jsonl")
     monkeypatch.setattr(hx.HyperliquidExecutor, "_orphans_reconciled", False, raising=False)
     e = hx.HyperliquidExecutor.__new__(hx.HyperliquidExecutor)
     e.positions = {}

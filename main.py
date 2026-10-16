@@ -492,8 +492,8 @@ async def run_bot_loop():
     hl_executor = None
     if settings.HYPERLIQUID_ENABLED:
         try:
-            from core.hyperliquid_executor import HyperliquidExecutor
-            hl_executor = HyperliquidExecutor()
+            from core.hyperliquid_executor import get_shared_executor
+            hl_executor = get_shared_executor()
             if hl_executor.is_available():
                 bal = hl_executor.get_balance()
                 logger.info(
@@ -1374,9 +1374,9 @@ async def run_bot_loop():
         while True:
             try:
                 from core.hl_perps_scanner import HLPerpsScanner
-                from core.hyperliquid_executor import HyperliquidExecutor
+                from core.hyperliquid_executor import get_shared_executor
                 # Initialize the executor for LIVE trading on Hyperliquid
-                _hl_exec = HyperliquidExecutor()
+                _hl_exec = get_shared_executor()
                 if not _hl_exec._initialized:
                     logger.warning("HL Perps: executor failed to init — running in signal-only mode")
                     _hl_exec = None
@@ -1828,7 +1828,7 @@ async def run_bot_loop():
         _time.sleep(30)
         try:
             from core.hl_perps_scanner import HLPerpsScanner
-            from core.hyperliquid_executor import HyperliquidExecutor
+            from core.hyperliquid_executor import get_shared_executor
             # Respect global MODE. Never force live — paper tuning must not
             # place real Hyperliquid orders (see PAPER_MODE_LOCKED campaign).
             from config import settings as _hl_settings
@@ -1845,7 +1845,7 @@ async def run_bot_loop():
                     f"(MODE={_hl_mode})"
                 )
 
-            _hl_exec = HyperliquidExecutor()
+            _hl_exec = get_shared_executor()
             if not _hl_exec._initialized and not _hl_is_paper:
                 logger.warning("HL Perps: executor failed to init — running in signal-only mode")
                 _hl_exec = None
