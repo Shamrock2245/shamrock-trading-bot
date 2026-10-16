@@ -1837,9 +1837,15 @@ class HyperliquidExecutor:
                 return None
 
         # ── CAPITAL PROTECTION: gem score gate ─────────────────────────
-        if gem_score < self.min_gem_score:
+        _min_gem = self.min_gem_score
+        if self.is_paper:
+            # Keep executor in step with scanner's paper-only exec loosening
+            # so it never rejects a signal the scanner approved. Live: unchanged.
+            from core.hl_perps_scanner import apply_paper_exec_delta
+            _min_gem = min(_min_gem, apply_paper_exec_delta(_min_gem))
+        if gem_score < _min_gem:
             logger.info(
-                f"Hyperliquid: {sym} gem_score={gem_score:.0f} below min {self.min_gem_score} — skip"
+                f"Hyperliquid: {sym} gem_score={gem_score:.0f} below min {_min_gem} — skip"
             )
             return None
 

@@ -178,6 +178,44 @@ _TOXIC_RAW = os.getenv(
 HL_PERPS_TOXIC_COINS: set[str] = {c.strip().upper() for c in _TOXIC_RAW.split(",") if c.strip()}
 # Higher bar for soft-toxic names
 HL_PERPS_TOXIC_SCORE_BONUS: float = float(os.getenv("HL_PERPS_TOXIC_SCORE_BONUS", "20.0"))
+# Paper-only loosening (2026-10-16). Live behaviour is unchanged: these only
+# apply when settings.get_current_mode() == "paper" (PAPER_MODE_LOCKED wins).
+# Exec delta is clamped to <= 0 (can only loosen) and never below the 52 floor.
+HL_PERPS_PAPER_EXEC_SCORE_DELTA: float = min(
+    0.0, float(os.getenv("HL_PERPS_PAPER_EXEC_SCORE_DELTA", "-5.0"))
+)
+# Soft-toxic bonus used in paper instead of HL_PERPS_TOXIC_SCORE_BONUS (never higher).
+HL_PERPS_PAPER_TOXIC_SCORE_BONUS: float = float(
+    os.getenv("HL_PERPS_PAPER_TOXIC_SCORE_BONUS", "8.0")
+)
+HL_PERPS_EXEC_SCORE_FLOOR: float = 52.0
+
+
+def _paper_mode_active() -> bool:
+    """True only when the global mode is definitely paper. Fails closed (False)."""
+    try:
+        from config import settings as _s
+        return _s.get_current_mode() == "paper"
+    except Exception:
+        return False
+
+
+def _moralis_enabled() -> bool:
+    """MORALIS_ENABLED gate (veto-only provider). Default off."""
+    return os.getenv("MORALIS_ENABLED", "false").strip().lower() == "true"
+
+
+def effective_toxic_bonus() -> float:
+    if _paper_mode_active():
+        return min(HL_PERPS_TOXIC_SCORE_BONUS, HL_PERPS_PAPER_TOXIC_SCORE_BONUS)
+    return HL_PERPS_TOXIC_SCORE_BONUS
+
+
+def apply_paper_exec_delta(exec_score: float) -> float:
+    """Loosen the post Fib+TA29 exec bar in paper only. Live: identity."""
+    if not _paper_mode_active() or HL_PERPS_PAPER_EXEC_SCORE_DELTA == 0.0:
+        return float(exec_score)
+    return max(HL_PERPS_EXEC_SCORE_FLOOR, float(exec_score) + HL_PERPS_PAPER_EXEC_SCORE_DELTA)
 # Cap new opens per scan — spray days (7/22: 67 opens) destroyed edge.
 # v40: 1 best setup per cycle.
 HL_PERPS_MAX_NEW_PER_SCAN: int = int(os.getenv("HL_PERPS_MAX_NEW_PER_SCAN", "1"))
@@ -939,6 +977,7 @@ class HLPerpsScanner:
             params["behind_pace"] = bool(ov.get("behind_pace"))
         except Exception as e:
             logger.debug(f"[HL-PERPS] goal frequency params unavailable: {e}")
+        params["exec_score"] = apply_paper_exec_delta(params["exec_score"])
         return params
 
     def _is_on_cooldown(self, coin: str) -> bool:
@@ -2110,7 +2149,7 @@ class HLPerpsScanner:
         # Soft toxic: higher score bar only (repeat losers / noisy names)
         exec_floor = float(freq["exec_score"])
         if coin_u in HL_PERPS_TOXIC_COINS and coin_u not in HL_PERPS_HARD_BAN_COINS:
-            exec_floor = exec_floor + HL_PERPS_TOXIC_SCORE_BONUS
+            exec_floor = exec_floor + effective_toxic_bonus()
             if signal.score < exec_floor:
                 logger.info(
                     f"[HL-PERPS] {signal.coin} toxic-list: score={signal.score:.0f} "
@@ -2176,35 +2215,24 @@ class HLPerpsScanner:
                 # Toxic-hour size cut (08–14 ET): trade_history 29 −$326 vs +$28 elsewhere
                 size_mult *= float(get_position_size_multiplier())
 
-                # ── Moralis On-Chain Score (resolve ticker → contract first) ──
-                # Passing "VVV" as tokenAddress was a no-op (API fails, except allow).
-                # Use hl_token_resolve: static map + Moralis Token Search, then score.
-                try:
-                    from data.providers.hl_token_resolve import moralis_score_for_hl_coin
+                # ── Moralis On-Chain Score (VETO ONLY, gated by MORALIS_ENABLED) ──
+                # Never called when MORALIS_ENABLED=false. Never boosts size/score.
+                if _moralis_enabled():
+                    try:
+                        from data.providers.hl_token_resolve import moralis_score_for_hl_coin
 
-                    m_score_data = moralis_score_for_hl_coin(signal.coin)
-                    if m_score_data and isinstance(m_score_data, dict):
-                        m_score = int(m_score_data.get("score", 0) or 0)
-                        r_chain = m_score_data.get("resolved_chain", "?")
-                        if m_score > 0:
-                            if m_score < 40:
+                        m_score_data = moralis_score_for_hl_coin(signal.coin)
+                        if m_score_data and isinstance(m_score_data, dict):
+                            m_score = int(m_score_data.get("score", 0) or 0)
+                            r_chain = m_score_data.get("resolved_chain", "?")
+                            if 0 < m_score < 40:
                                 logger.info(
                                     f"[HL-PERPS] {signal.coin} Moralis score low "
-                                    f"({m_score}/100 on {r_chain}) — entry blocked"
+                                    f"({m_score}/100 on {r_chain}) — entry vetoed"
                                 )
                                 return False
-                            if m_score >= 70:
-                                logger.info(
-                                    f"[HL-PERPS] 💎 {signal.coin} Moralis Alpha "
-                                    f"({m_score}/100 on {r_chain}) — size ×1.25"
-                                )
-                                size_mult *= 1.25
-                    else:
-                        logger.debug(
-                            f"[HL-PERPS] {signal.coin} Moralis unresolved — neutral gate"
-                        )
-                except Exception as _m_err:
-                    logger.debug(f"[HL-PERPS] Moralis score check error (allow): {_m_err}")
+                    except Exception as _m_err:
+                        logger.debug(f"[HL-PERPS] Moralis veto check error (allow): {_m_err}")
 
                 if size_mult != 1.0:
 
@@ -2338,7 +2366,14 @@ class HLPerpsScanner:
 
         # ── Autonomous Profit Sweep ──
         # Triggers once the base capital reaches $25k. Sweeps $500 incrementally.
-        if self.hl_executor and self.hl_executor.is_available():
+        _sweep_paper = bool(getattr(self.hl_executor, "is_paper", False)) if self.hl_executor else False
+        if _sweep_paper:
+            # Paper: synthetic balance always "qualifies" — don't fake a $500
+            # withdrawal every cycle. One informational line per process.
+            if not getattr(self, "_paper_sweep_logged", False):
+                logger.info("[HL-PERPS] Profit sweep disabled in paper mode (no simulated withdrawals)")
+                self._paper_sweep_logged = True
+        elif self.hl_executor and self.hl_executor.is_available():
             paycheck_wallet = os.getenv("WALLET_ADDRESS_C", "").strip()
             if paycheck_wallet:
                 try:
