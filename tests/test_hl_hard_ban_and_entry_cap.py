@@ -437,3 +437,56 @@ def test_pf_autoban_catches_high_wr_loser(monkeypatch):
     for _ in range(4):
         scanner.record_trade_outcome("SOLX", won=False, pnl_usd=-5.0)
     assert "SOLX" in scanner._autoban_until
+
+
+def test_unknown_pnl_loss_does_not_poison_pf(monkeypatch):
+    """Oct 15: one $0 ghost close (pnl unknown) on INJ 5W/4L → PF=0.00 → 48h ban.
+
+    Unknown-$ closes must count toward WR only, never inject a placeholder loss.
+    """
+    sc = _reload_scanner(
+        monkeypatch,
+        HL_PERPS_AUTOBAN_ENABLED="true",
+        HL_PERPS_AUTOBAN_MIN_TRADES="5",
+        HL_PERPS_AUTOBAN_WR_THRESHOLD="0.30",
+        HL_PERPS_AUTOBAN_PF_THRESHOLD="0.85",
+    )
+    scanner = _make_ready_scanner(sc)
+    scanner._coin_perf = {"INJ": {"wins": 5, "losses": 4,
+                                  "last_updated": __import__("time").time()}}
+    scanner.record_trade_outcome("INJ", won=False)  # pnl unknown
+    perf = scanner._coin_perf["INJ"]
+    assert float(perf.get("gross_loss") or 0.0) == 0.0
+    assert "INJ" not in scanner._autoban_until
+    assert scanner.coin_fails_expectancy("INJ") is False
+
+
+def test_known_pnl_feeds_usd_counters(monkeypatch):
+    sc = _reload_scanner(monkeypatch, HL_PERPS_AUTOBAN_ENABLED="true")
+    scanner = _make_ready_scanner(sc)
+    scanner.record_trade_outcome("OP", won=True, pnl_usd=4.0)
+    scanner.record_trade_outcome("OP", won=False, pnl_usd=-1.5)
+    perf = scanner._coin_perf["OP"]
+    assert perf["usd_wins"] == 1 and perf["usd_losses"] == 1
+    assert perf["usd_gross_profit"] == 4.0 and perf["usd_gross_loss"] == 1.5
+    assert perf["gross_profit"] == 4.0 and perf["gross_loss"] == 1.5
+
+
+def test_executor_paper_close_forwards_pnl():
+    """_inject_scanner_cooldown must hand realized $ PnL to record_trade_outcome."""
+    import sys
+    from unittest.mock import MagicMock
+    import core.hyperliquid_executor as hx
+    import core.hl_perps_scanner as hs
+
+    fake = MagicMock()
+    prev = getattr(hs, "_global_scanner", None)
+    hs._global_scanner = fake
+    try:
+        ex = hx.HyperliquidExecutor.__new__(hx.HyperliquidExecutor)
+        ex.emergency_cooldown_min = 30
+        ex._inject_scanner_cooldown("INJ", loss=True, pnl_usd=-2.25)
+        fake.record_trade_outcome.assert_called_once_with("INJ", won=False, pnl_usd=-2.25)
+    finally:
+        hs._global_scanner = prev
+    assert "core.hl_perps_scanner" in sys.modules
