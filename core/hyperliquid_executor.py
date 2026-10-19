@@ -357,8 +357,13 @@ class HyperliquidExecutor:
         *,
         loss: bool = False,
         emergency: bool = False,
+        pnl_usd: Optional[float] = None,
     ) -> None:
-        """Push re-entry / loss / emergency cooldowns into the global HL scanner."""
+        """Push re-entry / loss / emergency cooldowns into the global HL scanner.
+
+        pnl_usd is the realized $ PnL when known; it feeds the scanner's
+        per-coin profit factor (None = unknown, e.g. emergency closes).
+        """
         try:
             import sys
             scanner = None
@@ -377,7 +382,7 @@ class HyperliquidExecutor:
             if hasattr(scanner, "record_trade_outcome"):
                 # emergency closes (SL fail / R/R reject) always count as losses
                 won = not loss
-                scanner.record_trade_outcome(coin, won=won)
+                scanner.record_trade_outcome(coin, won=won, pnl_usd=pnl_usd)
             # Winning dynamic blacklist: feed SL hits (3+ / 24h → ban)
             if loss:
                 try:
@@ -1416,7 +1421,7 @@ class HyperliquidExecutor:
                         mfe_pct=_mfe,
                         mae_pct=_mae,
                     )
-                    self._inject_scanner_cooldown(sym, loss=(pnl < 0))
+                    self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
 
                     return {"coin": sym, "close_price": close_price, "pnl": pnl}
                 else:
@@ -1752,7 +1757,7 @@ class HyperliquidExecutor:
                     mfe_pct=_mfe,
                     mae_pct=_mae,
                 )
-                self._inject_scanner_cooldown(sym, loss=(pnl < 0))
+                self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
                 logger.info(
                     f"📄 PAPER CLOSE {sym} | entry=${pos.entry_price:.4f} → "
                     f"exit=${close_price} | PnL=${pnl:+.2f}"

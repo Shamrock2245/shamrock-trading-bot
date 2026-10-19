@@ -299,6 +299,37 @@ HL_PERPS_EXPECTANCY_GATE_ENABLED: bool = os.getenv(
 # deadlocks: a blocked coin never trades, so its stats never refresh (Sep 2026:
 # 16/18 allowlist coins blocked for 3 weeks, zero paper opens). 0 = never expire.
 HL_PERPS_EXPECTANCY_STALE_HOURS: float = float(os.getenv("HL_PERPS_EXPECTANCY_STALE_HOURS", "168.0"))
+
+
+def _trusted_profit_factor(perf: dict) -> Optional[float]:
+    """Profit factor for a coin_perf row, or None when the $ data can't support one.
+
+    Closes used to be recorded without their $ PnL (executor never passed it),
+    and losses got a 1.0 placeholder. Wins then carried gp=0 while losses
+    carried gl>0, so PF read 0.00 on any coin with one loss — INJ at 5W/5L
+    (50% WR) was auto-banned and expectancy-blocked on Oct 15 by a single $0
+    ghost close. Only trust PF when the $ sample is coherent:
+      * rows with usd_* counters (known-$ closes only): need >= MIN_TRADES of them;
+      * legacy rows: every side with closes must also carry $ (wins→gp, losses→gl).
+    """
+    if not perf:
+        return None
+    if "usd_wins" in perf or "usd_losses" in perf:
+        n_usd = int(perf.get("usd_wins") or 0) + int(perf.get("usd_losses") or 0)
+        if n_usd < HL_PERPS_AUTOBAN_MIN_TRADES:
+            return None
+        gp = float(perf.get("usd_gross_profit") or 0.0)
+        gl = float(perf.get("usd_gross_loss") or 0.0)
+    else:
+        wins = int(perf.get("wins") or 0)
+        losses = int(perf.get("losses") or 0)
+        gp = float(perf.get("gross_profit") or 0.0)
+        gl = float(perf.get("gross_loss") or 0.0)
+        if (wins > 0 and gp <= 0) or (losses > 0 and gl <= 0):
+            return None
+    if gp <= 0 and gl <= 0:
+        return None
+    return (gp / gl) if gl > 0 else 9.9
 # Pairlist: default allowlist of names that actually made money (or are BTC).
 # `full` restores the 230-coin spray that produced TRB/GRASS.
 HL_PERPS_UNIVERSE: str = os.getenv("HL_PERPS_UNIVERSE", "allowlist").strip().lower()
@@ -1020,7 +1051,7 @@ class HLPerpsScanner:
 
         return False
 
-    def record_trade_outcome(self, coin: str, won: bool, pnl_usd: float = 0.0) -> None:
+    def record_trade_outcome(self, coin: str, won: bool, pnl_usd: Optional[float] = None) -> None:
         """
         Record a closed trade outcome for a coin and auto-ban it if its
         rolling win rate falls below the threshold.
@@ -1065,31 +1096,44 @@ class HLPerpsScanner:
         if not HL_PERPS_AUTOBAN_ENABLED:
             return
         perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": time.time()})
+        pnl_known = pnl_usd is not None
+        pnl_val = float(pnl_usd) if pnl_known else 0.0
         if won:
             perf["wins"] += 1
-            if pnl_usd > 0:
-                perf["gross_profit"] = float(perf.get("gross_profit") or 0.0) + pnl_usd
         else:
             perf["losses"] += 1
-            loss_amt = abs(pnl_usd) if pnl_usd else 1.0
-            perf["gross_loss"] = float(perf.get("gross_loss") or 0.0) + loss_amt
-        perf["pnl_usd"] = float(perf.get("pnl_usd") or 0.0) + float(pnl_usd or 0.0)
+        # $ aggregates only from closes whose PnL is actually known — never a
+        # placeholder (the old 1.0 per loss poisoned PF to 0.00 for every coin).
+        if pnl_val > 0:
+            perf["gross_profit"] = float(perf.get("gross_profit") or 0.0) + pnl_val
+        elif pnl_val < 0:
+            perf["gross_loss"] = float(perf.get("gross_loss") or 0.0) + abs(pnl_val)
+        if pnl_known:
+            key = "usd_wins" if won else "usd_losses"
+            perf.setdefault("usd_wins", 0)
+            perf.setdefault("usd_losses", 0)
+            perf[key] = int(perf.get(key) or 0) + 1
+            if pnl_val > 0:
+                perf["usd_gross_profit"] = float(perf.get("usd_gross_profit") or 0.0) + pnl_val
+            elif pnl_val < 0:
+                perf["usd_gross_loss"] = float(perf.get("usd_gross_loss") or 0.0) + abs(pnl_val)
+        perf["pnl_usd"] = float(perf.get("pnl_usd") or 0.0) + pnl_val
         perf["last_updated"] = time.time()
         total = perf["wins"] + perf["losses"]
         wr = perf["wins"] / total if total > 0 else 1.0
-        gp = float(perf.get("gross_profit") or 0.0)
-        gl = float(perf.get("gross_loss") or 0.0)
-        pf = (gp / gl) if gl > 0 else (9.9 if gp > 0 else 0.0)
+        pf = _trusted_profit_factor(perf)
         # Evaluate ban eligibility — WR *or* profit factor (SOL was 45% WR / PF 0.12)
         should_ban = total >= HL_PERPS_AUTOBAN_MIN_TRADES and (
-            wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
+            wr < HL_PERPS_AUTOBAN_WR_THRESHOLD
+            or (pf is not None and pf < HL_PERPS_AUTOBAN_PF_THRESHOLD)
         )
         if should_ban and coin not in self._autoban_until:
             ban_expires = time.time() + HL_PERPS_AUTOBAN_HOURS * 3600
             self._autoban_until[coin] = ban_expires
+            pf_txt = f"{pf:.2f}" if pf is not None else "n/a"
             logger.warning(
                 f"🚫 [AUTO-BAN] {coin} auto-banned for {HL_PERPS_AUTOBAN_HOURS:.0f}h "
-                f"| trades={total} | WR={wr*100:.0f}% PF={pf:.2f} "
+                f"| trades={total} | WR={wr*100:.0f}% PF={pf_txt} "
                 f"(wr<{HL_PERPS_AUTOBAN_WR_THRESHOLD*100:.0f}% or pf<{HL_PERPS_AUTOBAN_PF_THRESHOLD:.2f})"
             )
         self._save_coin_perf()
@@ -1173,6 +1217,11 @@ class HLPerpsScanner:
                 perf["gross_profit"] = row["gp"]
                 perf["gross_loss"] = row["gl"]
                 perf["pnl_usd"] = row["pnl"]
+                # Exchange ledger rows carry real $ — mark them as a coherent $ sample.
+                perf["usd_wins"] = row["wins"]
+                perf["usd_losses"] = row["losses"]
+                perf["usd_gross_profit"] = row["gp"]
+                perf["usd_gross_loss"] = row["gl"]
                 perf["last_updated"] = now
             total = row["wins"] + row["losses"]
             if total < HL_PERPS_AUTOBAN_MIN_TRADES:
@@ -1215,13 +1264,11 @@ class HLPerpsScanner:
         wr = wins / total if total else 1.0
         if wr < HL_PERPS_AUTOBAN_WR_THRESHOLD:
             return True
-        gp = float(perf.get("gross_profit") or 0.0)
-        gl = float(perf.get("gross_loss") or 0.0)
-        if gp <= 0 and gl <= 0:
-            # Legacy rows carry win/loss counts but no $ PnL. Treating that as
-            # PF=0 blocked every coin with >=5 trades (even 6W/6L). WR only.
+        # Legacy / partial-$ rows (W/L counts without matching $ PnL) fall back
+        # to WR only — PF=0 from missing $ blocked 50%-WR coins (INJ, Oct 2026).
+        pf = _trusted_profit_factor(perf)
+        if pf is None:
             return False
-        pf = (gp / gl) if gl > 0 else 9.9
         return pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
 
     def _save_coin_perf(self) -> None:
