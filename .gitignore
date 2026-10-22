@@ -56,3 +56,7 @@ install_key.exp
 .agent/skills/*/agents/
 .agent/skills/**/LICENSE*
 .agent/skills/**/.gitattributes
+
+# Offline backtest data / reports (backtest/)
+data/candles/
+reports/backtest/

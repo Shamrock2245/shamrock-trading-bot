@@ -168,6 +168,39 @@ services:
     networks:
       - shamrock-net
 
+  # ── Candle Recorder (offline research data, no keys) ──────────────────────
+  # Hyperliquid only serves the latest 5000 bars per interval, so we keep our
+  # own 1h/15m candles + funding/OI snapshots in data/candles/ for the
+  # backtest/ walk-forward. Public info endpoint only: deliberately NO env_file
+  # (no secrets, no trading config) and it imports nothing from core/.
+  candle-recorder:
+    build:
+      context: .
+      target: runtime
+    container_name: shamrock-candle-recorder
+    restart: unless-stopped
+    command: python3 -m backtest.candle_recorder --loop --every-min 60
+    environment:
+      - CANDLE_RECORDER_DIR=/app/data/candles
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,sys,time; p='/app/data/candles/.recorder_heartbeat'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 10800 else 1)"]
+      interval: 300s
+      timeout: 15s
+      start_period: 900s
+      retries: 3
+    networks:
+      - shamrock-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   db-data:
     driver: local
