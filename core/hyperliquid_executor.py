@@ -165,6 +165,8 @@ class HLPosition:
     tp_order_id: Optional[int] = None   # On-chain TP order ID (for reference)
     # Winning tuning: TP1 partial already taken (50% at +2%)
     tp1_hit: bool = False
+    # Paper exit A/B arm (core/paper_exit_ab.py): "" (untagged/live), "control", "atr2x_8h"
+    exit_variant: str = ""
 
 
 class HyperliquidExecutor:
@@ -275,6 +277,7 @@ class HyperliquidExecutor:
         mae_pct: Optional[float] = None,
         regime: Optional[str] = None,
         exit_reason: Optional[str] = None,
+        extra: Optional[dict] = None,
     ) -> None:
         """Append a Hyperliquid fill to output/trades.json for analytics.
 
@@ -325,6 +328,9 @@ class HyperliquidExecutor:
                 }
                 if exit_reason:
                     record["exit_reason"] = exit_reason
+                if extra:
+                    for _k, _v in extra.items():
+                        record.setdefault(_k, _v)
                 trades.append(record)
                 # Keep journal bounded
                 if len(trades) > 5000:
@@ -754,6 +760,7 @@ class HyperliquidExecutor:
                     "lowest_price": None if pos.lowest_price == float("inf") else pos.lowest_price,
                     "trailing_stop_active": pos.trailing_stop_active,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
+                    "exit_variant": getattr(pos, "exit_variant", "") or "",
                 }
             path = self._paper_positions_file
             with _FILE_WRITE_LOCK:
@@ -790,6 +797,7 @@ class HyperliquidExecutor:
                     lowest_price=float(d.get("lowest_price") or entry),
                     trailing_stop_active=bool(d.get("trailing_stop_active", False)),
                     tp1_hit=bool(d.get("tp1_hit", False)),
+                    exit_variant=str(d.get("exit_variant") or ""),
                 )
                 if opened:
                     pos.opened_at = datetime.fromisoformat(opened)
@@ -1617,6 +1625,57 @@ class HyperliquidExecutor:
                     pass
         return None
 
+    @staticmethod
+    def _ab_tag(pos: "HLPosition") -> Optional[dict]:
+        v = getattr(pos, "exit_variant", "") or ""
+        return {"exit_variant": v} if v else None
+
+    def _paper_atr_1h(self, sym: str) -> Optional[float]:
+        """ATR(14) on 1h candles for the paper exit A/B (None if unavailable)."""
+        if not self._info:
+            return None
+        try:
+            from core.paper_exit_ab import ATR_PERIOD, compute_atr
+            now_ms = int(time.time() * 1000)
+            start_ms = now_ms - (ATR_PERIOD + 6) * 3_600_000
+            candles = self._execute_api(self._info.candles_snapshot, sym, "1h", start_ms, now_ms)
+            # drop the still-forming bar so the stop doesn't depend on intrabar noise
+            closed = [c for c in (candles or []) if int(c.get("T", 0) or 0) < now_ms]
+            return compute_atr(closed, ATR_PERIOD)
+        except Exception as e:
+            logger.debug(f"📄 PAPER A/B: ATR fetch failed for {sym}: {e}")
+            return None
+
+    def _paper_exit_ab_apply(
+        self, sym: str, pos_side: str, fill_price: float, structure_sl: Optional[float]
+    ) -> dict:
+        """Assign the paper exit A/B arm. Returns journal tags plus "ab_sl" (the
+        stop to use, or None to keep the structure SL). Paper-only; {} when off."""
+        try:
+            from core import paper_exit_ab as _ab
+        except Exception:
+            return {}
+        if not self.is_paper or not _ab.ab_enabled():
+            return {}
+        variant = _ab.assign_variant(sym)
+        tags: dict = {"exit_variant": variant, "ab_structure_sl": structure_sl, "ab_sl": None}
+        if variant == _ab.ATR_ARM:
+            atr = self._paper_atr_1h(sym)
+            tags["ab_atr_1h"] = atr
+            tags["ab_atr_mult"] = _ab.atr_mult()
+            tags["ab_loss_timeout_h"] = _ab.atr_timeout_hours()
+            if atr and fill_price and atr < 0.25 * fill_price:
+                tags["ab_sl"] = _ab.atr_stop(pos_side, fill_price, atr)
+                tags["ab_atr_fallback"] = False
+            else:
+                tags["ab_atr_fallback"] = True
+        logger.info(
+            f"📄 PAPER A/B {sym} → {variant} | structure_sl={structure_sl} | "
+            f"sl={tags['ab_sl'] if tags['ab_sl'] is not None else structure_sl}"
+            + (f" | atr={tags.get('ab_atr_1h')}" if variant == _ab.ATR_ARM else "")
+        )
+        return tags
+
     def _paper_open_position(
         self,
         sym: str,
@@ -1664,6 +1723,12 @@ class HyperliquidExecutor:
             return None
 
         pos_side = "long" if side == "buy" else "short"
+        # Paper exit A/B: arm is assigned only AFTER the R/R filter above, which
+        # used the structure SL, so both arms admit exactly the same signals.
+        ab_extra = self._paper_exit_ab_apply(sym, pos_side, fill_price, sl_price)
+        if ab_extra.get("ab_sl") is not None:
+            sl_price = ab_extra["ab_sl"]
+        ab_extra.pop("ab_sl", None)
         with self._lock:
             if sym in self.positions:
                 logger.info(f"📄 PAPER: already positioned in {sym} — skip")
@@ -1681,6 +1746,7 @@ class HyperliquidExecutor:
                 lowest_price=fill_price,
                 sl_order_id=None,
                 tp_order_id=None,
+                exit_variant=ab_extra.get("exit_variant", ""),
             )
             self.positions[sym] = pos
             self._save_trailing_state()
@@ -1700,6 +1766,7 @@ class HyperliquidExecutor:
             stop_loss=sl_price,
             take_profit=tp_price,
             regime=regime,
+            extra=ab_extra or None,
         )
         logger.info(
             f"📄 PAPER Hyperliquid OPEN {pos_side.upper()} {sym} | "
@@ -1788,6 +1855,7 @@ class HyperliquidExecutor:
                     mfe_pct=_mfe,
                     mae_pct=_mae,
                     exit_reason=exit_reason or "manual_or_monitor",
+                    extra=self._ab_tag(pos),
                 )
                 self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
                 logger.info(
@@ -1828,6 +1896,7 @@ class HyperliquidExecutor:
                 stop_loss=pos.stop_loss_price,
                 take_profit=pos.take_profit_price,
                 exit_reason=exit_reason or "tp1_partial",
+                extra=self._ab_tag(pos),
             )
             logger.info(
                 f"📄 PAPER TP1 PARTIAL {sym} | {size_pct:.0f}% @ ${close_price} | "
@@ -2441,6 +2510,7 @@ class HyperliquidExecutor:
                     "tp_order_id": pos.tp_order_id,
                     "stop_loss_price": pos.stop_loss_price,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
+                    "exit_variant": getattr(pos, "exit_variant", "") or "",
                 }
             _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
@@ -2469,6 +2539,8 @@ class HyperliquidExecutor:
                 pos.sl_order_id = saved.get("sl_order_id")
                 pos.tp_order_id = saved.get("tp_order_id")
                 pos.tp1_hit = bool(saved.get("tp1_hit", False))
+                if saved.get("exit_variant") and not getattr(pos, "exit_variant", ""):
+                    pos.exit_variant = str(saved["exit_variant"])
                 # Restore persisted SL price only if it is tighter than what HL returned
                 persisted_sl = saved.get("stop_loss_price")
                 if persisted_sl is not None:

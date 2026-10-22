@@ -310,6 +310,7 @@ def get_paper_metrics() -> dict:
                 "pf_ok": False,
                 "ready": False,
             },
+            "by_variant": paper_metrics_by_variant([]),
         }
 
     wins = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) > 0]
@@ -351,7 +352,38 @@ def get_paper_metrics() -> dict:
             "pf_ok": pf_ok,
             "ready": trades_ok and wr_ok and pf_ok,
         },
+        "by_variant": paper_metrics_by_variant(closes),
     }
+
+
+AB_VARIANTS = ("control", "atr2x_8h")
+
+
+def _variant_summary(rows: list) -> dict:
+    pnls = [float(t["pnl_usd"]) for t in rows]
+    wins = [p for p in pnls if p > 0]
+    gl = abs(sum(p for p in pnls if p < 0))
+    gw = sum(wins)
+    return {
+        "closed_trades": len(rows),
+        "positions_closed": sum(1 for t in rows if t.get("exit_reason") != "tp1_partial"),
+        "win_rate": round(len(wins) / len(rows), 3) if rows else 0.0,
+        "profit_factor": (round(gw / gl, 2) if gl > 0 else (999.0 if gw > 0 else 0.0)) if rows else 0.0,
+        "net_pnl": round(sum(pnls), 2),
+        "avg_pnl": round(sum(pnls) / len(rows), 2) if rows else 0.0,
+    }
+
+
+def paper_metrics_by_variant(closes: list) -> dict:
+    """Reporting-only split of gate closes by paper exit A/B arm
+    (core/paper_exit_ab.py). Rows from before the A/B are "untagged".
+    Does not change the gate itself (overall thresholds 50 / 50% / 1.30)."""
+    groups: dict = {v: [] for v in AB_VARIANTS}
+    groups["untagged"] = []
+    for t in closes:
+        v = str(t.get("exit_variant") or "")
+        groups[v if v in groups else "untagged"].append(t)
+    return {k: _variant_summary(v) for k, v in groups.items()}
 
 
 def _reject(
