@@ -1448,6 +1448,15 @@ async def run_bot_loop():
         from core.profit_lock_manager import evaluate_position as _eval_profit_lock
         from core.winning_risk_manager import evaluate_position as _eval_winning_risk
 
+        def _paper_ab_winning_cfg(_ex, _pos):
+            # Paper exit A/B: only paper atr2x_8h positions get the 8h loss timeout.
+            # None → evaluate_position uses default_config() (control + all live).
+            try:
+                from core.paper_exit_ab import winning_config_for
+                return winning_config_for(getattr(_pos, "exit_variant", "") or "", bool(_ex.is_paper))
+            except Exception:
+                return None
+
         _time.sleep(45)  # Wait for HL perps daemon to initialize the executor
 
         # Grab the executor reference once it is available
@@ -1602,6 +1611,7 @@ async def run_bot_loop():
                                 current_sl=pos.stop_loss_price,
                                 tp1_hit=bool(getattr(pos, "tp1_hit", False)),
                                 now=_dt.now(_tz.utc),
+                                config=_paper_ab_winning_cfg(_exec, pos),
                             )
                             if _wr.should_close:
                                 logger.warning(
