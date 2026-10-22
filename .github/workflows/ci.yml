@@ -126,6 +126,9 @@ jobs:
               grep -q '^HL_PERPS_PAPER_EXEC_SCORE_DELTA=' .env && sed -i 's/^HL_PERPS_PAPER_EXEC_SCORE_DELTA=.*/HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5/' .env || echo 'HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5' >> .env
               grep -q '^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=.*/HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8/' .env || echo 'HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8' >> .env
               grep -q '^PREDATOR_PAPER_CHOP_HALF_SIZE=' .env && sed -i 's/^PREDATOR_PAPER_CHOP_HALF_SIZE=.*/PREDATOR_PAPER_CHOP_HALF_SIZE=true/' .env || echo 'PREDATOR_PAPER_CHOP_HALF_SIZE=true' >> .env
+              # 2026-10-21: paper-only exit geometry (fee-covering BE floor, stretched-TP demotion)
+              grep -q '^PAPER_BREAK_EVEN_BUFFER_PCT=' .env && sed -i 's/^PAPER_BREAK_EVEN_BUFFER_PCT=.*/PAPER_BREAK_EVEN_BUFFER_PCT=0.12/' .env || echo 'PAPER_BREAK_EVEN_BUFFER_PCT=0.12' >> .env
+              grep -q '^HL_PERPS_PAPER_STRETCHED_TP_PENALTY=' .env && sed -i 's/^HL_PERPS_PAPER_STRETCHED_TP_PENALTY=.*/HL_PERPS_PAPER_STRETCHED_TP_PENALTY=10/' .env || echo 'HL_PERPS_PAPER_STRETCHED_TP_PENALTY=10' >> .env
               grep -q '^PREDATOR_BLOCK_TOXIC_HOURS=' .env && sed -i 's/^PREDATOR_BLOCK_TOXIC_HOURS=.*/PREDATOR_BLOCK_TOXIC_HOURS=true/' .env || echo 'PREDATOR_BLOCK_TOXIC_HOURS=true' >> .env
               grep -q '^PREDATOR_TOXIC_HOURS_ET=' .env && sed -i 's/^PREDATOR_TOXIC_HOURS_ET=.*/PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13/' .env || echo 'PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13' >> .env
               grep -q '^PREDATOR_MAX_OPENS_PER_DAY=' .env && sed -i 's/^PREDATOR_MAX_OPENS_PER_DAY=.*/PREDATOR_MAX_OPENS_PER_DAY=6/' .env || echo 'PREDATOR_MAX_OPENS_PER_DAY=6' >> .env
