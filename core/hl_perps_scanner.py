@@ -213,6 +213,35 @@ def _moralis_enabled() -> bool:
     return os.getenv("MORALIS_ENABLED", "false").strip().lower() == "true"
 
 
+def _ctx_funding(ctx) -> float:
+    """Parse the hourly funding rate from a metaAndAssetCtxs entry (0.0 if absent)."""
+    if not ctx:
+        return 0.0
+    try:
+        v = float(ctx.get("funding", 0) or 0)
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+    return v if v == v else 0.0  # NaN guard
+
+
+def scoring_funding(funding_rate: float) -> float:
+    """Funding fed into _score_signal.
+
+    The funding feed was silently 0.0 until 2026-10-21, so the funding-fade
+    component never scored. Paper uses the real value now; live keeps the
+    historical 0.0 behaviour unless HL_PERPS_FUNDING_SCORE_LIVE=true.
+    """
+    try:
+        f = float(funding_rate or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if _paper_mode_active():
+        return f
+    if os.getenv("HL_PERPS_FUNDING_SCORE_LIVE", "false").strip().lower() in ("1", "true", "yes", "on"):
+        return f
+    return 0.0
+
+
 def effective_toxic_bonus() -> float:
     if _paper_mode_active():
         return min(HL_PERPS_TOXIC_SCORE_BONUS, HL_PERPS_PAPER_TOXIC_SCORE_BONUS)
@@ -408,7 +437,7 @@ class PerpSignal:
     ema_cross: Optional[str] = None     # "bullish", "bearish", "neutral"
     macd_signal: Optional[str] = None   # "buy", "sell", "neutral"
     volume_spike: Optional[float] = None  # ratio vs 24h avg
-    funding_rate: Optional[float] = None  # per 8h
+    funding_rate: Optional[float] = None  # hourly (HL pays funding every hour)
     bb_position: Optional[str] = None   # "lower", "upper", "middle"
     momentum_1h: Optional[float] = None  # 1h price change %
     ema_support_px: Optional[float] = None # EMA 21 value for retracement limit entries
@@ -908,22 +937,33 @@ class HLPerpsScanner:
             return []
 
     def _get_funding_rate(self, coin: str) -> float:
-        """Get current funding rate for a coin (per 8h) from cached meta."""
+        """Current hourly funding rate for a coin from metaAndAssetCtxs.
+
+        meta()["universe"] carries no funding field (only name / szDecimals /
+        maxLeverage), so the old meta-based read returned 0.0 for every coin.
+        """
         try:
-            meta = self._get_meta_cached()
-            for asset in meta.get("universe", []):
-                if asset.get("name", "").upper() == coin.upper():
-                    return float(asset.get("funding", 0))
-            return 0.0
+            ctx = self._get_asset_ctxs_cached().get(coin.upper())
+            return _ctx_funding(ctx)
         except Exception:
             return 0.0
 
     def _get_all_funding_rates(self) -> dict[str, float]:
-        """Fetch all funding rates from a single cached meta() call."""
+        """Hourly funding for every perp from one cached metaAndAssetCtxs call.
+
+        Falls back to meta() names with 0.0 when ctxs are unavailable so the
+        scan universe (keys) is never empty because of a funding outage.
+        """
+        try:
+            ctxs = self._get_asset_ctxs_cached()
+            if ctxs:
+                return {name: _ctx_funding(ctx) for name, ctx in ctxs.items() if name}
+        except Exception as e:
+            logger.debug(f"HLPerpsScanner: asset ctx funding fetch failed: {e}")
         try:
             meta = self._get_meta_cached()
             return {
-                asset["name"].upper(): float(asset.get("funding", 0))
+                asset["name"].upper(): 0.0
                 for asset in meta.get("universe", [])
                 if asset.get("name")
             }
@@ -1413,7 +1453,7 @@ class HLPerpsScanner:
 
         Args:
             coin: Coin symbol (e.g., "BTC")
-            funding_rate: Current funding rate per 8h (pre-fetched for efficiency)
+            funding_rate: Current hourly funding rate (pre-fetched from metaAndAssetCtxs)
 
         Returns:
             PerpSignal if a trade setup is found, None otherwise.
@@ -1456,7 +1496,7 @@ class HLPerpsScanner:
                 macro_trend = "bearish"
 
         # Score the market on the 1h timeframe
-        score, direction, components = _score_signal(closes_1h, volumes_1h, funding_rate)
+        score, direction, components = _score_signal(closes_1h, volumes_1h, scoring_funding(funding_rate))
 
         if direction == "none" or score < HL_PERPS_MIN_SCORE:
             return None
@@ -1757,7 +1797,7 @@ class HLPerpsScanner:
             f"MACD_hist={components.get('macd_hist', 0):.4f}" if components.get("macd_hist") else "",
             f"vol_spike={vol_spike:.1f}x" if vol_spike else "",
             f"BB={components.get('bb_zone', '?')}",
-            f"funding={funding_rate*100:.4f}%/8h",
+            f"funding={funding_rate*100:.4f}%/1h",
             f"fade={fund_sig}" if fund_sig else "",
             f"mom_1h={components.get('momentum_1h', 0):.2f}%" if components.get("momentum_1h") else "",
             f"fib={fib_zone}" if fib_zone != "none" else "",
@@ -2430,7 +2470,7 @@ class HLPerpsScanner:
         for coin, rate in funding_rates.items():
             if abs(rate) > threshold and coin not in HL_PERPS_WATCHLIST:
                 extra.append(coin)
-                logger.debug(f"HLPerpsScanner: adding {coin} for funding anomaly ({rate*100:.4f}%/8h)")
+                logger.debug(f"HLPerpsScanner: adding {coin} for funding anomaly ({rate*100:.4f}%/1h)")
         return extra
 
     def run_cycle(self) -> list[PerpSignal]:

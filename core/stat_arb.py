@@ -297,12 +297,19 @@ class StatArbEngine:
         )
 
     def _get_funding_rate(self, hl_executor, symbol: str) -> float:
-        """Fetch current 8h funding rate from Hyperliquid (with retry wrapper)."""
+        """Current hourly funding rate from Hyperliquid metaAndAssetCtxs.
+
+        meta()["universe"] has no funding field, so the old read was always 0.0
+        and the adverse-funding entry guard never fired.
+        """
         try:
-            meta = hl_executor._execute_api(hl_executor._info.meta)
-            for asset in meta.get("universe", []):
-                if asset.get("name", "").upper() == symbol.upper():
-                    return float(asset.get("funding", 0))
+            result = hl_executor._execute_api(hl_executor._info.meta_and_asset_ctxs)
+            if result and len(result) >= 2:
+                meta, ctxs = result[0], result[1]
+                for asset, ctx in zip(meta.get("universe", []), ctxs):
+                    if asset.get("name", "").upper() == symbol.upper():
+                        v = float((ctx or {}).get("funding", 0) or 0)
+                        return v if v == v else 0.0
         except Exception:
             pass
         return 0.0
