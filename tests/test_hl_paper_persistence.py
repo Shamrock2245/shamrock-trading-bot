@@ -81,8 +81,8 @@ def test_restart_orphans_tagged_and_excluded_from_metrics(monkeypatch, tmp_path)
 
 
 def test_metrics_skip_flagged_rows(monkeypatch, tmp_path):
-    rows = [{"is_paper": True, "action": "SELL", "pnl_usd": -50.0, "exclude_from_metrics": True},
-            {"is_paper": True, "action": "SELL", "pnl_usd": 10.0}]
+    rows = [{"chain": "hyperliquid", "is_paper": True, "action": "SELL", "pnl_usd": -50.0, "exclude_from_metrics": True},
+            {"chain": "hyperliquid", "is_paper": True, "action": "SELL", "pnl_usd": 10.0}]
     (tmp_path / "trades.json").write_text(json.dumps(rows))
     monkeypatch.setenv("TRADES_FILE", str(tmp_path / "trades.json"))
     from core.predator_v1 import get_paper_metrics

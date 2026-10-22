@@ -219,6 +219,59 @@ def get_deny_stats() -> dict:
     }
 
 
+GATE_SCOPE = "hyperliquid_perps_paper"
+_CLOSE_ACTIONS = ("SELL", "CLOSE", "SELL_SHORT")
+_ORPHAN_REASONS = {"restart_orphan"}
+
+
+def is_hl_perps_row(t: dict) -> bool:
+    """True for Hyperliquid perps rows (Predator's book), never gem/DEX chains.
+
+    trades.json is shared with the Solana/Base/Ethereum gem side; those rows
+    must not leak into the Predator promotion gate. StatArb paper never writes
+    trades.json, so it is excluded by construction.
+    """
+    chain = str(t.get("chain") or "").strip().lower()
+    if chain and chain != "hyperliquid":
+        return False
+    if chain == "hyperliquid":
+        return True
+    # Legacy rows without chain: accept only explicit HL markers
+    return (
+        str(t.get("strategy_profile") or "") == "hl_perps"
+        or str(t.get("token_address") or "").startswith("hl:")
+    )
+
+
+def is_gate_close(t: dict) -> bool:
+    """A paper Hyperliquid perps close that counts toward the Predator gate.
+
+    Excludes: live rows, gem/DEX chains, opens, rows without PnL, exact $0
+    rows (placeholder/no-fill artefacts), restart orphans and anything tagged
+    exclude_from_metrics. Thresholds are unchanged (50 / 50% / 1.30).
+    """
+    if not isinstance(t, dict) or t.get("is_paper") is not True:
+        return False
+    if not is_hl_perps_row(t):
+        return False
+    if str(t.get("action", "")).upper() not in _CLOSE_ACTIONS:
+        return False
+    if t.get("exclude_from_metrics"):
+        return False
+    if str(t.get("reason") or "") in _ORPHAN_REASONS:
+        return False
+    pnl = t.get("pnl_usd")
+    if pnl is None:
+        return False
+    try:
+        pnl_f = float(pnl)
+    except (TypeError, ValueError):
+        return False
+    if pnl_f != pnl_f or abs(pnl_f) < 1e-9:  # NaN or exact $0
+        return False
+    return True
+
+
 def get_paper_metrics() -> dict:
     candidates = [
         Path(os.getenv("TRADES_FILE", "output/trades.json")),
@@ -237,16 +290,10 @@ def get_paper_metrics() -> dict:
         except Exception:
             continue
 
-    paper = [t for t in trades if t.get("is_paper") is True]
-    pool = paper if paper else trades
-    closes = [
-        t for t in pool
-        if str(t.get("action", "")).upper() in ("SELL", "CLOSE", "SELL_SHORT")
-        and t.get("pnl_usd") is not None
-        and not t.get("exclude_from_metrics")
-    ]
+    closes = [t for t in trades if is_gate_close(t)]
     if not closes:
         return {
+            "scope": GATE_SCOPE,
             "closed_trades": 0,
             "win_rate": 0.0,
             "profit_factor": 0.0,
@@ -287,6 +334,7 @@ def get_paper_metrics() -> dict:
     pf_ok = pf >= 1.30
 
     return {
+        "scope": GATE_SCOPE,
         "closed_trades": len(closes),
         "win_rate": wr,
         "profit_factor": pf,
