@@ -1552,6 +1552,14 @@ async def run_bot_loop():
                         if price_updated:
                             _exec._save_trailing_state()
 
+                        # ── PAPER ONLY: simulate exchange-side SL / TP triggers ─────────
+                        # Live has real trigger orders on Hyperliquid; paper had none, so
+                        # trailed / BE stops never fired. No-op in live (returns None).
+                        if _exec.is_paper:
+                            _trig = _exec.check_paper_triggers(pos.coin, mark_price)
+                            if _trig:
+                                continue
+
                         # ── Winning risk OR legacy profit-lock (price-move based) ─────
                         # v32 Winning: BE@0.75%, TP1 40%@+2%, trail ladder 1.25/1.75/2.5,
                         # 45-min −1.5% tighten, hard timeout 4h. Supersedes profit_lock when on.
@@ -1578,7 +1586,7 @@ async def run_bot_loop():
                                     f"est_pnl=${_est_pnl_usd:+.2f} (limit -${_max_loss_usd:.2f}) | "
                                     f"pnl_pct={_cur_pnl_pct:.2f}% → Emergency Force Close!"
                                 )
-                                _close_res = _exec.close_position(pos.coin)
+                                _close_res = _exec.close_position(pos.coin, exit_reason="hard_loss_cap")
                                 if not _close_res:
                                     logger.error(f"❌ Hard loss cap close failed for {pos.coin}")
                                 continue
@@ -1601,7 +1609,7 @@ async def run_bot_loop():
                                     f"hold={_wr.hold_minutes:.0f}m | pnl={_wr.pnl_pct:.2f}% | "
                                     f"reason={_wr.reason}"
                                 )
-                                _close_res = _exec.close_position(pos.coin)
+                                _close_res = _exec.close_position(pos.coin, exit_reason=_wr.reason)
                                 if not _close_res:
                                     logger.error(
                                         f"❌ Winning timeout close failed for {pos.coin} — will retry next cycle"
@@ -1692,7 +1700,7 @@ async def run_bot_loop():
                                     f"hold={_pl.hold_hours:.1f}h | pnl={_pl.pnl_pct:.2f}% | "
                                     f"reason={_pl.reason}"
                                 )
-                                _close_res = _exec.close_position(pos.coin)
+                                _close_res = _exec.close_position(pos.coin, exit_reason=_pl.reason)
                                 if not _close_res:
                                     logger.error(
                                         f"❌ Loss timeout close failed for {pos.coin} — will retry next cycle"
