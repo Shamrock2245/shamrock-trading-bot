@@ -1,0 +1,3 @@
+vectorbt>=0.26
+pandas
+numpy
