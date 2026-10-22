@@ -44,6 +44,24 @@ _PAPER_POSITIONS_FILE = Path(
 )
 ORPHAN_REASON = "restart_orphan"
 
+
+def paper_sltp_enforce_enabled() -> bool:
+    """PAPER ONLY: simulate exchange-side SL/TP triggers (default on).
+
+    Has no effect in live — live stops are real Hyperliquid trigger orders.
+    """
+    return os.getenv("PAPER_SLTP_ENFORCE", "true").strip().lower() in ("1", "true", "yes", "on")
+
+
+def paper_trigger_slippage_frac() -> float:
+    """Adverse slippage applied to simulated paper trigger fills (bps → fraction)."""
+    try:
+        bps = float(os.getenv("PAPER_TRIGGER_SLIPPAGE_BPS", "5"))
+    except (TypeError, ValueError):
+        bps = 5.0
+    return max(0.0, min(bps, 100.0)) / 10_000.0
+
+
 # One lock for every read-modify-write of the shared journal / paper-state
 # files, so concurrent threads (scanner, monitor, stat-arb) can't clobber them.
 _FILE_WRITE_LOCK = threading.RLock()
@@ -256,6 +274,7 @@ class HyperliquidExecutor:
         mfe_pct: Optional[float] = None,
         mae_pct: Optional[float] = None,
         regime: Optional[str] = None,
+        exit_reason: Optional[str] = None,
     ) -> None:
         """Append a Hyperliquid fill to output/trades.json for analytics.
 
@@ -304,6 +323,8 @@ class HyperliquidExecutor:
                     "mae_pct": mae_pct,
                     "regime": regime,
                 }
+                if exit_reason:
+                    record["exit_reason"] = exit_reason
                 trades.append(record)
                 # Keep journal bounded
                 if len(trades) > 5000:
@@ -1328,6 +1349,7 @@ class HyperliquidExecutor:
         self,
         symbol: str,
         size_pct: Optional[float] = None,
+        exit_reason: Optional[str] = None,
     ) -> Optional[dict]:
         """Close an open position.
 
@@ -1347,7 +1369,7 @@ class HyperliquidExecutor:
 
         # ── PAPER MODE: mark-to-mid simulation, never market_close ──────
         if self.is_paper:
-            return self._paper_close_position(sym, size_pct=None)
+            return self._paper_close_position(sym, size_pct=None, exit_reason=exit_reason)
 
         with self._lock:
             pos = self.positions.get(sym)
@@ -1701,15 +1723,24 @@ class HyperliquidExecutor:
         self,
         sym: str,
         size_pct: Optional[float] = None,
+        fill_price: Optional[float] = None,
+        exit_reason: Optional[str] = None,
     ) -> Optional[dict]:
-        """Simulate close (full or partial) at mid — no real market_close."""
+        """Simulate close (full or partial) — no real market_close.
+
+        fill_price: simulated trigger fill (paper SL/TP enforcement); defaults
+        to the current mid. exit_reason is recorded on the journal row.
+        """
         with self._lock:
             pos = self.positions.get(sym)
             if not pos:
                 logger.warning(f"📄 PAPER: no open position for {sym}")
                 return None
 
-            close_price = self._paper_mid_price(sym) or pos.entry_price
+            if fill_price is not None and float(fill_price) > 0:
+                close_price = float(fill_price)
+            else:
+                close_price = self._paper_mid_price(sym) or pos.entry_price
             partial = size_pct is not None and 0 < float(size_pct) < 100
             if partial:
                 close_sz = pos.size * (float(size_pct) / 100.0)
@@ -1756,11 +1787,13 @@ class HyperliquidExecutor:
                     entry_time=entry_time,
                     mfe_pct=_mfe,
                     mae_pct=_mae,
+                    exit_reason=exit_reason or "manual_or_monitor",
                 )
                 self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
                 logger.info(
                     f"📄 PAPER CLOSE {sym} | entry=${pos.entry_price:.4f} → "
-                    f"exit=${close_price} | PnL=${pnl:+.2f}"
+                    f"exit=${close_price} | PnL=${pnl:+.2f} | "
+                    f"exit_reason={exit_reason or 'manual_or_monitor'}"
                 )
                 return {
                     "coin": sym,
@@ -1794,6 +1827,7 @@ class HyperliquidExecutor:
                 leverage=pos.leverage,
                 stop_loss=pos.stop_loss_price,
                 take_profit=pos.take_profit_price,
+                exit_reason=exit_reason or "tp1_partial",
             )
             logger.info(
                 f"📄 PAPER TP1 PARTIAL {sym} | {size_pct:.0f}% @ ${close_price} | "
@@ -2467,6 +2501,63 @@ class HyperliquidExecutor:
         except Exception as e:
             logger.warning(f"Hyperliquid: exception cancelling order oid={order_id} for {coin}: {e}")
             return False
+
+    def check_paper_triggers(self, coin: str, mark_price: float) -> Optional[dict]:
+        """PAPER ONLY: simulate exchange-side SL / TP trigger orders.
+
+        Live positions have real trigger orders resting on Hyperliquid; paper
+        positions had none, so trailed / break-even stops were ratcheted but
+        never fired (INJ 10/20 gave back a +6.6% trail lock). When the mark
+        crosses the current (incl. trailed) SL or the TP, close the paper
+        position at the trigger price with adverse slippage. A gap through the
+        stop fills at the worse of trigger and mark. SL wins ties.
+
+        Returns the close result dict, or None (no trigger / live / disabled).
+        """
+        if not self.is_paper or not paper_sltp_enforce_enabled():
+            return None
+        try:
+            mark = float(mark_price)
+        except (TypeError, ValueError):
+            return None
+        if mark <= 0:
+            return None
+        sym = _normalize_symbol(coin)
+        with self._lock:
+            pos = self.positions.get(sym)
+            if not pos:
+                return None
+            side = (pos.side or "long").lower()
+            entry = float(pos.entry_price or 0)
+            sl = float(pos.stop_loss_price) if pos.stop_loss_price else None
+            tp = float(pos.take_profit_price) if pos.take_profit_price else None
+        slip = paper_trigger_slippage_frac()
+        fill = None
+        reason = None
+        if side == "long":
+            if sl and mark <= sl:
+                fill = min(sl, mark) * (1.0 - slip)
+                reason = "paper_trail_stop" if entry and sl > entry else "paper_sl_hit"
+            elif tp and mark >= tp:
+                fill = tp * (1.0 - slip)
+                reason = "paper_tp_hit"
+        else:
+            if sl and mark >= sl:
+                fill = max(sl, mark) * (1.0 + slip)
+                reason = "paper_trail_stop" if entry and sl < entry else "paper_sl_hit"
+            elif tp and mark <= tp:
+                fill = tp * (1.0 + slip)
+                reason = "paper_tp_hit"
+        if fill is None:
+            return None
+        logger.info(
+            f"📄 [PAPER] ⚡ TRIGGER {reason} | {sym} {side.upper()} | mark=${mark:.6f} | "
+            f"sl={sl} tp={tp} → fill=${fill:.6f} (slip {slip * 1e4:.1f}bps)"
+        )
+        res = self._paper_close_position(sym, size_pct=None, fill_price=fill, exit_reason=reason)
+        if res is not None:
+            res["exit_reason"] = reason
+        return res
 
     def update_trailing_stop(self, coin: str, new_sl_price: float) -> bool:
         """Cancel the existing on-chain SL and place a new one at new_sl_price.

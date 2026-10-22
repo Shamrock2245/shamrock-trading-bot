@@ -175,6 +175,9 @@ jobs:
               grep -q '^HF_MORALIS_SCANNER_ENABLED=' .env && sed -i 's/^HF_MORALIS_SCANNER_ENABLED=.*/HF_MORALIS_SCANNER_ENABLED=false/' .env || echo 'HF_MORALIS_SCANNER_ENABLED=false' >> .env
               # 2026-08-13: paper-only — no live fills until lock is cleared.
               grep -q '^MODE=' .env && sed -i 's/^MODE=.*/MODE=paper/' .env || echo 'MODE=paper' >> .env
+              # 2026-10-21: paper-only SL/TP trigger simulation (no effect in live)
+              grep -q '^PAPER_SLTP_ENFORCE=' .env && sed -i 's/^PAPER_SLTP_ENFORCE=.*/PAPER_SLTP_ENFORCE=true/' .env || echo 'PAPER_SLTP_ENFORCE=true' >> .env
+              grep -q '^PAPER_TRIGGER_SLIPPAGE_BPS=' .env && sed -i 's/^PAPER_TRIGGER_SLIPPAGE_BPS=.*/PAPER_TRIGGER_SLIPPAGE_BPS=5/' .env || echo 'PAPER_TRIGGER_SLIPPAGE_BPS=5' >> .env
               grep -q '^HOT_STREAK_ENABLED=' .env && sed -i 's/^HOT_STREAK_ENABLED=.*/HOT_STREAK_ENABLED=true/' .env || echo 'HOT_STREAK_ENABLED=true' >> .env
               grep -q '^MEV_SANDWICH_BASE_MEMPOOL_ENABLED=' .env && sed -i 's/^MEV_SANDWICH_BASE_MEMPOOL_ENABLED=.*/MEV_SANDWICH_BASE_MEMPOOL_ENABLED=false/' .env || echo 'MEV_SANDWICH_BASE_MEMPOOL_ENABLED=false' >> .env
               grep -q '^HOT_STREAK_MIN_WINS=' .env && sed -i 's/^HOT_STREAK_MIN_WINS=.*/HOT_STREAK_MIN_WINS=3/' .env || echo 'HOT_STREAK_MIN_WINS=3' >> .env
