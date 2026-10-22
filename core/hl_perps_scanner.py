@@ -189,6 +189,14 @@ HL_PERPS_PAPER_TOXIC_SCORE_BONUS: float = float(
     os.getenv("HL_PERPS_PAPER_TOXIC_SCORE_BONUS", "8.0")
 )
 HL_PERPS_EXEC_SCORE_FLOOR: float = 52.0
+# Paper-only demotion for geometry-repaired targets (2026-10-21). When Fib gives
+# no usable TP (rr_fallback) or a too-thin one (rr_stretch), the TP is synthesised
+# at min_rr × risk just to clear the R/R gate. Those setups need a stronger
+# score to trade in paper. Clamped to [0, 30]; 0 disables. Live: no effect.
+HL_PERPS_PAPER_STRETCHED_TP_PENALTY: float = max(
+    0.0, min(30.0, float(os.getenv("HL_PERPS_PAPER_STRETCHED_TP_PENALTY", "10.0")))
+)
+_STRETCHED_TP_MARKERS = ("rr_fallback", "rr_stretch")
 
 
 def _paper_mode_active() -> bool:
@@ -209,6 +217,20 @@ def effective_toxic_bonus() -> float:
     if _paper_mode_active():
         return min(HL_PERPS_TOXIC_SCORE_BONUS, HL_PERPS_PAPER_TOXIC_SCORE_BONUS)
     return HL_PERPS_TOXIC_SCORE_BONUS
+
+
+def is_stretched_tp(tp_source: str) -> bool:
+    src = str(tp_source or "")
+    return any(m in src for m in _STRETCHED_TP_MARKERS)
+
+
+def paper_stretched_tp_penalty(tp_source: str) -> float:
+    """Score penalty for geometry-repaired (synthetic) targets — paper only."""
+    if HL_PERPS_PAPER_STRETCHED_TP_PENALTY <= 0 or not is_stretched_tp(tp_source):
+        return 0.0
+    if not _paper_mode_active():
+        return 0.0
+    return HL_PERPS_PAPER_STRETCHED_TP_PENALTY
 
 
 def apply_paper_exec_delta(exec_score: float) -> float:
@@ -1879,6 +1901,16 @@ class HLPerpsScanner:
         # EXEC_SCORE is the real bar — only Fib-boosted, TA29-confirmed signals trade.
         # Goal-adaptive: behind $500/day pace lowers bar slightly; protect raises it.
         _exec_threshold = float(self._goal_frequency_params()["exec_score"])
+        _stretch_pen = paper_stretched_tp_penalty(tp_source)
+        if _stretch_pen > 0:
+            _pre = score
+            score = score - _stretch_pen
+            signal.score = round(score, 1)
+            components["stretched_tp_penalty"] = _stretch_pen
+            logger.debug(
+                f"[HL-PERPS] {coin} paper stretched-TP demotion: {_pre:.1f} → {score:.1f} "
+                f"(tp_src={tp_source}, −{_stretch_pen:.0f})"
+            )
         if score < _exec_threshold:
             logger.info(
                 f"[HL-PERPS] {coin} {direction.upper()} score={score:.0f} < exec_threshold={_exec_threshold:.0f} "

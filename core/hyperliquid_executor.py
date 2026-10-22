@@ -2580,6 +2580,15 @@ class HyperliquidExecutor:
             sz_decimals = self._get_sz_decimals(coin)
             new_sl_price = _format_hl_price(coin, new_sl_price, sz_decimals)
 
+            # No-op ratchet (unrounded candidate > rounded current every poll) —
+            # was logging "old_sl=X → new_sl=X" every 30s. Paper: always skip.
+            # Live: skip only when a resting SL order exists, so a missing order
+            # can still be (re)placed.
+            if old_sl is not None and abs(float(new_sl_price) - float(old_sl)) < 1e-12:
+                if self.is_paper or (old_oid is not None and old_oid > 0):
+                    logger.debug(f"Hyperliquid trailing SL unchanged for {coin} @ {new_sl_price}")
+                    return True
+
             # In paper mode, update trailing stop locally without sending exchange order
             if self.is_paper:
                 pos.stop_loss_price = new_sl_price

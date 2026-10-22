@@ -112,12 +112,32 @@ def _to_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+# Round-trip taker fees on Hyperliquid are ~0.09% of notional, so a 0.05%
+# break-even buffer books every BE exit as a loss. Paper floor (Three-File Rule):
+# PAPER_BREAK_EVEN_BUFFER_PCT (default 0.12). Live keeps its configured buffer.
+def _paper_mode_active() -> bool:
+    """True only when the global mode is definitely paper. Fails closed (False)."""
+    try:
+        from config import settings as _s
+        return _s.get_current_mode() == "paper"
+    except Exception:
+        return False
+
+
+def effective_be_buffer_pct(base_pct: float) -> float:
+    if not _paper_mode_active():
+        return float(base_pct)
+    floor = _env_float("PAPER_BREAK_EVEN_BUFFER_PCT", 0.12)
+    floor = max(0.0, min(floor, 1.0))
+    return max(float(base_pct), floor)
+
+
 def default_config() -> WinningRiskConfig:
     """Fresh config from current env (tests can monkeypatch env)."""
     return WinningRiskConfig(
         enabled=_env_bool("WINNING_RISK_MANAGER_ENABLED", True),
         be_pct=_env_float("FAST_BREAK_EVEN_PCT", 0.75),
-        be_buffer_pct=_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05),
+        be_buffer_pct=effective_be_buffer_pct(_env_float("FAST_BREAK_EVEN_SL_OFFSET", 0.05)),
         tp1_profit_pct=_env_float("TP1_PROFIT_PCT", 2.0),
         tp1_size_pct=_env_float("TP1_SIZE_PCT", 40.0),
         trail_activate_pct=_env_float(

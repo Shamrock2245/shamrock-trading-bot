@@ -89,12 +89,32 @@ def _to_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+# Round-trip taker fees on Hyperliquid are ~0.09% of notional, so a 0.05%
+# break-even buffer books every BE exit as a loss. Paper floor (Three-File Rule):
+# PAPER_BREAK_EVEN_BUFFER_PCT (default 0.12). Live keeps its configured buffer.
+def _paper_mode_active() -> bool:
+    """True only when the global mode is definitely paper. Fails closed (False)."""
+    try:
+        from config import settings as _s
+        return _s.get_current_mode() == "paper"
+    except Exception:
+        return False
+
+
+def effective_be_buffer_pct(base_pct: float) -> float:
+    if not _paper_mode_active():
+        return float(base_pct)
+    floor = _env_float("PAPER_BREAK_EVEN_BUFFER_PCT", 0.12)
+    floor = max(0.0, min(floor, 1.0))
+    return max(float(base_pct), floor)
+
+
 def default_config() -> ProfitLockConfig:
     """Fresh config from current env (allows tests to monkeypatch env)."""
     return ProfitLockConfig(
         enabled=_env_bool("PROFIT_LOCK_ENABLED", True),
         be_pct=_env_float("PROFIT_LOCK_BE_PCT", 1.5),
-        be_buffer_pct=_env_float("PROFIT_LOCK_BE_BUFFER_PCT", 0.1),
+        be_buffer_pct=effective_be_buffer_pct(_env_float("PROFIT_LOCK_BE_BUFFER_PCT", 0.1)),
         trail_activate_pct=_env_float("PROFIT_LOCK_TRAIL_ACTIVATE_PCT", 3.0),
         trail_distance_pct=_env_float("PROFIT_LOCK_TRAIL_DISTANCE_PCT", 1.5),
         loss_timeout_hours=_env_float("PROFIT_LOCK_LOSS_TIMEOUT_HOURS", 4.0),
