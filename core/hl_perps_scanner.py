@@ -2574,6 +2574,15 @@ class HLPerpsScanner:
         self.scan_count += 1
         cycle_start = time.time()
 
+        # Dashboard: periodic predator_v1.json refresh (PREDATOR_SNAPSHOT_REFRESH_SEC),
+        # even in blocked hours / quiet markets when no entry is evaluated.
+        try:
+            from core import predator_v1 as _pv1
+
+            _pv1.refresh_snapshot(reason="timer", force=False)
+        except Exception as _snap_err:
+            logger.debug(f"[PREDATOR] periodic snapshot refresh skipped: {_snap_err}")
+
         # ── Time gate (America/New_York) — trade_history(27) worst hours ──
         # Blocks NEW entries only; open positions still managed by executor/trailing.
         if HL_PERPS_BLOCKED_HOURS_ET:

@@ -343,6 +343,16 @@ class HyperliquidExecutor:
             _journal_to_ledger(record)
         except Exception as e:
             logger.warning(f"Hyperliquid: failed to journal trade for {coin}: {e}")
+            return
+        if action == "SELL" and pnl_usd is not None:
+            # Dashboard: every close (full or partial) refreshes the Predator
+            # snapshot's paper_metrics right after the row lands in trades.json.
+            try:
+                from core import predator_v1 as _pv1
+
+                _pv1.refresh_snapshot(reason="close")
+            except Exception as _snap_err:
+                logger.debug(f"[PREDATOR] snapshot refresh on close skipped: {_snap_err}")
 
     @staticmethod
     def _calc_mfe_mae(pos: "HLPosition") -> tuple:

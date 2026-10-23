@@ -139,6 +139,7 @@ jobs:
               grep -q '^PREDATOR_BLOCK_TOXIC_HOURS=' .env && sed -i 's/^PREDATOR_BLOCK_TOXIC_HOURS=.*/PREDATOR_BLOCK_TOXIC_HOURS=true/' .env || echo 'PREDATOR_BLOCK_TOXIC_HOURS=true' >> .env
               grep -q '^PREDATOR_TOXIC_HOURS_ET=' .env && sed -i 's/^PREDATOR_TOXIC_HOURS_ET=.*/PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13/' .env || echo 'PREDATOR_TOXIC_HOURS_ET=8,9,10,11,12,13' >> .env
               grep -q '^PREDATOR_MAX_OPENS_PER_DAY=' .env && sed -i 's/^PREDATOR_MAX_OPENS_PER_DAY=.*/PREDATOR_MAX_OPENS_PER_DAY=6/' .env || echo 'PREDATOR_MAX_OPENS_PER_DAY=6' >> .env
+              grep -q '^PREDATOR_SNAPSHOT_REFRESH_SEC=' .env && sed -i 's/^PREDATOR_SNAPSHOT_REFRESH_SEC=.*/PREDATOR_SNAPSHOT_REFRESH_SEC=300/' .env || echo 'PREDATOR_SNAPSHOT_REFRESH_SEC=300' >> .env
               grep -q '^DISCOVERY_ENABLED=' .env && sed -i 's/^DISCOVERY_ENABLED=.*/DISCOVERY_ENABLED=true/' .env || echo 'DISCOVERY_ENABLED=true' >> .env
               grep -q '^DISCOVERY_FEED_SCANNER=' .env && sed -i 's/^DISCOVERY_FEED_SCANNER=.*/DISCOVERY_FEED_SCANNER=true/' .env || echo 'DISCOVERY_FEED_SCANNER=true' >> .env
               grep -q '^DISCOVERY_INTERVAL_SEC=' .env && sed -i 's/^DISCOVERY_INTERVAL_SEC=.*/DISCOVERY_INTERVAL_SEC=900/' .env || echo 'DISCOVERY_INTERVAL_SEC=900' >> .env
