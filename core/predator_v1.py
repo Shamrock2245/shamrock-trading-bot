@@ -411,7 +411,14 @@ def _reject(
     return verdict
 
 
-def snapshot_payload(last: PredatorVerdict, last_block: Optional[PredatorVerdict] = None) -> dict:
+def snapshot_payload(last, last_block=None) -> dict:
+    """``last`` / ``last_block`` may be PredatorVerdict objects or plain dicts
+    (refresh_snapshot re-uses the last persisted verdicts)."""
+    def _d(v):
+        if v is None:
+            return None
+        return v if isinstance(v, dict) else asdict(v)
+
     return {
         "enabled": enabled(),
         "expansion_only": _flag("PREDATOR_EXPANSION_ONLY", "true"),
@@ -421,20 +428,75 @@ def snapshot_payload(last: PredatorVerdict, last_block: Optional[PredatorVerdict
         "max_opens_per_day": max_opens_per_day(),
         "allowlist": sorted(allowlist()),
         "hard_ban": sorted(hard_ban()),
-        "last": asdict(last),
-        "last_block": asdict(last_block) if last_block else None,
+        "last": _d(last),
+        "last_block": _d(last_block),
         "deny_stats": get_deny_stats(),
         "paper_metrics": get_paper_metrics(),
         "updated_at": datetime.now(_ET).isoformat(),
     }
 
 
+# Last verdicts written to the snapshot, so a refresh (on close / timer)
+# rewrites paper_metrics without losing what the gate last decided.
+_LAST: Optional[dict] = None
+_LAST_BLOCK: Optional[dict] = None
+_LAST_REFRESH_TS: float = 0.0
+
+
 def _write_snapshot(last: PredatorVerdict, last_block: Optional[PredatorVerdict]) -> None:
+    global _LAST, _LAST_BLOCK
+    _LAST = asdict(last)
+    if last_block is not None:
+        _LAST_BLOCK = asdict(last_block)
+    _flush_snapshot(reason="evaluate")
+
+
+def _flush_snapshot(reason: str) -> bool:
+    global _LAST, _LAST_BLOCK, _LAST_REFRESH_TS
+    import time as _time
+
     try:
         _SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
-        payload = snapshot_payload(last, last_block)
+        if _LAST is None and _SNAPSHOT.exists():
+            # Process restart: keep the verdicts already on disk.
+            try:
+                prev = json.loads(_SNAPSHOT.read_text(encoding="utf-8") or "{}")
+                _LAST = prev.get("last") or None
+                _LAST_BLOCK = _LAST_BLOCK or prev.get("last_block") or None
+            except Exception:
+                pass
+        payload = snapshot_payload(_LAST, _LAST_BLOCK)
+        payload["refresh_reason"] = reason
         tmp = _SNAPSHOT.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, indent=2))
         tmp.replace(_SNAPSHOT)
+        _LAST_REFRESH_TS = _time.time()
+        return True
     except Exception as exc:
         logger.debug("predator snapshot write failed: %s", exc)
+        return False
+
+
+def snapshot_refresh_sec() -> float:
+    try:
+        return float(os.getenv("PREDATOR_SNAPSHOT_REFRESH_SEC", "300"))
+    except ValueError:
+        return 300.0
+
+
+def refresh_snapshot(reason: str = "manual", force: bool = True) -> bool:
+    """Rewrite predator_v1.json (paper_metrics, deny stats) outside of an
+    entry evaluation. Called on every HL close and on a timer from the scanner
+    cycle, so the dashboard never shows hours-old gate stats.
+
+    ``force=False`` honours PREDATOR_SNAPSHOT_REFRESH_SEC (0 disables the timer).
+    No-op when the Predator gate is disabled."""
+    if not enabled():
+        return False
+    if not force:
+        interval = snapshot_refresh_sec()
+        import time as _time
+
+        if interval <= 0 or (_time.time() - _LAST_REFRESH_TS) < interval:
+            return False
+    return _flush_snapshot(reason=reason)
