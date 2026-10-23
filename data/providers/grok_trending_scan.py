@@ -189,9 +189,9 @@ def discover_grok_trending() -> list[dict]:
             return cached
 
     try:
-        from data.providers.grok_client import _get_api_key
-        if not _get_api_key():
-            logger.debug("Grok trending: no API key configured, skipping")
+        from data.providers.grok_client import is_available
+        if not is_available():
+            logger.debug("Grok trending: unavailable (no key / auth backoff), skipping")
             return []
     except Exception:
         return []

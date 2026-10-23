@@ -45,7 +45,7 @@ GROK_MODEL = "grok-4-1-fast-non-reasoning"
 # Global Rate Limiter — shared across ALL Grok modules
 # ─────────────────────────────────────────────────────────────────────────────
 _lock = threading.Lock()
-_api_key_invalid = False
+_api_key_invalid = False  # True while inside an auth backoff window (back-compat flag)
 _request_times: list[float] = []
 _MAX_RPM = int(os.getenv("GROK_RPM", "60"))
 
@@ -59,6 +59,19 @@ _total_output_tokens = 0
 _total_cached_tokens = 0
 _per_module_requests: dict[str, int] = {}
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth backoff — a 401/403 used to disable Grok for the whole process with no
+# re-probe, after which every caller kept "looking up" and getting None.
+# Now: back off for GROK_AUTH_BACKOFF_MIN, log the reason ONCE per window,
+# then re-probe automatically. Callers check is_available() and skip quietly.
+# ─────────────────────────────────────────────────────────────────────────────
+_AUTH_BACKOFF_MIN = float(os.getenv("GROK_AUTH_BACKOFF_MIN", "360"))
+_disabled_until = 0.0
+_disable_reason = ""
+_last_auth_status: Optional[int] = None
+_skipped_calls = 0
+_missing_key_logged = False
+
 
 def _get_api_key() -> str:
     """Load Grok API key from settings or environment."""
@@ -70,6 +83,48 @@ def _get_api_key() -> str:
     except ImportError:
         pass
     return os.getenv("GROK_API_KEY", "")
+
+
+def _auth_backoff_sec() -> float:
+    try:
+        return max(60.0, float(os.getenv("GROK_AUTH_BACKOFF_MIN", str(_AUTH_BACKOFF_MIN))) * 60.0)
+    except ValueError:
+        return _AUTH_BACKOFF_MIN * 60.0
+
+
+def is_available() -> bool:
+    """True when a key is configured and we are not inside an auth backoff."""
+    global _api_key_invalid
+    if not _get_api_key():
+        return False
+    if _disabled_until and time.time() < _disabled_until:
+        return False
+    if _api_key_invalid:  # backoff expired → allow one re-probe
+        _api_key_invalid = False
+    return True
+
+
+def get_status() -> dict:
+    """Grok availability for dashboards / stats (never includes the key)."""
+    now = time.time()
+    configured = bool(_get_api_key())
+    in_backoff = bool(_disabled_until and now < _disabled_until)
+    return {
+        "configured": configured,
+        "available": configured and not in_backoff,
+        "last_auth_status": _last_auth_status,
+        "reason": _disable_reason,
+        "retry_in_min": round(max(0.0, _disabled_until - now) / 60.0, 1) if in_backoff else 0.0,
+        "skipped_calls": _skipped_calls,
+    }
+
+
+def _short_body(resp) -> str:
+    try:
+        txt = (resp.text or "").strip().replace("\n", " ")
+    except Exception:
+        return ""
+    return txt[:160]
 
 
 def rate_limit() -> None:
@@ -172,13 +227,18 @@ def call_grok(
         Parsed JSON dict if parse_json=True, raw text string otherwise,
         or None on failure.
     """
-    global _api_key_invalid
-    if _api_key_invalid:
-        return None
+    global _api_key_invalid, _disabled_until, _disable_reason, _last_auth_status
+    global _skipped_calls, _missing_key_logged
 
     api_key = _get_api_key()
     if not api_key:
-        logger.warning(f"Grok client [{module}]: GROK_API_KEY not configured")
+        if not _missing_key_logged:
+            logger.warning("Grok client: GROK_API_KEY not configured — Grok features off (neutral fallbacks)")
+            _missing_key_logged = True
+        _skipped_calls += 1
+        return None
+    if not is_available():
+        _skipped_calls += 1
         return None
 
     rate_limit()
@@ -212,12 +272,27 @@ def call_grok(
         )
         resp.raise_for_status()
     except Exception as e:
-        if hasattr(e, "response") and e.response is not None and e.response.status_code in (401, 403):
+        resp_err = getattr(e, "response", None)
+        if resp_err is not None and resp_err.status_code in (401, 403):
+            backoff = _auth_backoff_sec()
             _api_key_invalid = True
-            logger.warning(f"Grok client [{module}]: API Key is invalid or expired (403 Forbidden). Disabling Grok for this session.")
+            _last_auth_status = resp_err.status_code
+            _disable_reason = _short_body(resp_err)
+            _disabled_until = time.time() + backoff
+            logger.warning(
+                f"Grok client [{module}]: auth failed HTTP {resp_err.status_code} "
+                f"({_disable_reason or 'no body'}) — key revoked or out of credits? "
+                f"Grok paused {backoff / 60:.0f} min, then re-probe. Scores use neutral fallbacks."
+            )
         else:
             logger.error(f"Grok client [{module}]: API request failed: {e}")
         return None
+
+    if _last_auth_status is not None:
+        logger.info(f"Grok client [{module}]: auth OK again after HTTP {_last_auth_status} — Grok resumed")
+        _last_auth_status = None
+        _disable_reason = ""
+        _disabled_until = 0.0
 
     data = resp.json()
     _track_usage(data, module)
@@ -261,4 +336,5 @@ def get_usage_stats() -> dict:
             "requests_last_minute": recent,
             "rpm_limit": _MAX_RPM,
             "per_module": dict(_per_module_requests),
+            "status": get_status(),
         }
