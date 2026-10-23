@@ -10,6 +10,7 @@ and then experiences a sudden >300% spike in social sentiment metrics, it fires 
 buy signal to the ito_trade_planner.
 """
 
+import os
 import time
 import logging
 import threading
@@ -75,6 +76,7 @@ class SocialInsiderOracle:
     """
 
     def __init__(self):
+        self._ingest_attempts: Dict[str, float] = {}  # ca -> last Grok firehose attempt ts
         # Known KOL Twitter handles and known insider wallet addresses
         self.known_kols: Set[str] = {
             # Top tier alpha influencers, callers, and insider wallets
@@ -249,6 +251,26 @@ class SocialInsiderOracle:
         """
         ca = contract_address.lower()
         try:
+            from data.providers import grok_client as _gc
+            if not _gc.is_available():
+                logger.debug(f"Grok firehose skipped for {symbol}: Grok unavailable")
+                return
+        except Exception:
+            return
+        # Empty results never create a registry entry, so the gem scanner used to
+        # re-query the same CA every scan. Remember attempts for a TTL instead.
+        now = time.time()
+        attempts = self._ingest_attempts
+        ttl = max(0.0, float(os.getenv("GROK_SOCIAL_REINGEST_MIN", "30"))) * 60.0
+        last = attempts.get(ca)
+        if last is not None and now - last < ttl:
+            return
+        attempts[ca] = now
+        if len(attempts) > 5000:
+            for k, ts in list(attempts.items()):
+                if now - ts >= ttl:
+                    attempts.pop(k, None)
+        try:
             prompt = (
                 f"Search X (Twitter) for recent mentions of the contract address: {contract_address}. "
                 f"List the usernames of people talking about it, especially any prominent influencers or KOLs. "
@@ -256,7 +278,7 @@ class SocialInsiderOracle:
                 f'{{"mentions": [{{"username": "string", "name": "string", "text": "string", "followers": int, "timestamp_s": float}}]}}'
             )
 
-            logger.info(f"🔍 Ingesting Grok social firehose for {symbol} ({contract_address})...")
+            logger.debug(f"🔍 Ingesting Grok social firehose for {symbol} ({contract_address})...")
             result = call_grok(
                 cache_key=f"social_oracle_{symbol}",
                 system_prompt="You are a real-time social firehose crawler. Find X posts mentioning the given contract address.",

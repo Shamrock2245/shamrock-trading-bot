@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # Cache — 10 minute TTL to control costs
 # ─────────────────────────────────────────────────────────────────────────────
 _cache: dict[str, tuple[float, dict]] = {}  # symbol -> (timestamp, result)
+_neutral_fallbacks = 0  # get_grok_sentiment_score() calls answered with neutral 50.0
 _CACHE_TTL = 600  # 10 minutes
 
 
@@ -137,6 +138,13 @@ def get_grok_sentiment(symbol: str, chain: str = "unknown") -> Optional[dict]:
         logger.debug(f"Grok sentiment [cached]: {symbol} → {cached.get('sentiment_score', '?')}")
         return cached
 
+    # Grok unavailable (no key / auth backoff): skip quietly — no lookup, no
+    # per-token warning. Caller falls back to the documented neutral 50.0.
+    from data.providers import grok_client as _gc
+    if not _gc.is_available():
+        logger.debug(f"Grok sentiment: unavailable, neutral for {symbol}")
+        return None
+
     try:
         result = _call_grok(symbol, chain)
         _store_cache(symbol, result)
@@ -172,8 +180,12 @@ def get_grok_sentiment_score(symbol: str, chain: str = "unknown") -> float:
     This is the main function called by gem_scanner.py.
     Returns 50.0 (neutral) on failure.
     """
+    global _neutral_fallbacks
     result = get_grok_sentiment(symbol, chain)
     if result is None:
+        # Documented neutral: 50 sits mid-scale so a Grok outage neither boosts
+        # nor penalises a candidate. Counted so outages are visible in stats.
+        _neutral_fallbacks += 1
         return 50.0
     return float(result.get("sentiment_score", 50))
 
@@ -182,4 +194,5 @@ def get_usage_stats() -> dict:
     """Return current usage stats for monitoring (delegates to global client)."""
     stats = _get_global_stats()
     stats["cached_symbols"] = len(_cache)
+    stats["neutral_fallbacks"] = _neutral_fallbacks
     return stats

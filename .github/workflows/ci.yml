@@ -112,6 +112,8 @@ jobs:
               sed -i 's/^HL_PERPS_EXEC_SCORE=.*/HL_PERPS_EXEC_SCORE=58/' .env
               sed -i 's/^HL_PERPS_MIN_RR=.*/HL_PERPS_MIN_RR=1.5/' .env
               sed -i 's/^HL_PERPS_LONG_ONLY=.*/HL_PERPS_LONG_ONLY=true/' .env
+              grep -q '^GROK_AUTH_BACKOFF_MIN=' .env && sed -i 's/^GROK_AUTH_BACKOFF_MIN=.*/GROK_AUTH_BACKOFF_MIN=360/' .env || echo 'GROK_AUTH_BACKOFF_MIN=360' >> .env
+              grep -q '^GROK_SOCIAL_REINGEST_MIN=' .env && sed -i 's/^GROK_SOCIAL_REINGEST_MIN=.*/GROK_SOCIAL_REINGEST_MIN=30/' .env || echo 'GROK_SOCIAL_REINGEST_MIN=30' >> .env
               sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
               sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
