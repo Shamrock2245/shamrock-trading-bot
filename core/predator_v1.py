@@ -311,6 +311,7 @@ def get_paper_metrics() -> dict:
                 "ready": False,
             },
             "by_variant": paper_metrics_by_variant([]),
+            "by_regime": paper_metrics_by_regime([]),
         }
 
     wins = [float(t["pnl_usd"]) for t in closes if float(t["pnl_usd"]) > 0]
@@ -353,6 +354,7 @@ def get_paper_metrics() -> dict:
             "ready": trades_ok and wr_ok and pf_ok,
         },
         "by_variant": paper_metrics_by_variant(closes),
+        "by_regime": paper_metrics_by_regime(closes),
     }
 
 
@@ -384,6 +386,38 @@ def paper_metrics_by_variant(closes: list) -> dict:
         v = str(t.get("exit_variant") or "")
         groups[v if v in groups else "untagged"].append(t)
     return {k: _variant_summary(v) for k, v in groups.items()}
+
+
+def regime_bucket(regime_name: Optional[str]) -> str:
+    """trend / chop / nuke / unknown — same name sets the gate uses."""
+    n = _norm_regime(regime_name)
+    if n in _EXPANSION_NAMES:
+        return "trend"
+    if n in _CHOP_NAMES:
+        return "chop"
+    if n in _NUKE_NAMES:
+        return "nuke"
+    return "unknown"
+
+
+def paper_metrics_by_regime(closes: list) -> dict:
+    """Reporting-only split of gate closes by market regime at entry
+    (``regime_bucket`` on the row; ``regime=chop_half`` rows count as chop).
+    Rows from before regime tagging are "untagged". Also splits by
+    ``vol_bucket``. Does not change the gate (50 / 50% / 1.30)."""
+    groups: dict = {k: [] for k in ("trend", "chop", "nuke", "unknown", "untagged")}
+    vol: dict = {k: [] for k in ("low", "mid", "high", "unknown", "untagged")}
+    for t in closes:
+        b = t.get("regime_bucket")
+        if not b and t.get("regime") == "chop_half":
+            b = "chop"
+        groups[b if b in groups else "untagged"].append(t)
+        vb = t.get("vol_bucket")
+        vol[vb if vb in vol else "untagged"].append(t)
+    return {
+        "regime": {k: _variant_summary(v) for k, v in groups.items()},
+        "vol_bucket": {k: _variant_summary(v) for k, v in vol.items()},
+    }
 
 
 def _reject(

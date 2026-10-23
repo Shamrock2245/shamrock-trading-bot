@@ -167,6 +167,10 @@ class HLPosition:
     tp1_hit: bool = False
     # Paper exit A/B arm (core/paper_exit_ab.py): "" (untagged/live), "control", "atr2x_8h"
     exit_variant: str = ""
+    # Market regime at entry (reporting only): market_regime, regime_bucket,
+    # regime_adx, regime_volume_ratio, vol_bucket, stop_dist_pct. Journaled on
+    # the open and every close so paper_metrics can split by regime.
+    regime_ctx: dict = field(default_factory=dict)
 
 
 class HyperliquidExecutor:
@@ -771,6 +775,7 @@ class HyperliquidExecutor:
                     "trailing_stop_active": pos.trailing_stop_active,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
+                    "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
                 }
             path = self._paper_positions_file
             with _FILE_WRITE_LOCK:
@@ -808,6 +813,7 @@ class HyperliquidExecutor:
                     trailing_stop_active=bool(d.get("trailing_stop_active", False)),
                     tp1_hit=bool(d.get("tp1_hit", False)),
                     exit_variant=str(d.get("exit_variant") or ""),
+                    regime_ctx=dict(d.get("regime_ctx") or {}),
                 )
                 if opened:
                     pos.opened_at = datetime.fromisoformat(opened)
@@ -1322,6 +1328,7 @@ class HyperliquidExecutor:
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
         regime: Optional[str] = None,
+        regime_ctx: Optional[dict] = None,
     ) -> Optional[dict]:
         """
         Open a leveraged long position on Hyperliquid.
@@ -1343,6 +1350,7 @@ class HyperliquidExecutor:
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
             regime=regime,
+            regime_ctx=regime_ctx,
         )
 
     def open_short(
@@ -1354,6 +1362,7 @@ class HyperliquidExecutor:
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
         regime: Optional[str] = None,
+        regime_ctx: Optional[dict] = None,
     ) -> Optional[dict]:
         """Open a leveraged short position."""
         return self._open_position(
@@ -1361,6 +1370,7 @@ class HyperliquidExecutor:
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
             regime=regime,
+            regime_ctx=regime_ctx,
         )
 
     def close_position(
@@ -1460,6 +1470,7 @@ class HyperliquidExecutor:
                         entry_time=entry_time,
                         mfe_pct=_mfe,
                         mae_pct=_mae,
+                        extra=self._ab_tag(pos),
                     )
                     self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
 
@@ -1604,6 +1615,7 @@ class HyperliquidExecutor:
                         if getattr(pos, "opened_at", None)
                         else None
                     ),
+                    extra=self._ab_tag(pos),
                 )
                 return {
                     "coin": sym,
@@ -1637,8 +1649,12 @@ class HyperliquidExecutor:
 
     @staticmethod
     def _ab_tag(pos: "HLPosition") -> Optional[dict]:
+        """Close-row tags: paper exit A/B arm + market regime captured at entry."""
+        tags: dict = dict(getattr(pos, "regime_ctx", None) or {})
         v = getattr(pos, "exit_variant", "") or ""
-        return {"exit_variant": v} if v else None
+        if v:
+            tags["exit_variant"] = v
+        return tags or None
 
     def _paper_atr_1h(self, sym: str) -> Optional[float]:
         """ATR(14) on 1h candles for the paper exit A/B (None if unavailable)."""
@@ -1696,6 +1712,7 @@ class HyperliquidExecutor:
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
         regime: Optional[str] = None,
+        regime_ctx: Optional[dict] = None,
     ) -> Optional[dict]:
         """Simulate an HL open without signing any order."""
         fill_price = self._paper_mid_price(sym)
@@ -1757,6 +1774,7 @@ class HyperliquidExecutor:
                 sl_order_id=None,
                 tp_order_id=None,
                 exit_variant=ab_extra.get("exit_variant", ""),
+                regime_ctx=dict(regime_ctx or {}),
             )
             self.positions[sym] = pos
             self._save_trailing_state()
@@ -1776,7 +1794,7 @@ class HyperliquidExecutor:
             stop_loss=sl_price,
             take_profit=tp_price,
             regime=regime,
-            extra=ab_extra or None,
+            extra={**(ab_extra or {}), **(regime_ctx or {})} or None,
         )
         logger.info(
             f"📄 PAPER Hyperliquid OPEN {pos_side.upper()} {sym} | "
@@ -1933,6 +1951,7 @@ class HyperliquidExecutor:
         stop_loss_price: Optional[float] = None,
         take_profit_price: Optional[float] = None,
         regime: Optional[str] = None,
+        regime_ctx: Optional[dict] = None,
     ) -> Optional[dict]:
         """Core position opening logic with all safety checks."""
         if not self.is_available():
@@ -2014,6 +2033,7 @@ class HyperliquidExecutor:
                 stop_loss_price=stop_loss_price,
                 take_profit_price=take_profit_price,
                 regime=regime,
+                regime_ctx=regime_ctx,
             )
 
         # Hard notional cap: margin × leverage must stay under max_notional_usd
@@ -2306,6 +2326,7 @@ class HyperliquidExecutor:
                     lowest_price=fill_price,
                     sl_order_id=sl_oid,
                     tp_order_id=tp_oid,
+                    regime_ctx=dict(regime_ctx or {}),
                 )
                 self.positions[sym] = pos
                 # Persist initial trailing state immediately
@@ -2336,6 +2357,7 @@ class HyperliquidExecutor:
                     take_profit=tp_price,
                     entry_time=pos.opened_at.isoformat(),
                     regime=regime,
+                    extra=dict(regime_ctx) if regime_ctx else None,
                 )
 
                 return {
@@ -2521,6 +2543,7 @@ class HyperliquidExecutor:
                     "stop_loss_price": pos.stop_loss_price,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
+                    "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
                 }
             _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
@@ -2551,6 +2574,8 @@ class HyperliquidExecutor:
                 pos.tp1_hit = bool(saved.get("tp1_hit", False))
                 if saved.get("exit_variant") and not getattr(pos, "exit_variant", ""):
                     pos.exit_variant = str(saved["exit_variant"])
+                if saved.get("regime_ctx") and not getattr(pos, "regime_ctx", None):
+                    pos.regime_ctx = dict(saved["regime_ctx"])
                 # Restore persisted SL price only if it is tighter than what HL returned
                 persisted_sl = saved.get("stop_loss_price")
                 if persisted_sl is not None:
