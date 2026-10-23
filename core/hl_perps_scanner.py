@@ -300,6 +300,9 @@ HL_PERPS_REGIME_GATE_ENABLED: bool = os.getenv(
 # Global StoplossGuard (freqtrade): N stop-loss/negative closes across ALL
 # coins within WINDOW minutes → halt new entries for HALT minutes. Catches
 # cascade days like 7/22 (67 opens, 21.5% WR) where signals fought the tape.
+# Reporting-only volatility buckets (stop distance % at entry) for by_regime metrics.
+HL_PERPS_VOL_BUCKET_LOW_PCT: float = float(os.getenv("HL_PERPS_VOL_BUCKET_LOW_PCT", "1.5"))
+HL_PERPS_VOL_BUCKET_HIGH_PCT: float = float(os.getenv("HL_PERPS_VOL_BUCKET_HIGH_PCT", "3.0"))
 HL_PERPS_SLGUARD_ENABLED: bool = os.getenv(
     "HL_PERPS_SLGUARD_ENABLED", "true"
 ).lower() in ("1", "true", "yes", "on")
@@ -420,6 +423,57 @@ HL_PERPS_WATCHLIST: list[str] = [
 # ─────────────────────────────────────────────────────────────────────────────
 # Data models
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _vol_bucket(stop_dist_pct: Optional[float]) -> str:
+    """Volatility bucket from the structure/ATR stop distance the entry used."""
+    if stop_dist_pct is None:
+        return "unknown"
+    if stop_dist_pct < HL_PERPS_VOL_BUCKET_LOW_PCT:
+        return "low"
+    if stop_dist_pct < HL_PERPS_VOL_BUCKET_HIGH_PCT:
+        return "mid"
+    return "high"
+
+
+def build_regime_ctx(
+    regime_state=None,
+    regime_name: Optional[str] = None,
+    *,
+    entry_price: Optional[float] = None,
+    stop_loss_price: Optional[float] = None,
+) -> dict:
+    """Reporting-only tags for trades.json: the same market regime the entry
+    gate used (core.regime_filter, cached 5 min) plus a volatility bucket.
+    Never affects sizing, stops or the gate."""
+    ctx: dict = {}
+    try:
+        name = regime_name
+        if regime_state is not None and name is None:
+            name = getattr(regime_state.regime, "value", str(regime_state.regime))
+        try:
+            from core.predator_v1 import regime_bucket
+
+            ctx["regime_bucket"] = regime_bucket(name)
+        except Exception:
+            ctx["regime_bucket"] = "unknown"
+        ctx["market_regime"] = name or "UNKNOWN"
+        if regime_state is not None:
+            for key, attr in (("regime_adx", "adx"), ("regime_volume_ratio", "volume_ratio")):
+                val = getattr(regime_state, attr, None)
+                if isinstance(val, (int, float)):
+                    ctx[key] = round(float(val), 2)
+            src = getattr(regime_state, "data_source", None)
+            if src:
+                ctx["regime_source"] = str(src)
+        sdp = None
+        if entry_price and stop_loss_price and float(entry_price) > 0:
+            sdp = round(abs(float(entry_price) - float(stop_loss_price)) / float(entry_price) * 100.0, 3)
+        ctx["stop_dist_pct"] = sdp
+        ctx["vol_bucket"] = _vol_bucket(sdp)
+    except Exception as e:  # never block an entry over a reporting tag
+        logger.debug(f"[HL-PERPS] regime ctx failed: {e}")
+    return ctx
+
 
 @dataclass
 class PerpSignal:
@@ -2113,12 +2167,14 @@ class HLPerpsScanner:
         # Fail-open on regime fetch errors for the legacy gate.
         regime_size_mult = 1.0
         regime_name = None
+        _regime_state = None  # RegimeState the entry decision used (journaled at open/close)
         chop_half_entry = False
         if HL_PERPS_REGIME_GATE_ENABLED:
             try:
                 from core.regime_filter import get_regime, Regime
                 _rs = get_regime()  # cached 5min
                 if _rs is not None:
+                    _regime_state = _rs
                     regime_name = getattr(_rs.regime, "value", str(_rs.regime))
                     if signal.direction == "short" and _rs.regime != Regime.NUKE:
                         logger.info(
@@ -2159,6 +2215,7 @@ class HLPerpsScanner:
                     from core.regime_filter import get_regime
                     _prs = get_regime()
                     if _prs is not None:
+                        _regime_state = _prs
                         regime_name = getattr(
                             _prs.regime, "value", str(_prs.regime)
                         )
@@ -2435,6 +2492,12 @@ class HLPerpsScanner:
                 stop_loss_price=signal.stop_loss_price,
                 take_profit_price=signal.take_profit_price,
                 regime="chop_half" if chop_half_entry else None,
+                regime_ctx=build_regime_ctx(
+                    _regime_state,
+                    regime_name,
+                    entry_price=signal.entry_price,
+                    stop_loss_price=signal.stop_loss_price,
+                ),
             )
             if signal.direction == "long":
                 result = self.hl_executor.open_long(**open_kwargs)
