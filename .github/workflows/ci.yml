@@ -117,6 +117,8 @@ jobs:
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=4/' .env
               sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=4/' .env || echo 'HL_PERPS_MAX_POSITIONS=4' >> .env
+              grep -q '^HL_PERPS_VOL_BUCKET_LOW_PCT=' .env && sed -i 's/^HL_PERPS_VOL_BUCKET_LOW_PCT=.*/HL_PERPS_VOL_BUCKET_LOW_PCT=1.5/' .env || echo 'HL_PERPS_VOL_BUCKET_LOW_PCT=1.5' >> .env
+              grep -q '^HL_PERPS_VOL_BUCKET_HIGH_PCT=' .env && sed -i 's/^HL_PERPS_VOL_BUCKET_HIGH_PCT=.*/HL_PERPS_VOL_BUCKET_HIGH_PCT=3.0/' .env || echo 'HL_PERPS_VOL_BUCKET_HIGH_PCT=3.0' >> .env
               # Full hard-ban list — keep in lockstep with core/hl_perps_scanner.py + core/predator_v1.py
               grep -q '^HL_PERPS_HARD_BAN_COINS=' .env && sed -i 's/^HL_PERPS_HARD_BAN_COINS=.*/HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX/' .env || echo 'HL_PERPS_HARD_BAN_COINS=KAITO,APE,HEMI,ONDO,GRASS,TRB,HMSTR,FARTCOIN,MET,EIGEN,MORPHO,LIT,HYPE,BRETT,POPCAT,MEME,JTO,ENA,ZEC,ETH,BSV,CRV,PENDLE,UNI,ACE,ADA,STABLE,SUI,LDO,ETHFI,SOL,TRX' >> .env
               # 2026-09-28: Predator v1 expansion-only gate — PAPER ONLY (paper lock below stays true)
