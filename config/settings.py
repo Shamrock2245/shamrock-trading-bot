@@ -536,6 +536,39 @@ SCANNER_MAX_WORKERS = int(os.getenv("SCANNER_MAX_WORKERS", "4"))
 # 65.0 = standard entry gate (conservative profile). Nuclear profile enforces 82.0 via StrategyProfile.
 # Conservative profile: min_gem_score=55.0 | Nuclear profile: min_gem_score=65.0
 MIN_GEM_SCORE = float(os.getenv("MIN_GEM_SCORE", "62.0"))              # WIN-RATE FIX 2026-06-15: 55→62 — 55 was too permissive; 12.1% win rate proves low-score entries are noise not signal. 62 filters junk while keeping 2-3 trades/hr.
+# Gem-side denylist (2026-10-26): comma-separated symbols and/or 0x/mint addresses
+# that the gem scanner, Fib Hunter re-entries and copy-trade gem path must never
+# buy. AERO: 42 paper closes, all via a frozen-score Fib re-entry loop, net loser.
+GEM_SCANNER_DENYLIST = os.getenv("GEM_SCANNER_DENYLIST", "AERO")
+
+
+def gem_denylist() -> frozenset:
+    """Parsed GEM_SCANNER_DENYLIST (read live so tests/env overrides apply).
+
+    Symbols are upper-cased; addresses are lower-cased. Both live in one set.
+    """
+    raw = os.getenv("GEM_SCANNER_DENYLIST", GEM_SCANNER_DENYLIST) or ""
+    out = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        out.add(item.lower() if len(item) > 20 else item.upper())
+    return frozenset(out)
+
+
+def is_gem_denylisted(symbol: str = "", address: str = "") -> bool:
+    """True if a token symbol or address is on the gem denylist."""
+    deny = gem_denylist()
+    if not deny:
+        return False
+    if symbol and symbol.strip().upper() in deny:
+        return True
+    if address and address.strip().lower() in deny:
+        return True
+    return False
+
+
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "25000"))       # TUNED: 50k→25k — avoid illiquid traps; 25k is minimum viable pool depth
 MAX_TOKEN_AGE_HOURS = int(os.getenv("MAX_TOKEN_AGE_HOURS", "72"))        # TUNED: 168h→72h — focus on fresh tokens (3 days max)
 MAX_TRADES_PER_CYCLE = int(os.getenv("MAX_TRADES_PER_CYCLE", "5"))       # TUNED: 3→5 — more trades per cycle = more opportunities to find winners
