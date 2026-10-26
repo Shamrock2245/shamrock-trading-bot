@@ -168,6 +168,8 @@ jobs:
               grep -q '^HL_PERPS_AUTOBAN_WR_THRESHOLD=' .env && sed -i 's/^HL_PERPS_AUTOBAN_WR_THRESHOLD=.*/HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30/' .env || echo 'HL_PERPS_AUTOBAN_WR_THRESHOLD=0.30' >> .env
               grep -q '^HL_PERPS_AUTOBAN_HOURS=' .env && sed -i 's/^HL_PERPS_AUTOBAN_HOURS=.*/HL_PERPS_AUTOBAN_HOURS=48.0/' .env || echo 'HL_PERPS_AUTOBAN_HOURS=48.0' >> .env
               grep -q '^HL_PERPS_EXPECTANCY_STALE_HOURS=' .env && sed -i 's/^HL_PERPS_EXPECTANCY_STALE_HOURS=.*/HL_PERPS_EXPECTANCY_STALE_HOURS=168.0/' .env || echo 'HL_PERPS_EXPECTANCY_STALE_HOURS=168.0' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_WINDOW=' .env && sed -i 's/^HL_PERPS_AUTOBAN_WINDOW=.*/HL_PERPS_AUTOBAN_WINDOW=20/' .env || echo 'HL_PERPS_AUTOBAN_WINDOW=20' >> .env
+              grep -q '^HL_PERPS_AUTOBAN_MAX_HOURS=' .env && sed -i 's/^HL_PERPS_AUTOBAN_MAX_HOURS=.*/HL_PERPS_AUTOBAN_MAX_HOURS=336.0/' .env || echo 'HL_PERPS_AUTOBAN_MAX_HOURS=336.0' >> .env
               # v32 "Let Winners Breathe" (trade_history 34): tiered trail, 4h timeout,
               # 45m/−1.5% red rule, TP1 40%, churn caps — NOT the v31 0.5%/1.5h choke.
               grep -q '^WINNING_RISK_MANAGER_ENABLED=' .env && sed -i 's/^WINNING_RISK_MANAGER_ENABLED=.*/WINNING_RISK_MANAGER_ENABLED=true/' .env || echo 'WINNING_RISK_MANAGER_ENABLED=true' >> .env
