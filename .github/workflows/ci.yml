@@ -117,6 +117,7 @@ jobs:
               sed -i 's/^HL_PERPS_REENTRY_COOLDOWN_MIN=.*/HL_PERPS_REENTRY_COOLDOWN_MIN=5/' .env
               sed -i 's/^HL_PERPS_LOSS_COOLDOWN_MIN=.*/HL_PERPS_LOSS_COOLDOWN_MIN=10/' .env
               sed -i 's/^HL_PERPS_EMERGENCY_COOLDOWN_MIN=.*/HL_PERPS_EMERGENCY_COOLDOWN_MIN=60/' .env
+              grep -q '^GEM_SCANNER_DENYLIST=' .env && sed -i 's/^GEM_SCANNER_DENYLIST=.*/GEM_SCANNER_DENYLIST=AERO/' .env || echo 'GEM_SCANNER_DENYLIST=AERO' >> .env
               sed -i 's/^HYPERLIQUID_MAX_POSITIONS=.*/HYPERLIQUID_MAX_POSITIONS=4/' .env
               sed -i 's/^HL_PERPS_MAX_POSITIONS=.*/HL_PERPS_MAX_POSITIONS=4/' .env || echo 'HL_PERPS_MAX_POSITIONS=4' >> .env
               grep -q '^HL_PERPS_VOL_BUCKET_LOW_PCT=' .env && sed -i 's/^HL_PERPS_VOL_BUCKET_LOW_PCT=.*/HL_PERPS_VOL_BUCKET_LOW_PCT=1.5/' .env || echo 'HL_PERPS_VOL_BUCKET_LOW_PCT=1.5' >> .env

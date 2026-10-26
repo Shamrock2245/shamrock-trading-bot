@@ -1054,6 +1054,13 @@ class GemScanner:
             )
             return None
 
+        # ── HARD GATE #1b: Configurable gem denylist (GEM_SCANNER_DENYLIST) ──
+        if settings.is_gem_denylisted(token.symbol, getattr(token, "address", "")):
+            logger.info(
+                f"🚫 GEM DENYLIST: {token.symbol} [{token.chain}] — skipping"
+            )
+            return None
+
         # ── HARD GATE #2: Solana tokens < 4h old → instant reject ─────────────
         # TUNED 2026-06-10: 2h→4h after AFFIRM (-$29.82 in 0.2min) and
         # Bountywork (-$3.51 in 0.3min) — both were instant dumps on fresh tokens.

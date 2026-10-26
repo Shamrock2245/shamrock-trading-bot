@@ -636,6 +636,14 @@ def _validate_signal(signal: AlphaSignal) -> tuple[bool, str]:
     Run the signal through hard gates before acting on it.
     Returns (is_valid, reason_if_rejected).
     """
+    # Gate 0: Gem denylist (GEM_SCANNER_DENYLIST)
+    try:
+        from config import settings as _cfg
+        if _cfg.is_gem_denylisted(signal.token_symbol, signal.token_address):
+            return False, f"Gem denylist: {signal.token_symbol}"
+    except Exception:
+        pass
+
     # Gate 1: Minimum liquidity — alpha wallets trade real tokens; $10k floor
     # ($25k was blocking confirmed signals like BLUR with $11k liq)
     if signal.liquidity_usd > 0 and signal.liquidity_usd < 10_000:
