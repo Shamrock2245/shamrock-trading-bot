@@ -353,6 +353,97 @@ HL_PERPS_EXPECTANCY_GATE_ENABLED: bool = os.getenv(
 # deadlocks: a blocked coin never trades, so its stats never refresh (Sep 2026:
 # 16/18 allowlist coins blocked for 3 weeks, zero paper opens). 0 = never expire.
 HL_PERPS_EXPECTANCY_STALE_HOURS: float = float(os.getenv("HL_PERPS_EXPECTANCY_STALE_HOURS", "168.0"))
+# Rolling per-position window (Oct 2026). Autoban + expectancy gate score a coin
+# on its last N *positions* by net realized $ (TP1 partial + remainder = one
+# outcome). Cumulative W/L counts mixed partial "wins" with $ from a handful of
+# closes (VVV: 14/44 W/L vs 5 $-known closes) — the window is one coherent sample.
+HL_PERPS_AUTOBAN_WINDOW: int = int(os.getenv("HL_PERPS_AUTOBAN_WINDOW", "20"))
+# A ban whose window is still bad at expiry is renewed instead of lapsing
+# (48h bans used to expire into one more losing trade). Hard cap on a renewal
+# chain so a banned coin — which can't trade, so its stats can't improve —
+# eventually gets one probation trade instead of deadlocking. 0 = no cap.
+HL_PERPS_AUTOBAN_MAX_HOURS: float = float(os.getenv("HL_PERPS_AUTOBAN_MAX_HOURS", "336.0"))
+
+
+def _window_stats(perf: dict) -> Optional[tuple[int, float, float, float]]:
+    """(n, wr, pf, net) over the rolling per-position window, or None if too thin.
+
+    perf["recent"] is a list of [ts, net_pnl_usd] per closed position. A win is
+    net > 0. PF = gross profit / gross loss (9.9 when there are no losses).
+    """
+    recent = (perf or {}).get("recent") or []
+    pnls: list[float] = []
+    for item in recent[-max(1, HL_PERPS_AUTOBAN_WINDOW):]:
+        try:
+            pnls.append(float(item[1] if isinstance(item, (list, tuple)) else item))
+        except (TypeError, ValueError, IndexError):
+            continue
+    n = len(pnls)
+    if n < HL_PERPS_AUTOBAN_MIN_TRADES:
+        return None
+    gp = sum(x for x in pnls if x > 0)
+    gl = -sum(x for x in pnls if x < 0)
+    wins = sum(1 for x in pnls if x > 0)
+    pf = gp / gl if gl > 0 else (9.9 if gp > 0 else 0.0)
+    return n, wins / n, pf, gp - gl
+
+
+def coin_ban_verdict(perf: dict) -> tuple[bool, int, float, Optional[float], str]:
+    """Single ban/expectancy verdict: (bad, n, wr, pf, source).
+
+    Uses the per-position $ window when it has >= MIN_TRADES positions; else
+    falls back to the legacy cumulative W/L + trusted-PF rule (old behaviour),
+    so coins without enough per-position history are judged as before.
+    """
+    win = _window_stats(perf)
+    if win is not None:
+        n, wr, pf, _net = win
+        bad = wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
+        return bad, n, wr, pf, "window"
+    wins = int((perf or {}).get("wins") or 0)
+    losses = int((perf or {}).get("losses") or 0)
+    total = wins + losses
+    if total < HL_PERPS_AUTOBAN_MIN_TRADES:
+        return False, total, (wins / total if total else 1.0), None, "thin"
+    wr = wins / total
+    pf = _trusted_profit_factor(perf)
+    bad = wr < HL_PERPS_AUTOBAN_WR_THRESHOLD or (pf is not None and pf < HL_PERPS_AUTOBAN_PF_THRESHOLD)
+    return bad, total, wr, pf, "legacy"
+
+
+def _pair_positions(rows: list[dict]) -> list[tuple[str, float, float]]:
+    """Collapse close rows into per-position (coin, ts, net_pnl).
+
+    TP1 partial rows (reason/exit_reason contains "partial") are held and added
+    to the next full close of the same coin, so one position = one outcome.
+    A dangling partial with no later close is dropped (position still open or
+    the close was lost — either way not a finished outcome).
+    """
+    out: list[tuple[str, float, float]] = []
+    pending: dict[str, float] = {}
+    for t in rows:
+        coin = str(t.get("coin") or t.get("token_symbol") or "").upper()
+        if not coin:
+            continue
+        try:
+            pnl = float(t.get("pnl_usd") or t.get("closedPnl") or t.get("realized_pnl") or 0.0)
+        except (TypeError, ValueError):
+            pnl = 0.0
+        tag = f"{t.get('reason') or ''} {t.get('exit_reason') or ''}".lower()
+        if "partial" in tag:
+            pending[coin] = pending.get(coin, 0.0) + pnl
+            continue
+        ts = 0.0
+        raw_ts = t.get("timestamp") or t.get("time") or t.get("closed_at")
+        try:
+            if isinstance(raw_ts, (int, float)):
+                ts = float(raw_ts) / (1000.0 if raw_ts > 1e12 else 1.0)
+            elif raw_ts:
+                ts = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            ts = 0.0
+        out.append((coin, ts, pnl + pending.pop(coin, 0.0)))
+    return out
 
 
 def _trusted_profit_factor(perf: dict) -> Optional[float]:
@@ -870,8 +961,11 @@ class HLPerpsScanner:
         self._coin_perf: dict[str, dict] = {}
         # coin → unix timestamp when the ban expires
         self._autoban_until: dict[str, float] = {}
+        # coin → unix ts when the current ban chain started (renewal cap)
+        self._autoban_since: dict[str, float] = {}
         self._load_coin_perf()
         self._seed_expectancy_from_ledger()
+        self._seed_recent_from_trade_log()
 
         # ── API Rate-Limit Protection ─────────────────────────────────────────
         # Cache meta() responses for 30s to stay well under HL's 1200 weight/min limit.
@@ -1144,9 +1238,28 @@ class HLPerpsScanner:
                 )
                 return True
             else:
-                # Ban expired — remove and allow re-evaluation
+                # Ban expired — renew if the coin's verdict is still bad, unless
+                # the renewal chain hit HL_PERPS_AUTOBAN_MAX_HOURS (probation).
+                bad, n, wr, pf, src = coin_ban_verdict(self._coin_perf.get(coin, {}))
+                since = float(self._autoban_since.get(coin) or self._autoban_until[coin] - HL_PERPS_AUTOBAN_HOURS * 3600)
+                capped = HL_PERPS_AUTOBAN_MAX_HOURS > 0 and (now - since) >= HL_PERPS_AUTOBAN_MAX_HOURS * 3600
+                if bad and not capped:
+                    self._autoban_until[coin] = now + HL_PERPS_AUTOBAN_HOURS * 3600
+                    self._autoban_since[coin] = since
+                    self._save_coin_perf()
+                    pf_txt = f"{pf:.2f}" if pf is not None else "n/a"
+                    logger.warning(
+                        f"🚫 [AUTO-BAN] {coin} ban renewed {HL_PERPS_AUTOBAN_HOURS:.0f}h — still bad "
+                        f"({src} n={n} WR={wr*100:.0f}% PF={pf_txt})"
+                    )
+                    return True
                 del self._autoban_until[coin]
-                logger.info(f"[AUTO-BAN] {coin} ban expired — re-entering watchlist")
+                self._autoban_since.pop(coin, None)
+                self._save_coin_perf()
+                logger.info(
+                    f"[AUTO-BAN] {coin} ban expired — re-entering watchlist"
+                    + (" (probation: max ban hours reached)" if bad else "")
+                )
         # 1. Emergency cooldown (SL place-fail micro-loop — was 3–5s AAVE spam)
         if coin in getattr(self, "emergency_cooldowns", {}):
             elapsed = now - self.emergency_cooldowns[coin]
@@ -1235,21 +1348,21 @@ class HLPerpsScanner:
                 perf["usd_gross_loss"] = float(perf.get("usd_gross_loss") or 0.0) + abs(pnl_val)
         perf["pnl_usd"] = float(perf.get("pnl_usd") or 0.0) + pnl_val
         perf["last_updated"] = time.time()
-        total = perf["wins"] + perf["losses"]
-        wr = perf["wins"] / total if total > 0 else 1.0
-        pf = _trusted_profit_factor(perf)
+        if pnl_known:
+            # One entry per closed position (executor passes net $ incl. TP1 partials).
+            recent = list(perf.get("recent") or [])
+            recent.append([round(time.time(), 1), round(pnl_val, 4)])
+            perf["recent"] = recent[-max(1, HL_PERPS_AUTOBAN_WINDOW):]
         # Evaluate ban eligibility — WR *or* profit factor (SOL was 45% WR / PF 0.12)
-        should_ban = total >= HL_PERPS_AUTOBAN_MIN_TRADES and (
-            wr < HL_PERPS_AUTOBAN_WR_THRESHOLD
-            or (pf is not None and pf < HL_PERPS_AUTOBAN_PF_THRESHOLD)
-        )
+        should_ban, total, wr, pf, src = coin_ban_verdict(perf)
         if should_ban and coin not in self._autoban_until:
             ban_expires = time.time() + HL_PERPS_AUTOBAN_HOURS * 3600
             self._autoban_until[coin] = ban_expires
+            self._autoban_since.setdefault(coin, time.time())
             pf_txt = f"{pf:.2f}" if pf is not None else "n/a"
             logger.warning(
                 f"🚫 [AUTO-BAN] {coin} auto-banned for {HL_PERPS_AUTOBAN_HOURS:.0f}h "
-                f"| trades={total} | WR={wr*100:.0f}% PF={pf_txt} "
+                f"| {src} n={total} | WR={wr*100:.0f}% PF={pf_txt} "
                 f"(wr<{HL_PERPS_AUTOBAN_WR_THRESHOLD*100:.0f}% or pf<{HL_PERPS_AUTOBAN_PF_THRESHOLD:.2f})"
             )
         self._save_coin_perf()
@@ -1262,19 +1375,26 @@ class HLPerpsScanner:
                 return
             raw = json.loads(_COIN_PERF_FILE.read_text(encoding="utf-8"))
             self._coin_perf = raw.get("coin_perf", {})
-            # Restore active bans (skip expired ones)
+            self._autoban_since = {
+                str(k): float(v) for k, v in (raw.get("autoban_since") or {}).items()
+            }
+            # Restore bans. Expired ones stay in the dict so _is_on_cooldown can
+            # renew them when the verdict is still bad (it deletes otherwise).
             now = time.time()
             for coin, expires in raw.get("autoban_until", {}).items():
+                if expires <= now:
+                    self._autoban_until[coin] = expires
+                    continue
                 if expires > now:
                     self._autoban_until[coin] = expires
                     remaining_h = (expires - now) / 3600
                     logger.info(
                         f"[AUTO-BAN] {coin} ban restored from disk — {remaining_h:.1f}h remaining"
                     )
-            if self._autoban_until:
+            active = [c for c, e in self._autoban_until.items() if e > now]
+            if active:
                 logger.info(
-                    f"[AUTO-BAN] {len(self._autoban_until)} active bans loaded: "
-                    f"{', '.join(self._autoban_until.keys())}"
+                    f"[AUTO-BAN] {len(active)} active bans loaded: {', '.join(active)}"
                 )
         except Exception as e:
             logger.warning(f"[AUTO-BAN] Failed to load coin perf state: {e}")
@@ -1305,14 +1425,8 @@ class HLPerpsScanner:
             return
 
         stats: dict[str, dict] = {}
-        for t in raw:
-            coin = str(t.get("coin") or t.get("token_symbol") or "").upper()
-            if not coin:
-                continue
-            try:
-                pnl = float(t.get("pnl_usd") or t.get("closedPnl") or t.get("realized_pnl") or 0.0)
-            except (TypeError, ValueError):
-                pnl = 0.0
+        # One outcome per position: TP1 partial rows fold into their close.
+        for coin, _ts, pnl in _pair_positions([t for t in raw if isinstance(t, dict)]):
             row = stats.setdefault(coin, {"wins": 0, "losses": 0, "gp": 0.0, "gl": 0.0, "pnl": 0.0})
             row["pnl"] += pnl
             if pnl > 0:
@@ -1349,6 +1463,7 @@ class HLPerpsScanner:
                 prev = self._autoban_until.get(coin, 0.0)
                 if expires > prev:
                     self._autoban_until[coin] = expires
+                    self._autoban_since.setdefault(coin, now)
                     seeded += 1
                     logger.warning(
                         f"🚫 [LEDGER-BAN] {coin} n={total} WR={wr*100:.0f}% PF={pf:.2f} "
@@ -1365,10 +1480,8 @@ class HLPerpsScanner:
         perf = self._coin_perf.get(str(coin).upper())
         if not perf:
             return False
-        wins = int(perf.get("wins") or 0)
-        losses = int(perf.get("losses") or 0)
-        total = wins + losses
-        if total < HL_PERPS_AUTOBAN_MIN_TRADES:
+        bad, _n, _wr, _pf, _src = coin_ban_verdict(perf)
+        if not bad:
             return False
         if HL_PERPS_EXPECTANCY_STALE_HOURS > 0:
             try:
@@ -1377,15 +1490,56 @@ class HLPerpsScanner:
                 age_h = float("inf")
             if age_h > HL_PERPS_EXPECTANCY_STALE_HOURS:
                 return False  # stale verdict — let the coin re-prove itself
-        wr = wins / total if total else 1.0
-        if wr < HL_PERPS_AUTOBAN_WR_THRESHOLD:
-            return True
-        # Legacy / partial-$ rows (W/L counts without matching $ PnL) fall back
-        # to WR only — PF=0 from missing $ blocked 50%-WR coins (INJ, Oct 2026).
-        pf = _trusted_profit_factor(perf)
-        if pf is None:
-            return False
-        return pf < HL_PERPS_AUTOBAN_PF_THRESHOLD
+        # Same verdict as the autoban (per-position $ window, legacy fallback).
+        return True
+
+    def _seed_recent_from_trade_log(self) -> None:
+        """Back-fill perf["recent"] from paper HL closes in the trade journal.
+
+        Runs once per coin (only coins with no "recent" key yet), so the new
+        per-position window starts from real paper history instead of empty.
+        Partial rows fold into their position; restart-orphan $0 rows are skipped.
+        """
+        if os.environ.get("PYTEST_CURRENT_TEST") and os.getenv("HL_PERPS_SEED_LEDGER_IN_TESTS") != "true":
+            return
+        if not HL_PERPS_AUTOBAN_ENABLED and not HL_PERPS_EXPECTANCY_GATE_ENABLED:
+            return
+        path = Path(os.getenv("TRADES_FILE", "output/trades.json"))
+        if not path.exists():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.debug(f"[AUTO-BAN] trade journal read failed: {e}")
+            return
+        if not isinstance(raw, list):
+            return
+        rows = [
+            t for t in raw
+            if isinstance(t, dict)
+            and str(t.get("chain") or "").lower() == "hyperliquid"
+            and str(t.get("action") or "").upper() == "SELL"
+            and t.get("is_paper") is True
+            and "orphan" not in str(t.get("reason") or "").lower()
+        ]
+        positions = _pair_positions(rows)
+        seeded = 0
+        for coin, ts, pnl in positions:
+            perf = self._coin_perf.get(coin)
+            if perf is not None and "recent" in perf and not perf.get("_recent_seeding"):
+                continue
+            perf = self._coin_perf.setdefault(coin, {"wins": 0, "losses": 0, "last_updated": ts or time.time()})
+            perf["_recent_seeding"] = True
+            perf.setdefault("recent", []).append([round(ts, 1), round(pnl, 4)])
+            seeded += 1
+        for perf in self._coin_perf.values():
+            if perf.pop("_recent_seeding", None):
+                perf["recent"] = perf["recent"][-max(1, HL_PERPS_AUTOBAN_WINDOW):]
+                if perf["recent"]:
+                    perf["last_updated"] = max(float(perf.get("last_updated") or 0.0), perf["recent"][-1][0])
+        if seeded:
+            self._save_coin_perf()
+            logger.info(f"[AUTO-BAN] seeded {seeded} per-position outcomes from {path}")
 
     def _save_coin_perf(self) -> None:
         """Persist coin performance stats and active bans to disk."""
@@ -1393,7 +1547,11 @@ class HLPerpsScanner:
             _STATE_DIR.mkdir(parents=True, exist_ok=True)
             _COIN_PERF_FILE.write_text(
                 json.dumps(
-                    {"coin_perf": self._coin_perf, "autoban_until": self._autoban_until},
+                    {
+                        "coin_perf": self._coin_perf,
+                        "autoban_until": self._autoban_until,
+                        "autoban_since": self._autoban_since,
+                    },
                     indent=2,
                 ),
                 encoding="utf-8",

@@ -165,6 +165,11 @@ class HLPosition:
     tp_order_id: Optional[int] = None   # On-chain TP order ID (for reference)
     # Winning tuning: TP1 partial already taken (50% at +2%)
     tp1_hit: bool = False
+    # $ already realized by partial closes (TP1) on this position. Added to the
+    # final close so the autoban scores the whole position on net P&L — a TP1
+    # partial is not a win by itself, and a stopped remainder after a bigger
+    # TP1 gain is not a loss.
+    realized_partial_pnl: float = 0.0
     # Paper exit A/B arm (core/paper_exit_ab.py): "" (untagged/live), "control", "atr2x_8h"
     exit_variant: str = ""
     # Market regime at entry (reporting only): market_regime, regime_bucket,
@@ -774,6 +779,7 @@ class HyperliquidExecutor:
                     "lowest_price": None if pos.lowest_price == float("inf") else pos.lowest_price,
                     "trailing_stop_active": pos.trailing_stop_active,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
+                    "realized_partial_pnl": float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
                     "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
                 }
@@ -812,6 +818,7 @@ class HyperliquidExecutor:
                     lowest_price=float(d.get("lowest_price") or entry),
                     trailing_stop_active=bool(d.get("trailing_stop_active", False)),
                     tp1_hit=bool(d.get("tp1_hit", False)),
+                    realized_partial_pnl=float(d.get("realized_partial_pnl") or 0.0),
                     exit_variant=str(d.get("exit_variant") or ""),
                     regime_ctx=dict(d.get("regime_ctx") or {}),
                 )
@@ -1885,7 +1892,9 @@ class HyperliquidExecutor:
                     exit_reason=exit_reason or "manual_or_monitor",
                     extra=self._ab_tag(pos),
                 )
-                self._inject_scanner_cooldown(sym, loss=(pnl < 0), pnl_usd=pnl)
+                # Autoban scores the whole position: remainder + any TP1 partial $.
+                net_pnl = pnl + float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0)
+                self._inject_scanner_cooldown(sym, loss=(net_pnl <= 0), pnl_usd=net_pnl)
                 logger.info(
                     f"📄 PAPER CLOSE {sym} | entry=${pos.entry_price:.4f} → "
                     f"exit=${close_price} | PnL=${pnl:+.2f} | "
@@ -1908,6 +1917,7 @@ class HyperliquidExecutor:
             pos.size = remain
             pos.size_usd = pos.size_usd * (1.0 - frac) if pos.size_usd else pos.size_usd
             pos.tp1_hit = True
+            pos.realized_partial_pnl = float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0) + pnl
             pos.trailing_stop_active = True
             self._save_trailing_state()
             self._log_hl_trade(
@@ -2542,6 +2552,7 @@ class HyperliquidExecutor:
                     "tp_order_id": pos.tp_order_id,
                     "stop_loss_price": pos.stop_loss_price,
                     "tp1_hit": bool(getattr(pos, "tp1_hit", False)),
+                    "realized_partial_pnl": float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
                     "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
                 }
@@ -2572,6 +2583,8 @@ class HyperliquidExecutor:
                 pos.sl_order_id = saved.get("sl_order_id")
                 pos.tp_order_id = saved.get("tp_order_id")
                 pos.tp1_hit = bool(saved.get("tp1_hit", False))
+                if saved.get("realized_partial_pnl") and not getattr(pos, "realized_partial_pnl", 0.0):
+                    pos.realized_partial_pnl = float(saved["realized_partial_pnl"])
                 if saved.get("exit_variant") and not getattr(pos, "exit_variant", ""):
                     pos.exit_variant = str(saved["exit_variant"])
                 if saved.get("regime_ctx") and not getattr(pos, "regime_ctx", None):
