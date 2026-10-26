@@ -137,6 +137,8 @@ def add_to_watchlist(
     gem_score: float = 0.0,
 ):
     """Add a token to the Fib hunting watchlist (idempotent)."""
+    if settings.is_gem_denylisted(symbol, token_address):
+        return
     watchlist = load_watchlist()
 
     # Dedup check
@@ -160,6 +162,40 @@ def add_to_watchlist(
     watchlist.append(entry)
     save_watchlist(watchlist)
     logger.debug(f"📋 Added {symbol} to Fib watchlist (source={source})")
+
+
+_SCORER = None
+
+
+def fresh_gem_score(token_address: str, chain: str) -> Optional[float]:
+    """Re-score a token NOW with the gem scanner on fresh DexScreener data.
+
+    Root-cause fix (2026-10-26): Fib re-entries used ``entry.gem_score`` — the
+    score captured when the token was first added to the watchlist (AERO:
+    65.79168… from a 2026-08-09 trade, reused for 11k checks / 40+ entries).
+    Returns None when the token can't be scored (no pairs, excluded, error),
+    in which case the caller must NOT enter.
+    """
+    global _SCORER
+    try:
+        from data.providers.dexscreener import get_token_pairs, extract_gem_signals
+        pairs = get_token_pairs(token_address) or []
+        if not pairs:
+            return None
+        if _SCORER is None:
+            from scanner.gem_scanner import GemScanner
+            _SCORER = GemScanner()
+        sig = extract_gem_signals(pairs[0])
+        tok = _SCORER._signals_to_token(sig, chain)
+        if not tok:
+            return None
+        cand = _SCORER._score_token(tok, is_boosted=False)
+        if cand is None:
+            return None
+        return float(cand.gem_score)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Fib fresh re-score failed for {token_address}: {e}")
+        return None
 
 
 def build_watchlist_from_history():
@@ -381,6 +417,14 @@ def run_fib_hunt_sweep() -> list[FibEntrySignal]:
 
     # 2. Load watchlist
     watchlist = load_watchlist()
+    _before = len(watchlist)
+    watchlist = [
+        w for w in watchlist
+        if not settings.is_gem_denylisted(w.symbol, w.token_address)
+    ]
+    if len(watchlist) != _before:
+        logger.info(f"Fib watchlist: purged {_before - len(watchlist)} denylisted token(s)")
+        save_watchlist(watchlist)
     if not watchlist:
         logger.debug("Fib watchlist is empty — nothing to hunt")
         return []
@@ -408,6 +452,8 @@ def run_fib_hunt_sweep() -> list[FibEntrySignal]:
         # Skip tokens we already hold (unless source is "holding" for scale-in)
         if entry.token_address.lower() in open_token_keys and entry.source != "holding":
             continue
+        if settings.is_gem_denylisted(entry.symbol, entry.token_address):
+            continue
 
         # Rate limit — don't hammer APIs
         if checked >= 15:  # Max 15 Fib checks per cycle
@@ -422,8 +468,23 @@ def run_fib_hunt_sweep() -> list[FibEntrySignal]:
             entry.check_count += 1
 
             if signal:
+                # Fresh score at signal time — never reuse the watchlist's
+                # add-time score (that froze AERO at 65.79 for months).
+                _fresh = fresh_gem_score(entry.token_address, entry.chain)
+                if _fresh is None or _fresh < float(settings.MIN_GEM_SCORE):
+                    logger.info(
+                        f"Fib entry skipped for {entry.symbol}: fresh gem score "
+                        f"{'n/a' if _fresh is None else f'{_fresh:.1f}'} < "
+                        f"{float(settings.MIN_GEM_SCORE):.0f} "
+                        f"(stored {entry.gem_score:.1f})"
+                    )
+                    if _fresh is not None:
+                        entry.gem_score = _fresh
+                    entry.fib_aligned = False
+                    continue
+                entry.gem_score = _fresh
                 signal.symbol = entry.symbol
-                signal.gem_score = entry.gem_score
+                signal.gem_score = _fresh
                 signal.source = entry.source
                 entry.fib_zone = signal.fib_zone
                 entry.fib_aligned = True
