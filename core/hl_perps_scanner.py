@@ -2694,6 +2694,14 @@ class HLPerpsScanner:
                 logger.debug(f"HLPerpsScanner: adding {coin} for funding anomaly ({rate*100:.4f}%/1h)")
         return extra
 
+    def _run_rsi_dip_sleeve(self, *, allow_entries: bool) -> None:
+        """Paper RSI dip sleeve. Flag-off and any error leave the Predator cycle alone."""
+        try:
+            from core.rsi_dip_v1 import run_sleeve
+            run_sleeve(self, allow_entries=allow_entries)
+        except Exception as exc:
+            logger.warning(f"[RSI-DIP] cycle skipped: {exc}")
+
     def run_cycle(self) -> list[PerpSignal]:
         """
         Run one full scan cycle across the watchlist.
@@ -2756,6 +2764,8 @@ class HLPerpsScanner:
                         f"{sorted(HL_PERPS_BLOCKED_HOURS_ET)} — skipping new entries this cycle"
                     )
                 self._save_state([])
+                # Sleeve exits still run. New sleeve entries respect this halt.
+                self._run_rsi_dip_sleeve(allow_entries=False)
                 return []
 
         # ── Retracement Sniper: Check pending entries ──
@@ -2911,6 +2921,7 @@ class HLPerpsScanner:
             )
 
         self._save_state(signals)
+        self._run_rsi_dip_sleeve(allow_entries=True)
         return signals
 
     def _save_state(self, signals: list[PerpSignal]) -> None:

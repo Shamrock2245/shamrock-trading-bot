@@ -172,6 +172,9 @@ class HLPosition:
     realized_partial_pnl: float = 0.0
     # Paper exit A/B arm (core/paper_exit_ab.py): "" (untagged/live), "control", "atr2x_8h"
     exit_variant: str = ""
+    # Entry sleeve. "" is the Predator / Fib book. "rsi_dip_v1" is the paper-only
+    # dip sleeve and must not be assigned an exit A/B arm.
+    strategy: str = ""
     # Market regime at entry (reporting only): market_regime, regime_bucket,
     # regime_adx, regime_volume_ratio, vol_bucket, stop_dist_pct. Journaled on
     # the open and every close so paper_metrics can split by regime.
@@ -782,6 +785,7 @@ class HyperliquidExecutor:
                     "realized_partial_pnl": float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
                     "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
+                    "strategy": getattr(pos, "strategy", "") or "",
                 }
             path = self._paper_positions_file
             with _FILE_WRITE_LOCK:
@@ -821,6 +825,7 @@ class HyperliquidExecutor:
                     realized_partial_pnl=float(d.get("realized_partial_pnl") or 0.0),
                     exit_variant=str(d.get("exit_variant") or ""),
                     regime_ctx=dict(d.get("regime_ctx") or {}),
+                    strategy=str(d.get("strategy") or (d.get("regime_ctx") or {}).get("strategy") or ""),
                 )
                 if opened:
                     pos.opened_at = datetime.fromisoformat(opened)
@@ -1658,6 +1663,9 @@ class HyperliquidExecutor:
     def _ab_tag(pos: "HLPosition") -> Optional[dict]:
         """Close-row tags: paper exit A/B arm + market regime captured at entry."""
         tags: dict = dict(getattr(pos, "regime_ctx", None) or {})
+        strat = str(getattr(pos, "strategy", "") or "") or str(tags.get("strategy") or "")
+        if strat:
+            tags["strategy"] = strat
         v = getattr(pos, "exit_variant", "") or ""
         if v:
             tags["exit_variant"] = v
@@ -1708,6 +1716,163 @@ class HyperliquidExecutor:
             + (f" | atr={tags.get('ab_atr_1h')}" if variant == _ab.ATR_ARM else "")
         )
         return tags
+
+    def open_paper_sleeve(
+        self,
+        symbol: str,
+        *,
+        size_usd: float,
+        leverage: int,
+        atr: float,
+        strategy: str,
+        rsi: Optional[float] = None,
+    ) -> Optional[dict]:
+        """Open a paper-only sleeve long. Never places a live order.
+
+        The stop is entry − 3×ATR (the caller passes ATR; this method does not
+        trust a pre-built stop). No take-profit, no exit A/B arm. Returns None
+        when the process is not paper, the book is full, or the caps reject it.
+        """
+        sym = _normalize_symbol(symbol)
+        if not self.is_paper:
+            logger.error(f"[RSI-DIP] {sym} refused — not paper; no order sent")
+            return None
+        try:
+            from core.rsi_dip_v1 import ATR_MULT, STRATEGY, atr_stop_price, paper_mode_active
+        except Exception as exc:
+            logger.error(f"[RSI-DIP] {sym} refused — sleeve unavailable ({exc}); no order sent")
+            return None
+        if strategy != STRATEGY or not paper_mode_active():
+            logger.error(f"[RSI-DIP] {sym} refused — paper sleeve only; no order sent")
+            return None
+        # Read-only mid. This method must not submit a signed order.
+        fill = self._paper_mid_price(sym)
+        if not fill or fill <= 0:
+            logger.info(f"[RSI-DIP] {sym} no mid — skip")
+            return None
+        stop = atr_stop_price(fill, atr, ATR_MULT)
+        if stop is None:
+            logger.info(f"[RSI-DIP] {sym} invalid ATR stop — skip")
+            return None
+        try:
+            self._check_daily_reset()
+        except Exception:
+            pass
+        limit = float(getattr(self, "daily_loss_limit", 0) or 0)
+        if limit > 0 and float(getattr(self, "daily_pnl", 0) or 0) <= -limit:
+            logger.info(f"[RSI-DIP] {sym} blocked — daily loss limit")
+            return None
+        lev = max(1, int(leverage or getattr(self, "default_leverage", 1) or 1))
+        try:
+            margin = float(size_usd)
+        except (TypeError, ValueError):
+            return None
+        if margin <= 0:
+            return None
+        max_pos_usd = float(getattr(self, "max_position_usd", 0) or 0)
+        if max_pos_usd > 0:
+            margin = min(margin, max_pos_usd)
+        max_notional = float(getattr(self, "max_notional_usd", 0) or 0)
+        if max_notional > 0 and margin * lev > max_notional:
+            margin = round(max_notional / lev, 2)
+        try:
+            bal = self.get_balance()
+        except Exception:
+            bal = {}
+        equity = float(bal.get("account_value") or 0)
+        withdrawable = float(bal.get("withdrawable") or 0)
+        margin_pct = float(getattr(self, "max_margin_equity_pct", 0) or 0)
+        if equity > 0 and margin_pct > 0:
+            margin = min(margin, round(equity * margin_pct, 2))
+        if margin < 5.0 or margin > withdrawable + 1e-9:
+            logger.info(
+                f"[RSI-DIP] {sym} size ${margin:.2f} rejected "
+                f"(withdrawable ${withdrawable:.2f})"
+            )
+            return None
+        max_slots = int(getattr(self, "max_positions", 0) or 0)
+        max_exposure = float(getattr(self, "max_total_exposure", 0) or 0)
+        with self._lock:
+            if max_slots and len(self.positions) >= max_slots:
+                logger.info(f"[RSI-DIP] {sym} blocked — max positions {max_slots}")
+                return None
+            if sym in self.positions:
+                logger.info(f"[RSI-DIP] {sym} already open — skip")
+                return None
+            if max_exposure > 0:
+                current = sum(
+                    float(p.size_usd or 0) * float(p.leverage or lev)
+                    for p in self.positions.values()
+                )
+                if current + margin * lev > max_exposure:
+                    logger.info(f"[RSI-DIP] {sym} blocked — exposure cap")
+                    return None
+            notional = margin * lev
+            coin_size = notional / fill
+            try:
+                decimals = self._get_sz_decimals(sym) if self._info else 4
+            except Exception:
+                decimals = 4
+            coin_size = round(coin_size, decimals)
+            if coin_size <= 0:
+                return None
+            ctx = {
+                "strategy": STRATEGY,
+                "rsi": None if rsi is None else round(float(rsi), 4),
+                "atr": round(float(atr), 8),
+                "atr_mult": ATR_MULT,
+            }
+            pos = HLPosition(
+                coin=sym,
+                side="long",
+                entry_price=fill,
+                size=coin_size,
+                size_usd=round(margin, 2),
+                leverage=lev,
+                stop_loss_price=stop,
+                take_profit_price=None,
+                highest_price=fill,
+                lowest_price=fill,
+                sl_order_id=None,
+                tp_order_id=None,
+                exit_variant="",
+                strategy=STRATEGY,
+                regime_ctx=ctx,
+            )
+            self.positions[sym] = pos
+            self._save_trailing_state()
+        self._log_hl_trade(
+            action="BUY",
+            coin=sym,
+            side="long",
+            price=fill,
+            quantity=coin_size,
+            value_usd=notional,
+            entry_price=fill,
+            reason="paper_open_rsi_dip",
+            gem_score=0.0,
+            leverage=lev,
+            stop_loss=stop,
+            take_profit=None,
+            extra=dict(ctx),
+        )
+        logger.info(
+            f"📄 [RSI-DIP] PAPER OPEN LONG {sym} | margin=${margin:.2f} × {lev}x "
+            f"@ ${fill:.4f} | stop=${stop:.4f} | strategy={STRATEGY}"
+        )
+        return {
+            "coin": sym,
+            "side": "long",
+            "entry_price": fill,
+            "size": coin_size,
+            "size_usd": round(margin, 2),
+            "leverage": lev,
+            "stop_loss": stop,
+            "take_profit": None,
+            "strategy": STRATEGY,
+            "paper": True,
+            "tx_hash": "PAPER_TX",
+        }
 
     def _paper_open_position(
         self,
@@ -1856,7 +2021,16 @@ class HyperliquidExecutor:
             if not partial:
                 pnl = self._calc_pnl(pos, float(close_price))
                 self.daily_pnl += pnl
-                self._feed_daily_goal(pnl, source="paper_hl_perps")
+                _sleeve_close = False
+                try:
+                    from core.rsi_dip_v1 import is_sleeve_position as _is_sleeve_pos
+                    _sleeve_close = _is_sleeve_pos(pos)
+                except Exception:
+                    _sleeve_close = False
+                # Sleeve PnL stays on the executor circuit breaker. It does not
+                # feed the daily-goal mode switch or Predator autoban / hot streak.
+                if not _sleeve_close:
+                    self._feed_daily_goal(pnl, source="paper_hl_perps")
                 entry_px = pos.entry_price
                 pnl_pct = None
                 if entry_px and close_price:
@@ -1893,8 +2067,11 @@ class HyperliquidExecutor:
                     extra=self._ab_tag(pos),
                 )
                 # Autoban scores the whole position: remainder + any TP1 partial $.
-                net_pnl = pnl + float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0)
-                self._inject_scanner_cooldown(sym, loss=(net_pnl <= 0), pnl_usd=net_pnl)
+                # rsi_dip_v1 closes stay out of that book so a sleeve loss cannot
+                # ban a coin, halt the SL-guard, or reset a Predator hot streak.
+                if not _sleeve_close:
+                    net_pnl = pnl + float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0)
+                    self._inject_scanner_cooldown(sym, loss=(net_pnl <= 0), pnl_usd=net_pnl)
                 logger.info(
                     f"📄 PAPER CLOSE {sym} | entry=${pos.entry_price:.4f} → "
                     f"exit=${close_price} | PnL=${pnl:+.2f} | "
@@ -2555,6 +2732,7 @@ class HyperliquidExecutor:
                     "realized_partial_pnl": float(getattr(pos, "realized_partial_pnl", 0.0) or 0.0),
                     "exit_variant": getattr(pos, "exit_variant", "") or "",
                     "regime_ctx": dict(getattr(pos, "regime_ctx", None) or {}),
+                    "strategy": getattr(pos, "strategy", "") or "",
                 }
             _TRAILING_STATE_FILE.write_text(json.dumps(state, indent=2))
         except Exception as e:
@@ -2587,6 +2765,8 @@ class HyperliquidExecutor:
                     pos.realized_partial_pnl = float(saved["realized_partial_pnl"])
                 if saved.get("exit_variant") and not getattr(pos, "exit_variant", ""):
                     pos.exit_variant = str(saved["exit_variant"])
+                if saved.get("strategy") and not getattr(pos, "strategy", ""):
+                    pos.strategy = str(saved["strategy"])
                 if saved.get("regime_ctx") and not getattr(pos, "regime_ctx", None):
                     pos.regime_ctx = dict(saved["regime_ctx"])
                 # Restore persisted SL price only if it is tighter than what HL returned
@@ -2651,13 +2831,22 @@ class HyperliquidExecutor:
             entry = float(pos.entry_price or 0)
             sl = float(pos.stop_loss_price) if pos.stop_loss_price else None
             tp = float(pos.take_profit_price) if pos.take_profit_price else None
+            try:
+                from core.rsi_dip_v1 import is_sleeve_position as _is_sleeve_pos
+                _sleeve = _is_sleeve_pos(pos)
+            except Exception:
+                _sleeve = False
         slip = paper_trigger_slippage_frac()
         fill = None
         reason = None
         if side == "long":
             if sl and mark <= sl:
                 fill = min(sl, mark) * (1.0 - slip)
-                reason = "paper_trail_stop" if entry and sl > entry else "paper_sl_hit"
+                # Sleeve keeps the frozen 3×ATR stop reason. Predator labels are unchanged.
+                if _sleeve:
+                    reason = "stop"
+                else:
+                    reason = "paper_trail_stop" if entry and sl > entry else "paper_sl_hit"
             elif tp and mark >= tp:
                 fill = tp * (1.0 - slip)
                 reason = "paper_tp_hit"

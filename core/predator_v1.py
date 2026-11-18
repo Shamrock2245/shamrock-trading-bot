@@ -247,14 +247,18 @@ def is_gate_close(t: dict) -> bool:
     """A paper Hyperliquid perps close that counts toward the Predator gate.
 
     Excludes: live rows, gem/DEX chains, opens, rows without PnL, exact $0
-    rows (placeholder/no-fill artefacts), restart orphans and anything tagged
-    exclude_from_metrics. Thresholds are unchanged (50 / 50% / 1.30).
+    rows (placeholder/no-fill artefacts), restart orphans, anything tagged
+    exclude_from_metrics, and the rsi_dip_v1 paper sleeve (its own book).
+    Thresholds are unchanged (50 / 50% / 1.30).
     """
     if not isinstance(t, dict) or t.get("is_paper") is not True:
         return False
     if not is_hl_perps_row(t):
         return False
     if str(t.get("action", "")).upper() not in _CLOSE_ACTIONS:
+        return False
+    # Separate forward-test book. Not a threshold change.
+    if str(t.get("strategy") or "") == "rsi_dip_v1":
         return False
     if t.get("exclude_from_metrics"):
         return False

@@ -1447,6 +1447,7 @@ async def run_bot_loop():
         from datetime import datetime as _dt, timezone as _tz
         from core.profit_lock_manager import evaluate_position as _eval_profit_lock
         from core.winning_risk_manager import evaluate_position as _eval_winning_risk
+        from core.rsi_dip_v1 import is_sleeve_position as _is_rsi_dip_sleeve
 
         def _paper_ab_winning_cfg(_ex, _pos):
             # Paper exit A/B: only paper atr2x_8h positions get the 8h loss timeout.
@@ -1568,6 +1569,13 @@ async def run_bot_loop():
                             _trig = _exec.check_paper_triggers(pos.coin, mark_price)
                             if _trig:
                                 continue
+
+                        # RSI dip sleeve: the 3×ATR stop is the trigger above.
+                        # RSI≥50 and the 12h hold are applied on the scan cycle.
+                        # Leave the Predator exit A/B, Winning timeout, profit-lock,
+                        # $15/−5% hard cap, and generic trail on the existing book only.
+                        if _is_rsi_dip_sleeve(pos):
+                            continue
 
                         # ── Winning risk OR legacy profit-lock (price-move based) ─────
                         # v32 Winning: BE@0.75%, TP1 40%@+2%, trail ladder 1.25/1.75/2.5,
