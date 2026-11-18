@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: preflight
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -98,7 +98,7 @@ jobs:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          command_timeout: 27m
+          command_timeout: 40m
           script: |
             set -e
             cd /root/shamrock-trading-bot
@@ -234,14 +234,15 @@ jobs:
             else
               echo "⚠️  WARNING: .env not found — bot will use code defaults"
             fi
-            echo "💾 Disk free before build: $(df -h / | tail -1 | awk '{print $4}')"
-            # Safe pre-build cleanup only: remove dangling layers/cache without stopping live containers.
-            docker image prune -f 2>/dev/null || true
-            docker builder prune -f --filter 'until=24h' --keep-storage 2GB 2>/dev/null || true
-            echo "💾 Disk free after safe pre-build cleanup: $(df -h / | tail -1 | awk '{print $4}')"
+            # Wipe builder cache before the build and refuse if the disk is still
+            # too full. An age filter kept a same-day failed build's cache (it
+            # freed 0 bytes on run 44377317257). No volumes: data/ and db-data stay.
+            bash scripts/deploy_disk.sh prebuild
 
-            # Build first while the current stack keeps running. If this fails, production stays up.
-            docker compose build --pull
+            # Build the shared image once while the current stack keeps running.
+            # Five parallel `docker compose build` exports unpacked the same
+            # layer five times and filled the disk. If this fails, production stays up.
+            docker compose build --pull bot
 
             # Only replace containers after the new images are available.
             docker compose up -d --remove-orphans
@@ -284,8 +285,7 @@ jobs:
 
             docker compose ps
             docker logs shamrock-bot --tail=30
-            # Post-deploy cleanup after successful health/readiness only. Do not prune volumes.
-            docker image prune -af --filter 'until=24h' 2>/dev/null || true
-            docker builder prune -af --filter 'until=24h' --keep-storage 2GB 2>/dev/null || true
-            echo "💾 Disk free after post-deploy cleanup: $(df -h / | tail -1 | awk '{print $4}')"
+            # After the new containers are healthy. Unused images and build cache
+            # only — does not prune volumes or stop the running stack.
+            bash scripts/deploy_disk.sh postdeploy
             echo "✅ Deployed shamrock-bot @ $GIT_SHA"

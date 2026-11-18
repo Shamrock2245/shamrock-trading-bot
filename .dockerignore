@@ -13,14 +13,25 @@ deploy_now.sh
 .gitignore
 
 # Python artifacts
+# A pattern with no slash matches only the context root ('*' does not match '/').
 venv/
 .venv/
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *.egg-info/
 dist/
 build/
 .pytest_cache/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+htmlcov/
+.coverage
+.tox/
+**/node_modules/
+**/.web/
 
 # IDE & OS
 .vscode/
@@ -30,16 +41,41 @@ build/
 .DS_Store
 Thumbs.db
 
-# Runtime data & logs
+# Runtime data & logs.
+# These live on bind mounts (./data, ./logs, ./output in docker-compose.yml).
+# The image only needs the Python packages under data/ (models, providers).
+# Do not exclude data/ itself.
+#
+# Docker uses moby/patternmatcher: '*' does not cross '/'. '*.db' excludes a
+# database at the context root and still sends data/optuna_studies.db (208MB
+# on the paper server, 241MB context, copied into every image). '**' matches
+# across directories, including zero.
 logs/
 output/
+data/candles/
+data/dashboard/
+data/backtest/
 data/*.csv
+data/**/*.csv
 data/*.json
 data/**/*.json
-data/dashboard/
+data/**/*.jsonl
+data/**/*.parquet
+data/**/*.pkl
+data/**/*.joblib
 *.log
+**/*.log
 *.db
+**/*.db
+*.sqlite
+**/*.sqlite
 *.sqlite3
+**/*.sqlite3
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.sqlite-wal
+**/*.sqlite-shm
 
 # Agent & workflow configs
 .agent/

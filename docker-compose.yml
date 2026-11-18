@@ -5,14 +5,21 @@
 #   docker-compose logs -f bot     → Tail bot logs
 #   docker-compose down            → Stop all services
 # ─────────────────────────────────────────────────────────────────────────────
+# One runtime image for every app service. `docker compose build bot` builds
+# it once; the other services reuse the tag. State is bind-mounted, not baked
+# in (see .dockerignore). pull_policy never: this tag is local, not on a registry.
+x-app-image: &app-image
+  image: shamrock-app:runtime
+  pull_policy: never
+  build:
+    context: .
+    target: runtime
 
 services:
 
   # ── Main Trading Bot ─────────────────────────────────────────────────────
   bot:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-bot
     restart: unless-stopped
     env_file:
@@ -52,9 +59,7 @@ services:
 
   # ── Paper Trading Mode (safe default) ────────────────────────────────────
   paper-trader:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-paper
     restart: unless-stopped
     env_file:
@@ -86,9 +91,7 @@ services:
 
   # ── Streamlit Dashboard ───────────────────────────────────────────────────
   dashboard:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-dashboard
     restart: unless-stopped
     env_file:
@@ -115,9 +118,7 @@ services:
 
   # ── Health Check Cron ─────────────────────────────────────────────────────
   health:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-health
     restart: unless-stopped
     env_file:
@@ -141,9 +142,7 @@ services:
   # ── ML Auto-Tuner Service ──────────────────────────────────────────────────
   # Always runs against paper-journaled trades during the tuning campaign.
   auto-tuner:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-auto-tuner
     restart: unless-stopped
     env_file:
@@ -174,9 +173,7 @@ services:
   # backtest/ walk-forward. Public info endpoint only: deliberately NO env_file
   # (no secrets, no trading config) and it imports nothing from core/.
   candle-recorder:
-    build:
-      context: .
-      target: runtime
+    <<: *app-image
     container_name: shamrock-candle-recorder
     restart: unless-stopped
     command: python3 -m backtest.candle_recorder --loop --every-min 60
