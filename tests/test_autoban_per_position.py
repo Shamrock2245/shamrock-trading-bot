@@ -180,11 +180,15 @@ def test_seed_recent_from_trade_log(monkeypatch, tmp_path):
          "reason": "restart_orphan", "pnl_usd": 0, "timestamp": "2026-10-15T19:11:00+00:00"},
         {"chain": "hyperliquid", "action": "SELL", "is_paper": False, "token_symbol": "BTC",
          "reason": "manual_or_monitor_close", "pnl_usd": -3, "timestamp": "2026-08-11T00:00:00+00:00"},
+        {"chain": "hyperliquid", "action": "SELL", "is_paper": True, "token_symbol": "AAVE",
+         "reason": "paper_close", "strategy": "rsi_dip_v1", "pnl_usd": -8,
+         "timestamp": "2026-11-18T00:00:00+00:00"},
     ]
     (tmp_path / "trades.json").write_text(json.dumps(rows))
     s = sc.HLPerpsScanner(hl_executor=MagicMock())
     assert [round(x[1], 2) for x in s._coin_perf["VVV"]["recent"]] == [1.5]
     assert "XMR" not in s._coin_perf and "BTC" not in s._coin_perf
+    assert "AAVE" not in s._coin_perf
     # second start does not double-seed
     s2 = sc.HLPerpsScanner(hl_executor=MagicMock())
     assert len(s2._coin_perf["VVV"]["recent"]) == 1

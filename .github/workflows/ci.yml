@@ -127,6 +127,9 @@ jobs:
               # 2026-09-28: Predator v1 expansion-only gate — PAPER ONLY (paper lock below stays true)
               grep -q '^HL_PERPS_ALLOWLIST=' .env && sed -i 's/^HL_PERPS_ALLOWLIST=.*/HL_PERPS_ALLOWLIST=BTC,AAVE,MON,DYDX,VVV,XMR,TNSR,VIRTUAL,BANANA,RESOLV,LTC,JUP,PUMP,AERO,INJ,LINK,SKY,SYRUP/' .env || echo 'HL_PERPS_ALLOWLIST=BTC,AAVE,MON,DYDX,VVV,XMR,TNSR,VIRTUAL,BANANA,RESOLV,LTC,JUP,PUMP,AERO,INJ,LINK,SKY,SYRUP' >> .env
               grep -q '^PREDATOR_V1_ENABLED=' .env && sed -i 's/^PREDATOR_V1_ENABLED=.*/PREDATOR_V1_ENABLED=true/' .env || echo 'PREDATOR_V1_ENABLED=true' >> .env
+              # 2026-11-18: paper-only RSI dip sleeve (frozen params; code default off).
+              # Does not change MODE, the promote gate, or the Predator exit A/B.
+              grep -q '^RSI_DIP_V1_ENABLED=' .env && sed -i 's/^RSI_DIP_V1_ENABLED=.*/RSI_DIP_V1_ENABLED=true/' .env || echo 'RSI_DIP_V1_ENABLED=true' >> .env
               grep -q '^PREDATOR_EXPANSION_ONLY=' .env && sed -i 's/^PREDATOR_EXPANSION_ONLY=.*/PREDATOR_EXPANSION_ONLY=true/' .env || echo 'PREDATOR_EXPANSION_ONLY=true' >> .env
               grep -q '^HL_PERPS_PAPER_EXEC_SCORE_DELTA=' .env && sed -i 's/^HL_PERPS_PAPER_EXEC_SCORE_DELTA=.*/HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5/' .env || echo 'HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5' >> .env
               grep -q '^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=.*/HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8/' .env || echo 'HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8' >> .env

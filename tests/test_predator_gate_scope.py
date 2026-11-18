@@ -69,6 +69,18 @@ def test_legacy_rows_without_chain(write):
     assert m["net_pnl"] == 1.0
 
 
+def test_rsi_dip_sleeve_is_not_the_predator_book(write):
+    """Sleeve closes are tagged and excluded. Gate thresholds stay put."""
+    m = write([
+        _hl(pnl_usd=10.0),
+        _hl(pnl_usd=-4.0, strategy="rsi_dip_v1", token_symbol="AAVE"),
+        _hl(pnl_usd=7.0, strategy="rsi_dip_v1", token_symbol="BTC"),
+    ])
+    assert m["closed_trades"] == 1
+    assert m["net_pnl"] == 10.0
+    assert (m["gates"]["min_trades"], m["gates"]["min_wr"], m["gates"]["min_pf"]) == (50, 0.50, 1.30)
+
+
 def test_thresholds_unchanged(write):
     m = write([_hl()])
     g = m["gates"]
