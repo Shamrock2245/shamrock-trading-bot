@@ -386,3 +386,38 @@ def test_loss_cap_shrinks_margin_but_not_the_stop_distance():
         equity=1000, max_positions=4, max_position_usd=150, max_notional_usd=350,
         leverage=3, margin_equity_pct=0.15, max_loss_usd=15, entry=100, atr=30,
     ) is None
+
+
+def test_sleeve_closes_are_not_paired_into_predator_outcomes():
+    import core.hl_perps_scanner as sc
+
+    rows = [
+        {"token_symbol": "AAVE", "strategy": "rsi_dip_v1", "pnl_usd": -5.0,
+         "reason": "paper_close", "timestamp": "2026-11-18T00:00:00+00:00"},
+        {"token_symbol": "BTC", "pnl_usd": 1.25, "reason": "paper_close",
+         "timestamp": "2026-11-18T00:00:00+00:00"},
+    ]
+    paired = sc._pair_positions(rows)
+    assert [coin for coin, _ts, _pnl in paired] == ["BTC"]
+
+
+def test_sleeve_opens_are_saved_after_the_pass(monkeypatch):
+    import core.hl_perps_scanner as sc
+
+    scanner = sc.HLPerpsScanner.__new__(sc.HLPerpsScanner)
+    scanner.opens_today = 2
+    scanner._last_cycle_signals = []
+    seen = {}
+
+    def _open(s, allow_entries=True):
+        s.opens_today += 1
+        return ["AAVE"]
+
+    def _save(signals):
+        seen["opens"] = scanner.opens_today
+        seen["n"] = len(signals)
+
+    monkeypatch.setattr(dip, "run_sleeve", _open)
+    scanner._save_state = _save
+    scanner._run_rsi_dip_sleeve(allow_entries=True)
+    assert seen == {"opens": 3, "n": 0}

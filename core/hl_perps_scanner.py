@@ -429,6 +429,10 @@ def _pair_positions(rows: list[dict]) -> list[tuple[str, float, float]]:
             pnl = float(t.get("pnl_usd") or t.get("closedPnl") or t.get("realized_pnl") or 0.0)
         except (TypeError, ValueError):
             pnl = 0.0
+        # rsi_dip_v1 is a separate paper book. Its closes must not become
+        # Predator expectancy / autoban outcomes on restart.
+        if str(t.get("strategy") or "") == "rsi_dip_v1":
+            continue
         tag = f"{t.get('reason') or ''} {t.get('exit_reason') or ''}".lower()
         if "partial" in tag:
             pending[coin] = pending.get(coin, 0.0) + pnl
@@ -1521,6 +1525,7 @@ class HLPerpsScanner:
             and str(t.get("action") or "").upper() == "SELL"
             and t.get("is_paper") is True
             and "orphan" not in str(t.get("reason") or "").lower()
+            and str(t.get("strategy") or "") != "rsi_dip_v1"
         ]
         positions = _pair_positions(rows)
         seeded = 0
@@ -2695,12 +2700,21 @@ class HLPerpsScanner:
         return extra
 
     def _run_rsi_dip_sleeve(self, *, allow_entries: bool) -> None:
-        """Paper RSI dip sleeve. Flag-off and any error leave the Predator cycle alone."""
+        """Paper RSI dip sleeve. Flag-off and any error leave the Predator cycle alone.
+
+        State is saved after the sleeve mutates opens_today. Saving before this
+        call dropped the new opens on a restart and let the daily cap be exceeded.
+        """
         try:
             from core.rsi_dip_v1 import run_sleeve
             run_sleeve(self, allow_entries=allow_entries)
         except Exception as exc:
             logger.warning(f"[RSI-DIP] cycle skipped: {exc}")
+        finally:
+            try:
+                self._save_state(list(getattr(self, "_last_cycle_signals", None) or []))
+            except Exception as exc:
+                logger.debug(f"[RSI-DIP] state save after sleeve failed: {exc}")
 
     def run_cycle(self) -> list[PerpSignal]:
         """
@@ -2763,8 +2777,9 @@ class HLPerpsScanner:
                         f"[HL-PERPS] Time gate: hour={et_hour} ET in blocked set "
                         f"{sorted(HL_PERPS_BLOCKED_HOURS_ET)} — skipping new entries this cycle"
                     )
-                self._save_state([])
                 # Sleeve exits still run. New sleeve entries respect this halt.
+                # _run_rsi_dip_sleeve persists state after that pass.
+                self._last_cycle_signals = []
                 self._run_rsi_dip_sleeve(allow_entries=False)
                 return []
 
@@ -2920,7 +2935,7 @@ class HLPerpsScanner:
                 f"Fib + TA29 gate active"
             )
 
-        self._save_state(signals)
+        self._last_cycle_signals = signals
         self._run_rsi_dip_sleeve(allow_entries=True)
         return signals
 
