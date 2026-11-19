@@ -1,8 +1,9 @@
 """Paper-only long RSI dip sleeve (rsi_dip_v1).
 
 Frozen forward test of the 1h capitulation-buy from
-docs/backtest/ALT_STRATEGY_RESEARCH_2026-11-03.md. Parameters are constants,
-not env knobs:
+docs/backtest/ALT_STRATEGY_RESEARCH_2026-11-03.md. The research parameters
+stay code constants (the walk-forward tuner may recommend new ones; it does
+not apply them):
 
   * 1h candles, signal on the last *closed* bar, fill at the paper mid
   * long when RSI(14) <= 20 (Wilder / pandas ewm alpha=1/14, same as the study)
@@ -11,20 +12,28 @@ not env knobs:
   * at most 3 open positions in this sleeve
   * universe = Predator allowlist minus the hard-ban list
 
+A stop-out is different from an RSI or time exit: that coin stays blocked
+until RSI_DIP_STOP_COOLDOWN_HOURS has passed and a later closed bar has
+printed RSI at or above RSI_DIP_STOP_REARM_RSI. Both default on. Zero
+disables that gate. State is output/rsi_dip_stop_cooldowns.json.
+
 Flag RSI_DIP_V1_ENABLED defaults off in code. .env.example and the CI deploy
 sed turn it on for the paper host. enabled() is still false unless the
 process mode is paper, so the flag cannot reach a live order.
 
 This sleeve does not score with Moralis, does not join the Predator exit A/B
 (control vs atr2x_8h), and does not count toward the Predator promote gate.
-Its journal rows carry strategy='rsi_dip_v1'.
+Its journal rows carry strategy='rsi_dip_v1'. The paper tournament can pause
+new entries; open positions still exit.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -49,6 +58,110 @@ EXIT_RSI = "rsi_revert"
 EXIT_TIME = "time"
 
 
+def _env_float(name: str, default: str) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def cooldown_hours() -> float:
+    """Hours a coin stays blocked after a stop. 0 disables the clock."""
+    return max(0.0, _env_float("RSI_DIP_STOP_COOLDOWN_HOURS", "6"))
+
+
+def rearm_level() -> float:
+    """RSI that must print after the stop before the coin can arm again. <= 0 disables."""
+    level = _env_float("RSI_DIP_STOP_REARM_RSI", "35")
+    return level if level > 0 else 0.0
+
+
+def now_ts() -> float:
+    return time.time()
+
+
+def _cooldown_path() -> Path:
+    return Path(os.getenv("RSI_DIP_COOLDOWN_STATE_FILE", "output/rsi_dip_stop_cooldowns.json"))
+
+
+def _load_stop_state() -> dict:
+    path = _cooldown_path()
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _save_stop_state(state: dict) -> None:
+    path = _cooldown_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        logger.debug(f"[RSI-DIP] cooldown state write failed: {exc}")
+
+
+def note_stop_out(coin: str, now: Optional[float] = None) -> None:
+    """Remember a stop. RSI and time exits do not call this."""
+    name = (coin or "").strip().upper()
+    if not name:
+        return
+    state = _load_stop_state()
+    state[name] = {
+        "stopped_at": float(now if now is not None else now_ts()),
+        "rearmed": False,
+    }
+    _save_stop_state(state)
+
+
+def refresh_stop_rearm(coin: str, bars: list[tuple]) -> None:
+    """Mark the coin rearmed once a closed bar after the stop prints RSI >= level."""
+    level = rearm_level()
+    if level <= 0:
+        return
+    name = (coin or "").strip().upper()
+    state = _load_stop_state()
+    rec = state.get(name)
+    if not rec or rec.get("rearmed"):
+        return
+    stopped = float(rec.get("stopped_at") or 0)
+    closes = [float(bar[4]) for bar in bars or []]
+    path = rsi_path(closes)
+    for i, bar in enumerate(bars or []):
+        if float(bar[1]) / 1000.0 <= stopped:
+            continue
+        rsi = path[i] if i < len(path) else None
+        if rsi is not None and float(rsi) >= level:
+            rec["rearmed"] = True
+            state[name] = rec
+            _save_stop_state(state)
+            return
+
+
+def stop_block_reason(coin: str, now: Optional[float] = None) -> Optional[str]:
+    """Why this coin cannot re-enter, or None when the stop block has cleared."""
+    name = (coin or "").strip().upper()
+    state = _load_stop_state()
+    rec = state.get(name)
+    if not rec:
+        return None
+    now_v = float(now if now is not None else now_ts())
+    elapsed_h = (now_v - float(rec.get("stopped_at") or 0)) / 3600.0
+    cool = cooldown_hours()
+    if cool > 0 and elapsed_h < cool:
+        return "stop_cooldown"
+    if rearm_level() > 0 and not rec.get("rearmed"):
+        return "stop_rearm"
+    state.pop(name, None)
+    _save_stop_state(state)
+    return None
+
+
 def paper_mode_active() -> bool:
     """True only when the process mode is paper. Fails closed."""
     try:
@@ -67,12 +180,18 @@ def enabled() -> bool:
 
 
 def is_sleeve_position(pos) -> bool:
+    """True for this sleeve and any other name in the paper-sleeve set.
+
+    The executor uses this to keep sleeve closes out of Predator autoban,
+    the hot streak, and the daily-goal switch. rsi_dip_v1 is always included.
+    """
     if pos is None:
         return False
-    if str(getattr(pos, "strategy", "") or "") == STRATEGY:
+    from core.paper_sleeves import is_sleeve_strategy
+    if is_sleeve_strategy(getattr(pos, "strategy", "")):
         return True
     ctx = getattr(pos, "regime_ctx", None) or {}
-    return str(ctx.get("strategy") or "") == STRATEGY
+    return is_sleeve_strategy(ctx.get("strategy"))
 
 
 def rsi_ewm(closes: list[float], period: int = RSI_PERIOD) -> Optional[float]:
@@ -103,6 +222,34 @@ def rsi_ewm(closes: list[float], period: int = RSI_PERIOD) -> Optional[float]:
     return 100.0 - (100.0 / (1.0 + (avg_up / avg_dn)))
 
 
+def rsi_path(closes: list[float], period: int = RSI_PERIOD) -> list[Optional[float]]:
+    """RSI after each close. The last value matches rsi_ewm. Early bars are None."""
+    n = 0 if closes is None else len(closes)
+    out: list[Optional[float]] = [None] * n
+    if n < period + 1:
+        return out
+    alpha = 1.0 / period
+    avg_up = None
+    avg_dn = None
+    for i in range(1, n):
+        delta = float(closes[i]) - float(closes[i - 1])
+        up = delta if delta > 0 else 0.0
+        dn = -delta if delta < 0 else 0.0
+        if avg_up is None:
+            avg_up = up
+            avg_dn = dn
+        else:
+            avg_up = alpha * up + (1.0 - alpha) * avg_up
+            avg_dn = alpha * dn + (1.0 - alpha) * avg_dn
+        if i < period:
+            continue
+        if not avg_dn:
+            out[i] = 100.0 if avg_up and avg_up > 0 else None
+        else:
+            out[i] = 100.0 - (100.0 / (1.0 + (avg_up / avg_dn)))
+    return out
+
+
 def atr_ewm(
     highs: list[float],
     lows: list[float],
@@ -124,6 +271,30 @@ def atr_ewm(
     if ema is None or ema <= 0:
         return None
     return float(ema)
+
+
+def atr_path(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = ATR_PERIOD,
+) -> list[Optional[float]]:
+    """ATR after each bar. The last value matches atr_ewm once history is long enough."""
+    n = len(closes) if closes is not None else 0
+    out: list[Optional[float]] = [None] * n
+    if n < 2 or len(highs) < n or len(lows) < n:
+        return out
+    alpha = 1.0 / period
+    ema = None
+    for i in range(1, n):
+        high = float(highs[i])
+        low = float(lows[i])
+        prev = float(closes[i - 1])
+        tr = max(high - low, abs(high - prev), abs(low - prev))
+        ema = tr if ema is None else alpha * tr + (1.0 - alpha) * ema
+        if i >= period and ema and ema > 0:
+            out[i] = float(ema)
+    return out
 
 
 def entry_signal(rsi: Optional[float]) -> bool:
@@ -203,16 +374,35 @@ def universe_coins(allow: Optional[set[str]] = None, ban: Optional[set[str]] = N
     return sorted(c for c in allow if in_universe(c, allow, ban))
 
 
-def sleeve_admission(coin: str, open_sleeve: set[str]) -> tuple[bool, str]:
-    """Max 3 concurrent sleeve positions, one per coin."""
+def sleeve_admission(
+    coin: str,
+    open_sleeve: set[str],
+    *,
+    max_concurrent: int = MAX_CONCURRENT,
+) -> tuple[bool, str]:
+    """Concurrent sleeve cap (default 3), one position per coin."""
     c = (coin or "").strip().upper()
     if not c:
         return False, "bad_coin"
     if c in open_sleeve:
         return False, "already_open"
-    if len(open_sleeve) >= MAX_CONCURRENT:
+    try:
+        cap = int(max_concurrent)
+    except (TypeError, ValueError):
+        cap = MAX_CONCURRENT
+    if cap <= 0 or len(open_sleeve) >= cap:
         return False, "sleeve_cap"
     return True, "ok"
+
+
+def _sleeve_slot_cap() -> int:
+    """Tournament cap. A failure leaves the sleeve at its own max of 3."""
+    try:
+        from core.strategy_tournament import slot_cap
+        return int(slot_cap(STRATEGY, MAX_CONCURRENT))
+    except Exception as exc:
+        logger.debug(f"[RSI-DIP] tournament cap unavailable: {exc}")
+        return MAX_CONCURRENT
 
 
 def plan_margin_usd(
@@ -375,6 +565,8 @@ def _manage_exits(scanner, executor) -> list[str]:
             res = _close_paper(executor, sym, fill=fill, reason=reason)
         if res:
             closed.append(sym)
+            if reason == EXIT_STOP:
+                note_stop_out(sym)
             logger.info(
                 f"[RSI-DIP] CLOSE {sym} reason={reason} rsi={rsi if rsi is not None else 'na'}"
             )
@@ -427,6 +619,10 @@ def _manage_entries(scanner, executor) -> list[str]:
     if block:
         logger.info(f"[RSI-DIP] entries paused — {block}")
         return opened
+    cap = _sleeve_slot_cap()
+    if cap <= 0:
+        logger.info("[RSI-DIP] entries paused — strategy tournament")
+        return opened
     coins = universe_coins()
     positions = getattr(executor, "positions", {}) or {}
     sleeve_open = _sleeve_coins(positions)
@@ -439,11 +635,17 @@ def _manage_entries(scanner, executor) -> list[str]:
         except Exception as exc:
             logger.debug(f"[RSI-DIP] {coin} candles failed: {exc}")
             continue
-        ind = bar_indicators(closed_bars(raw))
+        bars = closed_bars(raw)
+        refresh_stop_rearm(coin, bars)
+        ind = bar_indicators(bars)
         if ind is None:
             continue
         rsi, atr = ind
         if not entry_signal(rsi):
+            continue
+        blocked = stop_block_reason(coin)
+        if blocked:
+            logger.info(f"[RSI-DIP] {coin} skipped — {blocked}")
             continue
         candidates.append((rsi, coin, atr))
     # Deepest dip first when several coins signal on the same pass (the cap
@@ -483,7 +685,7 @@ def _manage_entries(scanner, executor) -> list[str]:
     for rsi, coin, atr in candidates:
         positions = getattr(executor, "positions", {}) or {}
         sleeve_open = _sleeve_coins(positions)
-        ok, why = sleeve_admission(coin, sleeve_open)
+        ok, why = sleeve_admission(coin, sleeve_open, max_concurrent=cap)
         if not ok:
             logger.info(f"[RSI-DIP] {coin} skipped — {why}")
             continue
@@ -562,6 +764,11 @@ def run_sleeve(scanner, *, allow_entries: bool = True) -> list[str]:
     if not getattr(executor, "is_paper", False) or not paper_mode_active():
         logger.error("[RSI-DIP] executor is not paper — sleeve idle, no order sent")
         return []
+    try:
+        from core.strategy_tournament import publish
+        publish()
+    except Exception as exc:
+        logger.debug(f"[RSI-DIP] tournament status skipped: {exc}")
     acted = _manage_exits(scanner, executor)
     if allow_entries:
         acted.extend(_manage_entries(scanner, executor))

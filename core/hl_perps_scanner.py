@@ -262,6 +262,22 @@ def paper_stretched_tp_penalty(tp_source: str) -> float:
     return HL_PERPS_PAPER_STRETCHED_TP_PENALTY
 
 
+def ta29_long_trend_min() -> float:
+    """Long veto: TA29 trend below this rejects the setup. Default 35 (unchanged)."""
+    try:
+        return float(os.getenv("HL_PERPS_TA29_LONG_TREND_MIN", "35"))
+    except (TypeError, ValueError):
+        return 35.0
+
+
+def ta29_short_trend_max() -> float:
+    """Short veto: TA29 trend above this rejects the setup. Default 65 (unchanged)."""
+    try:
+        return float(os.getenv("HL_PERPS_TA29_SHORT_TREND_MAX", "65"))
+    except (TypeError, ValueError):
+        return 65.0
+
+
 def apply_paper_exec_delta(exec_score: float) -> float:
     """Loosen the post Fib+TA29 exec bar in paper only. Live: identity."""
     if not _paper_mode_active() or HL_PERPS_PAPER_EXEC_SCORE_DELTA == 0.0:
@@ -429,9 +445,10 @@ def _pair_positions(rows: list[dict]) -> list[tuple[str, float, float]]:
             pnl = float(t.get("pnl_usd") or t.get("closedPnl") or t.get("realized_pnl") or 0.0)
         except (TypeError, ValueError):
             pnl = 0.0
-        # rsi_dip_v1 is a separate paper book. Its closes must not become
+        # Paper sleeves are a separate book. Their closes must not become
         # Predator expectancy / autoban outcomes on restart.
-        if str(t.get("strategy") or "") == "rsi_dip_v1":
+        from core.paper_sleeves import is_sleeve_strategy
+        if is_sleeve_strategy(t.get("strategy")):
             continue
         tag = f"{t.get('reason') or ''} {t.get('exit_reason') or ''}".lower()
         if "partial" in tag:
@@ -1518,6 +1535,7 @@ class HLPerpsScanner:
             return
         if not isinstance(raw, list):
             return
+        from core.paper_sleeves import is_sleeve_strategy
         rows = [
             t for t in raw
             if isinstance(t, dict)
@@ -1525,7 +1543,7 @@ class HLPerpsScanner:
             and str(t.get("action") or "").upper() == "SELL"
             and t.get("is_paper") is True
             and "orphan" not in str(t.get("reason") or "").lower()
-            and str(t.get("strategy") or "") != "rsi_dip_v1"
+            and not is_sleeve_strategy(t.get("strategy"))
         ]
         positions = _pair_positions(rows)
         seeded = 0
@@ -1848,17 +1866,21 @@ class HLPerpsScanner:
             ta29 = run_all_indicators(df)
             ta29_avg = (ta29.trend_score + ta29.momentum_score + ta29.volume_score) / 3.0
 
-            # Directional agreement check
-            if direction == "long" and ta29.trend_score < 35:
+            # Directional agreement check. Thresholds stay 35 / 65 unless the
+            # env overrides them. The walk-forward tuner reads the same knobs
+            # and only recommends; it does not change this veto by itself.
+            _long_min = ta29_long_trend_min()
+            _short_max = ta29_short_trend_max()
+            if direction == "long" and ta29.trend_score < _long_min:
                 logger.debug(
                     f"[HL-PERPS] {coin}: HL says LONG (score={score:.0f}) but "
-                    f"TA29 trend={ta29.trend_score:.0f} < 35 — VETOED"
+                    f"TA29 trend={ta29.trend_score:.0f} < {_long_min:g} — VETOED"
                 )
                 return None
-            elif direction == "short" and ta29.trend_score > 65:
+            elif direction == "short" and ta29.trend_score > _short_max:
                 logger.debug(
                     f"[HL-PERPS] {coin}: HL says SHORT (score={score:.0f}) but "
-                    f"TA29 trend={ta29.trend_score:.0f} > 65 — VETOED"
+                    f"TA29 trend={ta29.trend_score:.0f} > {_short_max:g} — VETOED"
                 )
                 return None
 

@@ -203,7 +203,7 @@ def test_application_code_is_still_copied():
 
 def test_compose_shares_one_image_and_keeps_data_mounts():
     text = COMPOSE.read_text()
-    assert text.count("<<: *app-image") == 6
+    assert text.count("<<: *app-image") == 7
     assert text.count("image: shamrock-app:runtime") == 1
     assert text.count("target: runtime") == 1
     assert "pull_policy: never" in text
@@ -214,11 +214,12 @@ def test_compose_shares_one_image_and_keeps_data_mounts():
         "health:",
         "auto-tuner:",
         "candle-recorder:",
+        "paper-tuner:",
     ):
         assert service in text
     # db stays the stock alpine volume holder, not the app image.
     assert "image: alpine:3.18" in text
-    assert text.count("./data:/app/data") == 6
+    assert text.count("./data:/app/data") == 7
     assert "./logs:/app/logs" in text
     assert "./output:/app/output" in text
     assert "db-data:/data" in text

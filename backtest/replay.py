@@ -52,6 +52,7 @@ class Signal:
     tp_source: str
     fib_zone: str
     funding: float
+    ta29_trend: Optional[float] = None
 
 
 def daily_from_hourly(h: list[dict]) -> list[dict]:
@@ -129,6 +130,11 @@ def replay_coin(coin: str, hourly: list[dict], start_ms: int, funding_by_hour: O
         if not sig:
             continue
         entry_ms = bar["t"] + 3_600_000
+        raw_trend = (sig.components or {}).get("ta29_trend")
+        try:
+            ta29_trend = float(raw_trend) if raw_trend is not None else None
+        except (TypeError, ValueError):
+            ta29_trend = None
         out.append(Signal(
             coin=coin, t=bar["t"], entry_ms=entry_ms,
             hour_et=datetime.fromtimestamp(entry_ms / 1000, ET).hour,
@@ -136,6 +142,7 @@ def replay_coin(coin: str, hourly: list[dict], start_ms: int, funding_by_hour: O
             sl=float(sig.stop_loss_price), tp=float(sig.take_profit_price),
             tp_source=str((sig.components or {}).get("tp_source") or _tp_src(sig.reasoning)),
             fib_zone=str(sig.fib_zone or "none"), funding=fr,
+            ta29_trend=ta29_trend,
         ))
     return out
 

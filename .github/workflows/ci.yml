@@ -130,6 +130,25 @@ jobs:
               # 2026-11-18: paper-only RSI dip sleeve (frozen params; code default off).
               # Does not change MODE, the promote gate, or the Predator exit A/B.
               grep -q '^RSI_DIP_V1_ENABLED=' .env && sed -i 's/^RSI_DIP_V1_ENABLED=.*/RSI_DIP_V1_ENABLED=true/' .env || echo 'RSI_DIP_V1_ENABLED=true' >> .env
+              grep -q '^RSI_DIP_STOP_COOLDOWN_HOURS=' .env && sed -i 's/^RSI_DIP_STOP_COOLDOWN_HOURS=.*/RSI_DIP_STOP_COOLDOWN_HOURS=6/' .env || echo 'RSI_DIP_STOP_COOLDOWN_HOURS=6' >> .env
+              grep -q '^RSI_DIP_STOP_REARM_RSI=' .env && sed -i 's/^RSI_DIP_STOP_REARM_RSI=.*/RSI_DIP_STOP_REARM_RSI=35/' .env || echo 'RSI_DIP_STOP_REARM_RSI=35' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_ENABLED=' .env && sed -i 's/^STRATEGY_TOURNAMENT_ENABLED=.*/STRATEGY_TOURNAMENT_ENABLED=true/' .env || echo 'STRATEGY_TOURNAMENT_ENABLED=true' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_MIN_CLOSES=' .env && sed -i 's/^STRATEGY_TOURNAMENT_MIN_CLOSES=.*/STRATEGY_TOURNAMENT_MIN_CLOSES=20/' .env || echo 'STRATEGY_TOURNAMENT_MIN_CLOSES=20' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_PF_FLOOR=' .env && sed -i 's/^STRATEGY_TOURNAMENT_PF_FLOOR=.*/STRATEGY_TOURNAMENT_PF_FLOOR=0.80/' .env || echo 'STRATEGY_TOURNAMENT_PF_FLOOR=0.80' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_WINDOW=' .env && sed -i 's/^STRATEGY_TOURNAMENT_WINDOW=.*/STRATEGY_TOURNAMENT_WINDOW=30/' .env || echo 'STRATEGY_TOURNAMENT_WINDOW=30' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_SHIFT_SLOTS=' .env && sed -i 's/^STRATEGY_TOURNAMENT_SHIFT_SLOTS=.*/STRATEGY_TOURNAMENT_SHIFT_SLOTS=true/' .env || echo 'STRATEGY_TOURNAMENT_SHIFT_SLOTS=true' >> .env
+              grep -q '^STRATEGY_TOURNAMENT_SLEEVES=' .env && sed -i 's/^STRATEGY_TOURNAMENT_SLEEVES=.*/STRATEGY_TOURNAMENT_SLEEVES=rsi_dip_v1/' .env || echo 'STRATEGY_TOURNAMENT_SLEEVES=rsi_dip_v1' >> .env
+              grep -q '^WALK_FORWARD_TUNER_ENABLED=' .env && sed -i 's/^WALK_FORWARD_TUNER_ENABLED=.*/WALK_FORWARD_TUNER_ENABLED=true/' .env || echo 'WALK_FORWARD_TUNER_ENABLED=true' >> .env
+              grep -q '^WALK_FORWARD_TUNER_INTERVAL_HOURS=' .env && sed -i 's/^WALK_FORWARD_TUNER_INTERVAL_HOURS=.*/WALK_FORWARD_TUNER_INTERVAL_HOURS=24/' .env || echo 'WALK_FORWARD_TUNER_INTERVAL_HOURS=24' >> .env
+              grep -q '^WALK_FORWARD_TUNER_MIN_OOS_TRADES=' .env && sed -i 's/^WALK_FORWARD_TUNER_MIN_OOS_TRADES=.*/WALK_FORWARD_TUNER_MIN_OOS_TRADES=30/' .env || echo 'WALK_FORWARD_TUNER_MIN_OOS_TRADES=30' >> .env
+              grep -q '^WALK_FORWARD_TUNER_MIN_IS_TRADES=' .env && sed -i 's/^WALK_FORWARD_TUNER_MIN_IS_TRADES=.*/WALK_FORWARD_TUNER_MIN_IS_TRADES=20/' .env || echo 'WALK_FORWARD_TUNER_MIN_IS_TRADES=20' >> .env
+              grep -q '^WALK_FORWARD_TUNER_PF_MARGIN=' .env && sed -i 's/^WALK_FORWARD_TUNER_PF_MARGIN=.*/WALK_FORWARD_TUNER_PF_MARGIN=0.15/' .env || echo 'WALK_FORWARD_TUNER_PF_MARGIN=0.15' >> .env
+              grep -q '^WALK_FORWARD_TUNER_MIN_OOS_PF=' .env && sed -i 's/^WALK_FORWARD_TUNER_MIN_OOS_PF=.*/WALK_FORWARD_TUNER_MIN_OOS_PF=1.0/' .env || echo 'WALK_FORWARD_TUNER_MIN_OOS_PF=1.0' >> .env
+              grep -q '^WALK_FORWARD_TUNER_TRAIN_DAYS=' .env && sed -i 's/^WALK_FORWARD_TUNER_TRAIN_DAYS=.*/WALK_FORWARD_TUNER_TRAIN_DAYS=60/' .env || echo 'WALK_FORWARD_TUNER_TRAIN_DAYS=60' >> .env
+              grep -q '^WALK_FORWARD_TUNER_TEST_DAYS=' .env && sed -i 's/^WALK_FORWARD_TUNER_TEST_DAYS=.*/WALK_FORWARD_TUNER_TEST_DAYS=20/' .env || echo 'WALK_FORWARD_TUNER_TEST_DAYS=20' >> .env
+              grep -q '^WALK_FORWARD_TUNER_PREDATOR_REPLAY=' .env && sed -i 's/^WALK_FORWARD_TUNER_PREDATOR_REPLAY=.*/WALK_FORWARD_TUNER_PREDATOR_REPLAY=true/' .env || echo 'WALK_FORWARD_TUNER_PREDATOR_REPLAY=true' >> .env
+              grep -q '^HL_PERPS_TA29_LONG_TREND_MIN=' .env && sed -i 's/^HL_PERPS_TA29_LONG_TREND_MIN=.*/HL_PERPS_TA29_LONG_TREND_MIN=35/' .env || echo 'HL_PERPS_TA29_LONG_TREND_MIN=35' >> .env
+              grep -q '^HL_PERPS_TA29_SHORT_TREND_MAX=' .env && sed -i 's/^HL_PERPS_TA29_SHORT_TREND_MAX=.*/HL_PERPS_TA29_SHORT_TREND_MAX=65/' .env || echo 'HL_PERPS_TA29_SHORT_TREND_MAX=65' >> .env
               grep -q '^PREDATOR_EXPANSION_ONLY=' .env && sed -i 's/^PREDATOR_EXPANSION_ONLY=.*/PREDATOR_EXPANSION_ONLY=true/' .env || echo 'PREDATOR_EXPANSION_ONLY=true' >> .env
               grep -q '^HL_PERPS_PAPER_EXEC_SCORE_DELTA=' .env && sed -i 's/^HL_PERPS_PAPER_EXEC_SCORE_DELTA=.*/HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5/' .env || echo 'HL_PERPS_PAPER_EXEC_SCORE_DELTA=-5' >> .env
               grep -q '^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=' .env && sed -i 's/^HL_PERPS_PAPER_TOXIC_SCORE_BONUS=.*/HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8/' .env || echo 'HL_PERPS_PAPER_TOXIC_SCORE_BONUS=8' >> .env
