@@ -516,9 +516,11 @@ def _manage_exits(scanner, executor) -> list[str]:
     closed: list[str] = []
     positions = dict(getattr(executor, "positions", {}) or {})
     for coin, pos in positions.items():
-        if not is_sleeve_position(pos):
-            continue
         sym = str(coin).upper()
+        strat = str(getattr(pos, "strategy", "") or "")
+        ctx_strat = str((getattr(pos, "regime_ctx", None) or {}).get("strategy") or "")
+        if strat != STRATEGY and ctx_strat != STRATEGY:
+            continue
         mark = None
         try:
             mark = executor.get_price(sym) if hasattr(executor, "get_price") else None

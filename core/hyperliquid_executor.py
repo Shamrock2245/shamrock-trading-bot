@@ -2832,10 +2832,18 @@ class HyperliquidExecutor:
             sl = float(pos.stop_loss_price) if pos.stop_loss_price else None
             tp = float(pos.take_profit_price) if pos.take_profit_price else None
             try:
+                from core.rsi_dip_v1 import STRATEGY as _RSI_DIP
                 from core.rsi_dip_v1 import is_sleeve_position as _is_sleeve_pos
                 _sleeve = _is_sleeve_pos(pos)
+                _strat = str(getattr(pos, "strategy", "") or "")
+                _ctx_strat = str((getattr(pos, "regime_ctx", None) or {}).get("strategy") or "")
+                # Cooldown belongs to rsi_dip_v1 only. Another name in
+                # STRATEGY_TOURNAMENT_SLEEVES is still a sleeve for autoban,
+                # but its stop must not block an RSI-dip re-entry.
+                _rsi_dip = _strat == _RSI_DIP or _ctx_strat == _RSI_DIP
             except Exception:
                 _sleeve = False
+                _rsi_dip = False
         slip = paper_trigger_slippage_frac()
         fill = None
         reason = None
@@ -2866,9 +2874,9 @@ class HyperliquidExecutor:
         res = self._paper_close_position(sym, size_pct=None, fill_price=fill, exit_reason=reason)
         if res is not None:
             res["exit_reason"] = reason
-            # The trailing monitor closes sleeve stops here, before the sleeve
-            # cycle runs. Record the cooldown or the coin re-enters immediately.
-            if _sleeve and reason == "stop":
+            # The trailing monitor closes rsi_dip stops here, before the sleeve
+            # cycle runs. Record that coin only. Other sleeves do not share it.
+            if _rsi_dip and reason == "stop":
                 try:
                     from core.rsi_dip_v1 import note_stop_out
                     note_stop_out(sym)

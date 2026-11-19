@@ -476,6 +476,25 @@ def test_trailing_monitor_stop_still_arms_the_cooldown(monkeypatch, tmp_path):
     assert "AAVE" not in e.positions
 
 
+def test_other_sleeve_stop_does_not_arm_the_rsi_cooldown(monkeypatch, tmp_path):
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_SLEEVES", "rsi_dip_v1,alpha_v2")
+    monkeypatch.setenv("RSI_DIP_STOP_COOLDOWN_HOURS", "6")
+    monkeypatch.setenv("RSI_DIP_STOP_REARM_RSI", "35")
+    monkeypatch.setenv("PAPER_SLTP_ENFORCE", "true")
+    e = _exec(monkeypatch, tmp_path, paper=True)
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_SLEEVES", "rsi_dip_v1,alpha_v2")
+    e.positions["SKY"] = hx.HLPosition(
+        coin="SKY", side="long", entry_price=100, size=1, size_usd=50,
+        leverage=3, stop_loss_price=90, strategy="alpha_v2",
+        regime_ctx={"strategy": "alpha_v2"},
+    )
+    res = e.check_paper_triggers("SKY", 89)
+    assert res is not None
+    assert "SKY" not in e.positions
+    assert not (tmp_path / "rsi_stops.json").exists()
+    assert dip.stop_block_reason("SKY") is None
+
+
 def test_rsi_and_time_exits_do_not_arm_the_stop_cooldown(monkeypatch, tmp_path):
     monkeypatch.setenv("RSI_DIP_V1_ENABLED", "true")
     monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
