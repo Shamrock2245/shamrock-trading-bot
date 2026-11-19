@@ -88,7 +88,9 @@ reports/
 *.md
 !requirements.txt
 
-# Scripts not needed in container (but allow health_check + paper_trade)
+# Scripts not needed in container. The directory is excluded, then each
+# compose `python3 scripts/...` entrypoint is re-included. A new service
+# command must be added here or the container crash-loops with Errno 2.
 scripts/
 !scripts/__init__.py
 !scripts/health_check.py
@@ -98,4 +100,5 @@ scripts/
 !scripts/reviewer.py
 !scripts/monitor_check.py
 !scripts/auto_tuner_service.py
+!scripts/walk_forward_tuner.py
 tests/

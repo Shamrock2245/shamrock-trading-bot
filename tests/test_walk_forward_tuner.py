@@ -372,6 +372,64 @@ def test_predator_replay_passes_the_scanner_pair(monkeypatch):
     assert seen["scanner"] == ("scanner-obj", "module")
 
 
+def test_oos_excludes_trades_that_exit_after_the_window():
+    """A trade entered in the test window must also close inside it to count."""
+    from core.walk_forward_tuner import filter_predator_pnls, tune_rsi_dip
+
+    start = 1_700_000_000_000
+    day = 86_400_000
+    hour = 3_600_000
+    train_end = start + 60 * day
+    test_end = start + 80 * day
+    late = {
+        "coin": "BTC", "direction": "long", "score": 80, "ta29_trend": 50,
+        "entry_ms": train_end + day, "exit_ms": test_end + day, "pnl": 100.0,
+    }
+    inside = {
+        "coin": "AAVE", "direction": "long", "score": 80, "ta29_trend": 50,
+        "entry_ms": train_end + day, "exit_ms": train_end + 2 * hour, "pnl": -1.0,
+    }
+    params = {"exec_score": 60.0, "ta29_long_trend_min": 35.0, "long_only": True}
+    kept = filter_predator_pnls(
+        [late, inside], params, entry_start=train_end, entry_end=test_end, exit_before=test_end,
+    )
+    assert kept == [-1.0]
+
+    candles = {
+        "BTC": [{"t": start + i * day, "o": 100, "h": 101, "l": 99, "c": 100} for i in range(90)],
+    }
+    current = DipParams()
+    loose = DipParams(rsi_entry=30, rsi_exit=55, atr_mult=4, max_hold_hours=12, cooldown_hours=6, rearm_rsi=35)
+
+    def sim(_candles, params):
+        if params.rsi_entry == 30:
+            is_rows = [
+                {"coin": "BTC", "entry_ms": start + (i + 1) * day, "exit_ms": start + (i + 1) * day + hour,
+                 "pnl": 1.0, "reason": "time"}
+                for i in range(25)
+            ]
+            return is_rows + [{
+                "coin": "BTC", "entry_ms": train_end + day, "exit_ms": test_end + day,
+                "pnl": 100.0, "reason": "time",
+            }]
+        return [{
+            "coin": "BTC", "entry_ms": start + day, "exit_ms": start + 2 * day,
+            "pnl": 1.0, "reason": "time",
+        }, {
+            "coin": "BTC", "entry_ms": start + 2 * day, "exit_ms": start + 3 * day,
+            "pnl": -1.0, "reason": "stop",
+        }]
+
+    guards = dict(_GUARDS, min_oos_trades=1, min_is_trades=20, min_oos_pf=1.0, pf_margin=0.15)
+    rec = tune_rsi_dip(
+        candles, grid=[current, loose], current=current, guards=guards, simulate=sim,
+    )
+    assert rec["recommend"] is False
+    assert rec["reason"] == "oos_trade_count"
+    assert rec["candidate_params"]["rsi_entry"] == 30
+    assert rec["oos"]["n"] == 0
+
+
 def test_tune_rsi_on_no_candles_does_not_recommend():
     rec = tune_rsi_dip({}, current=current_dip_params(), guards=_GUARDS)
     assert rec["recommend"] is False
