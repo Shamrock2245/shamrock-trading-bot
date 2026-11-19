@@ -2866,6 +2866,14 @@ class HyperliquidExecutor:
         res = self._paper_close_position(sym, size_pct=None, fill_price=fill, exit_reason=reason)
         if res is not None:
             res["exit_reason"] = reason
+            # The trailing monitor closes sleeve stops here, before the sleeve
+            # cycle runs. Record the cooldown or the coin re-enters immediately.
+            if _sleeve and reason == "stop":
+                try:
+                    from core.rsi_dip_v1 import note_stop_out
+                    note_stop_out(sym)
+                except Exception as exc:
+                    logger.debug(f"[RSI-DIP] stop cooldown not recorded for {sym}: {exc}")
         return res
 
     def update_trailing_stop(self, coin: str, new_sl_price: float) -> bool:

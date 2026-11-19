@@ -508,7 +508,10 @@ def tune_rsi_dip(
                 t["pnl"] for t in trades
                 if train_start <= t["entry_ms"] < train_end and t["exit_ms"] <= train_end
             ]
-            oos_pnls = [t["pnl"] for t in trades if train_end <= t["entry_ms"] < test_end]
+            oos_pnls = [
+                t["pnl"] for t in trades
+                if train_end <= t["entry_ms"] < test_end and t["exit_ms"] <= test_end
+            ]
             candidates.append({
                 "key": params.key(),
                 "params": asdict(params),
@@ -652,7 +655,8 @@ def tune_predator(
                     exit_before=train_end,
                 ),
                 "oos_pnls": filter_predator_pnls(
-                    signals, params, entry_start=train_end, entry_end=test_end
+                    signals, params, entry_start=train_end, entry_end=test_end,
+                    exit_before=test_end,
                 ),
             }
             candidates.append(item)
