@@ -192,6 +192,7 @@ def test_application_code_is_still_copied():
         "scripts/health_check.py",
         "scripts/auto_tuner_service.py",
         "scripts/paper_trade.py",
+        "scripts/walk_forward_tuner.py",
         "backtest/candle_recorder.py",
         "web/web/web.py",
         "core/hl_perps_scanner.py",
@@ -199,6 +200,69 @@ def test_application_code_is_still_copied():
     ]
     excluded = [path for path in included if _ignored(path)]
     assert excluded == []
+
+
+def _service_commands(text: str) -> list[tuple[str, str]]:
+    """(service, command) for every compose service that sets `command:`."""
+    found: list[tuple[str, str]] = []
+    service = None
+    for line in text.splitlines():
+        named = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if named:
+            service = named.group(1)
+            continue
+        if service is None:
+            continue
+        if re.match(r"^  \S", line):
+            service = None
+            continue
+        cmd = re.match(r"^    command:\s*(.+?)\s*$", line)
+        if cmd:
+            found.append((service, cmd.group(1).strip().strip("\"'")))
+    return found
+
+
+def _command_source(command: str) -> str | None:
+    """Repo path a python command needs inside the image, or None when it is not a file."""
+    parts = command.split()
+    if not parts:
+        return None
+    if parts[0] in ("python", "python3") and len(parts) >= 2:
+        if parts[1] == "-m" and len(parts) >= 3:
+            return "/".join(parts[2].split(".")) + ".py"
+        if parts[1].endswith(".py"):
+            return parts[1]
+    return None
+
+
+def test_compose_commands_are_present_in_the_build_context():
+    """Every app-image entrypoint must survive .dockerignore.
+
+    paper-tuner crash-looped after #37 because scripts/ is excluded and
+    scripts/walk_forward_tuner.py was not on the re-include list. The file
+    exists in git and is still absent from the image.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    commands = _service_commands(COMPOSE.read_text())
+    cmd = re.search(r'^CMD \["python3", "([^"]+)"\]', dockerfile, re.M)
+    assert cmd, "runtime image has no python3 CMD"
+    commands.append(("bot", f"python3 {cmd.group(1)}"))
+
+    missing = []
+    ignored = []
+    for service, command in commands:
+        path = _command_source(command)
+        if path is None:
+            continue
+        if not (ROOT / path).is_file():
+            missing.append(f"{service}: {path} ({command})")
+        elif _ignored(path):
+            ignored.append(f"{service}: {path}")
+    assert missing == []
+    assert ignored == []
+    # The directory exclusion stays. Only the allowlisted entrypoints come back.
+    assert _ignored("scripts/deploy_disk.sh")
+    assert not _ignored("scripts/walk_forward_tuner.py")
 
 
 def test_compose_shares_one_image_and_keeps_data_mounts():
