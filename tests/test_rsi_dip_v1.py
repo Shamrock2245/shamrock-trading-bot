@@ -64,6 +64,9 @@ def _exec(monkeypatch, tmp_path, *, paper=True):
     monkeypatch.setenv("TRADES_FILE", str(tmp_path / "trades.json"))
     monkeypatch.setenv("MODE", "paper" if paper else "live")
     monkeypatch.setenv("PAPER_MODE_LOCKED", "true" if paper else "false")
+    monkeypatch.setenv("RSI_DIP_COOLDOWN_STATE_FILE", str(tmp_path / "rsi_stops.json"))
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_STATUS_FILE", str(tmp_path / "tournament.json"))
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_ENABLED", "false")
     monkeypatch.setattr(hx, "_PAPER_POSITIONS_FILE", tmp_path / "hl_paper_positions.json")
     monkeypatch.setattr(hx, "_TRAILING_STATE_FILE", tmp_path / "trail.json")
     import core.position_monitor as pm
@@ -399,6 +402,108 @@ def test_sleeve_closes_are_not_paired_into_predator_outcomes():
     ]
     paired = sc._pair_positions(rows)
     assert [coin for coin, _ts, _pnl in paired] == ["BTC"]
+
+
+def test_rsi_path_matches_rsi_ewm():
+    closes = _decline()
+    assert dip.rsi_path(closes)[-1] == pytest.approx(dip.rsi_ewm(closes))
+
+
+def test_stop_blocks_reentry_until_cooldown_and_rsi_rearm(monkeypatch, tmp_path):
+    """The SKY bug: a stop with RSI still oversold must not reopen on the next pass."""
+    monkeypatch.setenv("RSI_DIP_V1_ENABLED", "true")
+    monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
+    monkeypatch.setenv("HL_PERPS_HARD_BAN_COINS", "ETH")
+    monkeypatch.setenv("RSI_DIP_STOP_COOLDOWN_HOURS", "6")
+    monkeypatch.setenv("RSI_DIP_STOP_REARM_RSI", "35")
+    e = _exec(monkeypatch, tmp_path, paper=True)
+    scanner = _Scan(e, {"AAVE": _candles(_decline())})
+    assert "AAVE" in dip.run_sleeve(scanner)
+    stop = e.positions["AAVE"].stop_loss_price
+    e.positions["AAVE"].opened_at = datetime.now(timezone.utc)
+    e.get_price = lambda sym: stop * 0.99
+    dip.run_sleeve(scanner)
+    assert "AAVE" not in e.positions
+    sells = [r for r in json.loads((tmp_path / "trades.json").read_text()) if r["action"] == "SELL"]
+    assert sells[-1]["exit_reason"] == "stop"
+    # Same dip, a few seconds later. This is the re-open the cooldown exists to stop.
+    e.get_price = lambda sym: 100.0
+    assert dip.run_sleeve(scanner) == []
+    assert "AAVE" not in e.positions
+    state = json.loads((tmp_path / "rsi_stops.json").read_text())
+    assert state["AAVE"]["rearmed"] is False
+    assert dip.stop_block_reason("AAVE") == "stop_cooldown"
+
+    # Clock elapsed, RSI never recovered: still blocked. Then a later rally
+    # re-arms, and only a new dip after that is allowed through.
+    stopped = 1_700_000_000.0
+    dip.note_stop_out("AAVE", now=stopped)
+    assert dip.stop_block_reason("AAVE", now=stopped + 60) == "stop_cooldown"
+    assert dip.stop_block_reason("AAVE", now=stopped + 7 * 3600) == "stop_rearm"
+    monkeypatch.setattr(dip, "now_ts", lambda: stopped + 8 * 3600)
+    assert dip.run_sleeve(scanner) == []
+    rally = _candles(_rally())
+    bars = dip.closed_bars(rally, now_ms=rally[-1]["T"] + 10_000)
+    assert dip.rsi_path([b[4] for b in bars])[-1] >= 35
+    dip.refresh_stop_rearm("AAVE", bars)
+    assert json.loads((tmp_path / "rsi_stops.json").read_text())["AAVE"]["rearmed"] is True
+    assert dip.stop_block_reason("AAVE", now=stopped + 8 * 3600) is None
+    monkeypatch.setattr(dip, "now_ts", time.time)
+    e.get_price = lambda sym: 100.0
+    scanner.candles["AAVE"] = _candles(_decline())
+    assert dip.run_sleeve(scanner) == ["AAVE"]
+
+
+def test_rsi_and_time_exits_do_not_arm_the_stop_cooldown(monkeypatch, tmp_path):
+    monkeypatch.setenv("RSI_DIP_V1_ENABLED", "true")
+    monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
+    monkeypatch.setenv("HL_PERPS_HARD_BAN_COINS", "")
+    monkeypatch.setenv("RSI_DIP_STOP_COOLDOWN_HOURS", "6")
+    monkeypatch.setenv("RSI_DIP_STOP_REARM_RSI", "35")
+    e = _exec(monkeypatch, tmp_path, paper=True)
+    scanner = _Scan(e, {"AAVE": _candles(_decline())})
+    dip.run_sleeve(scanner)
+    scanner.candles["AAVE"] = _candles(_rally())
+    e.get_price = lambda sym: e.positions["AAVE"].entry_price * 1.02
+    dip.run_sleeve(scanner)
+    sells = [r for r in json.loads((tmp_path / "trades.json").read_text()) if r["action"] == "SELL"]
+    assert sells[-1]["exit_reason"] == "rsi_revert"
+    assert not (tmp_path / "rsi_stops.json").exists() or "AAVE" not in json.loads(
+        (tmp_path / "rsi_stops.json").read_text() or "{}"
+    )
+    assert dip.stop_block_reason("AAVE") is None
+
+
+def test_tournament_pause_blocks_sleeve_entries_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("RSI_DIP_V1_ENABLED", "true")
+    monkeypatch.setenv("HL_PERPS_ALLOWLIST", "AAVE")
+    monkeypatch.setenv("HL_PERPS_HARD_BAN_COINS", "")
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_ENABLED", "true")
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_MIN_CLOSES", "20")
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_PF_FLOOR", "0.80")
+    e = _exec(monkeypatch, tmp_path, paper=True)
+    monkeypatch.setenv("STRATEGY_TOURNAMENT_ENABLED", "true")
+    rows = []
+    for i in range(20):
+        rows.append({
+            "chain": "hyperliquid", "action": "SELL", "is_paper": True,
+            "token_symbol": "AAVE", "strategy": "rsi_dip_v1", "pnl_usd": -1.0,
+            "reason": "paper_close", "timestamp": f"2026-11-01T00:{i:02d}:00+00:00",
+        })
+    rows.append({
+        "chain": "hyperliquid", "action": "SELL", "is_paper": True,
+        "token_symbol": "BTC", "strategy": "", "pnl_usd": -5.0,
+        "reason": "paper_close", "timestamp": "2026-11-01T01:00:00+00:00",
+    })
+    (tmp_path / "trades.json").write_text(json.dumps(rows))
+    scanner = _Scan(e, {"AAVE": _candles(_decline())})
+    assert dip.run_sleeve(scanner) == []
+    assert e.positions == {}
+    status = json.loads((tmp_path / "tournament.json").read_text())
+    assert status["applied_to_live"] is False
+    assert status["sleeves"]["rsi_dip_v1"]["paused"] is True
+    assert status["sleeves"]["predator_v1"]["paused"] is False
+    e._exchange.market_open.assert_not_called()
 
 
 def test_sleeve_opens_are_saved_after_the_pass(monkeypatch):

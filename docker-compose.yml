@@ -198,6 +198,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── Walk-forward tuner (paper recommendations only) ───────────────────────
+  # Nightly strict walk-forward over data/candles. Writes
+  # output/tuner_recommendation.json and a log line. Does not edit params,
+  # MODE, or the Predator exit A/B. Forced paper even if the host .env is not.
+  paper-tuner:
+    <<: *app-image
+    container_name: shamrock-paper-tuner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MODE=paper
+      - PAPER_MODE_LOCKED=true
+      - MORALIS_ENABLED=false
+      - WALK_FORWARD_TUNER_ENABLED=${WALK_FORWARD_TUNER_ENABLED:-true}
+      - CANDLE_RECORDER_DIR=/app/data/candles
+    command: python3 scripts/walk_forward_tuner.py
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./output:/app/output
+    networks:
+      - shamrock-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   db-data:
     driver: local

@@ -257,8 +257,10 @@ def is_gate_close(t: dict) -> bool:
         return False
     if str(t.get("action", "")).upper() not in _CLOSE_ACTIONS:
         return False
-    # Separate forward-test book. Not a threshold change.
-    if str(t.get("strategy") or "") == "rsi_dip_v1":
+    # Separate forward-test book (rsi_dip_v1 and any later paper sleeve).
+    # Not a threshold change.
+    from core.paper_sleeves import is_sleeve_strategy
+    if is_sleeve_strategy(t.get("strategy")):
         return False
     if t.get("exclude_from_metrics"):
         return False
